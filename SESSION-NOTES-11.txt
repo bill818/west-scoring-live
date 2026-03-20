@@ -1,0 +1,403 @@
+## WEST Scoring Live — Session Notes
+## SESSION 11 — UDP PROTOCOL MAPPED + HUNTER ENTRY COLS CONFIRMED
+## FOR THE NEXT CLAUDE INSTANCE — READ THIS ENTIRE FILE BEFORE DOING ANYTHING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## *** CRITICAL: PROJECT FILES ARE YOUR JUMPING OFF POINT ***
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All files in /mnt/project/ are the current deployed baseline.
+Copy to /mnt/user-data/outputs/ before editing. Never edit project files directly.
+CLS-FORMAT.md in outputs is the definitive file format reference — read it first.
+west-watcher.js in outputs is the current watcher — deploy this version.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## HOW BILL WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- DISCUSS before coding. Wait for "ok do it"
+- Bill tests in real browser/computer, sends logs/screenshots
+- Do NOT add unrequested features
+- Claude instance name: "Skippy the Magnificent"
+- Time display: ALWAYS whole seconds with decimals e.g. 82.620 NEVER 1:22.620
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## PROJECT OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WEST Scoring Live — horse show results viewer for WEST Timing and Scoring.
+Live site: https://westscoring.live (PRODUCTION — DO NOT TOUCH)
+
+CREDENTIALS:
+- Worker URL:  https://ryegate-proxy.bill-acb.workers.dev
+- KV ID:       838b38e150d24177be0bbdccf7a3e530
+- Account ID:  acb801ad4373d9f48ac4ce6814d330c0
+- Admin PW:    ADMIN
+- Cron:        hourly (0 * * * *) — RUNNING
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## PRODUCTION STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- westscoring.live is LIVE — scraping Ryegate HTML via cron (hourly)
+- west-watcher.js is running on scoring computer (RESEARCH MODE only)
+- NO .cls data is reaching westscoring.live yet — Phase 2 pipeline not built
+- NEW SITE PLAN: westtiming.live (or westscoring.com) — build clean from scratch
+  using new pipeline, then flip DNS when ready. Never break westscoring.live.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## THIS SESSION — WHAT WE DID
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Massive session. Key accomplishments:
+
+1. UDP PROTOCOL FULLY MAPPED (scoreboard port 29711)
+2. West-watcher.js major overhaul — events, clean data, local JSON output
+3. Hunter entry columns confirmed from 97-class data dump analysis
+4. International Derby scoring decoded
+5. Architecture discussions — new site plan, database, production packaging
+6. CLS-FORMAT.md fully updated
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## UDP PROTOCOL — FULLY CONFIRMED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Scoreboard port: config.dat col[1] (e.g. 29711)
+Live data port:  scoreboardPort - 496 (e.g. 29215) — LOCKED by Ryegate, cannot bind
+Only use scoreboard port.
+
+PROTOCOL FORMAT: {RYESCR}{tag}value{tag}value...
+Starts with {RYESCR} header, then tagged fields.
+
+CONFIRMED TAGS:
+  {fr}  = ring number
+  {1}   = entry number
+  {2}   = horse name
+  {3}   = rider name
+  {4}   = owner
+  {5}   = separator (empty)
+  {8}   = rank (FINISH SIGNAL — appears with final placing)
+  {13}  = TA: time allowed (strip "TA: " prefix)
+  {14}  = JUMP faults (strip "JUMP " prefix)
+  {15}  = TIME faults (strip "TIME " prefix)
+  {17}  = elapsed seconds (whole number while running, decimal at finish)
+  {18}  = TTB: Time To Beat (format: "0 / 6.670" — target/previous round time)
+          Note: TTB disappears mid-round, unreliable
+  {23}  = countdown (negative e.g. "-44" = 44 seconds remaining in CD)
+
+PHASE DETECTION (from which tags are present):
+  INTRO    = entry/horse/rider present, no cd or elapsed, no rank
+  CD       = {23} countdown present
+  ONCOURSE = {17} elapsed present, no {8} rank
+  FINISH   = {8} rank present
+
+ONE PACKET PER SECOND during CD and ONCOURSE phases.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## UDP EVENTS — FIRED BY WATCHER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Watcher detects phase transitions and fires clean events into udpEvents[] queue.
+Events include UTC timestamp for browser clock sync.
+
+EVENTS:
+  INTRO         Horse called — entry, horse, rider, ta
+  CD_START      Countdown begins — + countdown, round, label
+  CD_STOPPED    Countdown frozen 2.5s — + last countdown
+  CD_RESUMED    Countdown moving again — + new countdown
+  RIDE_START    Start beam triggered — + ta, jumpFaults, timeFaults, round, label
+  FAULT         Jump faults changed — + elapsed, jumpFaults, timeFaults
+  CLOCK_STOPPED Elapsed frozen 2.5s — + last elapsed
+  CLOCK_RESUMED Elapsed moving again — + new elapsed
+  FINISH        RANK tag appeared — + rank, jumpFaults, timeFaults, round, label
+
+ROUND INFERENCE (in RIDE_START, CD_START, FINISH events):
+  Priority 1: Match UDP TA to round config in .cls header
+  Priority 2: If ambiguous (same TA multiple rounds) → check .cls entry state
+              r1Time empty = Round 1, r2Time empty = Round 2, both = Round 3
+  Priority 3: ScoringMethodCode=9 (two-phase) → R2/R3 blocks, labels "Phase 1"/"Phase 2"
+  Labels: "Round 1", "Jump Off", "Round 3", "Phase 1", "Phase 2"
+
+OPERATOR NOTE: Operator may skip INTRO — CD_START is the reliable round start signal.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## LIVE DISPLAY ARCHITECTURE — DECIDED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Instead of streaming every UDP packet (60-80 per horse), watcher fires 4-5 
+clean events per horse. Website uses browser clock to tick locally.
+
+CLOCK APPROACH:
+- RIDE_START fires with UTC timestamp
+- Browser starts ticking from 0 using local clock
+- FAULT events update fault counter
+- CLOCK_STOPPED/RESUMED pause/resume the local ticker
+- FINISH fires → show "FINISHING..." → wait up to 5s for .cls update
+- .cls update arrives → replace estimated time with official time
+- Live display labeled "Times are approximate" (small, bottom of live box)
+
+TIME DISPLAY RULES (CRITICAL):
+- NEVER use minutes:seconds format — ALWAYS whole seconds with decimals
+- Non-FEI: always 3 decimal places e.g. 82.620, 154.340
+- FEI: 2 decimal places e.g. 82.62
+- Live ticking clock shows whole seconds only (UDP sends whole seconds)
+- Official time from .cls shows full precision
+
+ON DECK LOGIC:
+- Find current on-course entry from UDP entry number
+- Look up their RideOrder in .cls
+- On deck = lowest RideOrder among entries where hasGone=false AND entry ≠ current
+- If RideOrder all 0 (not posted) → show pending entries in entry number order
+- Edge case: out-of-order riders handled — just track lowest unscored RideOrder
+
+TIME FAULTS (client-side calculation):
+- Browser calculates time faults from ticking clock using .cls header data
+- Formula: secondsOver = elapsed - TA; if secondsOver > 0: timeFaults = floor(secondsOver / timeInterval) × faultsPerInterval
+- No need to wait for UDP {15} time faults tag
+- Eliminates most of the time fault UDP monitoring
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## WEST-WATCHER.JS — CHANGES THIS SESSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MAJOR REWRITE — watcher now produces clean production-ready data:
+
+UDP LISTENER:
+- Single scoreboard port only (live data port 29215 removed — locked by Ryegate)
+- Full tag parser — strips label prefixes from values
+- Phase detection: IDLE/INTRO/CD/ONCOURSE/FINISH
+- State change suppression — only logs when something changes
+- liveState object maintained in memory
+- TTB ({18}) kept as known tag, logged as TTB:value
+- TARGET/target removed
+
+EVENT DETECTION:
+- Phase transition detection fires clean events
+- CD_STOPPED/CD_RESUMED — 2.5s timeout detection
+- CLOCK_STOPPED/CLOCK_RESUMED — 2.5s timeout detection
+- FAULT — fires when jump faults change (any direction)
+- inferRound() — layered TA match → .cls state → scoring method override
+- udpEvents[] queue — ready for poster to drain
+
+DATA OUTPUT:
+- west_data.json — written on every .cls change AND every UDP event
+- Contains: class header, all entries with scores, liveState, competed/pending counts
+- rounds array always 3 entries (zeros if unused)
+- Open in browser and refresh to see live state locally
+
+JUMPER ENTRY COLS CORRECTED:
+- Col 15 = R1Time (was wrongly labeled before) ✓
+- Col 16 = R1JumpFaults ✓
+- Col 17 = R1Total ✓
+- Col 22 = R2Time ✓
+- Col 24 = R2Total ✓
+- TIMY block positions corrected: R1=36-51, R2=52-66, R3=67-81
+
+HUNTER ENTRY (parseCls):
+- hasGone now uses col[49] (was col[40] — WRONG)
+- col[50] = HasGone_R2 for two-round classes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## TIMY TIMESTAMP BLOCKS — CORRECTED POSITIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PREVIOUS NOTES HAD WRONG POSITIONS. CORRECTED:
+
+Round 1: cols 36-51 (16 cols — HasGone/CDStart flag + 15 timestamp cols)
+  Col 36: R1_HasGone_or_CDStart  Farmtek=1 when competed | TIMY=CDStart TOD
+  Col 37: R1_CDStart
+  Cols 38-43: R1 CD Pause/Resume × 3
+  Col 44: R1_RideStart  ← CONFIRMED
+  Cols 45-50: R1 Ride Pause/Resume × 3
+  Col 51: R1_RideEnd    ← CONFIRMED
+
+Round 2: cols 52-66
+  Col 52: R2_CDStart    ← CONFIRMED
+  Cols 53-58: R2 CD Pause/Resume × 3
+  Col 59: R2_RideStart  ← CONFIRMED
+  Cols 60-65: R2 Ride Pause/Resume × 3
+  Col 66: R2_RideEnd    ← CONFIRMED
+
+Round 3: cols 67-81 (unused for standard 2-round classes)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## HUNTER ENTRY COLUMNS — CONFIRMED (97-class analysis 2026-03-20)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CRITICAL CORRECTION: HasGone is col[49], NOT col[40].
+col[40] is always 0 in hunter classes.
+
+STANDARD SINGLE-JUDGE O/F (most classes):
+  Col 13: GoOrder
+  Col 14: CurrentPlace
+  Col 15: R1Score (45-95 typical)
+  Col 42: R1Total (same as score for standard)
+  Col 45: CombinedTotal
+  Col 49: HasGone_R1 = 1
+  Col 52: StatusCode (EX=Excused, RF=RiderFall, OC=OffCourse)
+
+TWO-ROUND CLASSIC (1 judge, e.g. 401.cls $1,000 Jr Hunter Classic):
+  Col 15: R1Score
+  Col 24: R2Score
+  Col 42: R1Total
+  Col 43: R2Total
+  Col 45: CombinedTotal
+  Col 49: HasGone_R1 (only if scratch after R1)
+  Col 50: HasGone_R2 = 1 (normal completion flag)
+
+INTERNATIONAL DERBY (2 judges, 2 rounds, high options + handy bonus):
+  Scoring: Judge1Base + HighOpts + Judge2Base + HighOpts per round
+  R2 adds HandyBonus per judge
+  Col 15: R1_HighOptionsTaken (0-4)
+  Col 16: Judge1_R1_BaseScore
+  Col 17: R1_HighOptionsTaken (mirror)
+  Col 18: Judge2_R1_BaseScore
+  Col 24: R2_HighOptionsTaken
+  Col 25: Judge1_R2_BaseScore
+  Col 26: Judge1_R2_HandyBonus (0-10)
+  Col 27: R2_HighOptionsTaken (mirror)
+  Col 28: Judge2_R2_BaseScore
+  Col 29: Judge2_R2_HandyBonus
+  Col 42: R1Total
+  Col 43: R2Total
+  Col 45: CombinedTotal
+  Col 49: HasGone_R1
+  Col 50: HasGone_R2
+
+NATIONAL/JR/AMATEUR DERBY (multi-judge, 2 rounds, high options):
+  Col 15: NumJudgesScored_R1
+  Col 16: R1Score (base)
+  Col 24: NumJudgesScored_R2
+  Col 25: R2Score (base)
+  Col 42: R1Total (score + bonus)
+  Col 43: R2Total
+  Col 45: CombinedTotal
+  Col 46: ?BonusFenceCount (2-3)
+  Col 49/50: HasGone flags
+
+SCORE DETECTION:
+  Has competed:  col[49]=='1' OR col[50]=='1'
+  Eliminated:    col[52] non-empty (EX, RF, OC)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## HUNTER HEADER — PARTIAL (needs live toggle test)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+From 97-class analysis. Confirmed cols:
+  H[00]: ClassType = H
+  H[01]: ClassName
+  H[10]: IsEquitation (True/False) — CONFIRMED live toggle
+  H[11]: IsChampionship (True/False) — True on all Championship classes
+  H[22-24]: PhaseWeight1/2/3 — always 100
+  H[25-27]: Phase1/2/3 Label — always "Phase 1/2/3"
+  H[28]: Message — scoreboard message window (operator entered text)
+
+90% confidence:
+  H[03]: NumRounds (1=single, 2=classic/derby)
+  H[04]: NumJudges (1=standard, 2=Int'l Derby, 4=Derby)
+  H[08]: Ribbons (8=standard, 12=classic/derby)
+  H[37]: IsDerby (1=National/Jr/Amateur Derby)
+
+Still unknown — needs screen recording toggle test:
+  H[02], H[05], H[07], H[09](always 4), H[13], H[14], H[17], H[18],
+  H[33](always 2), H[35], and all constant False/0 cols
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## ARCHITECTURE DECISIONS MADE THIS SESSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NEW SITE:
+- Build westtiming.live (or westscoring.com) as clean slate
+- Same design as westscoring.live (fonts, colors, layout)
+- New pipeline: watcher → Worker → KV → website
+- When solid → flip DNS → retire Ryegate scraper
+- westscoring.live stays untouched until switch
+
+DATA FLOW:
+- UDP events → tiny POST per event → Worker → KV (TTL 5 min)
+- .cls change → full standings JSON → Worker → KV (TTL 2hr)
+- Website polls KV every 2-3 seconds
+- Browser calculates time faults client-side from .cls header data
+
+KV STRUCTURE (proposed):
+  live:{slug}:{ring}    → full class standings JSON (from .cls)
+  event:{slug}:{ring}   → latest UDP event (overwrites each event)
+
+DATABASE:
+- Cloudflare D1 (SQLite at edge) for archival
+- Tables: shows, classes, entries, results
+- Worker writes to both KV (live) and D1 (permanent) on .cls change
+- Build D1 into new Worker from day one — schema is simple, cheap to add now
+
+PRODUCTION PACKAGING (decided, not built yet):
+- Strip research/debug code from watcher
+- Build .exe with pkg (bundles Node runtime, ~40MB, no install needed)
+- config.json next to .exe for Worker URL + auth key
+- Simple HTML setup wizard (west-setup.html) for first-time config
+- PM2 or Task Scheduler for auto-start/restart
+- Watcher sends heartbeat to Worker every 60s — monitor remotely
+- Retry queue for failed POSTs (connection drops at show venues)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## PRIORITY LIST — AGREED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1 — FINISH THE WATCHER:
+  1. Hunter UDP format mapping (screen record toggle test)
+  2. Strip research/debug code for production
+  3. Add retry queue for failed POSTs
+  4. Build .exe with pkg
+
+PHASE 2 — ONLINE PIPELINE:
+  5. New Cloudflare Worker for new site
+  6. New KV namespace
+  7. D1 database setup
+  8. Worker endpoints: postClassData, postUdpEvent, heartbeat
+  9. Watcher poster — drain udpEvents, POST to Worker
+  10. End-to-end test with real data flowing
+
+PHASE 3 — NEW WEBSITE:
+  11. Port existing design to new domain
+  12. Live results page (on-course banner, ticking clock, standings)
+  13. Show/class/results from .cls data
+  14. Test at real show
+
+PHASE 4 — PRODUCTION:
+  15. Hunter classes end-to-end
+  16. Setup wizard
+  17. PM2/Task Scheduler auto-start
+  18. Flip DNS, retire Ryegate scraper
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## JUMPER ENTRY COLS — CORRECTED (from previous session errors)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONFIRMED (live data 2026-03-20):
+  Col 13: RideOrder
+  Col 14: R1Place
+  Col 15: R1Time      ← was wrong in previous notes
+  Col 16: R1JumpFaults ← was wrong
+  Col 17: R1Total     ← was wrong
+  Col 22: R2Time      ← confirmed
+  Col 24: R2Total     ← confirmed (NOT col 29 as previously noted)
+  Col 25: R2JumpFaults
+  Col 35: StatusCode
+
+STILL UNKNOWN: cols 18, 19, 20, 21, 23, 26, 27, 28, 29, 30-34
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## FILES TO UPLOAD TO NEXT SESSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. index.html
+2. show.html
+3. classes.html
+4. results.html
+5. admin.html
+6. stats.html
+7. ryegate-proxy-worker.js
+8. west-watcher.js         ← outputs version (major update this session)
+9. CLS-FORMAT.md           ← outputs version (major update this session)
+10. SESSION-NOTES-11.txt   ← this file
+
+Last updated: 2026-03-20 (Session 11)
