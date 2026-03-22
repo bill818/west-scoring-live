@@ -1,0 +1,129 @@
+WEST Scoring Live — Session 14 Notes
+2026-03-22
+Skippy the Magnificent
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+1. HUNTER HEADER FULLY MAPPED
+   - Complete toggle test on class 142 $400 Small Junior Hunter 3'3" O/F
+   - All checkboxes confirmed H[10]-H[39]
+   - Derby types H[37] 0-8 confirmed sequentially
+   - California Split = H[17] True/False, CaliSplitSections = H[33] numeric
+   - H[04] corrected — RoundsCompleted counter NOT HardwareType
+   - See CLS-FORMAT.md for complete confirmed table
+
+2. JUMPER ENTRY COLUMNS FULLY CONFIRMED
+   From live class 221 (1.15m Jumper, TIMY, ScoringMethod=3, 3 rounds):
+
+   CONFIRMED LAYOUT (both TIMY and Farmtek share cols 13-34):
+   col[13] RideOrder (TIMY) / 0 (Farmtek — stored at col[35] instead)
+   col[14] OverallPlace
+   col[15] R1Time (raw elapsed)
+   col[16] R1PenaltySeconds
+   col[17] R1TotalTime (Time + PenSec)
+   col[18] R1TimeFaults (fractional)
+   col[19] R1JumpFaults (4 pts/rail)
+   col[20] R1TotalFaults (TF + JF)
+   col[21] ? (always 0 — watch HITS)
+   col[22] R2Time
+   col[23] R2PenaltySeconds
+   col[24] R2TotalTime
+   col[25] R2TimeFaults
+   col[26] R2JumpFaults
+   col[27] R2TotalFaults
+   col[28] ? (always 0 — watch HITS)
+   col[29] R3Time
+   col[30] R3PenaltySeconds
+   col[31] R3TotalTime
+   col[32] R3TimeFaults
+   col[33] R3JumpFaults
+   col[34] R3TotalFaults
+   col[35] StatusCode (TIMY unconfirmed) | RideOrder (Farmtek confirmed)
+   col[36] HasGone (both confirmed)
+   col[37-81] TIMY timestamp blocks (TIMY only)
+   col[39] StatusCode (Farmtek confirmed — RF seen on ALESCO M Z)
+   col[82-84] unknown trailing (TIMY only)
+
+   Farmtek confirmed 40 cols exactly — 54 files, zero exceptions.
+
+3. TIME FAULT FORMULA LOCKED IN
+   secondsOver = R1TotalTime - TA
+   timeFaults = ceil(secondsOver / TimeInterval) × FaultsPerInterval
+   penaltySec = ceil(secondsOver / TimeInterval) × PenaltySeconds
+   totalTime  = rawTime + penaltySec
+
+4. H[04] CORRECTED
+   Was: HardwareType (1=Farmtek, 2=TIMY)
+   Now: RoundsCompleted counter — increments 0→1→2→3 as each round scored
+   Confirmed from live diffs: 1→2 when R2 scored, 2→3 when R3 scored
+
+5. UDP COLLISION DETECTION REMOVED
+   Entry validation caused false positives on freshly formatted classes.
+   Watcher now trusts all UDP on configured port.
+   Operator handles hardware-level collisions visually.
+
+6. WATCHER COLUMN MAPPINGS FIXED
+   All jumper entry cols corrected to match confirmed layout.
+   Hunter entry cols corrected (hasGone = col[49]/col[50] not col[40]).
+   Header parsing updated for both jumper and hunter schemas.
+   Log display updated to show R1/R2/R3 with TotalTime and TotalFaults.
+
+7. WORKER writeToD1 FIXED
+   Now uses correct field names from watcher.
+   Writes all 3 rounds (R1, R2, R3).
+   time_faults column now populated.
+   overallPlace used for place (not round-specific place).
+
+═══════════════════════════════════════════════════════════════
+STILL UNKNOWN / WATCH AT HITS
+═══════════════════════════════════════════════════════════════
+- col[21] and col[28] — always 0, possibly R1Place/R2Place
+- col[35] StatusCode for TIMY — only confirmed on Farmtek col[39]
+- EL, WD, DNS etc status codes — need real elimination at show
+- WCHR Spec derby type — likely H[37]=9, not confirmed
+- H[09] SBDelay — only tested at value 4
+- H[06] hunter — changes for H&G and Special, label unknown
+
+═══════════════════════════════════════════════════════════════
+CLASS COMPLETE DETECTION — DEFERRED
+═══════════════════════════════════════════════════════════════
+Ryegate does NOT trigger any .cls or UDP signal on Update and Close for jumpers.
+Options being considered (next round):
+  1. AllHasGone — all col[36]=1 (breaks on scratches)
+  2. Inactivity timer — 8 min no .cls changes
+  6. RoundsCompleted == expectedMaxRounds AND overallPlace=1 exists
+  9. Watch Classes directory for companion results file (not found yet)
+  Manual — admin page "Mark Complete" button per class (fallback)
+Plan: implement 6+2 auto-detect + manual button in next round.
+
+═══════════════════════════════════════════════════════════════
+INFRASTRUCTURE NOTES
+═══════════════════════════════════════════════════════════════
+- Jess computer being retired — new scoring computer this week
+- Ryegate path stays same: C:\Ryegate\Jumper\ on all machines
+- New computer setup: install Node.js, drop 3 files, run bat
+- Worker needs deploying with updated writeToD1 code
+- Clear D1 test data after deploying: DELETE /admin/clearShow?slug=hits-east
+
+═══════════════════════════════════════════════════════════════
+FILES IN THIS REPO
+═══════════════════════════════════════════════════════════════
+west-watcher.js      — Watcher v2.1 — fixed columns, no collision detection
+west-worker.js       — Worker v2.1 — fixed writeToD1, all 3 rounds
+CLS-FORMAT.md        — Complete .cls format reference (fully updated)
+config.json          — Worker connection template for scoring computer
+start-watcher.bat    — Double-click launcher for scoring computer
+STATS-BRAINSTORM.md  — Future stats/analytics ideas
+SESSION-NOTES-*.txt  — Session history
+
+═══════════════════════════════════════════════════════════════
+NEXT SESSION PRIORITIES
+═══════════════════════════════════════════════════════════════
+1. Deploy updated Worker to Cloudflare
+2. Set up new scoring computer
+3. Test full pipeline with corrected columns
+4. HITS — watch for col[21], col[28], StatusCode values, UDP silence signal
+5. Start building website pages (index, classes, results, admin)
+6. Class complete detection (after HITS data)
