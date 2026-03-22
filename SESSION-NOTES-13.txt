@@ -1,0 +1,444 @@
+## WEST Scoring Live — Session Notes
+## SESSION 13 — FULL HANDOFF
+## READ THIS BEFORE DOING ANYTHING NEXT SESSION
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## HOW BILL WORKS — CRITICAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- DISCUSS before coding. Wait for "ok do it"
+- Bill tests in real browser/computer, sends logs/screenshots
+- Do NOT add unrequested features
+- Claude instance name: "Skippy the Magnificent"
+- Time display: ALWAYS whole seconds with decimals e.g. 82.620 NEVER 1:22.620
+- Non-FEI: 3 decimal places (82.620). FEI: 2 decimal places (82.62)
+- No popups anywhere on the website — ever
+- Multi-page layout only — no single page app
+- Next major milestone: get new site live, then switch off Ryegate scraper
+- Long term: switch off Ryegate scoring software entirely when WEST software ready
+  The watcher is software-agnostic — reads .cls files and UDP regardless of source
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## INFRASTRUCTURE — CONFIRMED PRODUCTION STATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CLOUDFLARE ACCOUNT: acb801ad4373d9f48ac4ce6814d330c0
+SUBDOMAIN: bill-acb.workers.dev
+
+PRODUCTION (DO NOT TOUCH):
+  westscoring.live — scraping Ryegate HTML via hourly cron
+  Worker: ryegate-proxy.bill-acb.workers.dev
+  KV: RYEGATE_DATA (838b38e150d24177be0bbdccf7a3e530)
+  Admin PW: ADMIN
+
+NEW PIPELINE (active, tested, working):
+  Worker: west-worker.bill-acb.workers.dev
+  KV: WEST_LIVE (7d4a1a52b695426d8cac920b430912e3)
+  D1: west-scoring (085ce299-f591-441b-8edf-b4327b924422)
+  Auth: WEST_AUTH_KEY secret = "west-scoring-2026"
+  Worker bindings: WEST_LIVE (KV), WEST_DB (D1), WEST_AUTH_KEY (Secret)
+
+GITHUB:
+  Repo: https://github.com/bill818/west-scoring-live (PUBLIC)
+  Local: ~/Desktop/WEST Local Sniffer and UDP Project/
+  Push: git add . && git commit -m "message" && git push
+
+SCORING COMPUTER:
+  Watcher: C:\Users\Jess\west\west-watcher.js
+  Config:  C:\Users\Jess\west\config.json
+  Log:     C:\Users\Jess\west\west_log.txt
+  UDP log: C:\Users\Jess\west\west_udp_log.txt
+  Data:    C:\Users\Jess\west\west_data.json
+  Run:     node C:\Users\Jess\west\west-watcher.js
+  Bat:     start-watcher.bat (double-click to launch)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## PIPELINE STATUS — FULLY WORKING END TO END
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Scoring computer → watcher → Worker → KV (live) + D1 (archive)
+
+CONFIRMED WORKING THIS SESSION:
+  ✓ Watcher running on scoring computer
+  ✓ Heartbeat posting every 60s
+  ✓ .cls changes posting to /postClassData
+  ✓ UDP events posting to /postUdpEvent
+  ✓ KV storing live class data (TTL 2hr)
+  ✓ KV storing latest event (TTL 5min)
+  ✓ KV storing heartbeat (TTL 2min)
+  ✓ D1 storing shows, classes, entries, results
+  ✓ D1 cascade deletes working
+  ✓ No duplicate classes (UNIQUE constraint fixed)
+  ✓ All data updates when .cls changes (ON CONFLICT DO UPDATE)
+  ✓ Show auto-activates on first heartbeat
+  ✓ getLiveClass endpoint returning clean data
+
+TEST VERIFIED WITH CLASS 299 ($200 7-Year-Old Jumper):
+  8 entries, all competed, R1 + JO results clean in D1
+  Data updated correctly when operator added horse mid-class
+  Data updated correctly when operator corrected a fault
+
+VERIFY WITH:
+  https://west-worker.bill-acb.workers.dev/ping
+  https://west-worker.bill-acb.workers.dev/getLiveClass?slug=hits-east&ring=1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## WORKER ENDPOINTS — CONFIRMED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All POST endpoints require header: X-West-Key: west-scoring-2026
+
+POST /postClassData     — watcher posts .cls standings on every change
+POST /postUdpEvent      — watcher posts UDP events
+POST /heartbeat         — watcher alive signal every 60s
+GET  /getLiveClass      — website polls: ?slug=XXX&ring=X
+GET  /ping              — health check
+GET  /admin/shows       — list shows: ?year=2026&status=active
+GET  /admin/showData    — show detail: ?slug=XXX
+DELETE /admin/clearShow — cascade delete show: ?slug=XXX
+DELETE /admin/clearLive — clear KV keys: ?slug=XXX&ring=X
+DELETE /admin/clearAll  — nuke entire database (test cleanup)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## D1 DATABASE SCHEMA — CONFIRMED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Database: west-scoring (085ce299-f591-441b-8edf-b4327b924422)
+All child tables have ON DELETE CASCADE from shows
+
+TABLE: shows
+  id, slug (UNIQUE), name, venue, dates, location,
+  year, status (pending/active/complete),
+  rings_count, weather_json, notes,
+  created_at, updated_at
+
+TABLE: rings
+  id, show_id→shows, ring_num, ring_name,
+  status (pending/active/complete), created_at
+  UNIQUE(show_id, ring_num)
+
+TABLE: classes
+  id, show_id→shows, ring, class_num, class_name,
+  class_type (H/J/T/U), scoring_method, is_fei, sponsor,
+  judge_name, prize_money, scratches,
+  duration_seconds, first_ride_at, last_finish_at,
+  status (pending/active/complete), created_at, updated_at
+  UNIQUE(show_id, ring, class_num)
+
+TABLE: entries
+  id, class_id→classes, entry_num, horse, rider, owner,
+  usef_num, country, state, created_at
+  UNIQUE(class_id, entry_num)
+
+TABLE: results
+  id, entry_id→entries, class_id→classes,
+  round, time, jump_faults, time_faults, total, place,
+  status_code (RF/EL/WD/SC/DNS/DNF/RET),
+  created_at, updated_at
+  UNIQUE(entry_id, round)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## WATCHER — CURRENT STATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+west-watcher.js — 1,482 lines — production ready with all features
+
+WHAT IT DOES:
+  - Polls C:\Ryegate\Jumper\Classes every 500ms
+  - Reads config.dat for ring number and show slug
+  - Reads config.json for Worker URL and auth key
+  - Posts .cls changes to /postClassData
+  - Posts UDP events to /postUdpEvent
+  - Posts heartbeat to /heartbeat every 60s
+  - Writes west_data.json locally on every change
+  - Retry queue for failed POSTs (max 50)
+  - Connectivity staleness warning after 5 min no successful post
+
+UDP EVENT DETECTION:
+  INTRO, CD_START, CD_STOPPED, CD_RESUMED,
+  RIDE_START, FAULT, CLOCK_STOPPED, CLOCK_RESUMED,
+  FINISH, UDP_SUSPENDED
+
+UDP COLLISION DETECTION (NEW THIS SESSION):
+  - Validates entry numbers against loaded .cls files
+  - 3 consecutive mismatches → UDP suspended
+  - 2 consecutive valid hits → auto-resumes
+  - Unformatted (U) class → skip validation
+  - No classes loaded → skip validation (startup safe)
+  - Never gets stuck in waiting loop
+
+UDP SILENCE DETECTION (NEW THIS SESSION):
+  - Arms 3-second silence timer when ONCOURSE or CD
+  - If no UDP packets for 3s → fires CLOCK_STOPPED or CD_STOPPED
+    with reason: 'udp_silence'
+  - Covers case where Ryegate stops packets on pause
+    (vs frozen elapsed which existing timer covers)
+  - Watch logs at HITS: reason field tells us which method Ryegate uses
+
+ROUND INFERENCE:
+  - Matches UDP TA to .cls header round config
+  - Falls back to .cls entry state if ambiguous
+  - ScoringMethod=9 two-phase → "Phase 1"/"Phase 2"
+  - Labels: "Round 1", "Jump Off", "Round 3", "Phase 1", "Phase 2"
+
+CONFIG.JSON (next to watcher):
+  {
+    "workerUrl": "https://west-worker.bill-acb.workers.dev",
+    "authKey":   "west-scoring-2026"
+  }
+  Ring and show slug read from config.dat automatically
+  NOTE: slug from config.dat col[26] is Ryegate's back office ID
+  — not reliable long term. Setup wizard will let operator set slug manually.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## SHOW MANAGEMENT WORKFLOW — DECIDED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE SHOW (admin on website):
+  1. Create show — enter name, venue, dates, location
+  2. Slug auto-generates from show name (admin can edit)
+     e.g. "HITS Ocala Week 10 2026" → "hits-ocala-wk10-2026"
+  3. Add rings — Ring 1 "Grand Prix Ring", Ring 2 "Hunter Ring A" etc
+  4. Set show status: pending
+  5. Give operator: slug + ring number
+
+AT SHOW (operator on scoring computer):
+  1. Enter slug and ring number in config.json (or setup wizard)
+  2. Start watcher
+  3. Watcher fetches ring/show config from Worker on startup (GET /getConfig — TO BUILD)
+  4. First heartbeat auto-activates show in D1
+  5. Data flows automatically
+
+AFTER SHOW (admin on website):
+  1. Mark show complete
+  2. Post-show wrap report auto-generates
+  3. Archive retained in D1 forever
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## WEBSITE DESIGN — PRESERVE EXACTLY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Match westscoring.live exactly. Same fonts, colors, layout, page structure.
+
+FONTS:
+  Playfair Display — wght 700, 900 — headings, logo, display numbers
+  Source Sans 3 — wght 300, 400, 500, 600 — all body text
+  DM Mono — wght 400, 500 — ALL data: times, numbers, labels, badges
+
+IMPORT:
+  https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900
+  &family=Source+Sans+3:wght@300;400;500;600
+  &family=DM+Mono:wght@400;500&display=swap
+
+COLOR TOKENS:
+  --black:      #111111
+  --red:        #b82025
+  --white:      #ffffff
+  --off-white:  #f5f5f5
+  --border:     #e2e2e2
+  --text-muted: #777777
+  --text-body:  #333333
+  --card-radius: 10px
+  --tap:        52px
+
+HEADER: sticky, black, 3px red bottom border, 56px height
+LIVE PILL: red background, white blinking dot, DM Mono 10px uppercase
+CARDS: white, border-radius 10px, max-width 680px centered
+NO POPUPS — ever. Multi-page only.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## SITE PAGE STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+index.html          — shows list
+show.html           — show detail, rings
+classes.html        — class list for a ring
+results.html        — class results + live on-course banner (main new feature)
+stats.html          — stats and analytics (see stats section below)
+admin.html          — show management
+
+LIVE RESULTS PAGE (results.html) phases:
+  INTRO    → "ON DECK" — entry, horse, rider
+  CD       → "ENTERING RING" — countdown ticking down (browser clock)
+  ONCOURSE → "ON COURSE" + LIVE pill — elapsed ticking up, faults updating
+  FINISH   → "FINISHED" — "Confirming..." → official time when .cls updates
+  Below live banner: standings table, updates every .cls change
+  Bottom disclaimer: "Times are approximate until confirmed" (DM Mono 9px muted)
+  On deck section: next horse by ride order
+
+POLLING: website polls /getLiveClass every 2-3 seconds
+BROWSER CLOCK: RIDE_START has UTC timestamp, browser calculates elapsed locally
+TIME FAULTS: calculated client-side from elapsed vs TA using header data
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## STATS & ANALYTICS — FULL BRAINSTORM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+See STATS-BRAINSTORM.md for full detail. Summary:
+
+PUBLIC STATS PAGES:
+  /stats              — overview, featured, trending
+  /stats/horse        — horse profile, win record, career
+  /stats/rider        — rider profile, performance trends
+  /stats/venue        — venue speed profiles, clear rates
+  /stats/season       — season leaderboards, points
+  /stats/show         — show summary stats
+
+KEY STATS ENABLED BY CURRENT DATA:
+  - Clear round % by class/venue/division
+  - Jump off conversion and speed gain
+  - Class duration (from RIDE_START/FINISH timestamps)
+  - Average time between horses (ring pacing)
+  - TA accuracy analysis (for course designers)
+  - Weather correlation with performance (Open-Meteo, free)
+  - Horse/rider win records and performance trends
+  - Show growth year over year
+
+ADMIN-ONLY STATS:
+  - Business intelligence, entry growth, retention
+  - Revenue proxy (prize money totals)
+  - Geographic reach (states/countries)
+  - Division health trends
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## POST-SHOW WRAP REPORT — NOBODY DOES THIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Auto-generated 24 hours after show closes.
+Delivered as web page + PDF + email to show manager.
+Genuinely differentiated — no one in the industry offers this.
+
+CONTENTS:
+  - Ring efficiency (classes run, duration, pacing, delays)
+  - Division health (entries, growth vs last year, scratch rates)
+  - Exhibitor insights (new vs returning, states, countries)
+  - Competitive analysis (clear rates, fault distribution, TA accuracy)
+  - Prize money distribution
+  - Weather summary with performance correlation
+  - Course designer feedback (TA accuracy per division)
+
+TWO TIERS:
+  Basic: free, included with show management
+  Advanced: paid, deeper analytics, year over year, exportable data
+
+SHOW MANAGER VALUE:
+  - "Your 1.10m division grew 34% — consider splitting next year"
+  - "Ring 3 ran 40min behind consistently — consider 4th ring"
+  - "TA in 1.20m too tight — 67% of horses got time faults"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## USER ACCOUNTS & NOTIFICATIONS — BUILD LATER, SAFE TO ADD ANYTIME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Completely additive — no schema dependency on existing tables.
+Build AFTER core site is live and tested at a real show.
+
+TABLES TO ADD:
+  users (id, email, name, password_hash, created_at, notification_prefs)
+  follows (id, user_id, follow_type, follow_value, created_at)
+  notifications (id, user_id, type, title, body, link, sent_at, read_at)
+
+FOLLOW TYPES: horse, rider, show, venue, division
+
+NOTIFICATIONS:
+  - Horse just finished (time and place)
+  - Qualified for jump off
+  - Class results posted
+  - New show posted at followed venue
+
+DELIVERY: Cloudflare MailChannels (free, no third party)
+REQUIRED: unsubscribe link, rate limiting, GDPR for international users
+PREMIUM TIER: unlimited follows, advanced stats, barn accounts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## PRIORITY BUILD LIST — IN ORDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMMEDIATE — Before HITS:
+  1. Push updated west-watcher.js to scoring computer
+  2. Test collision detection — make sure no false alarms on class transitions
+  3. Watch for UDP silence vs frozen elapsed during pauses at HITS
+  4. Note reason field in CLOCK_STOPPED events (udp_silence vs blank)
+
+PHASE 1 — Core site:
+  5. Port existing HTML/CSS to new site (same design)
+  6. index.html — shows list from D1
+  7. classes.html — class list per ring from D1
+  8. results.html — standings + live on-course banner
+  9. Admin page — show CRUD, slug auto-gen, ring management
+  10. GET /getConfig — watcher fetches ring name on startup
+
+PHASE 2 — Stats:
+  11. Horse profile pages (/stats/horse)
+  12. Rider profile pages (/stats/rider)
+  13. Show summary stats (/stats/show)
+  14. Weather integration (Open-Meteo)
+  15. Season leaderboards
+
+PHASE 3 — Post-show report:
+  16. Auto-generate report 24hr after show complete
+  17. Web page + PDF delivery
+  18. Email to show manager
+
+PHASE 4 — User accounts:
+  19. Registration/login
+  20. Follow horse/rider/show/venue
+  21. Email notifications via MailChannels
+
+PHASE 5 — Production:
+  22. Hunter UDP format mapping (screen record toggle test)
+  23. Setup wizard for operators
+  24. .exe packaging with pkg
+  25. Auto-start via Windows Task Scheduler
+  26. Historical backfill from ryegate.live before scraper retired
+  27. Upgrade Cloudflare to $5/month
+  28. DNS flip to new domain
+  29. Retire Ryegate scraper
+
+FUTURE (when WEST software ready):
+  30. Replace Ryegate scoring software
+  31. Update watcher to read new file format
+  32. Per-fence stats (requires own software)
+  33. Course walk integration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## THINGS TO REMEMBER (MISC)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Ryegate scraper (westscoring.live) is on shakier legal ground than watcher
+  Pull it after HITS once new pipeline is verified solid
+- .cls files and UDP are unencrypted open formats on hardware we operate
+  Data is ours — horse names, times, results generated at our shows
+- Ryegate col[26] is their back office ID — not reliable as show slug
+  Setup wizard will let operator set slug manually
+- 5-8 watchers can run simultaneously — all post to same Worker
+  KV keys namespaced by slug:ring so they never collide
+- $5/month Cloudflare paid plan needed before busy summer season
+  Free tier KV write limit (1,000/day) will be hit with multiple active rings
+- Horse/rider names must be stored consistently (same capitalization)
+  This is the key that links results to follows later
+- UDP pause behavior at HITS: watch for reason:'udp_silence' in logs
+  If never seen → Ryegate sends frozen values (existing detector works)
+  If seen → Ryegate stops packets (new silence detector works)
+- Watcher is software-agnostic — when WEST software is ready
+  just update file format parsing, pipeline stays identical
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## FILES IN REPO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+west-watcher.js          — watcher v2.0 (1,482 lines) with poster,
+                           collision detection, silence detection
+west-worker.js           — Worker v2.0 with D1 writes and admin endpoints
+config.json              — Worker connection config (template)
+start-watcher.bat        — double-click to launch watcher on Windows
+CLS-FORMAT.md            — definitive .cls file format reference
+SESSION-NOTES-11.txt     — session 11 notes
+SESSION-NOTES-12-WATCHER-2.0.txt — session 12 notes
+SESSION-NOTES-13.txt     — this file
+STATS-BRAINSTORM.md      — full stats and analytics ideas
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Last updated: 2026-03-21 (Session 13)
+Next session: Build the website — port existing design, add live results page

@@ -9,12 +9,133 @@
 
 const fs   = require('fs');
 const path = require('path');
+const http = require('http');
+const https = require('https');
 
 const CLASSES_DIR   = 'C:\\Ryegate\\Jumper\\Classes';
 const TSKED_PATH    = 'C:\\Ryegate\\Jumper\\tsked.csv';
 const CONFIG_PATH   = 'C:\\Ryegate\\Jumper\\config.dat';
 const SNAPSHOTS_DIR = 'C:\\west_snapshots';
-const POLL_INTERVAL = 500;  // ms
+const POLL_INTERVAL = 500;   // ms
+const HEARTBEAT_MS  = 60000; // 60 seconds
+const VERSION       = '2.0';
+
+// ── POSTER CONFIG ─────────────────────────────────────────────────────────────
+// Reads config.json next to this script
+// { "workerUrl": "https://west-worker.bill-acb.workers.dev", "authKey": "..." }
+
+let posterConfig = null;
+
+function loadPosterConfig() {
+  const candidates = [
+    path.join(__dirname, 'config.json'),
+    path.join(process.env.USERPROFILE || 'C:\\Users\\Jess', 'west', 'config.json'),
+    'C:\\west\\config.json',
+  ];
+  for (const c of candidates) {
+    try {
+      const raw = fs.readFileSync(c, 'utf8');
+      const cfg = JSON.parse(raw);
+      if (cfg.workerUrl && cfg.authKey) {
+        posterConfig = cfg;
+        console.log('✓ Poster config: ' + c);
+        console.log('  Worker: ' + cfg.workerUrl);
+        return;
+      }
+    } catch(e) {}
+  }
+  console.log('⚠ No config.json found — running in local-only mode (not posting to Worker)');
+  console.log('  Create config.json with { "workerUrl": "...", "authKey": "..." }');
+}
+
+// ── POSTER — POST TO WORKER ───────────────────────────────────────────────────
+// Retry queue for failed POSTs — retried on next successful post
+const postQueue = [];
+const MAX_QUEUE = 50;
+
+// Slug and ring extracted from config.dat — set when config is read
+let showSlug = 'unknown';
+let showRing = '1';
+
+function postToWorker(endpoint, body, label) {
+  if (!posterConfig) return; // no config — local only mode
+
+  const payload = JSON.stringify({ ...body, slug: showSlug, ring: showRing });
+  const url     = new URL(posterConfig.workerUrl + endpoint);
+  const lib     = url.protocol === 'https:' ? https : http;
+
+  const options = {
+    hostname: url.hostname,
+    port:     url.port || (url.protocol === 'https:' ? 443 : 80),
+    path:     url.pathname + url.search,
+    method:   'POST',
+    headers:  {
+      'Content-Type':  'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      'X-West-Key':    posterConfig.authKey,
+    },
+  };
+
+  const req = lib.request(options, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      if (res.statusCode === 200) {
+        lastSuccessfulPost = Date.now();
+        console.log(`✓ ${label} — posted`);
+        // Drain retry queue on success
+        drainQueue();
+      } else {
+        console.log(`✗ ${label} — server error ${res.statusCode}, queued`);
+        queuePost(endpoint, body, label);
+      }
+    });
+  });
+
+  req.on('error', (e) => {
+    console.log(`✗ ${label} — network error (${e.message}), queued`);
+    queuePost(endpoint, body, label);
+  });
+
+  req.write(payload);
+  req.end();
+}
+
+function queuePost(endpoint, body, label) {
+  if (postQueue.length >= MAX_QUEUE) postQueue.shift(); // drop oldest
+  postQueue.push({ endpoint, body, label, ts: Date.now() });
+}
+
+function drainQueue() {
+  if (!posterConfig || postQueue.length === 0) return;
+  const item = postQueue.shift();
+  if (item) {
+    console.log(`↻ Retrying queued: ${item.label}`);
+    postToWorker(item.endpoint, item.body, item.label);
+  }
+}
+
+// ── HEARTBEAT ─────────────────────────────────────────────────────────────────
+// ── HEARTBEAT ─────────────────────────────────────────────────────────────────
+let lastSuccessfulPost = null;
+const STALE_WARNING_MS = 5 * 60 * 1000;  // 5 minutes without successful post
+
+function startHeartbeat() {
+  if (!posterConfig) return;
+  setInterval(() => {
+    // Check for stale connection
+    if (lastSuccessfulPost) {
+      const msSince = Date.now() - lastSuccessfulPost;
+      if (msSince > STALE_WARNING_MS) {
+        const mins = Math.floor(msSince / 60000);
+        console.log(`⚠ WARNING: No successful post in ${mins} min — check internet connection`);
+        log(`⚠ CONNECTIVITY WARNING: ${mins} minutes since last successful post`);
+      }
+    }
+    postToWorker('/heartbeat', { version: VERSION }, 'heartbeat');
+  }, HEARTBEAT_MS);
+  console.log('✓ Heartbeat started (every 60s)');
+}
 
 // ── KNOWN COLUMN LABELS ───────────────────────────────────────────────────────
 // Used in diff/dump output so Skippy can interpret the log
@@ -627,7 +748,24 @@ function readConfig() {
     if (lines[4]) log('  Dates:     ' + lines[4].trim());
     if (lines[5]) log('  Location:  ' + lines[5].trim());
     const rm = (c[4]||'').match(/r(\d+)$/i);
-    if (rm) log('  Ring #:    ' + rm[1]);
+    if (rm) {
+      showRing = rm[1];
+      log('  Ring #:    ' + showRing);
+    }
+    // Extract slug from FTP path e.g. /SHOWS/HITS/Culpeper/2025/Summer/wk12/r1
+    // Use show URL slug from col[26] if available, otherwise derive from FTP path
+    const ftpSlug = (c[26] || '').trim();
+    if (ftpSlug) {
+      showSlug = ftpSlug;
+      log('  Show Slug: ' + showSlug + ' (from col[26])');
+    } else {
+      // Fallback: derive from FTP path segments
+      const ftpParts = (c[4]||'').split('/').filter(Boolean);
+      if (ftpParts.length >= 3) {
+        showSlug = ftpParts.slice(2, -1).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        log('  Show Slug: ' + showSlug + ' (derived from FTP path)');
+      }
+    }
     return { scoreboardPort, liveDataPort };
   } catch(e) {
     log('  (parse error: ' + e.message + ')');
@@ -725,6 +863,8 @@ function writeDataFile(parsed) {
     const data = buildClassData(parsed);
     fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
     log(`DATA: west_data.json updated (${parsed.entries.filter(e=>e.hasGone).length}/${parsed.entries.length} competed)`);
+    // POST to Worker
+    postToWorker('/postClassData', data, `.cls update (${parsed.filename} — ${data.competed}/${data.numEntries} competed)`);
   } catch(e) {
     log(`DATA ERROR: ${e.message}`);
   }
@@ -933,6 +1073,61 @@ function inferRound(entryNum, udpTa) {
 // Fires clean events on meaningful state transitions rather than every packet
 // Events are queued here — poster will drain and send them to Worker later
 
+// ── UDP COLLISION DETECTION ───────────────────────────────────────────────────
+// Detects when two scoring computers are broadcasting on the same UDP port
+// or when bad/corrupt data is received.
+//
+// Validate incoming entry against known entries in loaded .cls files.
+// Skip if: Unformatted class, no classes loaded, or idle packet.
+// Suspend after 3 consecutive mismatches — auto-resume after 2 valid hits.
+
+let udpMismatchCount  = 0;
+let udpSuspended      = false;
+let udpSuspendedSince = null;
+let udpValidHits      = 0;
+const UDP_MISMATCH_THRESHOLD = 3;
+const UDP_RESUME_THRESHOLD   = 2;
+
+function getValidEntrySet() {
+  const validEntries    = new Set();
+  let hasFormattedClass = false;
+  for (const filename of Object.keys(fileStates)) {
+    const content = fileStates[filename];
+    if (!content) continue;
+    const parsed = parseCls(content, filename);
+    if (!parsed || parsed.classType === 'U') continue;
+    hasFormattedClass = true;
+    parsed.entries.forEach(e => validEntries.add(e.entryNum));
+  }
+  return { validEntries, hasFormattedClass };
+}
+
+function validateUdpEntry(entry) {
+  if (!entry) return true; // idle — always pass
+  const { validEntries, hasFormattedClass } = getValidEntrySet();
+  if (!hasFormattedClass || validEntries.size === 0) return true; // nothing to validate against
+  const isValid = validEntries.has(entry);
+  if (isValid) {
+    udpValidHits++;
+    if (udpSuspended && udpValidHits >= UDP_RESUME_THRESHOLD) {
+      udpSuspended = false; udpSuspendedSince = null;
+      udpMismatchCount = 0; udpValidHits = 0;
+      udpLog(`[COLLISION] ✓ UDP RESUMED — valid entries detected, data looks clean`);
+      log(`UDP COLLISION CLEARED — resuming normal operation`);
+    }
+  } else {
+    udpMismatchCount++; udpValidHits = 0;
+    udpLog(`[COLLISION] ⚠ Entry #${entry} not in any loaded class (mismatch ${udpMismatchCount}/${UDP_MISMATCH_THRESHOLD})`);
+    if (!udpSuspended && udpMismatchCount >= UDP_MISMATCH_THRESHOLD) {
+      udpSuspended = true; udpSuspendedSince = new Date().toISOString();
+      udpMismatchCount = 0;
+      udpLog(`[COLLISION] ✗ UDP SUSPENDED — possible ring collision or bad data`);
+      log(`⚠ UDP SUSPENDED — possible collision detected. Check ring UDP settings.`);
+    }
+  }
+  return !udpSuspended;
+}
+
 const udpEvents = [];  // queue of events ready to POST
 
 function fireEvent(type, data) {
@@ -944,11 +1139,12 @@ function fireEvent(type, data) {
   udpEvents.push(event);
   udpLog(`[EVENT:${type}] ${JSON.stringify(data)}`);
 
+  // POST UDP event to Worker
+  postToWorker('/postUdpEvent', event, `UDP ${type} #${data.entry || ''}`);
+
   // Write data file on every UDP event so local JSON stays live
-  // Find the most recently changed cls file and write with updated liveState
   const files = Object.keys(fileStates);
   if (files.length) {
-    // Use the file that matches the current entry if possible
     let targetFile = files[files.length - 1];
     for (const f of files) {
       const content = fileStates[f];
@@ -973,8 +1169,11 @@ let lastEntry    = '';
 let lastElapsed  = '';
 let lastCd       = '';
 let lastJump     = '';
-let clockStopTimer = null;  // timeout handle for clock-stopped detection
-let cdStopTimer    = null;  // timeout handle for cd-stopped detection
+let clockStopTimer  = null;  // timeout handle for clock-stopped detection
+let cdStopTimer     = null;  // timeout handle for cd-stopped detection
+let udpSilenceTimer = null;  // timeout handle for UDP silence detection
+let lastUdpAt       = null;  // timestamp of last UDP packet received
+const UDP_SILENCE_MS = 3000; // 3s of no packets while ONCOURSE = paused
 
 function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank) {
 
@@ -982,6 +1181,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
   if (entry !== lastEntry) {
     if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
     if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
+    if (udpSilenceTimer){ clearTimeout(udpSilenceTimer);udpSilenceTimer= null; }
     lastElapsed = '';
     lastJump    = '';
     lastCd      = '';
@@ -1002,6 +1202,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     if (phase === 'ONCOURSE' && lastPhase !== 'ONCOURSE') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
       if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
+      if (udpSilenceTimer){ clearTimeout(udpSilenceTimer);udpSilenceTimer= null; }
       const { round, label } = inferRound(entry, ta);
       fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round, label });
     }
@@ -1009,6 +1210,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     if (phase === 'FINISH') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
       if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
+      if (udpSilenceTimer){ clearTimeout(udpSilenceTimer);udpSilenceTimer= null; }
       const { round, label } = inferRound(entry, ta);
       fireEvent('FINISH', { entry, horse, rider, rank, jumpFaults: jump, timeFaults: time, round, label });
     }
@@ -1108,6 +1310,32 @@ function startUdpListener(scoreboardPort) {
     if (cd)                                phase = 'CD';
     if (elapsed && !rank)                  phase = 'ONCOURSE';
     if (rank)                              phase = 'FINISH';
+
+    // Validate entry against loaded .cls files — detect ring collisions
+    // Pass-through if idle, unformatted class, or no classes loaded yet
+    if (phase !== 'IDLE' && !validateUdpEntry(entry)) return;
+
+    // Track last packet time — used for UDP silence detection
+    lastUdpAt = Date.now();
+
+    // Arm UDP silence timer when on course OR in countdown — detects Ryegate
+    // clock/countdown pause that stops sending packets entirely
+    if (phase === 'ONCOURSE' || phase === 'CD') {
+      if (udpSilenceTimer) { clearTimeout(udpSilenceTimer); udpSilenceTimer = null; }
+      udpSilenceTimer = setTimeout(() => {
+        udpSilenceTimer = null;
+        if (lastPhase === 'ONCOURSE') {
+          udpLog(`[SILENCE] No UDP packets for ${UDP_SILENCE_MS}ms while ONCOURSE — possible clock pause`);
+          fireEvent('CLOCK_STOPPED', { entry: lastEntry, horse: liveState.horse, rider: liveState.rider, elapsed: lastElapsed, reason: 'udp_silence' });
+        } else if (lastPhase === 'CD') {
+          udpLog(`[SILENCE] No UDP packets for ${UDP_SILENCE_MS}ms while CD — possible countdown pause`);
+          fireEvent('CD_STOPPED', { entry: lastEntry, horse: liveState.horse, rider: liveState.rider, countdown: liveState.countdown, reason: 'udp_silence' });
+        }
+      }, UDP_SILENCE_MS);
+    } else {
+      // Not on course or CD — clear any pending silence timer
+      if (udpSilenceTimer) { clearTimeout(udpSilenceTimer); udpSilenceTimer = null; }
+    }
 
     // Suppress duplicate log lines (not events — those are transition-based)
     const stateKey = entry || 'idle';
@@ -1209,10 +1437,13 @@ function startKeyListener() {
 
 log('');
 log('════════════════════════════════════════════════════════════════════════');
-log('WEST Scoring Live — Class File Watcher [RESEARCH MODE]');
+log('WEST Scoring Live — Class File Watcher v2.0');
 log('Log:       ' + LOG_PATH);
 log('Snapshots: ' + SNAPSHOTS_DIR);
 log('════════════════════════════════════════════════════════════════════════');
+
+// Load poster config (config.json next to this script)
+loadPosterConfig();
 
 const config = readConfig();
 readTsked();
@@ -1238,5 +1469,14 @@ if (config.scoreboardPort) {
   log('WARNING: Could not determine scoreboard port — UDP listener not started');
 }
 
+// Start heartbeat if poster is configured
+startHeartbeat();
+
 startKeyListener();
 log('Running — press any key to mark a change, Ctrl+C to stop');
+if (posterConfig) {
+  log(`Posting to: ${posterConfig.workerUrl}`);
+  log(`Show: ${showSlug} | Ring: ${showRing}`);
+} else {
+  log('LOCAL ONLY MODE — no data being posted online');
+}
