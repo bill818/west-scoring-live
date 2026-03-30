@@ -1,1 +1,16 @@
+# Local config — contains auth key, never commit
+config.json
+
+# Node
+node_modules/
+
+# Wrangler
+.wrangler/
+.dev.vars
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log

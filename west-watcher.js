@@ -1,439 +1,153 @@
 /**
  * WEST Scoring Live — Class File Watcher
  * Watches C:\Ryegate\Jumper\Classes for .cls file changes
- * Logs parsed data to Desktop\west_log.txt
- *
+ * Logs parsed data to west_log.txt
+ * 
  * Usage: node west-watcher.js
  * Requirements: Node.js installed on scoring computer
  */
 
 const fs   = require('fs');
 const path = require('path');
-const http = require('http');
-const https = require('https');
 
 const CLASSES_DIR   = 'C:\\Ryegate\\Jumper\\Classes';
 const TSKED_PATH    = 'C:\\Ryegate\\Jumper\\tsked.csv';
 const CONFIG_PATH   = 'C:\\Ryegate\\Jumper\\config.dat';
+let LOG_PATH        = (process.env.USERPROFILE || 'C:\\Users\\Public') + '\\Desktop\\west_log.txt';
 const SNAPSHOTS_DIR = 'C:\\west_snapshots';
-const POLL_INTERVAL = 500;   // ms
-const HEARTBEAT_MS  = 60000; // 60 seconds
-const VERSION       = '2.0';
 
-// ── POSTER CONFIG ─────────────────────────────────────────────────────────────
-// Reads config.json next to this script
-// { "workerUrl": "https://west-worker.bill-acb.workers.dev", "authKey": "..." }
+// Track previous file states to detect changes
+const fileStates = {};
 
-let posterConfig = null;
+// ── WORKER CONFIG ─────────────────────────────────────────────────────────────
+// Loaded from config.json in same folder as this script
 
-function loadPosterConfig() {
-  const candidates = [
-    path.join(__dirname, 'config.json'),
-    path.join(process.env.USERPROFILE || 'C:\\Users\\Jess', 'west', 'config.json'),
-    'C:\\west\\config.json',
-  ];
-  for (const c of candidates) {
-    try {
-      const raw = fs.readFileSync(c, 'utf8');
-      const cfg = JSON.parse(raw);
-      if (cfg.workerUrl && cfg.authKey) {
-        posterConfig = cfg;
-        console.log('✓ Poster config: ' + c);
-        console.log('  Worker: ' + cfg.workerUrl);
-        return;
-      }
-    } catch(e) {}
+let WORKER_URL  = '';
+let AUTH_KEY    = '';
+let SHOW_SLUG   = '';
+let SHOW_RING   = '1';
+
+function loadWorkerConfig() {
+  const configPath = path.join(path.dirname(process.argv[1] || __filename), 'config.json');
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    WORKER_URL = (cfg.workerUrl || '').replace(/\/$/, '');
+    AUTH_KEY   = cfg.authKey   || '';
+    // Slug override — used if config.dat col[24] is blank or missing
+    if (cfg.slug && cfg.slug.trim()) {
+      SHOW_SLUG = cfg.slug.trim();
+      log('Worker config loaded: ' + WORKER_URL + ' | slug override: ' + SHOW_SLUG);
+    } else {
+      log('Worker config loaded: ' + WORKER_URL);
+    }
+  } catch(e) {
+    log('WARNING: config.json not found or invalid — Worker posting disabled');
+    log('  Expected at: ' + configPath);
   }
-  console.log('⚠ No config.json found — running in local-only mode (not posting to Worker)');
-  console.log('  Create config.json with { "workerUrl": "...", "authKey": "..." }');
 }
 
-// ── POSTER — POST TO WORKER ───────────────────────────────────────────────────
-// Retry queue for failed POSTs — retried on next successful post
-const postQueue = [];
-const MAX_QUEUE = 50;
-
-// Slug and ring extracted from config.dat — set when config is read
-let showSlug = 'unknown';
-let showRing = '1';
+// ── POST TO WORKER ────────────────────────────────────────────────────────────
+// Fire-and-forget — never awaited, never blocks the watcher
+// 3 second timeout — if internet is down, give up and move on
 
 function postToWorker(endpoint, body, label) {
-  if (!posterConfig) return; // no config — local only mode
-
-  const payload = JSON.stringify({ ...body, slug: showSlug, ring: showRing });
-  const url     = new URL(posterConfig.workerUrl + endpoint);
-  const lib     = url.protocol === 'https:' ? https : http;
-
-  const options = {
-    hostname: url.hostname,
-    port:     url.port || (url.protocol === 'https:' ? 443 : 80),
-    path:     url.pathname + url.search,
-    method:   'POST',
-    headers:  {
-      'Content-Type':  'application/json',
-      'Content-Length': Buffer.byteLength(payload),
-      'X-West-Key':    posterConfig.authKey,
-    },
-  };
-
-  const req = lib.request(options, (res) => {
-    let data = '';
-    res.on('data', chunk => data += chunk);
-    res.on('end', () => {
-      if (res.statusCode === 200) {
-        lastSuccessfulPost = Date.now();
-        console.log(`✓ ${label} — posted`);
-        // Drain retry queue on success
-        drainQueue();
-      } else {
-        console.log(`✗ ${label} — server error ${res.statusCode}, queued`);
-        queuePost(endpoint, body, label);
-      }
-    });
+  if (!WORKER_URL || !AUTH_KEY) return;
+  const url = WORKER_URL + endpoint;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'X-West-Key': AUTH_KEY },
+    body:    JSON.stringify({ ...body, slug: SHOW_SLUG, ring: SHOW_RING }),
+    signal:  ctrl.signal,
+  })
+  .then(r => {
+    clearTimeout(timer);
+    if (!r.ok) log(`[POST] ${label || endpoint} — HTTP ${r.status}`);
+  })
+  .catch(e => {
+    clearTimeout(timer);
+    if (e.name !== 'AbortError') log(`[POST] ${label || endpoint} failed: ${e.message}`);
   });
-
-  req.on('error', (e) => {
-    console.log(`✗ ${label} — network error (${e.message}), queued`);
-    queuePost(endpoint, body, label);
-  });
-
-  req.write(payload);
-  req.end();
 }
 
-function queuePost(endpoint, body, label) {
-  if (postQueue.length >= MAX_QUEUE) postQueue.shift(); // drop oldest
-  postQueue.push({ endpoint, body, label, ts: Date.now() });
-}
-
-function drainQueue() {
-  if (!posterConfig || postQueue.length === 0) return;
-  const item = postQueue.shift();
-  if (item) {
-    console.log(`↻ Retrying queued: ${item.label}`);
-    postToWorker(item.endpoint, item.body, item.label);
-  }
-}
-
-// ── HEARTBEAT ─────────────────────────────────────────────────────────────────
-// ── HEARTBEAT ─────────────────────────────────────────────────────────────────
-let lastSuccessfulPost = null;
-const STALE_WARNING_MS = 5 * 60 * 1000;  // 5 minutes without successful post
-
-function startHeartbeat() {
-  if (!posterConfig) return;
-  setInterval(() => {
-    // Check for stale connection
-    if (lastSuccessfulPost) {
-      const msSince = Date.now() - lastSuccessfulPost;
-      if (msSince > STALE_WARNING_MS) {
-        const mins = Math.floor(msSince / 60000);
-        console.log(`⚠ WARNING: No successful post in ${mins} min — check internet connection`);
-        log(`⚠ CONNECTIVITY WARNING: ${mins} minutes since last successful post`);
-      }
-    }
-    postToWorker('/heartbeat', { version: VERSION }, 'heartbeat');
-  }, HEARTBEAT_MS);
-  console.log('✓ Heartbeat started (every 60s)');
-}
-
-// ── KNOWN COLUMN LABELS ───────────────────────────────────────────────────────
-// Used in diff/dump output so Skippy can interpret the log
-
-// Shared header cols 0-6 (same for Hunter and Jumper)
-const HEADER_LABELS_SHARED = {
-  0:  'ClassType',
-  1:  'ClassName',
-  2:  'ScoringMethodCode',   // jumper: 2=2a, 3=twoRounds+JO, 4=speed, 9=twoPhase, 13=2b
-  3:  '?',
-  // H[04]: 1=Farmtek, 2=TIMY — correlates with H[00] but may have additional meaning
-  // WATCH: note if this changes value during or after a live class run
-  4:  '?hardwareType_1=J_2=T',
-  5:  'ClockPrecision',
-  6:  'ImmediateJumpoff',    // jumper only: 1=immediate JO (2b), 0=clears return (2a)
-};
-
-// Jumper header cols (J and T) — confirmed by live raw data 2026-03-19
-// Pattern per round: FaultsPerInterval, TimeAllowed, TimeInterval (3 cols, starts H[07])
-const HEADER_LABELS_JUMPER = {
-  ...HEADER_LABELS_SHARED,
-  7:  'R1_FaultsPerInterval',
-  8:  'R1_TimeAllowed',
-  9:  'R1_TimeInterval',
-  10: 'R2_FaultsPerInterval',
-  11: 'R2_TimeAllowed',
-  12: 'R2_TimeInterval',
-  13: 'R3_FaultsPerInterval',
-  14: 'R3_TimeAllowed',
-  15: 'R3_TimeInterval',
-  16: 'CaliforniaSplit',
-  17: 'IsFEI',
-  // H[18]: always False — suspected legacy trophy field (moved to @foot row)
-  // WATCH: if this ever flips during a live class, note exactly what triggered it
-  18: '?legacy_alwaysFalse',
-  19: 'Sponsor',
-  // H[20]: always empty — unknown, possibly old secondary sponsor field
-  // WATCH: if this ever gets a value, note what triggered it
-  20: '?alwaysEmpty',
-  21: 'CaliSplitSections',
-  22: 'PenaltySeconds',
-  23: 'NoRank',
-  // H[24]: always False — suspected legacy flag
-  // WATCH: if this ever flips during a live class, note exactly what triggered it
-  24: '?legacy_alwaysFalse',
-  25: 'ShowStandingsTime',
-  26: 'ShowFlags',
-  // H[27]: always True — suspected legacy flag (possibly old ShowTimes)
-  // WATCH: if this ever flips during a live class, note exactly what triggered it
-  27: '?legacy_alwaysTrue',
-  28: 'ShowFaultsAsDecimals',
-  // H[04] in shared: always 1 for Farmtek, 2 for TIMY — correlates with H[00]
-  // but may have additional meaning e.g. results finalized, hardware connected
-  // WATCH: note if H[04] changes value during or after a live class run
-};
-
-// Hunter header cols 10+ — confirmed by live toggle testing
-const HEADER_LABELS_HUNTER = {
-  ...HEADER_LABELS_SHARED,
-  8:  'Ribbons',
-  10: 'IsEquitation',
-  11: 'IsChampionship',
-  12: 'IsJogged',
-  13: 'OnCourseSB',
-  14: 'IgnoreSireDam',
-  15: 'PrintJudgeScores',
-  16: 'ReverseRank',
-  17: 'RunOff',
-  22: 'PhaseWeight1',
-  23: 'PhaseWeight2',
-  24: 'PhaseWeight3',
-  25: 'Phase1Label',
-  26: 'Phase2Label',
-  27: 'Phase3Label',
-  28: 'Message',
-  29: 'Sponsor',
-};
-
-const HUNTER_LABELS = {
-  0:  'EntryNum',
-  1:  'Horse',
-  2:  'Rider',
-  5:  'Owner',
-  6:  'Sire',
-  7:  'Dam',
-  8:  'City',
-  9:  'State',
-  10: 'Notes',
-  13: '?flag',
-  14: '?goOrder',
-  15: 'CurrentPlace',
-  16: 'Score',
-  40: 'HasGone',
-};
-
-const JUMPER_LABELS = {
-  0:  'EntryNum',
-  1:  'Horse',
-  2:  'Rider',
-  4:  'Country',
-  5:  'Owner',
-  6:  'Sire',
-  7:  'Dam',
-  8:  'City',
-  9:  'State',
-  10: 'Notes',
-  11: 'FEI_USEF_num',
-  13: 'RideOrder',
-  14: 'R1Place',
-  15: 'R1Time',              // confirmed — elapsed seconds e.g. 36.36
-  16: 'R1JumpFaults',        // confirmed — fault points e.g. 6
-  17: 'R1Total',             // confirmed — time + faults e.g. 42.36
-  18: '?',
-  19: '?rawFaults',          // seen 4, 8 — possibly raw rail count x 4
-  20: '?rawFaultsMirror',    // mirrors col 19
-  21: '?',
-  22: 'R2Time',              // confirmed — JO elapsed seconds
-  23: '?',
-  24: 'R2Total',             // confirmed — JO total
-  25: 'R2JumpFaults',
-  26: '?totalFaults',
-  27: '?runningTotal',
-  28: '?',
-  29: '?',
-  30: '?',
-  31: '?',
-  32: '?',
-  33: '?',
-  34: '?',
-  35: 'StatusCode',          // RF=RiderFall, EL=Eliminated, WD=Withdrawn etc
-  // TIMY timestamp blocks — confirmed from live data 2026-03-20
-  // Block structure per round: HasGone/CDStart flag, CDStart TOD, 6xCDPause/Resume, RideStart, 6xRidePause/Resume, RideEnd
-  // Col 36 = HasGone flag (Farmtek=1 when competed) or CDStart (TIMY=TOD)
-  // Pause/Resume cols only populated if clock actually paused — otherwise 00:00:00
-  // Status codes (RF, EL etc) written into pause slot when applicable
-  // Round 1 block (cols 36-51) — confirmed from live TIMY test
-  36: 'R1_HasGone_or_CDStart',  // Farmtek: 1=competed | TIMY: CDStart TOD
-  37: 'R1_CDStart',             // TIMY: CDStart TOD
-  38: 'R1_CDPause1',
-  39: 'R1_CDResume1',
-  40: 'R1_CDPause2',
-  41: 'R1_CDResume2',
-  42: 'R1_CDPause3',
-  43: 'R1_CDResume3',
-  44: 'R1_RideStart',           // confirmed — ride start TOD
-  45: 'R1_RidePause1',
-  46: 'R1_RideResume1',
-  47: 'R1_RidePause2',
-  48: 'R1_RideResume2',
-  49: 'R1_RidePause3',
-  50: 'R1_RideResume3',
-  51: 'R1_RideEnd',             // confirmed — ride end TOD
-  // Round 2 / JO block (cols 52-66) — confirmed from live TIMY test
-  52: 'R2_CDStart',             // confirmed
-  53: 'R2_CDPause1',
-  54: 'R2_CDResume1',
-  55: 'R2_CDPause2',
-  56: 'R2_CDResume2',
-  57: 'R2_CDPause3',
-  58: 'R2_CDResume3',
-  59: 'R2_RideStart',           // confirmed
-  60: 'R2_RidePause1',
-  61: 'R2_RideResume1',
-  62: 'R2_RidePause2',
-  63: 'R2_RideResume2',
-  64: 'R2_RidePause3',
-  65: 'R2_RideResume3',
-  66: 'R2_RideEnd',             // confirmed
-  // Round 3 block (cols 67-81) — unused for standard 2-round classes
-  67: 'R3_CDStart',
-  68: 'R3_CDPause1',
-  69: 'R3_CDResume1',
-  70: 'R3_CDPause2',
-  71: 'R3_CDResume2',
-  72: 'R3_CDPause3',
-  73: 'R3_CDResume3',
-  74: 'R3_RideStart',
-  75: 'R3_RidePause1',
-  76: 'R3_RideResume1',
-  77: 'R3_RidePause2',
-  78: 'R3_RideResume2',
-  79: 'R3_RidePause3',
-  80: 'R3_RideResume3',
-  81: 'R3_RideEnd',
-};
-
-// ── LOG PATH — TRY MULTIPLE LOCATIONS ────────────────────────────────────────
-
-let LOG_PATH = null;
-
-const LOG_CANDIDATES = [
-  process.env.USERPROFILE
-    ? path.join(process.env.USERPROFILE, 'Desktop', 'west_log.txt')
-    : null,
-  process.env.HOMEDRIVE && process.env.HOMEPATH
-    ? path.join(process.env.HOMEDRIVE + process.env.HOMEPATH, 'Desktop', 'west_log.txt')
-    : null,
-  'C:\\Users\\Public\\Desktop\\west_log.txt',
-  'C:\\west_log.txt',
-  path.join(__dirname, 'west_log.txt'),
-].filter(Boolean);
-
-for (const candidate of LOG_CANDIDATES) {
-  try {
-    fs.writeFileSync(candidate, 'WEST Watcher started: ' + new Date().toISOString() + '\r\n');
-    LOG_PATH = candidate;
-    console.log('✓ Log file: ' + LOG_PATH);
-    break;
-  } catch(e) {
-    console.log('✗ Cannot write: ' + candidate + ' (' + e.message + ')');
-  }
-}
-
-if (!LOG_PATH) {
-  console.error('FATAL: Cannot write log anywhere. Exiting.');
-  process.exit(1);
-}
-
-// ── ENSURE REQUIRED FOLDERS EXIST ────────────────────────────────────────────
-
-function ensureDir(dir) {
-  try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      console.log('✓ Created: ' + dir);
-    }
-  } catch(e) {
-    console.error('✗ Could not create: ' + dir + ' (' + e.message + ')');
-  }
-}
-
-ensureDir(SNAPSHOTS_DIR);
-
-// ── LOGGING ───────────────────────────────────────────────────────────────────
+// ── LOGGING ──────────────────────────────────────────────────────────────────
 
 function log(msg) {
-  const ts   = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
   const line = `[${ts}] ${msg}`;
   console.log(line);
-  try { fs.appendFileSync(LOG_PATH, line + '\r\n'); } catch(e) {}
+  try {
+    fs.appendFileSync(LOG_PATH, line + '\r\n');
+  } catch(e) {
+    console.error('LOG WRITE FAILED: ' + e.message);
+    console.error('Tried to write to: ' + LOG_PATH);
+  }
 }
 
-function logSep() {
-  const line = '─'.repeat(70);
+function logSeparator() {
+  const line = '─'.repeat(60);
   console.log(line);
   try { fs.appendFileSync(LOG_PATH, line + '\r\n'); } catch(e) {}
 }
 
-// ── SNAPSHOT ──────────────────────────────────────────────────────────────────
+// ── SAVE SNAPSHOT ────────────────────────────────────────────────────────────
 
 function saveSnapshot(filename, content, label) {
   try {
-    const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const name = `${ts}_${filename}`;
-    fs.writeFileSync(path.join(SNAPSHOTS_DIR, name), content);
-    log(`SNAPSHOT: ${name} [${label}]`);
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const snapName = `${ts}_${filename}`;
+    const snapPath = path.join(SNAPSHOTS_DIR, snapName);
+    fs.writeFileSync(snapPath, content);
+    log(`SNAPSHOT SAVED: ${snapName}${label ? ' — ' + label : ''}`);
   } catch(e) {
     log(`SNAPSHOT ERROR: ${e.message}`);
   }
 }
 
-// ── SAFE READ ─────────────────────────────────────────────────────────────────
+// ── SAFE FILE READ ───────────────────────────────────────────────────────────
+// Opens with shared read access — won't conflict with Ryegate writing
 
 function safeRead(filePath) {
   try {
-    const fd  = fs.openSync(filePath, 'r');
-    const sz  = fs.fstatSync(fd).size;
-    const buf = Buffer.alloc(sz);
-    fs.readSync(fd, buf, 0, sz, 0);
+    // Use 'r' flag — read only, shared access on Windows
+    const fd = fs.openSync(filePath, 'r');
+    const size = fs.fstatSync(fd).size;
+    const buf = Buffer.alloc(size);
+    fs.readSync(fd, buf, 0, size, 0);
     fs.closeSync(fd);
     return buf.toString('utf8');
   } catch(e) {
-    log(`READ ERROR ${path.basename(filePath)}: ${e.message}`);
+    log(`READ ERROR on ${path.basename(filePath)}: ${e.message}`);
     return null;
   }
 }
 
-// ── CSV PARSE ─────────────────────────────────────────────────────────────────
+// ── CSV PARSER ───────────────────────────────────────────────────────────────
+// Handles quoted fields with commas inside
 
 function parseCSVLine(line) {
   const result = [];
-  let cur = '', inQ = false;
+  let current = '';
+  let inQuotes = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (ch === '"') {
-      if (inQ && line[i+1] === '"') { cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (ch === ',' && !inQ) {
-      result.push(cur.trim()); cur = '';
+      if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
     } else {
-      cur += ch;
+      current += ch;
     }
   }
-  result.push(cur.trim());
+  result.push(current.trim());
   return result;
 }
 
-// ── CLS PARSE ─────────────────────────────────────────────────────────────────
+// ── CLS PARSER ───────────────────────────────────────────────────────────────
 
 function parseCls(content, filename) {
   const lines = content.split(/\r?\n/).filter(l => l.trim());
@@ -441,124 +155,185 @@ function parseCls(content, filename) {
 
   const result = {
     filename,
-    classType:      'U',
-    className:      '',
-    numRounds:      '',
-    numJudges:      '',
-    ribbons:        '',
-    isEquitation:   false,
-    isChampionship: false,
-    isJogged:       false,
-    onCourseSB:     false,
-    isFEI:          false,
-    scoringMethod:  '',
-    sponsor:        '',
-    message:        '',
-    trophy:         '',
-    prizes:         [],
-    // Round config (FaultsPerInterval, TimeAllowed, TimeInterval per round)
-    r1Fpi: '', r1Ta: '', r1Ti: '',
-    r2Fpi: '', r2Ta: '', r2Ti: '',
-    r3Fpi: '', r3Ta: '', r3Ti: '',
-    entries:        [],
-    rawHeader:      [],
+    classType:    'U',   // H=Hunter, J=Jumper, T=Table jumper, U=Unformatted
+    className:    '',
+    isEquitation: false,
+    ribbons:      0,
+    numJudges:    0,
+    phaseLabels:  [],
+    sponsor:      '',
+    trophy:       '',
+    message:      '',
+    timeAllowed1: '',
+    timeAllowed2: '',
+    onCourse:     null,
+    prizes:       [],
+    entries:      [],
+    raw:          {}
   };
 
   for (let i = 0; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i]);
 
+    // ── ROW 0: Class header ──────────────────────────────────────────────────
     if (i === 0) {
-      result.classType      = cols[0]  || 'U';
-      result.className      = cols[1]  || '';
-      result.numRounds      = cols[4]  || '';
-      result.ribbons        = cols[8]  || '';
-      result.numJudges      = cols[9]  || '';
+      result.classType    = cols[0] || 'U';
+      result.className    = cols[1] || '';
 
-      const isJumperHdr = result.classType === 'J' || result.classType === 'T';
+      const isJumperHeader = cols[0] === 'J' || cols[0] === 'T';
+      const isHunterHeader = cols[0] === 'H';
 
-      if (isJumperHdr) {
-        result.scoringMethod  = cols[2]  || '';
-        result.r1Fpi          = cols[7]  || '';
-        result.r1Ta           = cols[8]  || '';
-        result.r1Ti           = cols[9]  || '';
-        result.r2Fpi          = cols[10] || '';
-        result.r2Ta           = cols[11] || '';
-        result.r2Ti           = cols[12] || '';
-        result.r3Fpi          = cols[13] || '';
-        result.r3Ta           = cols[14] || '';
-        result.r3Ti           = cols[15] || '';
-        result.isFEI          = cols[17] === 'True';
-        result.sponsor        = cols[19] || '';
-        result.noRank         = cols[23] === 'True';
-        result.showFlags      = cols[26] === 'True';
-        result.californiaSplit = cols[16] === '1' || cols[16] === 'True';
-        result.showFaultsAsDecimals = cols[28] === 'True';
-      } else {
-        // Hunter
-        result.isEquitation   = cols[10] === 'True';
-        result.isChampionship = cols[11] === 'True';
-        result.isJogged       = cols[12] === 'True';
-        result.onCourseSB     = cols[13] === 'True';
-        result.message        = cols[28] || '';
-        result.sponsor        = cols[29] || '';
-        if (result.sponsor === 'True' || result.sponsor === 'False') result.sponsor = '';
+      if (isJumperHeader) {
+        // Jumper header — confirmed 2026-03-22 from class 221 live session
+        result.scoringMethod    = cols[2] || '';   // H[02] ScoringMethodCode
+        result.roundsCompleted  = cols[4] || '0';  // H[04] RoundsCompleted counter (0→1→2→3)
+        result.clockPrecision   = cols[5] || '0';  // H[05] ClockPrecision
+        result.immediateJO      = cols[6] === '1'; // H[06] ImmediateJumpoff
+        result.r1FaultsPerInt   = cols[7] || '1';  // H[07] R1_FaultsPerInterval
+        result.r1TimeAllowed    = cols[8] || '';    // H[08] R1_TimeAllowed (seconds)
+        result.r1TimeInterval   = cols[9] || '1';  // H[09] R1_TimeInterval
+        result.r2FaultsPerInt   = cols[10] || '1'; // H[10] R2_FaultsPerInterval
+        result.r2TimeAllowed    = cols[11] || '';   // H[11] R2_TimeAllowed
+        result.r2TimeInterval   = cols[12] || '1'; // H[12] R2_TimeInterval
+        result.r3FaultsPerInt   = cols[13] || '1'; // H[13] R3_FaultsPerInterval (stale if <3 rounds)
+        result.r3TimeAllowed    = cols[14] || '';   // H[14] R3_TimeAllowed
+        result.r3TimeInterval   = cols[15] || '1'; // H[15] R3_TimeInterval
+        result.californiaSplit  = cols[16] === '1' || cols[16] === 'True'; // H[16]
+        result.isFEI            = cols[17] === '1' || cols[17] === 'True'; // H[17]
+        result.caliSplitSecs    = cols[21] || '2'; // H[21] CaliSplitSections
+        result.penaltySeconds   = cols[22] || '6'; // H[22] PenaltySeconds
+        result.noRank           = cols[23] === 'True'; // H[23]
+        result.showStandingsTime = cols[25] === 'True'; // H[25]
+        result.showFlags        = cols[26] === 'True'; // H[26]
+        result.showFaultsAsDecimals = cols[28] === 'True'; // H[28]
+        const rawSponsor = cols[19] || '';
+        result.sponsor = (rawSponsor === 'True' || rawSponsor === 'False' || !rawSponsor.trim()) ? '' : rawSponsor;
       }
-      result.rawHeader      = cols;
+
+      if (isHunterHeader) {
+        // Hunter header — confirmed 2026-03-22 from toggle test
+        result.scoringMethod    = cols[2] || '';   // H[02] ScoreType (0=standard, 2=Derby, 3=Special)
+        result.numRounds        = cols[3] || '1';  // H[03] NumRounds
+        result.isFlat           = cols[5] === '1'; // H[05] IsFlat
+        result.numScores        = cols[7] || '1';  // H[07] NumScores
+        result.ribbons          = cols[8] || '';   // H[08] Ribbons
+        result.sbDelay          = cols[9] || '4';  // H[09] SBDelay
+        result.isEquitation     = cols[10] === 'True'; // H[10]
+        result.isChampionship   = cols[11] === 'True'; // H[11]
+        result.isJogged         = cols[12] === 'True'; // H[12]
+        result.onCourseSB       = cols[13] === 'True'; // H[13]
+        result.ignoreSireDam    = cols[14] === 'True'; // H[14]
+        result.printJudgeScores = cols[15] === 'True'; // H[15]
+        result.reverseRank      = cols[16] === 'True'; // H[16]
+        result.californiaSplit  = cols[17] === 'True'; // H[17]
+        result.caliSplitSections = cols[33] || '2'; // H[33] CaliSplitSections
+        result.showAllRounds    = cols[35] === 'True'; // H[35]
+        result.derbyType        = parseInt(cols[37] || '0'); // H[37] 0=none,1-8=derby types
+        result.ihsa             = cols[38] === 'True'; // H[38]
+        result.ribbonsOnly      = cols[39] === 'True'; // H[39]
+        result.phaseLabels      = [cols[25]||'', cols[26]||'', cols[27]||''].filter(Boolean);
+        result.message          = cols[28] || '';
+        const rawSponsor        = cols[29] || '';
+        result.sponsor = (rawSponsor === 'True' || rawSponsor === 'False' || !rawSponsor.trim()) ? '' : rawSponsor;
+        // numJudges for display
+        result.numJudges        = cols[7] || '1';
+      }
+
+      result.raw.header = cols;
       continue;
     }
 
+    // ── ROW @foot: Trophy/footer text ────────────────────────────────────────
     if (lines[i].startsWith('@foot')) {
       result.trophy = cols[1] || '';
       continue;
     }
 
+    // ── ROW @money: Prize money ──────────────────────────────────────────────
     if (lines[i].startsWith('@money')) {
       result.prizes = cols.slice(1).filter(v => v && v !== '0').map(Number);
       continue;
     }
 
+    // ── Entry rows — first col is entry number ───────────────────────────────
     if (!cols[0] || !/^\d+$/.test(cols[0])) continue;
 
-    const isJ = result.classType === 'J' || result.classType === 'T';
+    const isJumper = result.classType === 'J' || result.classType === 'T';
+    const isHunter = result.classType === 'H';
 
     const entry = {
-      entryNum: cols[0],
-      horse:    cols[1] || '',
-      rider:    cols[2] || '',
+      entryNum:  cols[0],
+      horse:     cols[1] || '',
+      rider:     cols[2] || '',
+      // cols[3,4] = empty
+      owner:     cols[5] || '',
+      sire:      cols[6] || '',
+      dam:       cols[7] || '',
+      city:      cols[8] || '',
+      state:     cols[9] || '',
+      horseFEI:  cols[10] || '',   // horse FEI/USEF number or passport
+      riderFEI:  cols[11] || '',   // rider FEI/USEF number
+      ownerFEI:  cols[12] || '',   // owner FEI/USEF number (rarely populated — unconfirmed)
       hasGone:  false,
-      rawCols:  cols,
+      place:    '',
     };
 
-    if (result.classType === 'H') {
-      entry.place   = cols[15] && cols[15] !== '0' ? cols[15] : '';
-      entry.score   = cols[16] && cols[16] !== '0' ? cols[16] : '';
-      entry.hasGone = cols[40] === '1';
+    if (isHunter || result.classType === 'U') {
+      // Hunter entry cols — confirmed 2026-03-20 (97-class analysis)
+      // col[13]=GoOrder, col[14]=CurrentPlace, col[15]=R1Score
+      // col[42]=R1Total, col[45]=CombinedTotal
+      // col[49]=HasGone_R1, col[50]=HasGone_R2, col[52]=StatusCode_R1
+      entry.place      = cols[14] && cols[14] !== '0' ? cols[14] : '';
+      entry.score      = cols[15] && cols[15] !== '0' ? cols[15] : '';
+      entry.r1Total    = cols[42] && cols[42] !== '0' ? cols[42] : '';
+      entry.combined   = cols[45] && cols[45] !== '0' ? cols[45] : '';
+      entry.hasGone    = cols[49] === '1' || cols[50] === '1';
+      entry.hasGoneR1  = cols[49] === '1';
+      entry.hasGoneR2  = cols[50] === '1';
+      entry.statusCode = cols[52] || '';
+      // Two-round classic: R2 score at col[24]
+      entry.r2Score    = cols[24] && cols[24] !== '0' ? cols[24] : '';
     }
 
-    if (isJ) {
-      entry.rideOrder    = cols[13] && cols[13] !== '0' ? cols[13] : '';
-      entry.r1Place      = cols[14] && cols[14] !== '0' ? cols[14] : '';
-      entry.r1Time       = cols[15] && cols[15] !== '0' ? cols[15] : '';  // confirmed col 15
-      entry.r1JumpFaults = cols[16] || '0';                               // confirmed col 16
-      entry.r1Total      = cols[17] && cols[17] !== '0' ? cols[17] : '';  // confirmed col 17
-      entry.r2Time       = cols[22] && cols[22] !== '0' ? cols[22] : '';  // confirmed col 22
-      entry.r2Total      = cols[24] && cols[24] !== '0' ? cols[24] : '';  // confirmed col 24
-      entry.r2JumpFaults = cols[25] || '0';
-      entry.statusCode   = cols[35] || '';  // RF=RiderFall, EL=Eliminated, WD=Withdrawn etc
-      // TIMY timestamp blocks — confirmed from live test 2026-03-20
-      // Block positions corrected: R1=36-51, R2=52-66, R3=67-81
-      const tod = i => (cols[i] && cols[i] !== '00:00:00' && cols[i] !== '0') ? cols[i] : '';
-      entry.r1HasGone   = tod(36);   // Farmtek: '1'=competed | TIMY: CDStart TOD
-      entry.r1CdStart   = tod(37);   // TIMY CDStart TOD
-      entry.r1RideStart = tod(44);   // confirmed
-      entry.r1RideEnd   = tod(51);   // confirmed
-      entry.r2CdStart   = tod(52);   // confirmed
-      entry.r2RideStart = tod(59);   // confirmed
-      entry.r2RideEnd   = tod(66);   // confirmed
-      entry.r3CdStart   = tod(67);
-      entry.r3RideStart = tod(74);
-      entry.r3RideEnd   = tod(81);
-      entry.hasGone     = !!(entry.r1Time || entry.r1Total || entry.r1Place);
+    if (isJumper) {
+      // Jumper entry cols — CONFIRMED 2026-03-22 from live class 221 (3 rounds, TIMY)
+      // TIMY (T): col[13]=RideOrder, col[36]=HasGone, col[35]=StatusCode(unconfirmed)
+      // Farmtek (J): col[13]=0, col[35]=RideOrder, col[36]=HasGone, col[39]=StatusCode
+      const isFarmtek = result.classType === 'J';
+      const isTIMY    = result.classType === 'T';
+
+      entry.rideOrder     = isTIMY ? (cols[13] || '') : (cols[35] || '');
+      entry.overallPlace  = cols[14] && cols[14] !== '0' ? cols[14] : '';
+
+      // R1 block: cols 15-20
+      entry.r1Time        = cols[15] && cols[15] !== '0' ? cols[15] : '';
+      entry.r1PenaltySec  = cols[16] && cols[16] !== '0' ? cols[16] : '';
+      entry.r1TotalTime   = cols[17] && cols[17] !== '0' ? cols[17] : '';
+      entry.r1TimeFaults  = cols[18] || '0';
+      entry.r1JumpFaults  = cols[19] || '0';
+      entry.r1TotalFaults = cols[20] || '0';
+      // col[21] unknown, always 0
+
+      // R2/JO block: cols 22-27
+      entry.r2Time        = cols[22] && cols[22] !== '0' ? cols[22] : '';
+      entry.r2PenaltySec  = cols[23] && cols[23] !== '0' ? cols[23] : '';
+      entry.r2TotalTime   = cols[24] && cols[24] !== '0' ? cols[24] : '';
+      entry.r2TimeFaults  = cols[25] || '0';
+      entry.r2JumpFaults  = cols[26] || '0';
+      entry.r2TotalFaults = cols[27] || '0';
+      // col[28] unknown, always 0
+
+      // R3/JO block: cols 29-34
+      entry.r3Time        = cols[29] && cols[29] !== '0' ? cols[29] : '';
+      entry.r3PenaltySec  = cols[30] && cols[30] !== '0' ? cols[30] : '';
+      entry.r3TotalTime   = cols[31] && cols[31] !== '0' ? cols[31] : '';
+      entry.r3TimeFaults  = cols[32] || '0';
+      entry.r3JumpFaults  = cols[33] || '0';
+      entry.r3TotalFaults = cols[34] || '0';
+
+      // HasGone and StatusCode
+      entry.hasGone       = cols[36] === '1';
+      entry.statusCode    = isFarmtek ? (cols[39] || '') : (cols[35] || '');
     }
 
     result.entries.push(entry);
@@ -567,443 +342,286 @@ function parseCls(content, filename) {
   return result;
 }
 
-// ── RAW COLUMN DUMP ───────────────────────────────────────────────────────────
-// Prints every non-empty column with known labels for Skippy to interpret
-
-function logRawDump(parsed) {
-  const isJ     = parsed.classType === 'J' || parsed.classType === 'T';
-  const eLabels = isJ ? JUMPER_LABELS : HUNTER_LABELS;
-  const hLabels = isJ ? HEADER_LABELS_JUMPER : HEADER_LABELS_HUNTER;
-
-  log(`  [HEADER COLS]`);
-  parsed.rawHeader.forEach((val, i) => {
-    if (val === '' || val === undefined) return;
-    const label = hLabels[i] || '?';
-    log(`    H[${String(i).padStart(2,'0')}] ${label.padEnd(22)} = ${val}`);
-  });
-
-  log(`  [ENTRY COLS — all entries, non-empty only]`);
-  parsed.entries.forEach(e => {
-    log(`    #${e.entryNum} ${e.horse} / ${e.rider}`);
-    e.rawCols.forEach((val, i) => {
-      if (i < 3) return;                               // skip entryNum/horse/rider
-      if (val === '' || val === '0' || val === '00:00:00') return;
-      const label = eLabels[i] || '?';
-      log(`      [${String(i).padStart(2,'0')}] ${label.padEnd(18)} = ${val}`);
-    });
-  });
-}
-
-// ── DIFF ──────────────────────────────────────────────────────────────────────
-// Shows exactly which columns changed between two file states
-
-function logDiff(oldContent, newContent, filename) {
-  const oldLines = oldContent.split(/\r?\n/).filter(l => l.trim()).map(parseCSVLine);
-  const newLines = newContent.split(/\r?\n/).filter(l => l.trim()).map(parseCSVLine);
-
-  const classType = (newLines[0] && newLines[0][0]) || 'U';
-  const isJ       = classType === 'J' || classType === 'T';
-  const eLabels   = isJ ? JUMPER_LABELS : HUNTER_LABELS;
-  const hLabels   = isJ ? HEADER_LABELS_JUMPER : HEADER_LABELS_HUNTER;
-
-  log(`  [DIFF: ${filename}]`);
-
-  // Header diff
-  const oH = oldLines[0] || [], nH = newLines[0] || [];
-  const hDiffs = [];
-  for (let i = 0; i < Math.max(oH.length, nH.length); i++) {
-    if ((oH[i]||'') !== (nH[i]||'')) {
-      hDiffs.push(`H[${String(i).padStart(2,'0')}] ${(hLabels[i]||'?').padEnd(22)}: "${oH[i]||''}" → "${nH[i]||''}"`);
-    }
-  }
-  if (hDiffs.length) {
-    log(`    HEADER:`);
-    hDiffs.forEach(d => log(`      ${d}`));
-  }
-
-  // Entry diff — map by entry number
-  const oEntries = {}, nEntries = {};
-  oldLines.forEach(c => { if (c[0] && /^\d+$/.test(c[0])) oEntries[c[0]] = c; });
-  newLines.forEach(c => { if (c[0] && /^\d+$/.test(c[0])) nEntries[c[0]] = c; });
-
-  const allNums = new Set([...Object.keys(oEntries), ...Object.keys(nEntries)]);
-  let anyEntry  = false;
-
-  allNums.forEach(num => {
-    const oE = oEntries[num] || [], nE = nEntries[num] || [];
-    const diffs = [];
-    for (let i = 0; i < Math.max(oE.length, nE.length); i++) {
-      if ((oE[i]||'') !== (nE[i]||'')) {
-        diffs.push(`[${String(i).padStart(2,'0')}] ${(eLabels[i]||'?').padEnd(18)}: "${oE[i]||''}" → "${nE[i]||''}"`);
-      }
-    }
-    if (diffs.length) {
-      anyEntry = true;
-      const horse = nE[1] || oE[1] || '?';
-      const rider = nE[2] || oE[2] || '?';
-      log(`    ENTRY #${num} ${horse} / ${rider}:`);
-      diffs.forEach(d => log(`      ${d}`));
-    }
-  });
-
-  if (!hDiffs.length && !anyEntry) {
-    log(`    (no column changes — whitespace/line-ending only)`);
-  }
-}
-
-// ── LOG CLASS SUMMARY ─────────────────────────────────────────────────────────
+// ── LOG PARSED CLASS ─────────────────────────────────────────────────────────
 
 function logClass(parsed, changed) {
-  const isJ   = parsed.classType === 'J' || parsed.classType === 'T';
-  const isH   = parsed.classType === 'H';
-  const gone  = parsed.entries.filter(e => e.hasGone);
-  const pend  = parsed.entries.filter(e => !e.hasGone);
+  const isJumper = parsed.classType === 'J' || parsed.classType === 'T';
+  const isHunter = parsed.classType === 'H';
+  const gone     = parsed.entries.filter(e => e.hasGone);
+  const pending  = parsed.entries.filter(e => !e.hasGone);
 
-  logSep();
-  log(`FILE: ${parsed.filename} [${changed ? 'CHANGED' : 'INITIAL'}]`);
+  logSeparator();
+  log(`FILE: ${parsed.filename} ${changed ? '(CHANGED)' : '(NEW)'}`);
   log(`CLASS: ${parsed.className}`);
 
   let typeStr = parsed.classType;
-  if (isH) typeStr = 'Hunter' + (parsed.isEquitation ? ' Equitation' : '') + (parsed.isChampionship ? ' Championship' : '');
-  if (isJ) typeStr = 'Jumper' + (parsed.classType === 'T' ? ' (TIMY)' : ' (Farmtek)');
+  if (isHunter) {
+    typeStr = 'Hunter';
+    if (parsed.derbyType > 0) typeStr += ' Derby';
+    else if (parsed.isFlat) typeStr += ' Flat';
+    if (parsed.isEquitation) typeStr += ' Equitation';
+    if (parsed.isChampionship) typeStr += ' Championship';
+  }
+  if (isJumper)  typeStr = `Jumper (${parsed.classType === 'T' ? 'TIMY' : 'Farmtek'})`;
   if (parsed.classType === 'U') typeStr = 'Unformatted';
 
-  log(`TYPE: ${typeStr} | Rounds: ${parsed.numRounds||'?'} | Judges: ${parsed.numJudges||'?'} | Ribbons: ${parsed.ribbons||'?'}`);
-  log(`FLAGS: Equitation=${parsed.isEquitation} | Championship=${parsed.isChampionship} | Jogged=${parsed.isJogged} | OnCourseSB=${parsed.onCourseSB}`);
-  if (parsed.sponsor) log(`SPONSOR: ${parsed.sponsor}`);
-  if (parsed.message) log(`MESSAGE: ${parsed.message}`);
-  if (parsed.trophy)  log(`TROPHY:  ${parsed.trophy}`);
-  if (parsed.prizes.length) log(`PRIZES:  $${parsed.prizes.slice(0,5).join(', $')}${parsed.prizes.length > 5 ? '...' : ''}`);
-  log(`ENTRIES: ${parsed.entries.length} total | ${gone.length} competed | ${pend.length} pending`);
+  const roundsInfo = isJumper ? ` | Rounds completed: ${parsed.roundsCompleted || 0}` : (parsed.numRounds ? ` | Rounds: ${parsed.numRounds}` : '');
+  log(`TYPE: ${typeStr}${roundsInfo} | Ribbons: ${parsed.ribbons || '?'}`);
+  if (isJumper && parsed.r1TimeAllowed) log(`TA: R1=${parsed.r1TimeAllowed}s R2=${parsed.r2TimeAllowed||'?'}s R3=${parsed.r3TimeAllowed||'?'}s | Penalty: ${parsed.penaltySeconds||6}s`);
+  if (parsed.sponsor && parsed.sponsor !== 'sponsored field') log(`SPONSOR: ${parsed.sponsor}`);
+  if (parsed.trophy  && parsed.trophy  !== 'trophies field')  log(`TROPHY: ${parsed.trophy}`);
+  if (parsed.prizes.length) log(`PRIZES: $${parsed.prizes.slice(0,5).join(', $')}${parsed.prizes.length > 5 ? '...' : ''}`);
+
+  if (parsed.onCourse) {
+    log(`ON COURSE: #${parsed.onCourse.entryNum} ${parsed.onCourse.horse} / ${parsed.onCourse.rider}`);
+  }
+
+  log(`ENTRIES: ${parsed.entries.length} total | ${gone.length} competed | ${pending.length} pending`);
 
   if (gone.length) {
     log(`--- COMPETED ---`);
-    [...gone].sort((a,b) => parseInt(a.place||a.r1Place||99) - parseInt(b.place||b.r1Place||99))
-      .forEach(e => {
-        if (isH) {
-          log(`  Place:${(e.place||'--').padEnd(4)} #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider} | Score: ${e.score||'--'}`);
-        } else if (isJ) {
-          const f1 = parseInt(e.r1JumpFaults||0) + parseInt(e.r1TimeFaults||0);
-          let s = `R1: ${e.r1Time ? e.r1Time+'s' : '--'} (${f1 ? f1+' faults' : 'clear'})`;
-          if (e.r2Time) {
-            const f2 = parseInt(e.r2JumpFaults||0) + parseInt(e.r2TimeFaults||0);
-            s += ` | JO: ${e.r2Time}s (${f2 ? f2+' faults' : 'clear'})`;
-          }
-          if (e.rideStart) s += ` | RideStart:${e.rideStart}`;
-          if (e.cdStart)   s += ` | CDStart:${e.cdStart}`;
-          log(`  Place:${(e.r1Place||'--').padEnd(4)} #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider} | ${s}`);
+    // Sort by place for display
+    const sorted = [...gone].sort((a, b) => {
+      const ap = parseInt(a.place || a.overallPlace || '99');
+      const bp = parseInt(b.place || b.overallPlace || '99');
+      return ap - bp;
+    });
+    sorted.forEach(e => {
+      if (isHunter) {
+        const placeStr = e.place ? `Place: ${e.place}` : 'Place: --';
+        log(`  ${placeStr.padEnd(12)} #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider} | Score: ${e.score || '--'}`);
+      } else if (isJumper) {
+        const placeStr = e.overallPlace ? `Place: ${e.overallPlace}` : 'Place: --';
+        const jFaults = parseFloat(e.r1TotalFaults||'0');
+        let scoreStr = `R1: ${e.r1TotalTime ? e.r1TotalTime + 's' : '--'}`;
+        if (jFaults > 0) scoreStr += ` (${jFaults} faults)`;
+        else scoreStr += ` (clear)`;
+        if (e.r2Time) {
+          const j2Faults = parseFloat(e.r2TotalFaults||'0');
+          scoreStr += ` | R2: ${e.r2TotalTime}s`;
+          if (j2Faults > 0) scoreStr += ` (${j2Faults} faults)`;
+          else scoreStr += ` (clear)`;
         }
-      });
+        if (e.r3Time) {
+          const j3Faults = parseFloat(e.r3TotalFaults||'0');
+          scoreStr += ` | JO: ${e.r3TotalTime}s`;
+          if (j3Faults > 0) scoreStr += ` (${j3Faults} faults)`;
+          else scoreStr += ` (clear)`;
+        }
+        if (e.statusCode) scoreStr += ` [${e.statusCode}]`;
+        log(`  ${placeStr.padEnd(12)} #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider} | ${scoreStr}`);
+      } else {
+        log(`  #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider}`);
+      }
+    });
   }
 
-  if (pend.length) {
-    log(`--- PENDING (${pend.length}) ---`);
-    pend.forEach(e => log(`  #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider}`));
+  if (pending.length) {
+    log(`--- PENDING (${pending.length}) ---`);
+    pending.forEach(e => {
+      log(`  #${e.entryNum.padEnd(6)} ${e.horse} / ${e.rider}`);
+    });
   }
 
-  // Research mode: always dump full raw columns
-  log(`--- RAW DUMP ---`);
-  logRawDump(parsed);
 }
 
-// ── TSKED ─────────────────────────────────────────────────────────────────────
+// ── READ TSKED ───────────────────────────────────────────────────────────────
 
 function readTsked() {
   const content = safeRead(TSKED_PATH);
-  if (!content) { log('tsked.csv not found'); return; }
+  if (!content) return;
   saveSnapshot('tsked.csv', content, 'startup');
   const lines = content.split(/\r?\n/).filter(l => l.trim());
   log('');
-  log('TSKED:');
+  log('TSKED FILE:');
   lines.forEach((line, i) => {
-    const c = parseCSVLine(line);
-    if (i === 0) log(`  Show: ${c[0]} | Dates: ${c[1]}`);
-    else         log(`  Class ${c[0]}: ${c[1]} | Date: ${c[2]} | Flag: ${c[3]||'(none)'}`);
+    const cols = parseCSVLine(line);
+    if (i === 0) {
+      log(`  Show: ${cols[0]} | Dates: ${cols[1]}`);
+    } else {
+      log(`  Class ${cols[0]}: ${cols[1]} | Date: ${cols[2]} | Flag: ${cols[3]}`);
+    }
   });
 }
 
-// ── CONFIG ────────────────────────────────────────────────────────────────────
+// ── READ CONFIG ──────────────────────────────────────────────────────────────
 
 function readConfig() {
   const content = safeRead(CONFIG_PATH);
-  if (!content) { log('config.dat not found'); return {}; }
+  if (!content) { log('config.dat not found or unreadable'); return; }
   saveSnapshot('config.dat', content, 'startup');
-  const lines = content.split(/\r?\n/).filter(l => l.trim());
   log('');
-  log('CONFIG.DAT (raw):');
-  lines.forEach((line, i) => log(`  [${i}] ${line}`));
+  log('CONFIG.DAT:');
+  const lines = content.split(/\r?\n/).filter(l => l.trim());
+  lines.forEach(line => log('  ' + line));
+
+  // Parse key fields from first line
   try {
-    const c = parseCSVLine(lines[0]);
-    const scoreboardPort = parseInt(c[1]) || 0;
-    const liveDataPort   = scoreboardPort - 496;  // always 496 apart
+    const cols = parseCSVLine(lines[0]);
     log('');
     log('CONFIG PARSED:');
-    log('  Scoreboard Port: ' + scoreboardPort);
-    log('  Live Data Port:  ' + liveDataPort + ' (derived: scoreboard - 496)');
-    log('  Server IP: ' + (c[3]  || '?'));
-    log('  FTP Path:  ' + (c[4]  || '?'));
-    log('  FTP User:  ' + (c[5]  || '?'));
-    log('  Show URL:  ' + (c[26] || '?'));
-    if (lines[3]) log('  Show Name: ' + lines[3].trim());
-    if (lines[4]) log('  Dates:     ' + lines[4].trim());
-    if (lines[5]) log('  Location:  ' + lines[5].trim());
-    const rm = (c[4]||'').match(/r(\d+)$/i);
-    if (rm) {
-      showRing = rm[1];
-      log('  Ring #:    ' + showRing);
+    log('  UDP Port:     ' + (cols[1] || '?'));
+    log('  Server IP:    ' + (cols[3] || '?'));
+    log('  FTP Path:     ' + (cols[4] || '?'));
+    log('  FTP User:     ' + (cols[5] || '?'));
+    log('  Show URL:     ' + (cols[24] || '?') + ' (ignored — slug from config.json)');
+    log('  Show Name:    ' + (lines[3] ? lines[3].trim() : '?'));
+    log('  Show Dates:   ' + (lines[4] ? lines[4].trim() : '?'));
+    log('  Location:     ' + (lines[5] ? lines[5].trim() : '?'));
+
+    // Extract ring number from FTP path — store as module var for Worker POSTs
+    const pathMatch = (cols[4] || '').match(/r(\d+)$/);
+    if (pathMatch) {
+      SHOW_RING = pathMatch[1];
+      log('  Ring #:       ' + SHOW_RING);
     }
-    // Extract slug from FTP path e.g. /SHOWS/HITS/Culpeper/2025/Summer/wk12/r1
-    // Use show URL slug from col[26] if available, otherwise derive from FTP path
-    const ftpSlug = (c[26] || '').trim();
-    if (ftpSlug) {
-      showSlug = ftpSlug;
-      log('  Show Slug: ' + showSlug + ' (from col[26])');
+
+    // Slug comes from config.json only — Ryegate col[24] is ignored
+    // col[24] is unreliable (often "False" or stale) — we own our slugs
+    if (SHOW_SLUG) {
+      log('  Slug:         ' + SHOW_SLUG + ' (from config.json)');
     } else {
-      // Fallback: derive from FTP path segments
-      const ftpParts = (c[4]||'').split('/').filter(Boolean);
-      if (ftpParts.length >= 3) {
-        showSlug = ftpParts.slice(2, -1).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '-');
-        log('  Show Slug: ' + showSlug + ' (derived from FTP path)');
-      }
+      log('  Slug:         NOT SET — Worker posting will not work');
+      log('  Set "slug" in config.json before running');
     }
-    return { scoreboardPort, liveDataPort };
   } catch(e) {
-    log('  (parse error: ' + e.message + ')');
-    return {};
+    log('  (Could not parse config fields: ' + e.message + ')');
   }
 }
 
-// ── DATA OUTPUT ───────────────────────────────────────────────────────────────
-// Writes a clean JSON snapshot of the active class to west_data.json
-// Overwrites on every .cls change — open in browser to see live state
-// This is the payload shape that will eventually POST to the Worker
-
-let DATA_PATH = null;
-
-function initDataFile() {
-  const candidates = LOG_CANDIDATES
-    .map(p => p ? p.replace('west_log.txt', 'west_data.json') : null)
-    .filter(Boolean);
-  for (const candidate of candidates) {
-    try {
-      fs.writeFileSync(candidate, JSON.stringify({ status: 'started', ts: new Date().toISOString() }, null, 2));
-      DATA_PATH = candidate;
-      console.log('✓ Data file: ' + DATA_PATH);
-      break;
-    } catch(e) {
-      console.log('✗ Cannot write data file: ' + candidate);
-    }
-  }
-}
-
-function buildClassData(parsed) {
-  const isJ = parsed.classType === 'J' || parsed.classType === 'T';
-  const isH = parsed.classType === 'H';
-
-  // Build rounds array from header (always 3, zeros if unused)
-  const rounds = [
-    { ta: parsed.r1Ta || '', faultsPerInterval: parsed.r1Fpi || '', timeInterval: parsed.r1Ti || '' },
-    { ta: parsed.r2Ta || '', faultsPerInterval: parsed.r2Fpi || '', timeInterval: parsed.r2Ti || '' },
-    { ta: parsed.r3Ta || '', faultsPerInterval: parsed.r3Fpi || '', timeInterval: parsed.r3Ti || '' },
-  ];
-
-  const entries = parsed.entries.map(e => {
-    const base = {
-      entryNum:   e.entryNum,
-      horse:      e.horse,
-      rider:      e.rider,
-      owner:      e.owner || '',
-      rideOrder:  e.rideOrder || e.place || '',
-      hasGone:    e.hasGone,
-      statusCode: e.statusCode || '',
-    };
-    if (isJ) {
-      return {
-        ...base,
-        r1Place:      e.r1Place      || '',
-        r1Time:       e.r1Time       || '',
-        r1JumpFaults: e.r1JumpFaults || '',
-        r1Total:      e.r1Total      || '',
-        r2Place:      e.r2Place      || '',
-        r2Time:       e.r2Time       || '',
-        r2JumpFaults: e.r2JumpFaults || '',
-        r2Total:      e.r2Total      || '',
-      };
-    }
-    if (isH) {
-      return {
-        ...base,
-        place: e.place || '',
-        score: e.score || '',
-      };
-    }
-    return base;
-  });
-
-  return {
-    updatedAt:     new Date().toISOString(),
-    filename:      parsed.filename,
-    className:     parsed.className,
-    classType:     parsed.classType,
-    scoringMethod: parsed.scoringMethod || '',
-    isFEI:         parsed.isFEI        || false,
-    sponsor:       parsed.sponsor      || '',
-    numEntries:    parsed.entries.length,
-    competed:      parsed.entries.filter(e => e.hasGone).length,
-    pending:       parsed.entries.filter(e => !e.hasGone).length,
-    rounds,
-    entries,
-    liveState,   // current UDP state
-  };
-}
-
-function writeDataFile(parsed) {
-  if (!DATA_PATH) return;
-  try {
-    const data = buildClassData(parsed);
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-    log(`DATA: west_data.json updated (${parsed.entries.filter(e=>e.hasGone).length}/${parsed.entries.length} competed)`);
-    // POST to Worker
-    postToWorker('/postClassData', data, `.cls update (${parsed.filename} — ${data.competed}/${data.numEntries} competed)`);
-  } catch(e) {
-    log(`DATA ERROR: ${e.message}`);
-  }
-}
-
-// ── SCAN + POLL ───────────────────────────────────────────────────────────────
-
-const fileStates = {};
+// ── SCAN ALL CLS FILES ────────────────────────────────────────────────────────
 
 function scanAll() {
-  let files;
-  try { files = fs.readdirSync(CLASSES_DIR).filter(f => f.endsWith('.cls')); }
-  catch(e) { log(`ERROR reading dir: ${e.message}`); return; }
-
-  log(`Found ${files.length} .cls files`);
-  files.forEach(f => {
-    const content = safeRead(path.join(CLASSES_DIR, f));
-    if (!content) return;
-    fileStates[f] = content;
-    const parsed = parseCls(content, f);
-    if (parsed) {
-      saveSnapshot(f, content, 'initial');
-      logClass(parsed, false);
-    }
-  });
-}
-
-function startPoller() {
-  log(`Polling every ${POLL_INTERVAL}ms...`);
-  setInterval(() => {
-    let files;
-    try { files = fs.readdirSync(CLASSES_DIR).filter(f => f.endsWith('.cls')); }
-    catch(e) { log(`POLL ERROR: ${e.message}`); return; }
-
+  try {
+    const files = fs.readdirSync(CLASSES_DIR).filter(f => f.endsWith('.cls'));
+    log(`Found ${files.length} .cls files in ${CLASSES_DIR}`);
     files.forEach(f => {
-      const content = safeRead(path.join(CLASSES_DIR, f));
-      if (!content || content === fileStates[f]) return;
-
-      const old = fileStates[f];
-      fileStates[f] = content;
-
-      saveSnapshot(f, content, 'changed');
-      logSep();
-      log(`CHANGE DETECTED: ${f}`);
-
-      if (old) logDiff(old, content, f);
-
+      const fullPath = path.join(CLASSES_DIR, f);
+      const content = safeRead(fullPath);
+      if (!content) return;
       const parsed = parseCls(content, f);
       if (parsed) {
-        logClass(parsed, true);
-        writeDataFile(parsed);  // write clean JSON output
+        fileStates[f] = content;
+        saveSnapshot(f, content, 'initial scan');
+        logClass(parsed, false);
+        postToWorker('/postClassData', parsed, `postClassData ${f}`);
       }
     });
-  }, POLL_INTERVAL);
+  } catch(e) {
+    log(`ERROR scanning directory: ${e.message}`);
+  }
 }
 
-// ── UDP LISTENER ──────────────────────────────────────────────────────────────
-// Listens on scoreboard port only (live data port locked by Ryegate)
-// Scoreboard port = config.dat col[1]
-// Live data port  = scoreboard - 496 (locked, not used)
-//
-// PROTOCOL: {RYESCR}{tag}value{tag}value...
-// Tags confirmed from live testing:
-//   fr  = ring number
-//   1   = entry number
-//   2   = horse name
-//   3   = rider name
-//   4   = owner
-//   5   = separator (empty)
-//   8   = rank (finish signal — appears with final placing)
-//   13  = time allowed (format: "TA: 78" — strip prefix)
-//   14  = jump faults  (format: "JUMP 4" — strip prefix)
-//   15  = time faults  (format: "TIME 2" — strip prefix)
-//   17  = elapsed seconds (whole number while running, decimal at finish)
-//   18  = target       (format: "TARGET 4" — strip prefix)
-//   23  = countdown    (format: "-44" — negative = seconds remaining)
-//
-// PHASES detected from which tags are present:
-//   INTRO    = entry/horse/rider present, no cd or elapsed
-//   CD       = {23} countdown present
-//   ONCOURSE = {17} elapsed present, no {8} rank
-//   FINISH   = {8} rank present
+// ── WATCH FOR CHANGES ────────────────────────────────────────────────────────
+
+function startWatcher() {
+  try {
+    fs.watch(CLASSES_DIR, { persistent: true }, (eventType, filename) => {
+      if (!filename || !filename.endsWith('.cls')) return;
+      const fullPath = path.join(CLASSES_DIR, filename);
+
+      // Small delay to let Ryegate finish writing
+      setTimeout(() => {
+        const content = safeRead(fullPath);
+        if (!content) return;
+
+        // Only log if content actually changed
+        if (content === fileStates[filename]) return;
+        fileStates[filename] = content;
+
+        const parsed = parseCls(content, filename);
+        if (parsed) {
+          saveSnapshot(filename, content, 'changed');
+          logClass(parsed, true);
+          postToWorker('/postClassData', parsed, `postClassData ${filename}`);
+        }
+      }, 200);
+    });
+    log(`Watching ${CLASSES_DIR} for changes...`);
+  } catch(e) {
+    log(`ERROR starting watcher: ${e.message}`);
+  }
+}
+
+// ── MAIN ──────────────────────────────────────────────────────────────────────
+
+// Test log write on startup
+try {
+  fs.writeFileSync(LOG_PATH, 'WEST Watcher started: ' + new Date().toISOString() + '\r\n');
+  console.log('Log file created at: ' + LOG_PATH);
+} catch(e) {
+  console.error('Cannot write to: ' + LOG_PATH);
+  console.error('Error: ' + e.message);
+  // Fallback to same folder as script
+  LOG_PATH = 'west_log.txt';
+  console.log('Falling back to: ' + LOG_PATH);
+  try { fs.writeFileSync(LOG_PATH, 'WEST Watcher started\r\n'); } catch(e2) {}
+}
+
+log('');
+log('WEST Scoring Live — Class File Watcher');
+log('Log file: ' + LOG_PATH);
+log('');
+
+// Load Worker posting config first
+loadWorkerConfig();
+
+// Read Ryegate config and extract show slug + ring
+readConfig();
+readTsked();
+
+// Initial scan of all existing cls files
+log('');
+log('INITIAL SCAN:');
+scanAll();
+
+// Start watching for changes
+log('');
+startWatcher();
+
+log('Running — press Ctrl+C to stop');
+log('');
+
+// ── HEARTBEAT ─────────────────────────────────────────────────────────────────
+// Sends alive signal to Worker every 60 seconds
+// Worker uses this to flip show status from pending → active
+setInterval(() => {
+  postToWorker('/heartbeat', {
+    version:       '2.2',
+    scoreboardPort: scoreboardPort || '',
+  }, 'heartbeat');
+}, 60000);
+
+// Send one immediately on startup
+setTimeout(() => {
+  postToWorker('/heartbeat', {
+    version:       '2.2',
+    scoreboardPort: scoreboardPort || '',
+  }, 'heartbeat (startup)');
+  log('Heartbeat sent to Worker');
+}, 2000);
+
+// ── UDP LOGGING ───────────────────────────────────────────────────────────────
 
 let UDP_LOG_PATH = null;
 
-// Clean value by stripping known label prefixes
-function cleanUdpVal(tag, val) {
-  if (!val) return val;
-  const v = val.trim();
-  switch(tag) {
-    case '13': return v.replace(/^TA:\s*/i, '');
-    case '14': return v.replace(/^JUMP\s*/i, '');
-    case '15': return v.replace(/^TIME\s*/i, '');
-    case '18': return v.replace(/^TARGET\s*/i, '');  // TTB = Time To Beat
-    case '8':  return v.replace(/^RANK\s*/i, '');
-    case '23': return v; // already clean e.g. "-44"
-    default:   return v;
-  }
-}
-
-// Known tags for unknown-tag filtering
-const UDP_KNOWN_TAGS = new Set(['fr','1','2','3','4','5','8','13','14','15','17','18','23']);
-
-// Current live state — will be used by poster later
-// Updated on every meaningful UDP event
-let liveState = {
-  phase:    'IDLE',   // IDLE | INTRO | CD | ONCOURSE | FINISH
-  entry:    '',
-  horse:    '',
-  rider:    '',
-  owner:    '',
-  ring:     '',
-  ta:       '',
-  elapsed:  '',
-  countdown:'',
-  jumpFaults:'',
-  timeFaults:'',
-  rank:     '',
-  updatedAt: null,
-};
-
-// Track last logged state per entry to suppress duplicate packets
-const udpLastLogged = {};
-
 function initUdpLog() {
-  const candidates = LOG_CANDIDATES
-    .map(p => p ? p.replace('west_log.txt', 'west_udp_log.txt') : null)
-    .filter(Boolean);
+  const candidates = [
+    (process.env.USERPROFILE || '') + '\\Desktop\\west_udp_log.txt',
+    'C:\\Users\\Public\\Desktop\\west_udp_log.txt',
+    'C:\\west_udp_log.txt',
+    path.join(path.dirname(process.execPath || ''), 'west_udp_log.txt'),
+    'west_udp_log.txt',
+  ];
   for (const candidate of candidates) {
     try {
       fs.writeFileSync(candidate, 'WEST UDP Log started: ' + new Date().toISOString() + '\r\n');
       UDP_LOG_PATH = candidate;
-      console.log('✓ UDP log: ' + UDP_LOG_PATH);
-      break;
-    } catch(e) {
-      console.log('✗ Cannot write UDP log: ' + candidate);
-    }
+      log('UDP log: ' + UDP_LOG_PATH);
+      return;
+    } catch(e) {}
   }
-  if (!UDP_LOG_PATH) log('WARNING: Could not create UDP log file');
+  log('WARNING: Could not create UDP log file');
 }
 
 function udpLog(msg) {
@@ -1015,7 +633,8 @@ function udpLog(msg) {
   }
 }
 
-// Parse {tag}value{tag}value... into clean object
+// ── UDP PACKET PARSER ─────────────────────────────────────────────────────────
+
 function parseUdpPacket(msg) {
   const ascii = msg.toString('ascii').replace(/^\r|\r$/g, '');
   const body  = ascii.replace(/^\{RYESCR\}/, '');
@@ -1023,17 +642,157 @@ function parseUdpPacket(msg) {
   const re    = /\{([^}]+)\}([^{]*)/g;
   let m;
   while ((m = re.exec(body)) !== null) {
-    tags[m[1]] = cleanUdpVal(m[1], m[2]);
+    tags[m[1]] = m[2].trim();
   }
   return tags;
 }
 
-// ── ROUND INFERENCE ───────────────────────────────────────────────────────────
-// Determines which round is active for a given entry + TA from UDP
-// Priority:
-//   1. Match UDP TA to round config in header
-//   2. If ambiguous (same TA multiple rounds), fall back to .cls entry state
-//   3. ScoringMethodCode=9 (two-phase) overrides — uses R2/R3 blocks
+function cleanUdpVal(tag, val) {
+  val = (val || '').trim();
+  if (tag === '8')  val = val.replace(/^RANK\s*/i, '').replace(/^:\s*/, '');  // strip 'RANK ' and ': ' prefixes
+  if (tag === '13') val = val.replace(/^TA:\s*/i,  '');
+  if (tag === '14') val = val.replace(/^JUMP\s*/i, '').replace(/^H:/i, '');    // strip 'JUMP ' and 'H:' prefixes
+  if (tag === '15') val = val.replace(/^TIME\s*/i, '');
+  return val;
+}
+
+// ── PORT 31000 — CLASS COMPLETE DETECTOR ─────────────────────────────────────
+// Ryegate video wall port — always-on checkbox in settings
+// Sends class number (and possibly sponsor text) when operator presses Ctrl+A
+// Three rapid presses of Ctrl+A with the same class number = CLASS_COMPLETE
+// Threshold: 3 identical packets within 2 seconds
+
+const CLASS_COMPLETE_PORT    = 31000;
+const CLASS_COMPLETE_COUNT   = 3;    // presses needed
+const CLASS_COMPLETE_WINDOW  = 2000; // ms window
+
+let port31000LastClassNum  = null;
+let port31000PressCount    = 0;
+let port31000WindowTimer   = null;
+
+function startPort31000Listener() {
+  const dgram  = require('dgram');
+  const socket = dgram.createSocket('udp4');
+
+  socket.on('error', (err) => {
+    log(`Port 31000 ERROR: ${err.message}`);
+    socket.close();
+  });
+
+  socket.on('listening', () => {
+    log(`Port 31000 listener active — class complete detection ready`);
+  });
+
+  socket.on('message', (msg) => {
+    const raw = msg.toString('ascii').trim();
+
+    // Log every packet to both logs
+    udpLog(`[31000] RAW: ${raw}`);
+    log(`[31000] RAW: ${raw}`);
+
+    // Confirmed packet format (2026-03-23 live test):
+    // {RYESCR}{fr}[frame]{26}[classNum]s{27}[classNum]{28}[className]{ }
+    // {fr}  = Ryegate frame number — ignore
+    // {26}  = classNum + "s" (sponsor graphic filename) — ignore
+    // {27}  = clean class number ← use this
+    // {28}  = class name ← bonus
+    const tags     = parseUdpPacket(msg);
+    const classNum = (tags['27'] || '').trim();
+    const className = (tags['28'] || '').trim();
+
+    if (!classNum) {
+      udpLog(`[31000] No class number in packet — skipping`);
+      return;
+    }
+
+    log(`[31000] Class: ${classNum} — ${className}`);
+    udpLog(`[31000] Class number: ${classNum} | Name: ${className}`);
+
+    if (classNum === port31000LastClassNum) {
+      // Same class — increment counter
+      port31000PressCount++;
+      log(`[31000] Press ${port31000PressCount}/${CLASS_COMPLETE_COUNT} for class ${classNum}`);
+      udpLog(`[31000] Press ${port31000PressCount}/${CLASS_COMPLETE_COUNT} for class ${classNum}`);
+
+      if (port31000PressCount >= CLASS_COMPLETE_COUNT) {
+        // 3 presses — CLASS_COMPLETE
+        if (port31000WindowTimer) { clearTimeout(port31000WindowTimer); port31000WindowTimer = null; }
+        port31000PressCount   = 0;
+        port31000LastClassNum = null;
+        log(`★ CLASS COMPLETE — class ${classNum} ${className} (3x Ctrl+A confirmed)`);
+        udpLog(`[31000] CLASS_COMPLETE fired for class ${classNum}`);
+        handleClassComplete(classNum, className);
+      }
+    } else {
+      // New class — single press = CLASS_SELECTED, start window for potential CLASS_COMPLETE
+      if (port31000WindowTimer) { clearTimeout(port31000WindowTimer); port31000WindowTimer = null; }
+      port31000LastClassNum = classNum;
+      port31000PressCount   = 1;
+
+      // Fire CLASS_SELECTED immediately on first press
+      log(`◆ CLASS SELECTED — class ${classNum} ${className}`);
+      udpLog(`[31000] CLASS_SELECTED fired for class ${classNum}`);
+      handleClassSelected(classNum, className);
+
+      // Start window — if 2 more presses come within 2s, it becomes CLASS_COMPLETE
+      log(`[31000] Press 1/${CLASS_COMPLETE_COUNT} for class ${classNum} — watching for CLASS_COMPLETE`);
+      port31000WindowTimer = setTimeout(() => {
+        port31000WindowTimer  = null;
+        port31000PressCount   = 0;
+        port31000LastClassNum = null;
+        log(`[31000] Window expired for class ${classNum} — stayed as CLASS_SELECTED`);
+        udpLog(`[31000] Window expired for class ${classNum} — reset`);
+      }, CLASS_COMPLETE_WINDOW);
+    }
+  });
+
+  try {
+    socket.bind(CLASS_COMPLETE_PORT);
+  } catch(e) {
+    log(`Port 31000 bind ERROR: ${e.message}`);
+  }
+}
+
+function handleClassSelected(classNum, className) {
+  logSeparator();
+  log(`CLASS SELECTED: class ${classNum} — ${className}`);
+  log(`  Screens watching this class will refresh`);
+  logSeparator();
+
+  postToWorker('/postClassEvent',
+    { event: 'CLASS_SELECTED', classNum, className },
+    `CLASS_SELECTED class ${classNum}`);
+}
+
+function handleClassComplete(classNum, className) {
+  logSeparator();
+  log(`CLASS COMPLETE: class ${classNum} — ${className}`);
+  log(`  Triggered by 3x Ctrl+A on port ${CLASS_COMPLETE_PORT}`);
+  logSeparator();
+
+  postToWorker('/postClassEvent',
+    { event: 'CLASS_COMPLETE', classNum, className },
+    `CLASS_COMPLETE class ${classNum}`);
+}
+
+// ── SCOREBOARD UDP LISTENER ───────────────────────────────────────────────────
+
+const udpEvents  = [];
+const udpLastLogged = {};
+
+let lastPhase   = 'IDLE';
+let lastEntry   = '';
+let lastElapsed = '';
+let lastCd      = '';
+let lastJump    = '';
+let clockStopTimer = null;
+let cdStopTimer    = null;
+
+function fireEvent(type, data) {
+  const event = { event: type, timestamp: new Date().toISOString(), ...data };
+  udpEvents.push(event);
+  udpLog(`[EVENT:${type}] ${JSON.stringify(data)}`);
+}
 
 function inferRound(entryNum, udpTa) {
   for (const filename of Object.keys(fileStates)) {
@@ -1044,196 +803,76 @@ function inferRound(entryNum, udpTa) {
     const entry = parsed.entries.find(e => e.entryNum === entryNum);
     if (!entry) continue;
 
-    // Two-phase override — Phase 1 writes to R2 block, Phase 2 to R3
     if (parsed.scoringMethod === '9') {
-      if (!entry.r2Time && !entry.r2Total) return { round: 1, label: 'Phase 1' };
+      if (!entry.r2TotalTime) return { round: 1, label: 'Phase 1' };
       return { round: 2, label: 'Phase 2' };
     }
 
-    // Try to match TA to round config
-    const taNum = parseFloat(udpTa) || 0;
-    const r1Match = taNum === parseFloat(parsed.r1Ta);
-    const r2Match = taNum === parseFloat(parsed.r2Ta);
-    const r3Match = taNum === parseFloat(parsed.r3Ta);
+    const taNum   = parseFloat(udpTa) || 0;
+    const r1Match = taNum === parseFloat(parsed.r1TimeAllowed);
+    const r2Match = taNum === parseFloat(parsed.r2TimeAllowed);
+    const r3Match = taNum === parseFloat(parsed.r3TimeAllowed);
 
-    // Unambiguous TA match
     if (r1Match && !r2Match && !r3Match) return { round: 1, label: 'Round 1' };
     if (r2Match && !r1Match && !r3Match) return { round: 2, label: 'Jump Off' };
     if (r3Match && !r1Match && !r2Match) return { round: 3, label: 'Round 3' };
 
-    // Ambiguous — fall back to .cls entry state
-    if (!entry.r1Time && !entry.r1Total && !entry.r1Place) return { round: 1, label: 'Round 1' };
-    if (!entry.r2Time && !entry.r2Total)                   return { round: 2, label: 'Jump Off' };
+    // Ambiguous — use .cls entry state
+    if (!entry.r1TotalTime) return { round: 1, label: 'Round 1' };
+    if (!entry.r2TotalTime) return { round: 2, label: 'Jump Off' };
     return { round: 3, label: 'Round 3' };
   }
   return { round: 1, label: 'Round 1' };
 }
 
-
-// Fires clean events on meaningful state transitions rather than every packet
-// Events are queued here — poster will drain and send them to Worker later
-
-// ── UDP COLLISION DETECTION ───────────────────────────────────────────────────
-// Detects when two scoring computers are broadcasting on the same UDP port
-// or when bad/corrupt data is received.
-//
-// Validate incoming entry against known entries in loaded .cls files.
-// Skip if: Unformatted class, no classes loaded, or idle packet.
-// Suspend after 3 consecutive mismatches — auto-resume after 2 valid hits.
-
-let udpMismatchCount  = 0;
-let udpSuspended      = false;
-let udpSuspendedSince = null;
-let udpValidHits      = 0;
-const UDP_MISMATCH_THRESHOLD = 3;
-const UDP_RESUME_THRESHOLD   = 2;
-
-function getValidEntrySet() {
-  const validEntries    = new Set();
-  let hasFormattedClass = false;
-  for (const filename of Object.keys(fileStates)) {
-    const content = fileStates[filename];
-    if (!content) continue;
-    const parsed = parseCls(content, filename);
-    if (!parsed || parsed.classType === 'U') continue;
-    hasFormattedClass = true;
-    parsed.entries.forEach(e => validEntries.add(e.entryNum));
-  }
-  return { validEntries, hasFormattedClass };
-}
-
-function validateUdpEntry(entry) {
-  if (!entry) return true; // idle — always pass
-  const { validEntries, hasFormattedClass } = getValidEntrySet();
-  if (!hasFormattedClass || validEntries.size === 0) return true; // nothing to validate against
-  const isValid = validEntries.has(entry);
-  if (isValid) {
-    udpValidHits++;
-    if (udpSuspended && udpValidHits >= UDP_RESUME_THRESHOLD) {
-      udpSuspended = false; udpSuspendedSince = null;
-      udpMismatchCount = 0; udpValidHits = 0;
-      udpLog(`[COLLISION] ✓ UDP RESUMED — valid entries detected, data looks clean`);
-      log(`UDP COLLISION CLEARED — resuming normal operation`);
-    }
-  } else {
-    udpMismatchCount++; udpValidHits = 0;
-    udpLog(`[COLLISION] ⚠ Entry #${entry} not in any loaded class (mismatch ${udpMismatchCount}/${UDP_MISMATCH_THRESHOLD})`);
-    if (!udpSuspended && udpMismatchCount >= UDP_MISMATCH_THRESHOLD) {
-      udpSuspended = true; udpSuspendedSince = new Date().toISOString();
-      udpMismatchCount = 0;
-      udpLog(`[COLLISION] ✗ UDP SUSPENDED — possible ring collision or bad data`);
-      log(`⚠ UDP SUSPENDED — possible collision detected. Check ring UDP settings.`);
-    }
-  }
-  return !udpSuspended;
-}
-
-const udpEvents = [];  // queue of events ready to POST
-
-function fireEvent(type, data) {
-  const event = {
-    event:     type,
-    timestamp: new Date().toISOString(),
-    ...data,
-  };
-  udpEvents.push(event);
-  udpLog(`[EVENT:${type}] ${JSON.stringify(data)}`);
-
-  // POST UDP event to Worker
-  postToWorker('/postUdpEvent', event, `UDP ${type} #${data.entry || ''}`);
-
-  // Write data file on every UDP event so local JSON stays live
-  const files = Object.keys(fileStates);
-  if (files.length) {
-    let targetFile = files[files.length - 1];
-    for (const f of files) {
-      const content = fileStates[f];
-      if (!content) continue;
-      const parsed = parseCls(content, f);
-      if (parsed && parsed.entries.find(e => e.entryNum === data.entry)) {
-        targetFile = f;
-        break;
-      }
-    }
-    const content = fileStates[targetFile];
-    if (content) {
-      const parsed = parseCls(content, targetFile);
-      if (parsed) writeDataFile(parsed);
-    }
-  }
-}
-
-// Track last known phase and elapsed for transition detection
-let lastPhase    = 'IDLE';
-let lastEntry    = '';
-let lastElapsed  = '';
-let lastCd       = '';
-let lastJump     = '';
-let clockStopTimer  = null;  // timeout handle for clock-stopped detection
-let cdStopTimer     = null;  // timeout handle for cd-stopped detection
-let udpSilenceTimer = null;  // timeout handle for UDP silence detection
-let lastUdpAt       = null;  // timestamp of last UDP packet received
-const UDP_SILENCE_MS = 3000; // 3s of no packets while ONCOURSE = paused
-
-function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank) {
-
-  // New horse — reset tracking
+function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank, hunterScore, isHunterScore) {
   if (entry !== lastEntry) {
     if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
     if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
-    if (udpSilenceTimer){ clearTimeout(udpSilenceTimer);udpSilenceTimer= null; }
     lastElapsed = '';
     lastJump    = '';
     lastCd      = '';
   }
 
-  // Phase transitions
   if (phase !== lastPhase || entry !== lastEntry) {
-
     if (phase === 'INTRO' && lastPhase !== 'INTRO') {
-      fireEvent('INTRO', { entry, horse, rider, ta });
+      fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: hunterScore || '', isHunter: !!isHunterScore });
     }
-
     if (phase === 'CD' && lastPhase !== 'CD') {
       const { round, label } = inferRound(entry, ta);
       fireEvent('CD_START', { entry, horse, rider, ta, countdown: cd, round, label });
     }
-
     if (phase === 'ONCOURSE' && lastPhase !== 'ONCOURSE') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
       if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
-      if (udpSilenceTimer){ clearTimeout(udpSilenceTimer);udpSilenceTimer= null; }
       const { round, label } = inferRound(entry, ta);
       fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round, label });
     }
-
     if (phase === 'FINISH') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
       if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
-      if (udpSilenceTimer){ clearTimeout(udpSilenceTimer);udpSilenceTimer= null; }
       const { round, label } = inferRound(entry, ta);
-      fireEvent('FINISH', { entry, horse, rider, rank, jumpFaults: jump, timeFaults: time, round, label });
+      if (isHunterScore) {
+        fireEvent('FINISH', { entry, horse, rider, rank, hunterScore, isHunter: true, round, label });
+      } else {
+        fireEvent('FINISH', { entry, horse, rider, rank, jumpFaults: jump, timeFaults: time, round, label });
+      }
     }
   }
 
-  // Fault change while on course
   if (phase === 'ONCOURSE' && jump !== lastJump && lastJump !== '') {
     fireEvent('FAULT', { entry, horse, rider, jumpFaults: jump, timeFaults: time, elapsed });
   }
 
-  // CD stopped detection — countdown stops moving during CD phase
   if (phase === 'CD') {
     if (cd !== lastCd) {
-      // Countdown is moving — cancel any pending cd-stop timer
       if (cdStopTimer) { clearTimeout(cdStopTimer); cdStopTimer = null; }
-      // CD resumed after stop
       const lastEvent = udpEvents[udpEvents.length - 1];
       if (lastEvent && lastEvent.event === 'CD_STOPPED' && lastEvent.entry === entry) {
         fireEvent('CD_RESUMED', { entry, horse, rider, countdown: cd });
       }
       lastCd = cd;
     } else {
-      // Countdown unchanged — start a stop timer if not already running
       if (!cdStopTimer) {
         cdStopTimer = setTimeout(() => {
           cdStopTimer = null;
@@ -1243,14 +882,15 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     }
   }
 
-  // Clock stopped detection — if elapsed stops moving for 2.5s while ONCOURSE
   if (phase === 'ONCOURSE') {
     if (elapsed !== lastElapsed) {
-      // Clock is moving — cancel any pending stop timer
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
+      const lastEvent = udpEvents[udpEvents.length - 1];
+      if (lastEvent && lastEvent.event === 'CLOCK_STOPPED' && lastEvent.entry === entry) {
+        fireEvent('CLOCK_RESUMED', { entry, horse, rider, elapsed });
+      }
       lastElapsed = elapsed;
     } else {
-      // Elapsed unchanged — start a stop timer if not already running
       if (!clockStopTimer) {
         clockStopTimer = setTimeout(() => {
           clockStopTimer = null;
@@ -1260,21 +900,10 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     }
   }
 
-  // Clock resumed — elapsed moved again after a stop
-  if (phase === 'ONCOURSE' && elapsed !== lastElapsed && lastPhase === 'ONCOURSE') {
-    // If we previously fired CLOCK_STOPPED, fire CLOCK_RESUMED
-    const lastEvent = udpEvents[udpEvents.length - 1];
-    if (lastEvent && lastEvent.event === 'CLOCK_STOPPED' && lastEvent.entry === entry) {
-      fireEvent('CLOCK_RESUMED', { entry, horse, rider, elapsed });
-    }
-  }
-
-  lastPhase   = phase;
-  lastEntry   = entry;
-  lastJump    = jump;
+  lastPhase = phase;
+  lastEntry = entry;
+  lastJump  = jump;
 }
-
-
 
 function startUdpListener(scoreboardPort) {
   const dgram  = require('dgram');
@@ -1290,193 +919,83 @@ function startUdpListener(scoreboardPort) {
   });
 
   socket.on('message', (msg) => {
-    const tags     = parseUdpPacket(msg);
-    const entry    = tags['1']  || '';
-    const horse    = tags['2']  || '';
-    const rider    = tags['3']  || '';
-    const owner    = tags['4']  || '';
-    const ring     = tags['fr'] || '';
-    const ta       = tags['13'] || '';
-    const jump     = tags['14'] || '';
-    const time     = tags['15'] || '';
-    const elapsed  = tags['17'] || '';
-    const ttb      = tags['18'] || '';  // Time To Beat
-    const cd       = tags['23'] || '';
-    const rank     = tags['8']  || '';
+    const raw  = msg.toString('ascii').trim();
+    const tags = parseUdpPacket(msg);
 
-    // Determine phase
-    let phase = 'IDLE';
-    if (entry && !cd && !elapsed && !rank) phase = 'INTRO';
-    if (cd)                                phase = 'CD';
-    if (elapsed && !rank)                  phase = 'ONCOURSE';
-    if (rank)                              phase = 'FINISH';
-
-    // Validate entry against loaded .cls files — detect ring collisions
-    // Pass-through if idle, unformatted class, or no classes loaded yet
-    if (phase !== 'IDLE' && !validateUdpEntry(entry)) return;
-
-    // Track last packet time — used for UDP silence detection
-    lastUdpAt = Date.now();
-
-    // Arm UDP silence timer when on course OR in countdown — detects Ryegate
-    // clock/countdown pause that stops sending packets entirely
-    if (phase === 'ONCOURSE' || phase === 'CD') {
-      if (udpSilenceTimer) { clearTimeout(udpSilenceTimer); udpSilenceTimer = null; }
-      udpSilenceTimer = setTimeout(() => {
-        udpSilenceTimer = null;
-        if (lastPhase === 'ONCOURSE') {
-          udpLog(`[SILENCE] No UDP packets for ${UDP_SILENCE_MS}ms while ONCOURSE — possible clock pause`);
-          fireEvent('CLOCK_STOPPED', { entry: lastEntry, horse: liveState.horse, rider: liveState.rider, elapsed: lastElapsed, reason: 'udp_silence' });
-        } else if (lastPhase === 'CD') {
-          udpLog(`[SILENCE] No UDP packets for ${UDP_SILENCE_MS}ms while CD — possible countdown pause`);
-          fireEvent('CD_STOPPED', { entry: lastEntry, horse: liveState.horse, rider: liveState.rider, countdown: liveState.countdown, reason: 'udp_silence' });
-        }
-      }, UDP_SILENCE_MS);
-    } else {
-      // Not on course or CD — clear any pending silence timer
-      if (udpSilenceTimer) { clearTimeout(udpSilenceTimer); udpSilenceTimer = null; }
+    // ── Raw packet log — always log every unique packet for research ──────────
+    // Hunter and jumper have different tag sets — log everything so we can map them
+    const allTags = Object.entries(tags).map(([k,v]) => `{${k}}=${v}`).join(' ');
+    const rawKey  = raw;
+    if (udpLastLogged['__raw__'] !== rawKey) {
+      udpLastLogged['__raw__'] = rawKey;
+      udpLog(`[RAW] ${raw}`);
+      udpLog(`[TAGS] ${allTags}`);
     }
 
-    // Suppress duplicate log lines (not events — those are transition-based)
+    // ── Known jumper tags ─────────────────────────────────────────────────────
+    const entry   = cleanUdpVal('1',  tags['1']  || '');
+    const horse   = cleanUdpVal('2',  tags['2']  || '');
+    const rider   = cleanUdpVal('3',  tags['3']  || '');
+    const ta      = cleanUdpVal('13', tags['13'] || '');
+    const jump    = cleanUdpVal('14', tags['14'] || '');
+    const time    = cleanUdpVal('15', tags['15'] || '');
+    const elapsed = cleanUdpVal('17', tags['17'] || '');
+    const cd      = cleanUdpVal('23', tags['23'] || '');
+    const rank    = cleanUdpVal('8',  tags['8']  || '');
+
+    // ── Hunter-specific tags (confirmed 2026-03-23) ───────────────────────────
+    // tag {14} = H:XX.XXX when hunter score present (H: prefix)
+    // tag {8}  = ': 1st' / ': EL' format (colon-space prefix — strip it)
+    const isHunterScore = (tags['14'] || '').startsWith('H:');
+    const hunterScore   = isHunterScore ? (tags['14'] || '').replace('H:', '').trim() : '';
+    const rankClean     = (tags['8'] || '').replace(/^:\s*/, '').trim();  // strip ': ' prefix
+
+    let phase = 'IDLE';
+    if (entry && !cd && !elapsed && !rankClean) phase = 'INTRO';
+    if (cd)                                      phase = 'CD';
+    if (elapsed && !rankClean)                   phase = 'ONCOURSE';
+    if (rankClean)                               phase = 'FINISH';
+
+    // Suppress duplicate log lines
     const stateKey = entry || 'idle';
-    const stateStr = JSON.stringify({ phase, entry, elapsed, cd, jump, time, rank });
-    const prevStr  = udpLastLogged[stateKey];
-    udpLastLogged[stateKey] = stateStr;
+    const stateStr = JSON.stringify({ phase, entry, elapsed, cd, jump, time, rankClean, hunterScore });
+    if (udpLastLogged[stateKey] !== stateStr) {
+      udpLastLogged[stateKey] = stateStr;
+      if (phase !== 'IDLE') {
+        if (isHunterScore) {
+          udpLog(`[${phase}] #${entry} ${horse} | score=${hunterScore} rank=${rankClean}`);
+        } else {
+          udpLog(`[${phase}] #${entry} ${horse} | cd=${cd} el=${elapsed} jmp=${jump} rank=${rankClean}`);
+        }
+      }
+    }
 
-    // Detect and fire events on meaningful transitions
-    detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank);
-
-    // Suppress identical log lines
-    if (stateStr === prevStr) return;
-
-    // Update live state object
-    liveState = {
-      phase,
-      entry,
-      horse,
-      rider,
-      owner,
-      ring,
-      ta,
-      ttb,
-      elapsed,
-      countdown: cd,
-      jumpFaults: jump,
-      timeFaults: time,
-      rank,
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Build clean log line
-    let line = `[UDP:${phase}]`;
-    if (entry)   line += ` #${entry}`;
-    if (horse)   line += ` ${horse}`;
-    if (rider)   line += ` / ${rider}`;
-    if (ta)      line += ` | TA:${ta}`;
-    if (ttb)     line += ` | TTB:${ttb}`;
-    if (cd)      line += ` | CD:${cd}s`;
-    if (elapsed) line += ` | ELAPSED:${elapsed}s`;
-    if (jump)    line += ` | JUMP:${jump}`;
-    if (time)    line += ` | TIME:${time}`;
-    if (rank)    line += ` | RANK:${rank}`;
-
-    // Log any unknown tags for future research
-    const unknown = Object.entries(tags)
-      .filter(([k]) => !UDP_KNOWN_TAGS.has(k))
-      .map(([k,v]) => `{${k}}=${v}`)
-      .join(' ');
-    if (unknown) line += ` | ?UNKNOWN: ${unknown}`;
-
-    udpLog(line);
+    detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rankClean, hunterScore, isHunterScore);
   });
 
-  try {
-    socket.bind(scoreboardPort);
-  } catch(e) {
-    udpLog(`BIND ERROR on port ${scoreboardPort}: ${e.message}`);
-  }
+  socket.bind(scoreboardPort);
 }
 
+// ── START UDP ─────────────────────────────────────────────────────────────────
 
-// ── KEYPRESS MARKER ───────────────────────────────────────────────────────────
-// Press any key in the CMD window to drop a marker in the log
-// Tell Skippy in chat what you just changed — he'll match it to the next diff
-
-let markerCount = 0;
-
-function startKeyListener() {
-  try {
-    const readline = require('readline');
-    readline.emitKeypressEvents(process.stdin);
-    if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
-    process.stdin.on('keypress', (str, key) => {
-      // Ctrl+C to exit
-      if (key && key.ctrl && key.name === 'c') {
-        log('');
-        log('Watcher stopped by user.');
-        process.exit();
-      }
-      // Any other key = marker
-      markerCount++;
-      const keyName = (key && key.name) ? key.name : (str || '?');
-      log('');
-      log(`${'★'.repeat(60)}`);
-      log(`★ MARKER #${markerCount} — key: [${keyName}] — tell Skippy what you changed`);
-      log(`${'★'.repeat(60)}`);
-      log('');
-    });
-
-    log('Keypress marker ready — press any key to mark a change');
-  } catch(e) {
-    log('Keypress listener not available: ' + e.message);
-  }
-}
-
-// ── MAIN ──────────────────────────────────────────────────────────────────────
-
-log('');
-log('════════════════════════════════════════════════════════════════════════');
-log('WEST Scoring Live — Class File Watcher v2.0');
-log('Log:       ' + LOG_PATH);
-log('Snapshots: ' + SNAPSHOTS_DIR);
-log('════════════════════════════════════════════════════════════════════════');
-
-// Load poster config (config.json next to this script)
-loadPosterConfig();
-
-const config = readConfig();
-readTsked();
-
-log('');
-log('INITIAL SCAN:');
-scanAll();
-
-initDataFile();
-log('');
-startPoller();
-
-// Start UDP listener on scoreboard port
 initUdpLog();
-if (config.scoreboardPort) {
-  udpLog('');
-  udpLog('════════════════════════════════════════════════════════════════════════');
-  udpLog('WEST UDP Listener — scoreboard port only');
-  udpLog(`Scoreboard: ${config.scoreboardPort} | Live data: ${config.liveDataPort} (locked by Ryegate)`);
-  udpLog('════════════════════════════════════════════════════════════════════════');
-  startUdpListener(config.scoreboardPort);
-} else {
-  log('WARNING: Could not determine scoreboard port — UDP listener not started');
+
+// Read scoreboard port from config.dat
+const configContent = safeRead(CONFIG_PATH);
+let scoreboardPort = 29711; // default
+if (configContent) {
+  try {
+    const configCols = parseCSVLine(configContent.split(/\r?\n/)[0]);
+    const rawPort    = parseInt(configCols[1]);
+    if (rawPort && rawPort > 0) scoreboardPort = rawPort;
+  } catch(e) {}
 }
 
-// Start heartbeat if poster is configured
-startHeartbeat();
+udpLog('');
+udpLog('═'.repeat(72));
+udpLog(`Scoreboard port: ${scoreboardPort} | Class complete port: ${CLASS_COMPLETE_PORT}`);
+udpLog('═'.repeat(72));
 
-startKeyListener();
-log('Running — press any key to mark a change, Ctrl+C to stop');
-if (posterConfig) {
-  log(`Posting to: ${posterConfig.workerUrl}`);
-  log(`Show: ${showSlug} | Ring: ${showRing}`);
-} else {
-  log('LOCAL ONLY MODE — no data being posted online');
-}
+startUdpListener(scoreboardPort);
+startPort31000Listener();
+

@@ -1,0 +1,130 @@
+WEST Scoring Live — Session 16 Notes
+2026-03-29
+Skippy the Magnificent
+
+═══════════════════════════════════════════════════════════════
+TARGET: HITS CULPEPER APRIL 15 — MVP LIVE SHOW DEPLOYMENT
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+1. WORKER v2.2 BUILT AND DEPLOYED
+   New endpoints:
+   - POST /postClassEvent   — CLASS_SELECTED (KV) + CLASS_COMPLETE (D1)
+   - POST /admin/createShow — admin creates show before watcher runs
+   - POST /admin/updateShow — edit show fields
+   - POST /admin/completeClass — manual complete override
+   - GET  /getClasses       — class list with entry counts + status
+   - GET  /getResults       — full results for a class
+   - getLiveClass now returns selected: (which class is open in Ryegate)
+   - writeToD1: hunter now writes on hasGone not just score
+   - Class status protected: won't flip back to active once complete
+   - upsertResult extracted to helper function
+
+2. WATCHER v2.2 BUILT
+   - loadWorkerConfig() — reads config.json for Worker URL + auth key
+   - postToWorker() — fire-and-forget, 3s timeout, never blocks
+   - All .cls changes → POST /postClassData automatically
+   - Initial scan → posts all existing classes on startup
+   - CLASS_SELECTED → POST /postClassEvent
+   - CLASS_COMPLETE → POST /postClassEvent
+   - Heartbeat → POST /heartbeat every 60s + immediately on startup
+   - Slug from config.dat col[24], overrideable in config.json
+   - Ring from FTP path in config.dat
+
+3. ADMIN PAGE BUILT (admin.html)
+   - Auth gate (pings Worker to verify key)
+   - Create show form: name, slug, dates, venue, location, rings, stats_eligible
+   - Show list with status badges
+   - Detail panel: watcher alive indicator, class counts, class list
+   - Mark Done button per class (manual complete override)
+   - Edit show, Toggle stats eligible, Clear Live KV, Delete show
+
+4. D1 SCHEMA UPDATED
+   - stats_eligible column added to shows (DEFAULT 1)
+   - Operator can mark shows ineligible for stats (Devon 2025 etc)
+
+5. HUNTER UDP ARCHITECTURE DECISION — FINAL
+   The .cls file does NOT write when a horse goes on course.
+   The .cls file DOES write immediately when a score is posted.
+   Therefore hunter UDP is used for ONE PURPOSE ONLY: ON COURSE signal.
+
+   THE PIPELINE:
+   {fr}=11 INTRO fires → horse is ON COURSE → write to KV
+   .cls file changes   → horse DONE, score posted → clear KV, write D1
+
+   NO other hunter UDP parsing needed. .cls is authoritative for all scores.
+   FINISH UDP packets ({fr}=12, {fr}=16) are logged but not acted on.
+
+6. NEW HUNTER UDP TAGS CONFIRMED — 2026-03-29
+   Frame 11 cycles between two page layouts:
+   Page A: {1}entry {2}horse {3}rider {4}owner {17}=SB message (NOT elapsed)
+   Page B: {1}entry {2}horse {18}sire {19}="X" (breeding filler) {20}dam
+
+   {fr}=16 confirmed = DERBY FINISH (not standard O/F)
+   {21} on derby = "[judge]:[score] + [bonus]"  e.g. "1:4.000 + 76"
+
+   CRITICAL: {17} in hunter {fr}=11 = scoreboard message text
+   NOT elapsed time. Watcher was falsely firing RIDE_START — bug to fix.
+
+7. HTTP 400 ERRORS — ROOT CAUSE IDENTIFIED
+   config.dat col[24] = "False" on test machine (not a real slug)
+   Watcher correctly rejects it but config.json slug was empty
+   Fix: set "slug": "hits-culpeper" in config.json before running
+   Test was on public airport wifi — full pipeline test deferred
+
+═══════════════════════════════════════════════════════════════
+BUGS TO FIX NEXT SESSION
+═══════════════════════════════════════════════════════════════
+1. {17} in hunter packets — add numeric check before treating as elapsed
+   Only treat {17} as elapsed if {fr}=1 (jumper) AND value is numeric
+   Hunter {fr}=11 with {17} = scoreboard message, ignore completely
+
+2. onCourse KV write — watcher needs to POST to Worker when {fr}=11 fires
+   Currently only logs CLASS_SELECTED, doesn't write onCourse to KV
+   New endpoint or extend /postClassEvent with event: 'ON_COURSE'
+
+═══════════════════════════════════════════════════════════════
+PIPELINE STATUS
+═══════════════════════════════════════════════════════════════
+Worker v2.2:  DEPLOYED ✓
+Watcher v2.2: READY — needs slug set in config.json
+Admin page:   BUILT — needs testing
+D1:           CLEAN, ready for real data
+Config.json:  Needs "slug" field set per show
+
+NEXT TEST: set slug, run watcher, verify D1 gets populated
+
+═══════════════════════════════════════════════════════════════
+REMAINING BUILD FOR APRIL 15
+═══════════════════════════════════════════════════════════════
+1. Fix {17} numeric check in watcher (hunter bug)
+2. Add onCourse KV write to watcher when {fr}=11 fires
+3. Build index.html — show list
+4. Build classes.html — class list with live/complete badges
+5. Build results.html — class results
+6. Connect GitHub repo to Cloudflare Pages
+7. End-to-end test on scoring computer with correct slug
+8. Create Culpeper show in admin page before April 15
+
+═══════════════════════════════════════════════════════════════
+DEVON (END OF MAY) — UNCHANGED
+═══════════════════════════════════════════════════════════════
+- WebSocket server in watcher → local screens
+- Running tenths clock (simulated, with on/off toggle)
+- Ingate / VIP / barn monitor HTML on USB stick
+- Travel router for dedicated local network
+- Fire-and-forget already done — local screens independent of internet
+
+═══════════════════════════════════════════════════════════════
+FILES IN REPO
+═══════════════════════════════════════════════════════════════
+west-watcher.js    v2.2 — fire-and-forget, Worker posting, heartbeat
+west-worker.js     v2.2 — all new endpoints, getResults, getClasses
+admin.html         NEW — create/manage shows
+config.json        — needs slug set per show
+start-watcher.bat  — generic path (%~dp0)
+CLS-FORMAT.md      — fully updated, hunter UDP architecture decision
+SESSION-NOTES-16.txt — this file

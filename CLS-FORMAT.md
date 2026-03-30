@@ -1,6 +1,6 @@
-# Ryegate Scoring Software — File Format Documentation
-# Discovered through live analysis 2026-03-19
+# Ryegate Scoring Software — .cls File Format Documentation
 # WEST Scoring Live Project
+# Last updated: 2026-03-22 (Session 14 — complete TIMY entry layout confirmed from live class 221)
 
 ---
 
@@ -9,9 +9,18 @@
 ### .cls — Live Class File (PRIMARY DATA SOURCE)
 - Located: C:\Ryegate\Jumper\Classes\
 - One file per class (named by class number e.g. 221.cls)
-- Updated in real time by scoring software as class runs
 - Read with shared access (fs.openSync flag 'r') — never lock this file
 - DO NOT use .csv files — they are unreliable snapshots, not real-time
+
+JUMPER write timing:
+- File writes after each round is scored (R1, R2/JO, R3)
+- Does NOT write while horse is on course — on-course state = jumper UDP {fr}=1
+
+HUNTER write timing — CONFIRMED 2026-03-29:
+- File does NOT write when horse goes on course (On Course click)
+- File DOES write immediately when score is posted (result entered)
+- This means: {fr}=11 INTRO = on course signal, .cls change = score posted
+- .cls is authoritative for all hunter scoring — no need to parse FINISH UDP
 
 ### tsked.csv — Class Schedule
 - Located: C:\Ryegate\Jumper\
@@ -21,524 +30,777 @@
 ### config.dat — Ring Configuration
 - Located: C:\Ryegate\Jumper\
 - Contains FTP path, server IP, show info, UDP ports
-- Key for auto-configuring where to send data
 
 ---
 
-## CRITICAL: TWO SEPARATE HEADER SCHEMAS
+## CRITICAL: TWO SEPARATE HEADER SCHEMAS — NO CROSSOVER
 
-The header row (row 0) has a COMPLETELY DIFFERENT column layout depending on
-whether the class is formatted as Hunter or Jumper. Columns 0-9 are shared.
-Columns 10+ are format-dependent.
-
-Once a class is formatted as Hunter OR Jumper, Ryegate will NOT allow it to be
-re-formatted as the other type. The schema is locked in permanently.
-
-ClassType (col 0) determines which schema applies:
+ClassType (H[00]) determines which schema applies:
   H = Hunter schema
-  J = Jumper schema (Farmtek timer)
-  T = Jumper schema (TIMY timer — same columns as J)
-  U = Unformatted (no schema yet — entry rows have no score columns)
+  J = Jumper schema (Farmtek timer — 40 col entries)
+  T = Jumper schema (TIMY timer — 85 col entries)
+  U = Unformatted (no schema — entry rows have no score columns)
+
+ZERO column crossover between Hunter and Jumper schemas.
+Every column from H[02] onward must be interpreted independently per schema.
+NEVER assume a column means the same thing across schemas.
+J and T share the same HEADER schema — only entry row length differs.
+Once formatted as H or J/T, cannot be changed. Schema is locked permanently.
 
 ---
 
-## CLS FILE STRUCTURE
+## ENTRY ROW LENGTHS:
+  Hunter (H):       55 cols
+  Farmtek (J):      40 cols (no TIMY timestamp blocks)
+  TIMY (T):         85 cols (3 round timestamp blocks cols 37-81)
+  Unformatted (U):  14 cols
 
-### Row 1 — Class Header (shared cols 0-9)
-```
-Col 0:  ClassType          H=Hunter, J=Jumper Farmtek, T=Jumper TIMY, U=Unformatted
-Col 1:  ClassName          "1.15m Jumper"
-Col 2:  NumEntries         total entries in class
-Col 3:  ?                  always 0
-Col 4:  ?                  unknown — 1 for Farmtek, 2 for TIMY (timer type flag?)
-Col 5:  ClockPrecision     confirmed changed live (marker 10)
-Col 6:  ?                  unknown flag, set to 1 on format
-Col 7:  ?                  unknown flag, set to 1 on format
-Col 8:  TimeAllowed_R1     78 = 78 seconds (JUMPER) / Ribbons count (HUNTER)
-Col 9:  NumJudges          1 for jumper, 4 for hunter
-```
+---
 
-### Row 1 — Class Header (JUMPER cols 6+) — CONFIRMED
+## JUMPER HEADER — CONFIRMED FROM CLASS 221 LIVE SESSION 2026-03-22
+
+### Cols 0-1 (shared with Hunter):
 ```
-Col 6:  ImmediateJumpoff      1=immediate JO (2b), 0=clears return at end (2a)
-Col 7:  R1_FaultsPerInterval  default 1 (1 fault per interval)
-Col 8:  R1_TimeAllowed        seconds e.g. 79
-Col 9:  R1_TimeInterval       default 1 (1 second per interval)
-Col 10: R2_FaultsPerInterval  default 1
-Col 11: R2_TimeAllowed        seconds e.g. 68
-Col 12: R2_TimeInterval       default 1
-Col 13: R3_FaultsPerInterval  default 1 (stale/ignored if <3 rounds)
-Col 14: R3_TimeAllowed        seconds e.g. 45 (stale/ignored if <3 rounds)
-Col 15: R3_TimeInterval       default 1 (stale/ignored if <3 rounds)
-Col 16: CaliforniaSplit        1/True = enabled
-Col 17: IsFEI                  True/False
-Col 18: ?                      unknown
-Col 19: Sponsor                "Sponsored by field"
-Col 20: ?                      unknown — never seen a value
-Col 21: CaliSplitSections      default 2, confirmed changed 2→3 live
-Col 22: PenaltySeconds         default 6, confirmed changed 6→9 live
-Col 23: NoRank                 True/False
-Col 24: ?                      False — unknown
-Col 25: ShowStandingsTime      True/False
-Col 26: ShowFlags              True/False
-Col 27: ?                      always True — unknown
-Col 28: ShowFaultsAsDecimals   True/False
+H[00] ClassType              H=Hunter, J=Farmtek, T=TIMY, U=Unformatted
+H[01] ClassName              text e.g. "1.15m Jumper"
 ```
 
-NOTE: Per-round pattern is FaultsPerInterval → TimeAllowed → TimeInterval (3 cols per round).
-Standard penalty = 1 fault per 1 second. Non-standard e.g. 0.25 faults per 1 second.
-Ryegate leaves R3 values stale when class has fewer than 3 rounds — ignore if not a 3-round class.
+### Jumper-specific cols 2+:
+```
+H[02] ScoringMethodCode      see Scoring Methods below
+H[03] ?                      always 0 — legacy unused
+H[04] RoundsCompleted        CONFIRMED counter — increments 0→1→2→3 as each
+                             round is scored. Was mislabeled HardwareType.
+                             Corrected 2026-03-22 from live session evidence.
+H[05] ClockPrecision         0=whole seconds, 1=hundredths, 2=thousandths
+H[06] ImmediateJumpoff       1=immediate JO (2b), 0=clears return (2a)
+H[07] R1_FaultsPerInterval   fault points per time interval
+                             1.0 = standard (1 fault/second)
+                             0.25 = quarter fault per second (seen class 221)
+                             0.1 = FEI style (0.1 fault/second)
+H[08] R1_TimeAllowed         TA in seconds e.g. 78
+H[09] R1_TimeInterval        seconds per interval e.g. 1, 2, 4
+H[10] R2_FaultsPerInterval   same pattern as R1
+H[11] R2_TimeAllowed         TA for R2/JO in seconds
+H[12] R2_TimeInterval        seconds per interval for R2
+H[13] R3_FaultsPerInterval   stale/ignored if class has <3 rounds
+H[14] R3_TimeAllowed         stale/ignored if class has <3 rounds
+H[15] R3_TimeInterval        stale/ignored if class has <3 rounds
+H[16] CaliforniaSplit        True/False
+H[17] IsFEI                  True/False (0=False, 1=True)
+H[18] ?                      always False — legacy unused
+H[19] Sponsor                text field
+H[20] ?                      always empty — legacy unused
+H[21] CaliSplitSections      numeric, default 2
+H[22] PenaltySeconds         seconds added per time fault e.g. 6
+H[23] NoRank                 True/False
+H[24] ?                      always False — legacy unused
+H[25] ShowStandingsTime      True/False
+H[26] ShowFlags              True/False
+H[27] ?                      always True — legacy unused
+H[28] ShowFaultsAsDecimals   True/False
+```
 
-### Scoring Method Code (H[02]) — PARTIAL
+### Class 221 actual header (1.15m Jumper, TIMY, ScoringMethod=3, after all 3 rounds):
+```
+H[00]=T  H[01]=1.15m Jumper  H[02]=3  H[03]=0  H[04]=3(RoundsCompleted=3)
+H[05]=0  H[06]=1(ImmediateJO)
+H[07]=0.25(R1 FaultsPerInterval)  H[08]=34(R1 TA)  H[09]=1(R1 Interval)
+H[10]=1(R2 FaultsPerInterval)  H[11]=31(R2 TA)  H[12]=4(R2 Interval)
+H[13]=1(R3 FaultsPerInterval)  H[14]=15(R3 TA)  H[15]=2(R3 Interval)
+H[16]=1(CaliSplit)  H[17]=0  H[18]=False
+H[21]=2(CaliSplitSections)  H[22]=6(PenaltySec)  H[23]=False
+H[25]=False  H[26]=False  H[27]=True  H[28]=False
+```
+
+### Scoring Method Codes (H[02]):
 ```
 2  = Round + JO, clears return at end (2a)
 3  = Two rounds + JO
-4  = Single round, against the clock
+4  = Single round, against the clock (speed)
+6  = Speed II (Farmtek only)
 9  = Two-phase
 13 = Round + immediate JO (2b)
 ```
-NOTE: H[02] determines which TIMY timestamp blocks are used.
-Two-phase (9) uses blocks 2 and 3 instead of 1 and 2.
-All other formats use blocks sequentially from block 1.
+NOTE: Two-phase (9) uses TIMY blocks 2 and 3 instead of 1 and 2.
 
-### Row 1 — Class Header (HUNTER cols 0-9 shared, cols 10+) — PARTIAL
+### Time Fault Formula — LOCKED IN:
+```
+TimeFaults = ceil(secondsOver / H[09]) × H[07]
+PenaltySec = ceil(secondsOver / H[09]) × H[22]
+TotalTime  = RawTime + PenaltySec
 
-#### Shared cols (confirmed):
-```
-Col 0:  ClassType          H
-Col 1:  ClassName
-```
-
-#### Hunter-specific cols 2+ (from 97-class data analysis 2026-03-20):
-```
-Col 2:  ?ScoringSubtype    0=standard O/F, 1=U/S only, 2=Derby/Classic
-Col 3:  NumRounds          1=single round, 2=two-round classic/derby   [90% confidence]
-Col 4:  NumJudges          1=standard, 2=International Derby, 4=Derby  [90% confidence]
-Col 5:  ?                  UNKNOWN — does NOT reliably flag U/S
-Col 6:  ?                  always 0
-Col 7:  ?                  1=standard, 2=International Derby only
-Col 8:  Ribbons            8=standard, 12=classics/derbies              [90% confidence]
-Col 9:  ?                  always 4 — NOT NumJudges
-Col 10: IsEquitation       True/False — CONFIRMED changed live
-Col 11: IsChampionship     True/False — True on all Championship classes
-Col 12: ?                  always False
-Col 13: ?                  True/False — varies, purpose unknown [needs toggle test]
-Col 14: ?                  True/False — False on Championships/U/S     [needs toggle test]
-Col 15: ?                  always True
-Col 16: ?                  always False
-Col 17: ?                  True/False — True on 501.cls only (Jr Classic 3'3")
-Col 18: ?                  0=standard, 1=International Derby only
-Col 19: ?                  always 0
-Col 20: ?                  always 0
-Col 21: ?                  always 0
-Col 22: PhaseWeight1       always 100
-Col 23: PhaseWeight2       always 100
-Col 24: PhaseWeight3       always 100
-Col 25: Phase1Label        always "Phase 1"
-Col 26: Phase2Label        always "Phase 2"
-Col 27: Phase3Label        always "Phase 3"
-Col 28: Message            scoreboard message text — operator entered
-Col 29: ?                  always empty
-Col 30: ?                  always False
-Col 31: ?                  always False
-Col 32: ?                  always False
-Col 33: ?                  always 2
-Col 34: ?                  always False
-Col 35: ?                  False=standard, True=International Derby only
-Col 36: ?                  always False
-Col 37: IsDerby            0=standard, 1=National/Jr/Amateur Derby      [90% confidence]
-Col 38: ?                  always False
-Col 39: ?                  always False
+Website standard class:
+  const secondsOver = rawTime - ta;
+  const intervals   = secondsOver > 0 ? Math.ceil(secondsOver / timeInterval) : 0;
+  const timeFaults  = intervals * faultsPerInterval;
+  const penaltySec  = intervals * penaltySeconds;
+  const totalTime   = rawTime + penaltySec;
 ```
 
-NOTE: Many hunter header cols still need live toggle testing to confirm.
-Priority unknowns: cols 2, 5, 7, 13, 14, 17, 18, 33, 35.
+---
 
-### Row 2 — @foot (Trophy/Footer)
+## JUMPER ENTRY COLUMNS — TIMY (T) — 85 cols — FULLY CONFIRMED 2026-03-22
+
+Source: Class 221, 1.15m Jumper, ScoringMethod=3, live scored session.
+
+### Identity cols 0-12:
 ```
-@foot, "Trophy name or footer text"
+col[00] EntryNum
+col[01] HorseName
+col[02] RiderName
+col[03] (empty)
+col[04] (empty)
+col[05] OwnerName
+col[06] Sire
+col[07] Dam
+col[08] City
+col[09] State
+col[10] Horse FEI/USEF number or passport (e.g. 107XS23)
+col[11] Rider FEI/USEF number (e.g. 10322256)
+col[12] Owner FEI/USEF number (rarely populated — unconfirmed, assumed by pattern)
 ```
 
-### Row 3 — @money (Prize Money) — JUMPER ONLY
+### Scoring cols 13-35:
 ```
-@money, 7500, 5500, 3250, 2000, 1500, 1250, 1000, 750, 750, 500...
-(prize money per place, 0 = no prize for that place)
+col[13] RideOrder           order horse goes in ring (1-N) ✓
+col[14] OverallPlace        updates live as horses finish ✓
+
+R1 block:
+col[15] R1Time              raw elapsed seconds e.g. 32.12 ✓
+col[16] R1PenaltySeconds    seconds added for time faults e.g. 6 ✓
+col[17] R1TotalTime         R1Time + R1PenaltySeconds e.g. 38.12 ✓
+col[18] R1TimeFaults        fractional time faults e.g. 1.25 ✓
+col[19] R1JumpFaults        jump fault points (4 per rail standard) ✓
+col[20] R1TotalFaults       R1TimeFaults + R1JumpFaults e.g. 5.25 ✓
+col[21] ?                   always 0 — watch at HITS (possibly R1Place)
+
+R2 block:
+col[22] R2Time              raw elapsed seconds ✓
+col[23] R2PenaltySeconds    seconds added for time faults ✓
+col[24] R2TotalTime         R2Time + R2PenaltySeconds ✓
+col[25] R2TimeFaults        fractional time faults ✓
+col[26] R2JumpFaults        jump fault points ✓
+col[27] R2TotalFaults       R2TimeFaults + R2JumpFaults ✓
+col[28] ?                   always 0 — watch at HITS (possibly R2Place)
+
+R3/JO block:
+col[29] R3Time              raw elapsed seconds ✓
+col[30] R3PenaltySeconds    seconds added for time faults ✓
+col[31] R3TotalTime         R3Time + R3PenaltySeconds ✓
+col[32] R3TimeFaults        fractional time faults ✓
+col[33] R3JumpFaults        jump fault points ✓
+col[34] R3TotalFaults       R3TimeFaults + R3JumpFaults ✓
+col[35] StatusCode          EL=Eliminated, RF=RiderFall, WD=Withdrawn,
+                            SC=Schooling, DNS=DidNotStart, DNF=DidNotFinish
+                            0 or empty = normal completion
+                            NOTE: Not confirmed in TIMY yet — confirm at HITS
 ```
 
-### Remaining Rows — Entry Data
-One entry per row. Structure differs by class type:
+### TIMY timestamp block cols 36-84:
+```
+col[36] HasGone             1 = competed in at least R1 ✓
+
+R1 timestamp block (cols 37-51):
+col[37] R1_CDStart          TOD e.g. 12:29:04
+col[38] R1_CDPause1
+col[39] R1_CDResume1
+col[40] R1_CDPause2
+col[41] R1_CDResume2
+col[42] R1_CDPause3
+col[43] R1_CDResume3
+col[44] R1_RideStart        TOD e.g. 12:29:15.2700000 ✓
+col[45] R1_RidePause1
+col[46] R1_RideResume1
+col[47] R1_RidePause2
+col[48] R1_RideResume2
+col[49] R1_RidePause3
+col[50] R1_RideResume3
+col[51] R1_RideEnd          TOD e.g. 12:29:47.3900000 ✓
+
+R2 timestamp block (cols 52-66):
+col[52] R2_CDStart          ✓
+col[53-58] R2 CD pause/resume pairs
+col[59] R2_RideStart        ✓
+col[60-65] R2 ride pause/resume pairs
+col[66] R2_RideEnd          ✓
+
+R3 timestamp block (cols 67-81):
+col[67] R3_CDStart          ✓
+col[68-73] R3 CD pause/resume pairs
+col[74] R3_RideStart        ✓
+col[75-80] R3 ride pause/resume pairs
+col[81] R3_RideEnd          ✓
+
+col[82-84] unknown — 3 trailing cols to make 85 total, always empty
+```
+
+### Class 221 scored entries — actual values from live log:
+```
+#2104 ALESCO M Z (1st to go, 6 faults, no JO):
+  col[13]=1 col[14]=5 col[15]=32.12 col[16]=6 col[17]=38.12
+  col[18]=1.25 col[19]=4 col[20]=5.25
+  col[36]=1 col[37]=12:29:04 col[44]=12:29:15.27 col[51]=12:29:47.39
+
+#2226 FEDERAL JUSTICE (2nd, clear R1, JO with 1 time fault + 1 rail):
+  col[13]=2 col[14]=3 col[15]=21.37 col[17]=21.37
+  col[22]=28.41 col[23]=6 col[24]=34.41
+  col[25]=1 col[26]=4 col[27]=5
+  col[36]=1 col[37]=12:33:04 col[44]=12:33:07.33 col[51]=12:33:28.70
+  col[52]=12:35:20 col[59]=12:35:23.11 col[66]=12:35:51.52
+
+#3289 KTS VALVERDE (3rd, 3 rails in R1, no JO):
+  col[13]=3 col[14]=6 col[15]=9.84 col[17]=9.84
+  col[19]=12 col[20]=12
+  col[36]=1 col[37]=12:33:35 col[44]=12:33:40.53 col[51]=12:33:50.37
+
+#3699 SPORTSFIELD MR GREY (4th, 1 rail in R1, no JO):
+  col[13]=4 col[14]=4 col[15]=16.76 col[17]=16.76
+  col[19]=4 col[20]=4
+  col[36]=1 col[37]=12:34:05 col[44]=12:34:07.99 col[51]=12:34:24.75
+
+#3736 DIABLO Z (5th to go, clear R1 + R2 + R3, 1st place):
+  col[13]=5 col[14]=1 col[15]=8.02 col[17]=8.02
+  col[22]=8.15 col[24]=8.15
+  col[29]=20.28 col[31]=20.28 col[32]=3 col[33]=4 col[34]=7
+  col[36]=1 col[37]=12:34:37 col[44]=12:34:41.01 col[51]=12:34:49.03
+  col[52]=12:36:02 col[59]=12:36:04.32 col[66]=12:36:12.47
+  col[67]=12:37:02 col[74]=12:37:05.22 col[81]=12:37:25.50
+
+#4190 CASCORD VA (6th, clear R1 + R2 + R3, 2nd place):
+  col[13]=6 col[14]=2 col[15]=12.74 col[17]=12.74
+  col[22]=11.47 col[24]=11.47
+  col[29]=11.38 col[31]=11.38
+  col[36]=1 col[37]=12:34:53 col[44]=12:34:59.97 col[51]=12:35:12.71
+  col[52]=12:36:20 col[59]=12:36:21.34 col[66]=12:36:32.81
+  col[67]=12:37:34 col[74]=12:37:51.74 col[81]=12:38:03.12
+```
+
+### Score Detection — TIMY:
+```
+R1 complete: col[36]=1 (HasGone) AND col[15] non-zero
+R2 complete: col[22] non-zero
+R3 complete: col[29] non-zero
+Has time faults:  col[18] non-zero (R1), col[25] (R2), col[32] (R3)
+Has jump faults:  col[19] non-zero (R1), col[26] (R2), col[33] (R3)
+Eliminated etc:   col[35] non-zero/non-empty (confirm values at HITS)
+```
+
+---
+
+## JUMPER ENTRY COLUMNS — FARMTEK (J) — 40 cols — CONFIRMED
+
+Source: Class 221 snapshot 2026-03-21, 1 competed entry with RF.
+
+### Identity cols 0-12: same layout as TIMY above.
+
+### Scoring cols 13-39:
+```
+col[13] (empty/0)           NOTE: RideOrder NOT stored at col[13] for Farmtek
+col[14] OverallPlace        ✓
+col[15] R1Time              ✓
+col[16] R1PenaltySeconds    ✓
+col[17] R1TotalTime         ✓
+col[18] R1TimeFaults        ✓ (fractional)
+col[19] R1JumpFaults        ✓
+col[20] R1TotalFaults       ✓
+col[21] ?                   always 0
+col[22] R2Time              ✓
+col[23] R2PenaltySeconds    ✓
+col[24] R2TotalTime         ✓
+col[25] R2TimeFaults        ✓
+col[26] R2JumpFaults        ✓
+col[27] R2TotalFaults       ✓
+col[28] ?                   always 0
+col[29] R3Time              ✓
+col[30] R3PenaltySeconds    ✓
+col[31] R3TotalTime         ✓
+col[32] R3TimeFaults        ✓
+col[33] R3JumpFaults        ✓
+col[34] R3TotalFaults       ✓
+col[35] RideOrder           stored HERE for Farmtek (not col[13]) ✓
+                            e.g. value 3 = 3rd to go
+col[36] HasGone             1 = competed ✓
+col[37] (empty)
+col[38] (empty)
+col[39] StatusCode          RF=RiderFall, EL=Eliminated etc ✓ CONFIRMED
+                            empty = normal completion
+```
+
+### Class 221 Farmtek example (ALESCO M Z, all 3 rounds, RF in R3):
+```
+col[14]=1  col[15]=79.054  col[17]=79.054
+col[18]=0.1  col[20]=0.1
+col[22]=70.678  col[24]=70.678  col[25]=0.2  col[26]=4  col[27]=4.2
+col[35]=3(RideOrder)  col[36]=1(HasGone)  col[39]=RF(StatusCode)
+```
+
+### Score Detection — Farmtek:
+```
+R1 complete: col[36]=1 AND col[15] non-zero
+R2 complete: col[22] non-zero
+R3 complete: col[29] non-zero
+StatusCode:  col[39] non-empty
+```
+
+---
+
+## HUNTER HEADER COLUMNS — CONFIRMED FROM LIVE TOGGLE TEST 2026-03-22
+
+WARNING: Zero crossover with Jumper schema.
+
+```
+H[00] ClassType              H
+H[01] ClassName              text
+
+H[02] ScoreType              0=Over Fences/Flat (standard)
+                             2=Derby (auto-set when Derby selected)
+                             3=Special class
+
+H[03] NumRounds              1=single round, 2=two rounds ✓
+
+H[04] HardwareType(?)        always 1 in hunter — may differ from jumper meaning
+
+H[05] IsFlat                 0=Over Fences, 1=Flat ✓
+
+H[06] ?                      0=standard, 1=H&G derby types and Special
+                             Label "ImmediateJumpoff" wrong for hunter
+
+H[07] NumScores              1=one score, 2=two, 3=three ✓
+                             Auto-adjusts per derby sub-type
+
+H[08] Ribbons                8=standard, 12=derbies ✓
+
+H[09] SBDelay                numeric scoreboard delay (tested at value 4)
+
+H[10] IsEquitation           True/False ✓
+H[11] IsChampionship         True/False ✓
+H[12] IsJogged               True/False ✓
+H[13] OnCourseSB             True/False ✓
+H[14] IgnoreSireDam          True/False ✓
+H[15] PrintJudgeScores       True/False ✓
+H[16] ReverseRank            True/False ✓
+
+H[17] CaliforniaSplit        True/False ✓ (confirmed — flips True when Split enabled)
+                             NOTE: Watcher label "RunOff" is wrong for hunter
+
+H[18] R1TieBreak             0=LeaveTied, 1-N=ByJudgeN ✓
+H[19] R2TieBreak             0=LeaveTied, 1-N=ByJudgeN ✓
+H[20] R3TieBreak             0=LeaveTied, 1-N=ByJudgeN ✓
+H[21] OverallTieBreak        0=LeaveTied, 20=ByOverallScore ✓
+
+H[22] PhaseWeight1           always 100
+H[23] PhaseWeight2           always 100
+H[24] PhaseWeight3           always 100
+H[25] Phase1Label            "Phase 1" default, customizable
+H[26] Phase2Label            "Phase 2" default, customizable
+H[27] Phase3Label            "Phase 3" default, customizable
+H[28] Message                scoreboard message text
+H[29] Sponsor                sponsor text
+
+H[30] RunOff                 True/False ✓
+H[31] AvgRounds              True/False ✓
+H[32] NoCutOff               True/False ✓
+H[33] CaliSplitSections      numeric — 2=default, 4=confirmed ✓
+H[34] Dressage               True/False ✓
+H[35] ShowAllRounds          True/False ✓ (auto-set per derby type default)
+H[36] DisplayNATTeam         True/False ✓
+H[37] DerbyType              0=none (confirmed)
+                             3=National (confirmed 2026-03-29 from live class 142)
+                             OTHER VALUES NEED RE-CONFIRMATION:
+                             Previous mapping 1=International,2=National,3=NatlHG
+                             was WRONG — sequence off, needs full re-test
+                             Re-test: click through each derby type in Ryegate
+                             and read H[37] for each one
+H[38] IHSA                   True/False ✓
+H[39] RibbonsOnly            True/False ✓
+```
+
+### Derby Auto-changes (when Derby selected):
+```
+H[02] → 2 (HiLo)
+H[07] → varies by derby sub-type
+H[08] → 12
+H[35] → True (standard derbies) or False (H&G variants)
+H[39] → False (RibbonsOnly auto-cleared)
+```
+
+### ShowAllRounds defaults per derby type:
+```
+International (1): True  | National (2): True
+NatlHG (3): False        | IntlHG (4): False
+USHJAPony (5): True      | USHJAPonyHG (6): False
+USHJA26Jr (7): True      | USHJA26JrHG (8): False
+H&G variants = False, Standard derbies = True. Operator can override.
+```
+
+### Tie Break encoding:
+```
+0  = Leave Tied
+1-N = By Judge N (literal judge number)
+20  = By Overall Score
+```
+
+### STILL UNCERTAIN — Hunter Header:
+```
+H[06] — changes for H&G and Special, label unknown (possibly IsHuntAndGo)
+H[07] — auto-adjusts per derby type, full mapping incomplete
+H[09] — SBDelay, only tested at value 4
+H[37]=9 — WCHR Spec not directly confirmed
+```
 
 ---
 
 ## HUNTER ENTRY COLUMNS — CONFIRMED (2026-03-20, 97-class analysis)
 
-Hunter entries are always 55 cols. HasGone flag is col 49 (NOT col 40 as previously assumed).
+Hunter entries are always 55 cols.
 
-### Identity cols (shared with jumper):
+### Identity cols 0-12:
 ```
-Col 0:  EntryNum
-Col 1:  HorseName
-Col 2:  RiderName
-Col 3:  (empty)
-Col 4:  (empty)
-Col 5:  OwnerName
-Col 6:  Sire
-Col 7:  Dam
-Col 8:  City
-Col 9:  State
-Col 10: Notes / USEF passport number
-Col 11: USEF/FEI number
-Col 12: ? (rare — one derby entry had a number here)
-```
-
-### Scoring cols — standard single-judge single-round O/F:
-```
-Col 13: GoOrder            ride order (1-N) — may be 0 if not set
-Col 14: CurrentPlace       live standing (1=leading), updates after each horse
-Col 15: R1Score            hunter judge score (45-95 typical range)
-Col 42: R1Total            same as R1Score for standard classes (no bonus)
-Col 45: CombinedTotal      same as R1Total for single-round classes
-Col 49: HasGone_R1         1=horse has competed in R1
-Col 52: StatusCode         EX=Excused, RF=RiderFall, OC=OffCourse
+col[00] EntryNum
+col[01] HorseName
+col[02] RiderName
+col[03] (empty)
+col[04] (empty)
+col[05] OwnerName
+col[06] Sire
+col[07] Dam
+col[08] City
+col[09] State
+col[10] Horse FEI/USEF number or passport
+col[11] Rider FEI/USEF number
+col[12] Owner FEI/USEF number (rarely populated — unconfirmed, assumed by pattern)
 ```
 
-### Scoring cols — two-round classic (1 judge, 2 rounds):
+### Standard single-judge single-round O/F:
 ```
-Col 13: GoOrder
-Col 14: CurrentPlace
-Col 15: R1Score            round 1 judge score
-Col 24: R2Score            round 2 judge score (handy or second O/F)
-Col 42: R1Total
-Col 43: R2Total
-Col 45: CombinedTotal      R1Score + R2Score
-Col 49: HasGone_R1         1=completed R1 only (scratch before R2)
-Col 50: HasGone_R2         1=completed both rounds (normal completion)
-Col 52: StatusCode_R1
-Col 53: StatusCode_R2
+col[13] GoOrder
+col[14] CurrentPlace         live standing, updates after each horse
+col[15] R1Score              judge score (45-95 typical)
+col[42] R1Total              same as R1Score (no bonus)
+col[45] CombinedTotal        same as R1Total
+col[49] HasGone_R1           1=competed
+col[52] StatusCode           EX=Excused, RF=RiderFall, OC=OffCourse
 ```
 
-### Scoring cols — International Derby (2 judges, 2 rounds, high options + handy bonus):
+### Two-round classic (1 judge, 2 rounds):
 ```
-Scoring formula per round:
-  Total = Judge1BaseScore + HighOptionBonus + Judge2BaseScore + HighOptionBonus
-  R2 Total adds HandyBonus for each judge on top
-
-Col 13: GoOrder
-Col 14: CurrentPlace
-Col 15: R1_HighOptionsTaken    number of high option fences jumped R1 (0-4)
-Col 16: Judge1_R1_BaseScore    judge 1 base score round 1
-Col 17: R1_HighOptionsTaken    mirrors col 15 (same value — both judges same options)
-Col 18: Judge2_R1_BaseScore    judge 2 base score round 1
-Col 24: R2_HighOptionsTaken    number of high option fences jumped R2 (0-4)
-Col 25: Judge1_R2_BaseScore    judge 1 base score round 2
-Col 26: Judge1_R2_HandyBonus   judge 1 handy bonus (0-10) round 2
-Col 27: R2_HighOptionsTaken    mirrors col 24
-Col 28: Judge2_R2_BaseScore    judge 2 base score round 2
-Col 29: Judge2_R2_HandyBonus   judge 2 handy bonus (0-10) round 2
-Col 42: R1Total                Judge1_R1 + HighOpts + Judge2_R1 + HighOpts
-Col 43: R2Total                Judge1_R2 + HighOpts + Handy + Judge2_R2 + HighOpts + Handy
-Col 45: CombinedTotal          R1Total + R2Total
-Col 49: HasGone_R1             1=competed
-Col 50: HasGone_R2             1=went back for round 2 (top horses only)
+col[13] GoOrder
+col[14] CurrentPlace
+col[15] R1Score
+col[24] R2Score              round 2 (handy or second O/F)
+col[42] R1Total
+col[43] R2Total
+col[45] CombinedTotal        R1+R2
+col[49] HasGone_R1           1=R1 only (scratched before R2)
+col[50] HasGone_R2           1=completed both rounds
+col[52] StatusCode_R1
+col[53] StatusCode_R2
 ```
 
-### National/Jr/Amateur Derby (single judge, 2 rounds, high options):
+### International Derby (2 judges, 2 rounds, high options + handy):
 ```
-Scoring formula:
-  Total = BaseScore + (HighOptionsTaken × HighOptionValue)
-
-Col 13: GoOrder
-Col 14: CurrentPlace
-Col 15: NumJudgesScored_R1     judges who scored (1-4)
-Col 16: R1Score                base score round 1
-Col 24: NumJudgesScored_R2     judges who scored round 2
-Col 25: R2Score                base score round 2
-Col 42: R1Total                score + bonus points
-Col 43: R2Total
-Col 45: CombinedTotal
-Col 46: ?BonusFenceCount       small number (2-3) — bonus/high option count?
-Col 49: HasGone_R1
-Col 50: HasGone_R2
-Col 52: StatusCode
-```
-
-### Cols always empty/zero in hunter entries:
-```
-Col 3, 4:    always empty
-Col 17-23:   zeros for standard/classic, multi-judge derby scores for Int'l Derby
-Col 30-41:   always 0
-Col 44:      always 0
-Col 46-48:   always 0 except derby bonus fence col 46
-Col 50:      HasGone_R2 — 0 unless two-round class
-Col 51:      always 0
-Col 53-54:   always 0 except StatusCode_R2 on col 53
+col[13] GoOrder
+col[14] CurrentPlace
+col[15] R1_HighOptionsTaken
+col[16] Judge1_R1_BaseScore
+col[17] R1_HighOptionsTaken  (mirrors col[15])
+col[18] Judge2_R1_BaseScore
+col[24] R2_HighOptionsTaken
+col[25] Judge1_R2_BaseScore
+col[26] Judge1_R2_HandyBonus (0-10)
+col[27] R2_HighOptionsTaken  (mirrors col[24])
+col[28] Judge2_R2_BaseScore
+col[29] Judge2_R2_HandyBonus
+col[42] R1Total
+col[43] R2Total
+col[45] CombinedTotal
+col[49] HasGone_R1
+col[50] HasGone_R2
 ```
 
-### SCORE DETECTION — CORRECTED:
+### Score Detection — Hunter:
 ```
-Horse has competed:    col[49] == '1' OR col[50] == '1'
-R1 complete:          col[49] == '1' AND col[15] non-zero
-R2 complete:          col[50] == '1' AND col[24] non-zero (or col[43] for derby)
-Eliminated/scratched: col[52] non-empty (EX, RF, OC)
+Has competed:    col[49]=='1' OR col[50]=='1'
+Eliminated:      col[52] non-empty
+Standard score:  col[49]=='1' AND col[15] non-zero
+Classic score:   col[50]=='1' AND col[15] AND col[24] non-zero
+```
+
+### STILL UNKNOWN — Hunter Entry:
+```
+col[46]: small number on derbies — possibly bonus fence count
+col[47]: small number on classics — unknown
 ```
 
 ---
 
-## JUMPER / TABLE ENTRY COLUMNS — CONFIRMED
-```
-Col 0:  EntryNum
-Col 1:  HorseName
-Col 2:  RiderName
-Col 3:  (empty)
-Col 4:  Country            "NZL", "USA" etc
-Col 5:  OwnerName
-Col 6:  Sire
-Col 7:  Dam
-Col 8:  City
-Col 9:  State
-Col 10: Notes
-Col 11: USEF/FEI number
-Col 12: (empty)
-Col 13: RideOrder          go order — confirmed set live
-Col 14: R1Place            finishing position in R1
-Col 15: R1Time             elapsed seconds e.g. 36.360 — CONFIRMED
-Col 16: R1JumpFaults       jump fault points e.g. 4, 8 — CONFIRMED
-Col 17: R1Total            R1Time + R1JumpFaults e.g. 40.360 — CONFIRMED
-Col 18: ?                  unknown
-Col 19: ?rawFaults         seen 4, 8 — possibly raw rail count × 4
-Col 20: ?rawFaultsMirror   mirrors col 19
-Col 21: ?                  unknown
-Col 22: R2Time             JO elapsed seconds — CONFIRMED
-Col 23: ?                  unknown
-Col 24: R2Total            JO total — CONFIRMED
-Col 25: R2JumpFaults       JO jump faults
-Col 26: ?                  unknown
-Col 27: ?                  unknown
-Col 28: ?                  unknown
-Col 29: ?                  unknown
-Col 30-34: ?               unknown
-Col 35: StatusCode         RF=RiderFall, EL=Eliminated, WD=Withdrawn, SC=Schooling,
-                           DNS=DidNotStart, DNF=DidNotFinish, RET=Retired
-```
+## TIMY TIMESTAMP FORMAT
 
-## SCORE DETECTION
-
-### Hunter — horse has competed:
-```
-col[49] == '1'  →  completed R1 (standard) or R1 only of two-round
-col[50] == '1'  →  completed R2 (two-round classic/derby)
-col[52] non-empty → eliminated/excused (EX, RF, OC)
-```
-
-### Hunter — has useful scores:
-```
-Standard:  col[49]=='1' AND col[15] non-zero
-Classic:   col[50]=='1' AND col[15] AND col[24] non-zero
-Derby:     col[50]=='1' AND col[16] AND col[25] non-zero (Int'l)
-           col[50]=='1' AND col[16] AND col[25] non-zero (National)
-```
-
-### Jumper — horse has run R1:
-```
-col[15] non-zero OR col[17] non-zero OR col[14] non-zero
-```
-
-### Jumper — horse has run R2/JO:
-```
-col[22] non-zero OR col[24] non-zero
-```
-
-TIMY hardware writes TOD (time of day) timestamps to the entry row via serial port.
 Format: HH:MM:SS or HH:MM:SS.NNNNNNN
 00:00:00 = not used / round not run
 
-CRITICAL: Ryegate allocates ALL THREE round blocks regardless of how many rounds
-the class actually uses. Unused round blocks stay 00:00:00. This means entry rows
-are FIXED WIDTH — no need to account for variable column counts per round number.
+Elapsed calculation:
+  Elapsed = (RideEnd - RideStart) - sum(all RidePause/RideResume durations)
 
-Each round block is 15 columns wide:
-  1 col  CDStart
-  6 cols CD Pause/Resume pairs (3 pairs)
-  1 col  RideStart
-  6 cols Ride Pause/Resume pairs (3 pairs)
-  1 col  RideEnd
-
-### Round 1 Block (cols 36-51) — CONFIRMED 2026-03-20:
-```
-Col 36: R1_HasGone_or_CDStart  Farmtek: 1=competed | TIMY: CDStart TOD
-Col 37: R1_CDStart             TIMY CDStart TOD
-Col 38: R1_CDPause1
-Col 39: R1_CDResume1
-Col 40: R1_CDPause2
-Col 41: R1_CDResume2
-Col 42: R1_CDPause3
-Col 43: R1_CDResume3
-Col 44: R1_RideStart           confirmed matching TOD screen exactly
-Col 45: R1_RidePause1
-Col 46: R1_RideResume1
-Col 47: R1_RidePause2
-Col 48: R1_RideResume2
-Col 49: R1_RidePause3
-Col 50: R1_RideResume3
-Col 51: R1_RideEnd             confirmed matching TOD screen exactly
-```
-
-### Round 2 / JO Block (cols 52-66) — CONFIRMED 2026-03-20:
-```
-Col 52: R2_CDStart             confirmed
-Col 53: R2_CDPause1
-Col 54: R2_CDResume1
-Col 55: R2_CDPause2
-Col 56: R2_CDResume2
-Col 57: R2_CDPause3
-Col 58: R2_CDResume3
-Col 59: R2_RideStart           confirmed
-Col 60: R2_RidePause1
-Col 61: R2_RideResume1
-Col 62: R2_RidePause2
-Col 63: R2_RideResume2
-Col 64: R2_RidePause3
-Col 65: R2_RideResume3
-Col 66: R2_RideEnd             confirmed
-```
-
-### Round 3 Block (cols 67-81) — unused for standard 2-round classes:
-```
-Col 67: R3_CDStart
-Col 68: R3_CDPause1
-Col 69: R3_CDResume1
-Col 70: R3_CDPause2
-Col 71: R3_CDResume2
-Col 72: R3_CDPause3
-Col 73: R3_CDResume3
-Col 74: R3_RideStart
-Col 75: R3_RidePause1
-Col 76: R3_RideResume1
-Col 77: R3_RidePause2
-Col 78: R3_RideResume2
-Col 79: R3_RidePause3
-Col 80: R3_RideResume3
-Col 81: R3_RideEnd
-```
-
-### Elapsed Time Calculation (TIMY):
-```
-Elapsed = (RideEnd - RideStart) - sum(all RidePause/RideResume durations)
-```
+Two-phase (ScoringMethod=9): Phase 1 uses R2 block, Phase 2 uses R3 block.
 
 ---
 
 ## FARMTEK TIMING NOTES
 
-Farmtek is optical beam timing — no TOD timestamps written to .cls file.
-Cols 36-80 will all be 00:00:00 for Farmtek (J type) classes.
-On-course detection for Farmtek must use header-level flags only.
-Timer start/stop detected by R1Time/R1Place appearing in entry row.
+Farmtek = optical beam timing. No TOD timestamps.
+Cols 37-81 all 00:00:00 for Farmtek (J) classes.
+HasGone (col[36]=1) is the only on-competed indicator for Farmtek.
+RideOrder stored at col[35] not col[13] for Farmtek.
 
 ---
 
 ## TSKED.CSV STRUCTURE
-
 ```
 Row 1:  ShowName, ShowDates
 Row 2+: ClassNum, ClassName, Date, Flag
 ```
-
-### Flag values (col 3):
-```
-S       = Scored/Complete — confirmed seen on class 47 after scoring
-JO      = Order of Go posted
-(blank) = standard class, no special flag
-```
+Flag: S=Scored/Complete, JO=OrderOfGoPosted, (blank)=standard
 
 ---
 
 ## CONFIG.DAT STRUCTURE
 
-First line is comma-separated:
+First line comma-separated:
 ```
-Col 0:  SerialPort         "Select COM port..." or "COM7"
-Col 1:  UDPPort            29696 (scoreboard port, 29697/98/99 for other rings)
-Col 2:  ?                  "FDS"
-Col 3:  ServerIP           "68.178.203.100" (Ryegate FTP server)
-Col 4:  FTPPath            "/SHOWS/HITS/Culpeper/2025/Summer/wk12/r1"
-Col 5:  FTPUser            "ftpryegate01@ryegate.com"
-Col 6:  FTPPassword        " " (space = blank/stored elsewhere)
-Col 24: ShowURLSlug        "hits-east" (maps to ryegate.live show URL)
-```
-
-Subsequent lines:
-```
-Line 1: comma-separated config values
-Line 2: unknown numbers
-Line 3: unknown numbers
-Line 4: C:\path (download path)
-Line 5: (Show Name) placeholder
-Line 6: (Dates) placeholder
-Line 7: Location placeholder
-Line 8: Footer 2 (judges CD or timing)
-Line 9: C:\path (desktop path)
+Col 0:  SerialPort         "COM7" etc
+Col 1:  UDPPort            scoreboard port e.g. 29711
+Col 2:  "FDS"
+Col 3:  ServerIP           Ryegate FTP server IP
+Col 4:  FTPPath            "/SHOWS/HITS/.../r1" — ring from /r1, /r2 etc
+Col 5:  FTPUser
+Col 6:  FTPPassword
+Col 24: ShowURLSlug        Ryegate back office ID — NOT reliable as show slug
+                           Use config.json slug set by operator instead
 ```
 
-### KEY FIELDS FOR AUTO-CONFIGURATION:
-- FTPPath (col 4) → show/ring/week → maps to KV show structure
-- ShowURLSlug (col 24) → maps to ryegate.live URL for show discovery
-- UDPPort (col 1) → scoreboard UDP port (29696 = ring 1)
-- Ring number extracted from FTPPath: /r1 = ring 1, /r2 = ring 2 etc.
-
----
-
-## STILL UNKNOWN — JUMPER HEADER
+UDP Ports:
 ```
-Col 4:  timer type flag? (1=Farmtek, 2=TIMY — needs confirmation)
-Col 5:  ClockPrecision — confirmed changes but encoding unknown (.01, .001 etc)
-Col 6:  unknown flag (always 1 after format)
-Col 7:  unknown flag (always 1 after format)
-Col 18: False on format — unknown
-Col 20: unknown
-Col 21: value 2 on format — unknown
-Col 24: False on format — unknown
-Col 27: True on format — unknown
-NumRounds: H[04]=1 for Farmtek, H[04]=2 for TIMY — may be timer type not rounds
-           Needs targeted test: change rounds, press marker
-```
-
-## STILL UNKNOWN — JUMPER ENTRY
-```
-Col 18: unknown
-Col 19: seen values 4, 8 — possibly raw rail count × 4
-Col 20: mirrors col 19
-Col 21: unknown
-Col 23: unknown
-Col 26: unknown
-Col 27: unknown
-Col 28: unknown
-Col 29: unknown
-Col 30-34: unknown
-```
-
-## STILL UNKNOWN — HUNTER HEADER
-```
-Col 2:  ScoringSubtype? — 0=standard, 1=U/S, 2=Derby/Classic (needs confirmation)
-Col 5:  unknown — does NOT reliably indicate U/S
-Col 7:  1=standard, 2=International Derby only — purpose unclear
-Col 9:  always 4 — not NumJudges, purpose completely unknown
-Col 13: True/False — varies, needs toggle test
-Col 14: True/False — False on Championships/U/S, needs toggle test
-Col 17: True on 501.cls only — needs toggle test
-Col 18: 1=International Derby only — needs toggle test
-Col 33: always 2 — unknown
-Col 35: True=International Derby only — needs toggle test
-All unknowns need live header toggle screen recording
-```
-
-## STILL UNKNOWN — HUNTER ENTRY
-```
-Col 12: rarely populated — seen one derby entry with a number
-Col 46: small number (2-3) on derbies — possibly bonus fence count
-Col 47: small number on classics only — unknown
+Scoreboard port: config.dat col[1]
+Live data port:  scoreboardPort - 496 (locked by Ryegate)
 ```
 
 ---
 
-Last updated: 2026-03-20 (Session 10 — hunter entry cols confirmed, 97-class analysis, UDP protocol mapped)
+## UDP PROTOCOL
+
+### CRITICAL: TWO COMPLETELY SEPARATE UDP SCHEMAS
+Hunter and jumper UDP packets are entirely different systems.
+NEVER assume a tag means the same thing across both.
+Detection: `{fr}` frame number determines which schema applies.
+
+```
+{fr}=1      → Jumper packet
+{fr}=11-16+ → Hunter packet
+```
+
+---
+
+### JUMPER UDP — CONFIRMED
+
+Format: `{RYESCR}{fr}1{tag}value{tag}value...`
+
+Jumper uses ONE frame always (`{fr}=1`). Fields toggle on/off per phase.
+Phase is inferred from which fields are populated — NOT from frame number.
+
+```
+{fr}  always 1 for jumper
+{1}   entry number
+{2}   horse name
+{3}   rider name
+{8}   rank/place — FINISH signal (strip "RANK " prefix)
+{13}  time allowed (strip "TA: " prefix)
+{14}  jump faults (strip "JUMP " prefix)
+{15}  time faults (strip "TIME " prefix)
+{17}  elapsed seconds — ONCOURSE signal
+{18}  TTB time to beat (unreliable, disappears)
+{23}  countdown — CD signal (negative e.g. "-44")
+```
+
+Phase Detection (inferred from field presence):
+```
+IDLE      no active horse
+INTRO     {1} present, no {23}/{17}/{8}
+CD        {23} countdown present
+ONCOURSE  {17} elapsed present, no {8}
+FINISH    {8} rank present
+```
+
+Clock stop detection: 2.5s timer — if {17} stops incrementing → CLOCK_STOPPED event.
+CD stop detection: 2.5s timer — if {23} stops changing → CD_STOPPED event.
+
+UDP Collision Detection: REMOVED 2026-03-22.
+Watcher trusts all UDP on configured port. Operator handles hardware collisions visually.
+
+---
+
+### HUNTER UDP — CONFIRMED 2026-03-23/29
+
+Format: `{RYESCR}{fr}[11-16]{tag}value{tag}value...`
+
+Hunter uses MULTIPLE frames. Each frame = a distinct display page/mode.
+Frame number is the primary discriminator — not field presence.
+
+#### CRITICAL ARCHITECTURE DECISION — 2026-03-29:
+Hunter UDP is used for ONE PURPOSE ONLY: detecting that a horse is ON COURSE.
+Everything else comes from the .cls file.
+
+The .cls file DOES NOT update when a horse goes on course.
+The .cls file DOES update immediately when a score is posted (FINISH).
+Therefore:
+  - {fr}=11 INTRO fires → horse is ON COURSE → store in KV
+  - .cls file changes → horse is DONE, score posted → clear KV, write D1
+  - No other hunter UDP tags are needed for the pipeline
+
+#### Frame map — confirmed:
+```
+{fr}=1    → Jumper packet (completely separate schema)
+{fr}=11   → Hunter INTRO — horse goes on course (all hunter class types)
+{fr}=12   → Hunter FINISH — standard O/F result
+{fr}=16   → Hunter FINISH — derby result
+{fr}=13-15 → Final/standings pages (not needed for pipeline)
+```
+
+#### Hunter INTRO packet ({fr}=11) — THE ONLY HUNTER UDP WE ACT ON:
+
+Frame 11 cycles between two page layouts:
+
+Page A — horse/rider/owner:
+```
+{1}   entry number  ← READ THIS
+{2}   horse name    ← READ THIS
+{3}   rider name    ← READ THIS (may change if rider swap)
+{4}   owner         ← READ THIS (free bonus)
+{5}   unknown (empty)
+{14}  H:XX.XXX = current class HIGH score (NOT this horse's score)
+{15}  empty
+{17}  scoreboard message text ← NOT elapsed time, NOT a clock signal
+      IGNORE for phase detection — hunters have no running clock
+```
+
+Page B — pedigree (same {fr}=11, different tags):
+```
+{1}   entry number
+{2}   horse name
+{18}  sire name
+{19}  "X" — breeding nomenclature filler (scoreboard shows "Dam X Sire")
+{20}  dam name
+```
+
+Example Page A: `{RYESCR}{fr}11{1}3448{2}BALLPARK{3}TATUM BOOS{4}MARY EUFEMIA{5}{14}{15}{17}SB message`
+Example Page B: `{RYESCR}{fr}11{1}3448{2}BALLPARK{18}ULYSS MORINDA{19}X{20}GHANA VAN'T ZONNEVELD`
+
+Action on {fr}=11: store { entry, horse, rider, owner } in KV as onCourse.
+That's it. No other processing needed.
+
+#### Hunter FINISH packets — FOR REFERENCE ONLY (not used in pipeline):
+.cls file is authoritative. These are logged but not acted on.
+
+{fr}=12 — standard O/F finish:
+```
+{1}   entry number
+{2}   horse name
+{3}   rider name
+{8}   RANK: [place]
+{21}  [place]: [score]  e.g. "1: 89.00"
+```
+
+{fr}=16 — derby finish:
+```
+{1}   entry number
+{2}   horse name
+{3}   rider name
+{8}   RANK: [place]
+{21}  [judge]: [score] + [bonus]  e.g. "1:4.000 + 76"
+      Judge 1 score + bonus points
+```
+
+#### Hunter phase detection — SIMPLE:
+```
+{fr}=11 fires  → ON COURSE  → write to KV: { onCourse: entry, horse, rider, owner }
+.cls changes   → DONE       → clear KV onCourse, write score to D1
+```
+
+No FINISH UDP parsing required. No score extraction from UDP. .cls is truth.
+
+#### Port 31000 — Video Wall / Class Complete Detection:
+Always-on checkbox in Ryegate settings. Fires on every On Course click AND Ctrl+A.
+
+Format: `{RYESCR}{fr}[frame]{26}[classNum]s{27}[classNum]{28}[className]{ }`
+```
+{fr}  Ryegate internal frame number — ignore
+{26}  classNum + "s" = sponsor graphic filename — ignore
+{27}  clean class number ← USE THIS
+{28}  class name ← bonus
+```
+
+Signals:
+```
+1x Ctrl+A  → CLASS_SELECTED — screens refresh
+3x Ctrl+A within 2 seconds → CLASS_COMPLETE
+Also fires on every On Course click simultaneously with {fr}=11 INTRO
+```
+
+---
+
+### HUNTER UDP — NO LONGER LEARNING (DECISION MADE):
+We do not need to map remaining hunter UDP frames for the pipeline.
+The .cls file provides all scoring data. UDP provides only the ON COURSE signal.
+Remaining unknowns are informational only:
+```
+{fr}=13-15  Final/standings pages — not needed
+{5}         Unknown tag — always empty, ignore
+Multi-judge — .cls handles this, UDP not needed
+Derby bonus — .cls handles this, UDP not needed
+EX/OC/RF    — .cls StatusCode handles this
+```
+
+---
+
+## STILL UNKNOWN
+
+### Jumper Header:
+```
+H[03]: always 0 — legacy
+H[18]: always False — legacy
+H[20]: always empty — legacy
+H[24]: always False — legacy
+H[27]: always True — legacy
+```
+
+### TIMY Entry:
+```
+col[12]: Owner FEI/USEF number — assumed by pattern (horse=10, rider=11, owner=12)
+         CONFIRM at HITS — find an entry with all three numbers populated
+col[21]: always 0 — possibly R1Place, watch at HITS
+col[28]: always 0 — possibly R2Place, watch at HITS
+col[35]: StatusCode not yet confirmed in TIMY (only confirmed Farmtek col[39])
+col[82-84]: trailing padding cols, always empty
+```
+
+### Farmtek Entry:
+```
+col[13]: always 0 — unused (RideOrder at col[35] instead)
+col[37-38]: always empty
+```
+
+### Hunter Header:
+```
+H[06]: changes for H&G derbies and Special — label unknown
+H[07]: auto-adjusts per derby type — full map incomplete
+H[09]: SBDelay — only tested at value 4
+H[37]=9: WCHR Spec — likely but not confirmed
+```
+
+### Hunter Entry:
+```
+col[46]: small number on derbies — possibly bonus fence count
+col[47]: small number on classics — unknown
+```
+
