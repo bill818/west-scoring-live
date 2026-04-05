@@ -643,17 +643,31 @@ WEST.hunter.derby.computeRankings = function(entries, judgeCount) {
     })(jc);
   }
 
-  // Movement: R1-only overall rank (sum across judges) vs final place
+  // R1 and R2 overall ranks — sum across judges per round, then rank.
+  // For 1-judge these equal the per-judge rank; for multi-judge they're
+  // the aggregate round-level rank shown next to R1/R2 totals on the row.
   var r1OverallItems = entries.filter(self.hasR1).map(function(e) {
     var sum = 0;
     for (var j = 0; j < judgeCount; j++) sum += e.r1[j].phaseTotal;
     return { key: e.entry_num, val: sum };
   });
   var r1OverallRanks = assign(r1OverallItems);
+
+  var r2OverallItems = entries.filter(self.hasR2).map(function(e) {
+    var sum = 0;
+    for (var j = 0; j < judgeCount; j++) sum += e.r2[j].phaseTotal;
+    return { key: e.entry_num, val: sum };
+  });
+  var r2OverallRanks = assign(r2OverallItems);
+
   entries.forEach(function(e) {
     var r1Rank = r1OverallRanks[e.entry_num] || null;
+    var r2Rank = r2OverallRanks[e.entry_num] || null;
     var finalPlace = parseInt(e.place) || null;
+    e._jt.r1OverallRank = r1Rank;
+    e._jt.r2OverallRank = r2Rank;
     e._jt.combinedRank = finalPlace;
+    // Movement: R1-only overall rank vs final place
     if (r1Rank && finalPlace && self.hasR2(e)) {
       e._jt.movement = r1Rank - finalPlace; // positive = moved up
     }
@@ -710,41 +724,75 @@ WEST.hunter.derby.renderPhaseMath = function(phase, roundNum) {
 // already-parsed derby entry (from buildEntries) — same data shape used by the
 // main derby renderer. Multi-round non-derby hunters will reuse this once their
 // parser is wired — the shape is judge-count/round-count agnostic.
+//
+// Structure:
+//   R1 total  (aggregate across judges, col[42])
+//   R2 total  (aggregate across judges, col[43])
+//   ---
+//   J1 R1   base + hiopt = phaseTotal
+//   J2 R1   base + hiopt = phaseTotal
+//   J1 R2   base + hiopt + bonus = phaseTotal
+//   J2 R2   base + hiopt + bonus = phaseTotal
+// (1-judge derbies suppress the J-prefixed per-judge rows since they're
+// redundant with the R1/R2 totals.)
 WEST.hunter.derby.renderCompactBreakdown = function(entry, judgeCount) {
   if (!entry) return '';
-  var rows = [];
-  var labelPrefix = function(j) { return judgeCount > 1 ? 'J' + (j + 1) + ' ' : ''; };
+  var hasR1 = WEST.hunter.derby.hasR1(entry);
+  var hasR2 = WEST.hunter.derby.hasR2(entry);
+  if (!hasR1 && !hasR2) return '';
 
-  if (WEST.hunter.derby.hasR1(entry)) {
-    for (var j = 0; j < judgeCount; j++) {
-      var p = entry.r1[j];
-      rows.push({
-        lbl: labelPrefix(j) + 'R1',
-        math: WEST.hunter.derby.renderPhaseMath(p, 1),
-        total: p.phaseTotal,
-      });
-    }
-  }
-  if (WEST.hunter.derby.hasR2(entry)) {
-    for (var j2 = 0; j2 < judgeCount; j2++) {
-      var p2 = entry.r2[j2];
-      rows.push({
-        lbl: labelPrefix(j2) + 'R2',
-        math: WEST.hunter.derby.renderPhaseMath(p2, 2),
-        total: p2.phaseTotal,
-      });
-    }
-  }
-  if (!rows.length) return '';
+  var html = '<div class="oc-breakdown">';
 
-  return '<div class="oc-breakdown">'
-    + rows.map(function(r) {
-        return '<div class="oc-breakdown-row">'
-          + '<span class="oc-breakdown-lbl">' + r.lbl + '</span>'
-          + '<span class="oc-breakdown-math">' + r.math + ' = ' + r.total + '</span>'
-          + '</div>';
-      }).join('')
-    + '</div>';
+  // Aggregate totals — both rounds on one line to save vertical space, with per-round rank
+  if (hasR1 || hasR2) {
+    var r1Rank = entry._jt ? entry._jt.r1OverallRank : null;
+    var r2Rank = entry._jt ? entry._jt.r2OverallRank : null;
+    html += '<div class="oc-breakdown-totals-row">';
+    if (hasR1) {
+      html += '<span class="oc-breakdown-total-item"><span class="oc-breakdown-lbl">R1</span><span class="oc-breakdown-total-val">' + entry.r1Total + '</span>'
+        + (r1Rank ? '<span class="oc-breakdown-total-rank">(' + WEST.ordinal(r1Rank) + ')</span>' : '')
+        + '</span>';
+    }
+    if (hasR2) {
+      html += '<span class="oc-breakdown-total-item"><span class="oc-breakdown-lbl">R2</span><span class="oc-breakdown-total-val">' + entry.r2Total + '</span>'
+        + (r2Rank ? '<span class="oc-breakdown-total-rank">(' + WEST.ordinal(r2Rank) + ')</span>' : '')
+        + '</span>';
+    }
+    html += '</div>';
+  }
+
+  // Per-judge details — multi-judge only. Laid out as a grid: rounds as rows,
+  // judges as columns, so J1 R1 sits left of J2 R1 and J1 R2 sits under J1 R1.
+  if (judgeCount > 1 && (hasR1 || hasR2)) {
+    var cellHtml = function(lbl, p, roundNum, rank) {
+      return '<span class="oc-breakdown-cell">'
+        + '<span class="oc-breakdown-lbl">' + lbl + '</span>'
+        + '<span class="oc-breakdown-math">' + WEST.hunter.derby.renderPhaseMath(p, roundNum) + ' = ' + p.phaseTotal + '</span>'
+        + (rank ? '<span class="oc-breakdown-rank">(' + WEST.ordinal(rank) + ')</span>' : '')
+        + '</span>';
+    };
+    html += '<div class="oc-breakdown-judges-grid">';
+    if (hasR1) {
+      html += '<div class="oc-breakdown-judges-row">';
+      for (var j = 0; j < judgeCount; j++) {
+        var jr1 = entry._jt && entry._jt.r1Ranks ? entry._jt.r1Ranks[j] : null;
+        html += cellHtml('J' + (j + 1) + ' R1', entry.r1[j], 1, jr1);
+      }
+      html += '</div>';
+    }
+    if (hasR2) {
+      html += '<div class="oc-breakdown-judges-row">';
+      for (var j2 = 0; j2 < judgeCount; j2++) {
+        var jr2 = entry._jt && entry._jt.r2Ranks ? entry._jt.r2Ranks[j2] : null;
+        html += cellHtml('J' + (j2 + 1) + ' R2', entry.r2[j2], 2, jr2);
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
 };
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -894,12 +942,18 @@ WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Stat
     }
   } else {
     if (hasR1) {
+      var r1Rank = g._jt ? g._jt.r1OverallRank : null;
       html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-        + '<span class="r-score-val primary">' + g.r1Total + '</span></div>';
+        + '<span class="r-score-val primary">' + g.r1Total + '</span>'
+        + (r1Rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r1Rank) + ')</span>' : '')
+        + '</div>';
     }
     if (hasR2) {
+      var r2Rank = g._jt ? g._jt.r2OverallRank : null;
       html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-        + '<span class="r-score-val primary">' + g.r2Total + '</span></div>';
+        + '<span class="r-score-val primary">' + g.r2Total + '</span>'
+        + (r2Rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r2Rank) + ')</span>' : '')
+        + '</div>';
     } else if (r2Status) {
       html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
     }

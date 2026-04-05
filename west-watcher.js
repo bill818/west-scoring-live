@@ -1088,17 +1088,37 @@ function startUdpListener(scoreboardPort) {
     }
 
     // ── Hunter {fr}=16 — DISPLAY SCORES signal ────────────────────────────────
-    // Operator pressed "Display Scores" in Ryegate. The score is already in
-    // the .cls file (fs.watch picks up the write). We post a FINISH event so
-    // the on-course card flips from "In The Ring" to "Finished" — the live
-    // page reads the score + rank from the class data on its next poll.
+    // Operator pressed "Display Scores" in Ryegate.
     // tags: {1}=entry {2}=horse {3}=rider {8}="RANK: N" {21}=display text
+    //
+    // Force a fresh read of the selected class file and post it FIRST so the
+    // Worker has the latest standings by the time the FINISH phase hits the
+    // live page. Otherwise there's a race where fs.watch lags the fr=16 UDP
+    // frame and the live page briefly shows stale (R1-only) data before the
+    // combined total appears on the next poll.
     if (fr === '16') {
       const dEntry = (tags['1'] || '').trim();
       const dHorse = (tags['2'] || '').trim();
       const dRider = (tags['3'] || '').trim();
       const dRank  = (tags['8'] || '').replace(/^RANK:\s*/i, '').trim();
       udpLog(`[HUNTER DISPLAY SCORES] #${dEntry} ${dHorse} / ${dRider} rank=${dRank}`);
+
+      // Fresh read + post class data BEFORE the FINISH event
+      if (selectedClassNum) {
+        const filename = selectedClassNum + '.cls';
+        const fullPath = path.join(CLASSES_DIR, filename);
+        const content = safeRead(fullPath);
+        if (content) {
+          // Update cache so the subsequent fs.watch event doesn't re-post
+          fileStates[filename] = content;
+          const parsed = parseCls(content, filename);
+          if (parsed) {
+            postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (fr=16 forced)`);
+            udpLog(`[HUNTER fr=16] Forced re-post of ${filename}`);
+          }
+        }
+      }
+
       postToWorker('/postClassEvent',
         { event: 'FINISH', entry: dEntry, horse: dHorse, rider: dRider, rank: dRank, isHunter: true },
         `HUNTER FINISH #${dEntry}`);

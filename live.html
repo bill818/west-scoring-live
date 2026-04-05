@@ -114,6 +114,17 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .oc-breakdown-row{display:flex;align-items:baseline;justify-content:center;gap:6px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
 .oc-breakdown-lbl{font-size:9px;letter-spacing:.06em;color:#aaa;min-width:38px;text-align:right;}
 .oc-breakdown-math{font-size:10px;color:var(--text-body);text-align:left;}
+.oc-breakdown-rank{font-size:9px;color:#999;margin-left:4px;font-family:'DM Mono',monospace;}
+.oc-breakdown-totals-row{display:flex;justify-content:center;gap:18px;margin-top:2px;}
+.oc-breakdown-total-item{display:inline-flex;align-items:baseline;gap:5px;}
+.oc-breakdown-total-item .oc-breakdown-lbl{font-size:9px;letter-spacing:.06em;color:#999;font-weight:600;min-width:0;}
+.oc-breakdown-total-val{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--black);}
+.oc-breakdown-total-rank{font-family:'DM Mono',monospace;font-size:10px;color:#999;margin-left:3px;}
+.oc-breakdown-totals-row + .oc-breakdown-judges-grid{margin-top:4px;border-top:1px solid #eee;padding-top:4px;}
+.oc-breakdown-judges-grid{display:flex;flex-direction:column;gap:3px;width:100%;}
+.oc-breakdown-judges-row{display:flex;justify-content:center;gap:14px;}
+.oc-breakdown-cell{display:inline-flex;align-items:baseline;gap:5px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
+.oc-breakdown-cell .oc-breakdown-lbl{min-width:0;text-align:left;}
 
 /* DERBY — shared with results.html. renderList output uses these classes. */
 .results-wrap{padding-bottom:0;}
@@ -279,14 +290,23 @@ function restoreOpenEntry() {
   else _openEntryNum = null;
 }
 
-// Infer which round a hunter entry is currently on (or just finished) from
-// their cls entry state. No R1 evidence → R1; R1 present, no R2 → R2.
-function inferHunterRound(entryRow) {
+// Infer which round a hunter entry is currently on (or just finished).
+// FINISH phase → label the round where the score actually lives (R2 wins if
+// both populated, which can happen in test data).
+// ON COURSE phase → label the round they're about to ride (opposite logic:
+// the one without a score yet).
+function inferHunterRound(entryRow, phase) {
   if (!entryRow) return null;
   var hasR1 = !!(entryRow.r1Total || entryRow.score || entryRow.r1TextStatus);
   var hasR2 = !!(entryRow.r2Total || entryRow.r2Score || entryRow.r2TextStatus);
+  if (phase === 'FINISH') {
+    if (hasR2) return 'R2';
+    if (hasR1) return 'R1';
+    return null;
+  }
+  // ONCOURSE / INTRO / CD — ride hasn't completed yet
   if (!hasR1) return 'R1';
-  if (hasR1 && !hasR2) return 'R2';
+  if (!hasR2) return 'R2';
   return null;
 }
 
@@ -339,7 +359,7 @@ function render() {
       elapsed: oc.elapsed, jumpFaults: oc.jumpFaults, timeFaults: oc.timeFaults,
       hunterScore: oc.hunterScore, isHunter: isHunterForPrev,
       rank: (ocEntryRow && ocEntryRow.place) || oc.rank || null,
-      hunterRound: ocEntryRow ? inferHunterRound(ocEntryRow) : null };
+      hunterRound: ocEntryRow ? inferHunterRound(ocEntryRow, 'FINISH') : null };
   }
 
   // Infer hunter from the selected class when the oc payload doesn't carry the flag
@@ -367,14 +387,31 @@ function render() {
       ? 'Class ' + esc(sel.classNum) + (ocCd && ocCd.className ? ' — ' + esc(ocCd.className) : '')
       : '';
     const entryRow = (ocCd && ocCd.entries) ? ocCd.entries.find(e => String(e.entryNum) === String(oc.entry)) : null;
-    const hunterRound = inferHunterRound(entryRow);
+    const hunterRound = inferHunterRound(entryRow, phase);
     let phaseLabel = 'On Course';
     if (phase === 'INTRO') phaseLabel = 'In Gate';
     else if (phase === 'FINISH') phaseLabel = 'Finished';
 
     let rightCardHtml = '';
     if (phase === 'FINISH') {
-      const score = oc.hunterScore || (entryRow && (entryRow.combined || entryRow.r1Total || entryRow.score)) || '';
+      // Score + label: show combined as "OVERALL" once R2 is done, otherwise
+      // show the round-specific total with its round label.
+      const hasR1Score = !!(entryRow && (entryRow.r1Total || entryRow.score));
+      const hasR2Score = !!(entryRow && (entryRow.r2Total || entryRow.r2Score));
+      let displayScore = '';
+      let displayLabel = hunterRound;
+      if (hasR1Score && hasR2Score && entryRow.combined) {
+        displayScore = entryRow.combined;
+        displayLabel = 'OVERALL';
+      } else if (hasR2Score) {
+        displayScore = entryRow.r2Total || entryRow.r2Score;
+        displayLabel = 'R2';
+      } else if (hasR1Score) {
+        displayScore = entryRow.r1Total || entryRow.score;
+        displayLabel = 'R1';
+      } else {
+        displayScore = oc.hunterScore || '';
+      }
       const rank = entryRow && entryRow.place ? entryRow.place : null;
 
       // Per-judge per-round breakdown — derby only for now. Non-derby multi-round
@@ -388,11 +425,14 @@ function render() {
         }
       }
 
+      const rankOrdinal = rank ? WEST.ordinal(parseInt(rank) || rank) : '';
       rightCardHtml = '<div class="oc-card oc-clock-wrap">'
-        + (hunterRound ? '<div class="oc-round-label">' + hunterRound + '</div>' : '')
-        + '<div style="font-family:DM Mono,monospace;font-size:36px;font-weight:600;color:var(--red);line-height:1;">' + esc(score || '—') + '</div>'
+        + (displayLabel ? '<div class="oc-round-label">' + esc(displayLabel) + '</div>' : '')
+        + '<div style="display:flex;align-items:baseline;justify-content:center;gap:10px;">'
+        +   '<div style="font-family:DM Mono,monospace;font-size:36px;font-weight:600;color:var(--red);line-height:1;">' + esc(displayScore || '—') + '</div>'
+        +   (rankOrdinal ? '<div style="font-family:DM Mono,monospace;font-size:18px;font-weight:600;color:var(--red);line-height:1;">' + esc(rankOrdinal) + '</div>' : '')
+        + '</div>'
         + '<div class="oc-phase-label">Finished</div>'
-        + (rank ? '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--text-body);margin-top:6px;">Rank: <b>' + esc(rank) + '</b></div>' : '')
         + breakdownHtml
         + '</div>';
     } else {
