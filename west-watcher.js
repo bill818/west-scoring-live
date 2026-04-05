@@ -62,9 +62,12 @@ function postToWorker(endpoint, body, label) {
     body:    JSON.stringify({ ...body, slug: SHOW_SLUG, ring: SHOW_RING }),
     signal:  ctrl.signal,
   })
-  .then(r => {
+  .then(async r => {
     clearTimeout(timer);
-    if (!r.ok) log(`[POST] ${label || endpoint} — HTTP ${r.status}`);
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      log(`[POST] ${label || endpoint} — HTTP ${r.status}: ${text.slice(0, 300)}`);
+    }
   })
   .catch(e => {
     clearTimeout(timer);
@@ -265,7 +268,8 @@ function parseCls(content, filename) {
       entryNum:  cols[0],
       horse:     cols[1] || '',
       rider:     cols[2] || '',
-      // cols[3,4] = empty
+      // col[3] = unknown/empty
+      country:   cols[4] || '',   // FEI country code e.g. USA, GER — confirmed 2026-03-31
       owner:     cols[5] || '',
       sire:      cols[6] || '',
       dam:       cols[7] || '',
@@ -293,6 +297,8 @@ function parseCls(content, filename) {
       entry.statusCode = cols[52] || '';
       // Two-round classic: R2 score at col[24]
       entry.r2Score    = cols[24] && cols[24] !== '0' ? cols[24] : '';
+      // Edge case: manually entered scores bypass hasGone flag — treat as gone if has score or place
+      if (!entry.hasGone && (entry.score || entry.place)) entry.hasGone = true;
     }
 
     if (isJumper) {
@@ -333,7 +339,19 @@ function parseCls(content, filename) {
 
       // HasGone and StatusCode
       entry.hasGone       = cols[36] === '1';
-      entry.statusCode    = isFarmtek ? (cols[39] || '') : (cols[35] || '');
+      // * Farmtek: col[39]. TIMY: col[82]=R1 status, col[83]=R2 status (updated 2026-04-03)
+      if (isFarmtek) {
+        entry.statusCode = cols[39] || '';
+      } else {
+        entry.r1StatusCode = cols[82] || '';
+        entry.r2StatusCode = cols[83] || '';
+        entry.statusCode   = cols[83] || cols[82] || ''; // most recent round's status
+      }
+      // hasGone = must have evidence of competing (time, place, or status code)
+      // Fixes: hasGone=1 with no data (accidental toggle) → not gone
+      // Fixes: hasGone=0 with scores (manual entry) → gone
+      const hasEvidence = !!(entry.r1TotalTime || entry.overallPlace || entry.statusCode);
+      entry.hasGone = hasEvidence;
     }
 
     result.entries.push(entry);
@@ -434,14 +452,44 @@ function readTsked() {
   const lines = content.split(/\r?\n/).filter(l => l.trim());
   log('');
   log('TSKED FILE:');
+
+  const schedClasses = [];
   lines.forEach((line, i) => {
     const cols = parseCSVLine(line);
     if (i === 0) {
       log(`  Show: ${cols[0]} | Dates: ${cols[1]}`);
     } else {
-      log(`  Class ${cols[0]}: ${cols[1]} | Date: ${cols[2]} | Flag: ${cols[3]}`);
+      const classNum = (cols[0] || '').trim();
+      const date     = (cols[2] || '').trim();
+      const flag     = (cols[3] || '').trim();
+      log(`  Class ${classNum}: ${cols[1]} | Date: ${date} | Flag: ${flag}`);
+
+      if (classNum && date) {
+        // Normalize date from M/D/YYYY to YYYY-MM-DD for D1
+        let isoDate = '';
+        const dm = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (dm) isoDate = dm[3] + '-' + dm[1].padStart(2, '0') + '-' + dm[2].padStart(2, '0');
+        else isoDate = date;
+
+        schedClasses.push({
+          classNum,
+          date: isoDate,
+          order: i,
+          flag: flag || ''
+        });
+      }
     }
   });
+
+  // Post schedule to Worker after a short delay (let initial scan finish first)
+  if (schedClasses.length) {
+    setTimeout(() => {
+      postToWorker('/postSchedule',
+        { classes: schedClasses },
+        `postSchedule (${schedClasses.length} classes)`);
+      log(`[TSKED] Posted ${schedClasses.length} class schedules to Worker`);
+    }, 5000);
+  }
 }
 
 // ── READ CONFIG ──────────────────────────────────────────────────────────────
@@ -495,7 +543,7 @@ function scanAll() {
   try {
     const files = fs.readdirSync(CLASSES_DIR).filter(f => f.endsWith('.cls'));
     log(`Found ${files.length} .cls files in ${CLASSES_DIR}`);
-    files.forEach(f => {
+    files.forEach((f, i) => {
       const fullPath = path.join(CLASSES_DIR, f);
       const content = safeRead(fullPath);
       if (!content) return;
@@ -504,7 +552,11 @@ function scanAll() {
         fileStates[f] = content;
         saveSnapshot(f, content, 'initial scan');
         logClass(parsed, false);
-        postToWorker('/postClassData', parsed, `postClassData ${f}`);
+        // Stagger posts 150ms apart — prevents D1 write contention and Worker 500s
+        const rawContent = content;
+        setTimeout(() => {
+          postToWorker('/postClassData', { ...parsed, clsRaw: rawContent }, `postClassData ${f}`);
+        }, i * 150);
       }
     });
   } catch(e) {
@@ -533,7 +585,7 @@ function startWatcher() {
         if (parsed) {
           saveSnapshot(filename, content, 'changed');
           logClass(parsed, true);
-          postToWorker('/postClassData', parsed, `postClassData ${filename}`);
+          postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename}`);
         }
       }, 200);
     });
@@ -753,7 +805,10 @@ function startPort31000Listener() {
   }
 }
 
+let selectedClassNum = null; // tracks most recent Ctrl+A class for inferRound
+
 function handleClassSelected(classNum, className) {
+  selectedClassNum = classNum;
   logSeparator();
   log(`CLASS SELECTED: class ${classNum} — ${className}`);
   log(`  Screens watching this class will refresh`);
@@ -762,6 +817,21 @@ function handleClassSelected(classNum, className) {
   postToWorker('/postClassEvent',
     { event: 'CLASS_SELECTED', classNum, className },
     `CLASS_SELECTED class ${classNum}`);
+
+  // Re-post this class's current data 300ms later so the Worker's live: KV
+  // gets populated with the right class immediately after selected: KV is set.
+  setTimeout(() => {
+    const filename = classNum + '.cls';
+    const content = fileStates[filename];
+    log(`[CLASS_SELECTED] fileStates[${filename}]: ${content ? content.length + ' bytes' : 'NOT FOUND'}`);
+    if (content) {
+      const parsed = parseCls(content, filename);
+      if (parsed) {
+        postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (on-select)`);
+        log(`[CLASS_SELECTED] Re-posted ${filename} standings to Worker`);
+      }
+    }
+  }, 300);
 }
 
 function handleClassComplete(classNum, className) {
@@ -782,6 +852,7 @@ const udpLastLogged = {};
 
 let lastPhase   = 'IDLE';
 let lastEntry   = '';
+let lastTa      = '';
 let lastElapsed = '';
 let lastCd      = '';
 let lastJump    = '';
@@ -795,34 +866,51 @@ function fireEvent(type, data) {
 }
 
 function inferRound(entryNum, udpTa) {
-  for (const filename of Object.keys(fileStates)) {
-    const content = fileStates[filename];
-    if (!content) continue;
+  const taNum = parseFloat(udpTa) || 0;
+
+  // Use the selected class file — we know which class is in the ring
+  const filename = selectedClassNum ? selectedClassNum + '.cls' : null;
+  const content = filename ? fileStates[filename] : null;
+
+  if (content) {
     const parsed = parseCls(content, filename);
-    if (!parsed) continue;
-    const entry = parsed.entries.find(e => e.entryNum === entryNum);
-    if (!entry) continue;
+    if (parsed) {
+      // Time fault formula values per round from .cls header
+      const roundParams = {
+        1: { fpi: parseFloat(parsed.r1FaultsPerInt) || 1, ti: parseFloat(parsed.r1TimeInterval) || 1, ps: parseFloat(parsed.penaltySeconds) || 6 },
+        2: { fpi: parseFloat(parsed.r2FaultsPerInt) || 1, ti: parseFloat(parsed.r2TimeInterval) || 1, ps: parseFloat(parsed.penaltySeconds) || 6 },
+        3: { fpi: parseFloat(parsed.r3FaultsPerInt) || 1, ti: parseFloat(parsed.r3TimeInterval) || 1, ps: parseFloat(parsed.penaltySeconds) || 6 },
+      };
 
-    if (parsed.scoringMethod === '9') {
-      if (!entry.r2TotalTime) return { round: 1, label: 'Phase 1' };
-      return { round: 2, label: 'Phase 2' };
+      function result(round, label) {
+        const rp = roundParams[round] || roundParams[1];
+        return { round, label, faultsPerInterval: rp.fpi, timeInterval: rp.ti, penaltySeconds: rp.ps };
+      }
+
+      if (parsed.scoringMethod === '9') {
+        const entry = parsed.entries.find(e => e.entryNum === entryNum);
+        if (entry && !entry.r2TotalTime) return result(1, 'Phase 1');
+        return result(2, 'Phase 2');
+      }
+
+      const r1Match = taNum === parseFloat(parsed.r1TimeAllowed);
+      const r2Match = taNum === parseFloat(parsed.r2TimeAllowed);
+      const r3Match = taNum === parseFloat(parsed.r3TimeAllowed);
+
+      if (r1Match && !r2Match && !r3Match) return result(1, 'Round 1');
+      if (r2Match && !r1Match && !r3Match) return result(2, 'Jump Off');
+      if (r3Match && !r1Match && !r2Match) return result(3, 'Round 3');
+
+      // Ambiguous TAs — use class-level roundsCompleted
+      const rc = parseInt(parsed.roundsCompleted) || 0;
+      if (rc === 0) return result(1, 'Round 1');
+      if (rc === 1) return result(2, 'Jump Off');
+      return result(3, 'Round 3');
     }
-
-    const taNum   = parseFloat(udpTa) || 0;
-    const r1Match = taNum === parseFloat(parsed.r1TimeAllowed);
-    const r2Match = taNum === parseFloat(parsed.r2TimeAllowed);
-    const r3Match = taNum === parseFloat(parsed.r3TimeAllowed);
-
-    if (r1Match && !r2Match && !r3Match) return { round: 1, label: 'Round 1' };
-    if (r2Match && !r1Match && !r3Match) return { round: 2, label: 'Jump Off' };
-    if (r3Match && !r1Match && !r2Match) return { round: 3, label: 'Round 3' };
-
-    // Ambiguous — use .cls entry state
-    if (!entry.r1TotalTime) return { round: 1, label: 'Round 1' };
-    if (!entry.r2TotalTime) return { round: 2, label: 'Jump Off' };
-    return { round: 3, label: 'Round 3' };
   }
-  return { round: 1, label: 'Round 1' };
+
+  // No selected class — default with standard 1 fault/sec
+  return { round: 1, label: 'Round 1', faultsPerInterval: 1, timeInterval: 1, penaltySeconds: 6 };
 }
 
 function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank, hunterScore, isHunterScore) {
@@ -834,19 +922,48 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     lastCd      = '';
   }
 
-  if (phase !== lastPhase || entry !== lastEntry) {
+  // Fire events on phase change, entry change, OR TA change (round switch)
+  if (phase !== lastPhase || entry !== lastEntry || ta !== lastTa) {
     if (phase === 'INTRO' && lastPhase !== 'INTRO') {
+      const ri = inferRound(entry, ta);
       fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: hunterScore || '', isHunter: !!isHunterScore });
+      postToWorker('/postClassEvent',
+        { event: 'INTRO', entry, horse, rider, owner: '', ta: ta || '',
+          round: ri.round, label: ri.label,
+          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+        `INTRO #${entry}`);
     }
     if (phase === 'CD' && lastPhase !== 'CD') {
-      const { round, label } = inferRound(entry, ta);
-      fireEvent('CD_START', { entry, horse, rider, ta, countdown: cd, round, label });
+      const ri = inferRound(entry, ta);
+      fireEvent('CD_START', { entry, horse, rider, ta, countdown: cd, round: ri.round, label: ri.label });
+      postToWorker('/postClassEvent',
+        { event: 'CD_START', entry, horse, rider, owner: '',
+          countdown: parseInt(cd) || 0, ta: ta || '',
+          round: ri.round, label: ri.label,
+          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+        `CD_START #${entry}`);
     }
     if (phase === 'ONCOURSE' && lastPhase !== 'ONCOURSE') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
       if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
-      const { round, label } = inferRound(entry, ta);
-      fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round, label });
+      const ri = inferRound(entry, ta);
+      fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round: ri.round, label: ri.label });
+      postToWorker('/postClassEvent',
+        { event: 'ON_COURSE', entry, horse, rider, owner: '',
+          elapsed: parseInt(elapsed) || 0, ta: ta || '',
+          round: ri.round, label: ri.label,
+          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+        `ON_COURSE #${entry}`);
+    }
+    // TA changed mid-run (two-phase: PH1→PH2) — re-post with new round/TA
+    if (phase === 'ONCOURSE' && lastPhase === 'ONCOURSE' && ta !== lastTa && entry === lastEntry) {
+      const ri = inferRound(entry, ta);
+      postToWorker('/postClassEvent',
+        { event: 'ON_COURSE', entry, horse, rider, owner: '',
+          elapsed: parseInt(elapsed) || 0, ta: ta || '',
+          round: ri.round, label: ri.label,
+          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+        `ON_COURSE #${entry} (TA change: ${ri.label})`);
     }
     if (phase === 'FINISH') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
@@ -854,14 +971,26 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
       const { round, label } = inferRound(entry, ta);
       if (isHunterScore) {
         fireEvent('FINISH', { entry, horse, rider, rank, hunterScore, isHunter: true, round, label });
+        postToWorker('/postClassEvent',
+          { event: 'FINISH', entry, horse, rider, owner: '',
+            rank, hunterScore, isHunter: true, round, label },
+          `FINISH #${entry}`);
       } else {
         fireEvent('FINISH', { entry, horse, rider, rank, jumpFaults: jump, timeFaults: time, round, label });
+        postToWorker('/postClassEvent',
+          { event: 'FINISH', entry, horse, rider, owner: '',
+            elapsed: elapsed || '', jumpFaults: jump, timeFaults: time,
+            rank, round, label },
+          `FINISH #${entry}`);
       }
     }
   }
 
   if (phase === 'ONCOURSE' && jump !== lastJump && lastJump !== '') {
     fireEvent('FAULT', { entry, horse, rider, jumpFaults: jump, timeFaults: time, elapsed });
+    postToWorker('/postClassEvent',
+      { event: 'FAULT', entry, jumpFaults: jump, timeFaults: time },
+      `FAULT #${entry} jf=${jump}`);
   }
 
   if (phase === 'CD') {
@@ -888,6 +1017,9 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
       const lastEvent = udpEvents[udpEvents.length - 1];
       if (lastEvent && lastEvent.event === 'CLOCK_STOPPED' && lastEvent.entry === entry) {
         fireEvent('CLOCK_RESUMED', { entry, horse, rider, elapsed });
+        postToWorker('/postClassEvent',
+          { event: 'CLOCK_RESUMED', entry, elapsed: parseInt(elapsed) || 0 },
+          `CLOCK_RESUMED #${entry}`);
       }
       lastElapsed = elapsed;
     } else {
@@ -895,6 +1027,9 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
         clockStopTimer = setTimeout(() => {
           clockStopTimer = null;
           fireEvent('CLOCK_STOPPED', { entry, horse, rider, elapsed });
+          postToWorker('/postClassEvent',
+            { event: 'CLOCK_STOPPED', entry, elapsed: parseInt(elapsed) || 0 },
+            `CLOCK_STOPPED #${entry}`);
         }, 2500);
       }
     }
@@ -902,6 +1037,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
 
   lastPhase = phase;
   lastEntry = entry;
+  lastTa    = ta;
   lastJump  = jump;
 }
 
@@ -931,6 +1067,58 @@ function startUdpListener(scoreboardPort) {
       udpLog(`[RAW] ${raw}`);
       udpLog(`[TAGS] ${allTags}`);
     }
+
+    const fr = tags['fr'] || '';
+
+    // ── Hunter {fr}=11 — ON COURSE signal ─────────────────────────────────────
+    // {17} in hunter packets is scoreboard message text, NOT elapsed time.
+    // Only act on Page A (has {3} rider). Page B (has {18} sire) — ignore.
+    if (fr === '11') {
+      if (tags['3']) {
+        const hEntry = (tags['1'] || '').trim();
+        const hHorse = (tags['2'] || '').trim();
+        const hRider = (tags['3'] || '').trim();
+        const hOwner = (tags['4'] || '').trim();
+        udpLog(`[HUNTER ON_COURSE] #${hEntry} ${hHorse} / ${hRider}`);
+        postToWorker('/postClassEvent',
+          { event: 'ON_COURSE', entry: hEntry, horse: hHorse, rider: hRider, owner: hOwner, isHunter: true },
+          `ON_COURSE #${hEntry}`);
+      }
+      return;
+    }
+
+    // ── Hunter {fr}=16 — DISPLAY SCORES signal ────────────────────────────────
+    // Operator pressed "Display Scores" in Ryegate. The score is already in
+    // the .cls file (fs.watch picks up the write). We post a FINISH event so
+    // the on-course card flips from "In The Ring" to "Finished" — the live
+    // page reads the score + rank from the class data on its next poll.
+    // tags: {1}=entry {2}=horse {3}=rider {8}="RANK: N" {21}=display text
+    if (fr === '16') {
+      const dEntry = (tags['1'] || '').trim();
+      const dHorse = (tags['2'] || '').trim();
+      const dRider = (tags['3'] || '').trim();
+      const dRank  = (tags['8'] || '').replace(/^RANK:\s*/i, '').trim();
+      udpLog(`[HUNTER DISPLAY SCORES] #${dEntry} ${dHorse} / ${dRider} rank=${dRank}`);
+      postToWorker('/postClassEvent',
+        { event: 'FINISH', entry: dEntry, horse: dHorse, rider: dRider, rank: dRank, isHunter: true },
+        `HUNTER FINISH #${dEntry}`);
+      return;
+    }
+
+    // ── {fr}=0 — CLEAR FRAME — scoreboard wiped ────────────────────────────────
+    if (fr === '0') {
+      udpLog(`[CLEAR FRAME] Scoreboard cleared`);
+      postToWorker('/postClassEvent',
+        { event: 'CLEAR_ONCOURSE' },
+        'CLEAR_ONCOURSE (frame 0)');
+      lastPhase = 'IDLE';
+      lastEntry = '';
+      lastTa    = '';
+      return;
+    }
+
+    // ── Skip other hunter frames ({fr}=12-16) — .cls is authoritative ─────────
+    if (fr && fr !== '1') return;
 
     // ── Known jumper tags ─────────────────────────────────────────────────────
     const entry   = cleanUdpVal('1',  tags['1']  || '');

@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Live — WEST Scoring Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --green: #2e7d32;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
+.header-inner{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;height:56px;gap:12px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:#fff;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;text-decoration:none;min-width:44px;min-height:44px;padding:0;background:none;border:none;cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.back-btn:hover{color:var(--red);}
+.header-live{display:flex;align-items:center;gap:6px;margin-left:auto;}
+.live-pill-hdr{display:flex;align-items:center;gap:5px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;border-radius:2px;}
+.live-blink{width:5px;height:5px;background:#fff;border-radius:50%;animation:blink 1.6s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.logo-tap{display:flex;align-items:center;gap:8px;text-decoration:none;margin-left:12px;}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+
+/* CLASS INFO BAR */
+.class-bar{background:#fff;border-bottom:1px solid var(--border);padding:14px 16px 12px;}
+.class-bar-num{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-bottom:2px;}
+.class-bar-name{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--black);line-height:1.2;}
+.class-bar-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:4px;display:flex;align-items:center;gap:10px;}
+.class-bar-sub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-top:2px;}
+.class-bar-links{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.results-link{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--red);text-decoration:none;border:1px solid var(--border);padding:4px 10px;border-radius:4px;}
+.results-link:hover{border-color:var(--red);}
+.view-toggle{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+.toggle-tab{background:none;border:none;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--text-muted);padding:4px 12px;cursor:pointer;}
+.toggle-tab:hover{background:var(--off-white);}
+.toggle-tab.active{background:var(--black);color:#fff;}
+.stats-iframe{width:100%;min-height:600px;border:none;}
+.results-link:hover{border-color:var(--red);}
+
+/* ON COURSE BLOCK */
+.oc-wrap{background:#fff;border-bottom:3px solid var(--red);padding:16px;}
+.oc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.oc-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.oc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.oc-card{background:var(--off-white);border-radius:6px;padding:12px 14px;}
+.oc-card-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
+.oc-entry-num{font-family:'DM Mono',monospace;font-size:13px;color:var(--red);margin-bottom:3px;}
+.oc-horse{font-size:16px;font-weight:600;color:var(--black);line-height:1.2;}
+.oc-rider{font-size:14px;color:var(--text-muted);margin-top:3px;}
+.oc-clock-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.oc-clock{font-family:'DM Mono',monospace;font-size:42px;font-weight:500;color:var(--black);line-height:1;}
+.oc-clock.overtime{color:var(--red);}
+.oc-clock.countdown{color:var(--text-muted);}
+.oc-round-label{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);font-weight:600;margin-bottom:4px;}
+.oc-phase-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
+.oc-ta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:4px;}
+.oc-faults{font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:var(--red);margin-top:4px;}
+.oc-faults:empty{display:none;}
+.oc-fault-tbl{margin-top:6px;border-collapse:collapse;text-align:center;font-family:'DM Mono',monospace;}
+.oc-fault-hdr td{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);font-weight:400;padding:0 8px 2px;}
+.oc-fault-vals td{font-size:16px;font-weight:600;color:var(--text-body);padding:0 8px;}
+.oc-fault-vals td:last-child{color:var(--red);}
+
+/* PROGRESS */
+.progress-wrap{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;}
+.progress-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:5px;display:flex;justify-content:space-between;}
+.progress-bar-bg{background:#eee;border-radius:3px;height:5px;overflow:hidden;}
+.progress-bar-fill{background:var(--red);height:5px;border-radius:3px;transition:width .5s ease;}
+
+/* STANDINGS */
+.standings-wrap{background:#fff;padding-bottom:60px;}
+.standings-hdr{display:flex;gap:8px;align-items:center;padding:12px 16px 8px;border-bottom:2px solid var(--black);}
+.col-place{width:32px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.col-entry{flex:1;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.col-faults{width:56px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.col-time{width:72px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.standing-row{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);}
+.standing-row:nth-child(even){background:#fafafa;}
+.s-place{width:32px;flex-shrink:0;font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);}
+.s-entry{flex:1;min-width:0;}
+.s-bib{display:inline-flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;margin-right:5px;background:#fafafa;}
+.s-horse{font-size:14px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-rider{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:38px;}
+.s-faults{width:56px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:13px;}
+.s-faults.clean{color:var(--green);font-weight:600;}
+.s-faults.faulted{color:var(--text-body);}
+.s-time{width:72px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
+
+/* Stacked round rows */
+.standing-row-stacked{align-items:flex-start;}
+.s-rounds{flex-shrink:0;text-align:right;min-width:140px;}
+.s-round-row{display:flex;align-items:baseline;justify-content:flex-end;gap:6px;padding:1px 0;}
+.s-round-row:first-child{font-weight:600;}
+.s-round-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;color:#bbb;text-transform:uppercase;min-width:18px;}
+.s-round-faults{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-body);}
+.s-round-faults.clean{color:var(--green);}
+.s-round-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:56px;text-align:right;}
+
+/* HUNTER ON-COURSE BREAKDOWN — compact per-judge per-round math under finish score */
+.oc-breakdown{margin-top:8px;width:100%;display:flex;flex-direction:column;gap:2px;}
+.oc-breakdown-row{display:flex;align-items:baseline;justify-content:center;gap:6px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
+.oc-breakdown-lbl{font-size:9px;letter-spacing:.06em;color:#aaa;min-width:38px;text-align:right;}
+.oc-breakdown-math{font-size:10px;color:var(--text-body);text-align:left;}
+
+/* DERBY — shared with results.html. renderList output uses these classes. */
+.results-wrap{padding-bottom:0;}
+.result-entry{display:block;border-bottom:1px solid var(--border);background:#fff;}
+.result-entry:nth-child(even){background:#fafafa;}
+.result-main{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;}
+.r-ribbon{flex-shrink:0;width:32px;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.r-place-txt{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);line-height:1;}
+.r-bib{display:inline-flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;margin-right:5px;background:#fafafa;vertical-align:middle;flex-shrink:0;}
+.r-info{flex:1;min-width:0;}
+.r-horse-line{display:flex;align-items:baseline;gap:0 6px;line-height:1.3;min-width:0;flex-wrap:nowrap;}
+.r-horse-rider{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;min-width:0;flex:1;}
+.r-horse{font-size:15px;font-weight:600;color:var(--black);}
+.r-rider-inline{font-size:13px;color:var(--text-muted);}
+.r-breeding{font-size:11px;color:#bbb;font-style:italic;margin-top:1px;padding-left:38px;}
+.r-owner{font-size:12px;color:#aaa;font-style:italic;margin-top:1px;padding-left:38px;}
+.r-scores{flex-shrink:0;text-align:right;font-family:'DM Mono',monospace;min-width:70px;}
+.r-score-row{display:flex;align-items:baseline;justify-content:flex-end;gap:5px;margin-top:2px;}
+.r-score-lbl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#bbb;}
+.r-score-val{font-size:13px;color:var(--text-muted);}
+.r-score-val.primary{font-size:14px;font-weight:600;color:var(--red);}
+.r-score-val.clean{color:var(--green);font-weight:600;}
+.r-total{font-size:14px;font-weight:700;color:var(--black);margin-top:3px;border-top:1px solid var(--border);padding-top:3px;text-align:right;}
+.r-status{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:uppercase;}
+.no-results{text-align:center;padding:50px 20px;color:var(--text-muted);font-size:14px;}
+
+.r-move{flex-shrink:0;width:22px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;text-align:center;margin-right:2px;line-height:1.2;padding-top:2px;}
+.r-move.up{color:var(--green);}
+.r-move.down{color:var(--red);}
+.result-entry.has-judges{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.result-entry.has-judges:hover{background:#f9f9f9;}
+.result-entry.has-judges:active{background:#f0f0f0;}
+.r-judge-hint{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#aaa;border:1px solid #e0e0e0;border-radius:3px;padding:3px 7px;margin-top:6px;background:#fafafa;white-space:nowrap;float:right;clear:right;}
+.r-judge-hint::before{content:'▸';font-size:9px;}
+.result-entry.open .r-judge-hint{color:var(--red);border-color:#ffd0d0;background:#fff8f8;}
+.result-entry.open .r-judge-hint::before{content:'▾';}
+.derby-expand{display:none;padding:8px 16px 12px;border-top:1px solid var(--border);background:#fcfcfc;justify-content:flex-end;}
+.result-entry.open .derby-expand{display:flex;}
+.de-inner{display:flex;flex-direction:column;align-items:flex-end;}
+.de-section{margin-bottom:8px;text-align:right;}
+.de-section:last-child{margin-bottom:0;}
+.de-section-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#bbb;margin-bottom:3px;text-align:right;}
+.de-judge-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;justify-content:flex-end;}
+.de-judge-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:#999;}
+.de-judge-math{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-body);text-align:right;}
+.de-judge-rank{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);min-width:34px;text-align:right;}
+.de-judge-rank.solo-winner{color:var(--green);font-weight:700;}
+.de-judge-card-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;justify-content:flex-end;}
+.de-judge-card-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:#999;}
+.de-judge-card-val{font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--text-body);}
+.de-judge-card-rank{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);min-width:86px;text-align:right;}
+.de-judge-card-rank.would-win{color:var(--green);font-weight:700;}
+
+.jt-summary{background:#fff8f8;border:1px solid #ffd0d0;border-radius:3px;margin:12px 16px 0;padding:10px 14px;}
+.jt-summary-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.jt-summary-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);font-weight:600;}
+.jt-summary-sub{font-family:'DM Mono',monospace;font-size:9px;color:#aaa;letter-spacing:.04em;}
+.jt-judge-block{margin-bottom:8px;}
+.jt-judge-block:last-child{margin-bottom:0;}
+.jt-judge-block-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#bbb;margin-bottom:3px;}
+.jt-judge-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;}
+.jt-judge-rank{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;min-width:18px;}
+.jt-judge-horse{font-size:13px;font-weight:600;color:var(--black);flex:1;}
+.jt-judge-score{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.jt-judge-row.differs .jt-judge-horse{color:var(--red);}
+
+/* NO LIVE STATE */
+.no-live{text-align:center;padding:80px 20px;}
+.no-live-icon{font-size:40px;opacity:.3;margin-bottom:16px;}
+.no-live h2{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:8px;color:var(--black);}
+.no-live p{font-size:14px;color:var(--text-muted);line-height:1.6;}
+.no-live-link{display:inline-block;margin-top:16px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--red);text-decoration:none;border:1px solid var(--border);padding:8px 16px;border-radius:4px;}
+.no-live-link:hover{border-color:var(--red);}
+
+/* STATES */
+.state-box{text-align:center;padding:60px 20px;}
+.spinner{width:28px;height:28px;border:3px solid #e8e8e8;border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.state-lbl{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+
+/* FOOTER */
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+
+@media(min-width:768px){
+  .header-inner{height:70px;padding:0 clamp(16px,4vw,48px);}
+  .class-bar{padding:18px clamp(16px,4vw,48px) 14px;}
+  .class-bar-name{font-size:26px;}
+  .oc-wrap{padding:16px clamp(16px,4vw,48px);}
+  .oc-clock{font-size:56px;}
+  .progress-wrap{padding:10px clamp(16px,4vw,48px);}
+  .standings-hdr{padding:12px clamp(16px,4vw,48px) 8px;}
+  .standing-row{padding:10px clamp(16px,4vw,48px);}
+  footer{padding:26px clamp(16px,4vw,48px);}
+}
+</style>
+<script src="display-config.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="back-btn" id="backBtn" href="classes.html">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Classes
+    </a>
+    <div class="header-live">
+      <div class="live-pill-hdr" id="livePill" style="display:none"><div class="live-blink"></div>Live</div>
+    </div>
+    <a class="logo-tap" href="index.html">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<div id="content">
+  <div class="state-box"><div class="spinner"></div><div class="state-lbl">Connecting&hellip;</div></div>
+</div>
+
+<footer>
+  <p>WEST Timing and Scoring &nbsp;&middot;&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;&middot;&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+
+<script>
+const WORKER  = 'https://west-worker.bill-acb.workers.dev';
+const params  = new URLSearchParams(location.search);
+const SLUG    = params.get('slug') || 'hits-culpeper';
+const RING    = params.get('ring') || '1';
+const SHOW_NAME = decodeURIComponent(params.get('name') || SLUG);
+
+const classesUrl = 'classes.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+document.getElementById('backBtn').href = classesUrl;
+
+let liveData = {};
+let previousEntry = null; // stores last finished entry for "Previous" display
+let finishShownAt = 0;    // timestamp when FINISH phase was first seen
+let activeViews = {};     // classNum → 'results' or 'stats' — persists across renders
+
+var esc = WEST.esc;
+function typeLabel(t) { return (t === 'J' || t === 'T') ? 'Jumper' : t === 'H' ? 'Hunter' : t || ''; }
+function fmtTime(val, cd) { return WEST.formatTime(val, cd ? cd.clockPrecision : 2); }
+
+// Derby expand toggle — mirrors results.html, page-local state tracker so it
+// survives the 3s poll re-render.
+let _openEntryNum = null;
+function toggleEntry(el, ev) {
+  if (ev) ev.stopPropagation();
+  const num = el.getAttribute('data-entry-num');
+  if (_openEntryNum === num) {
+    el.classList.remove('open');
+    _openEntryNum = null;
+  } else {
+    document.querySelectorAll('.result-entry.open').forEach(n => n.classList.remove('open'));
+    el.classList.add('open');
+    _openEntryNum = num;
+  }
+}
+function restoreOpenEntry() {
+  if (!_openEntryNum) return;
+  const el = document.querySelector('.result-entry[data-entry-num="' + _openEntryNum + '"]');
+  if (el && el.classList.contains('has-judges')) el.classList.add('open');
+  else _openEntryNum = null;
+}
+
+// Infer which round a hunter entry is currently on (or just finished) from
+// their cls entry state. No R1 evidence → R1; R1 present, no R2 → R2.
+function inferHunterRound(entryRow) {
+  if (!entryRow) return null;
+  var hasR1 = !!(entryRow.r1Total || entryRow.score || entryRow.r1TextStatus);
+  var hasR2 = !!(entryRow.r2Total || entryRow.r2Score || entryRow.r2TextStatus);
+  if (!hasR1) return 'R1';
+  if (hasR1 && !hasR2) return 'R2';
+  return null;
+}
+
+function fmtFaultsHtml(jf, tf) {
+  const jump = parseFloat(jf) || 0;
+  const time = parseFloat(tf) || 0;
+  const total = jump + time;
+  if (total === 0 && jump === 0) return '';
+  if (total === 0) return '<div class="oc-faults" style="color:var(--green)">Clear</div>';
+  return '<table class="oc-fault-tbl"><tr class="oc-fault-hdr"><td>Jump</td><td>Time</td><td>Total</td></tr>'
+    + '<tr class="oc-fault-vals"><td>' + jump + '</td><td>' + time + '</td><td>' + total + '</td></tr></table>';
+}
+
+function render() {
+  const content = document.getElementById('content');
+  const active = liveData.activeClasses || [];
+  const sel    = liveData.selected;
+  const oc     = liveData.onCourse;
+  const cdMap  = liveData.classData || {};
+  const alive  = liveData.watcherAlive;
+
+  document.getElementById('livePill').style.display = (active.length && alive) ? 'flex' : 'none';
+
+  if (!active.length || !alive) {
+    content.innerHTML = '<div class="no-live">'
+      + '<div class="no-live-icon">&#9711;</div>'
+      + '<h2>No Class in the Ring</h2>'
+      + '<p>When a class goes live, it will appear here<br>with a running clock and live standings.</p>'
+      + '<a class="no-live-link" href="' + esc(classesUrl) + '">View Schedule</a>'
+      + '</div>';
+    document.title = 'Live — WEST Scoring Live';
+    return;
+  }
+
+  document.title = 'Live — ' + active.length + ' class' + (active.length !== 1 ? 'es' : '') + ' — WEST Scoring Live';
+
+  let html = '';
+
+  // Track FINISH timing for 10s hold → previous → waiting
+  if (oc && oc.phase === 'FINISH') {
+    if (!finishShownAt) finishShownAt = Date.now();
+    // Look up entry in class data for hunter round inference + rank snapshot
+    var ocCd = sel ? cdMap[sel.classNum] : null;
+    var ocEntryRow = null;
+    if (ocCd && ocCd.entries) {
+      ocEntryRow = ocCd.entries.find(function(e) { return String(e.entryNum) === String(oc.entry); });
+    }
+    var isHunterForPrev = !!(oc.isHunter || (ocCd && ocCd.classType === 'H'));
+    previousEntry = { entry: oc.entry, horse: oc.horse, rider: oc.rider,
+      elapsed: oc.elapsed, jumpFaults: oc.jumpFaults, timeFaults: oc.timeFaults,
+      hunterScore: oc.hunterScore, isHunter: isHunterForPrev,
+      rank: (ocEntryRow && ocEntryRow.place) || oc.rank || null,
+      hunterRound: ocEntryRow ? inferHunterRound(ocEntryRow) : null };
+  }
+
+  // Infer hunter from the selected class when the oc payload doesn't carry the flag
+  // (watcher's fr=11 ON_COURSE payload currently omits isHunter — see follow-up)
+  const ocIsHunterEarly = !!(oc && (oc.isHunter || (sel && cdMap[sel.classNum] && cdMap[sel.classNum].classType === 'H')));
+
+  // After 10s showing FINISH, suppress the on-course block (jumpers only).
+  // Hunters hold the finish display indefinitely — it only clears when a new
+  // ON_COURSE / CLEAR_ONCOURSE event replaces the oncourse record.
+  const finishExpired = !ocIsHunterEarly && oc && oc.phase === 'FINISH' && finishShownAt && (Date.now() - finishShownAt > 10000);
+  const showOc = oc && !finishExpired;
+
+  // Reset finish timer when a new horse appears
+  if (oc && oc.phase !== 'FINISH') { finishShownAt = 0; }
+
+  // On course block — renders differently per phase
+  if (showOc && ocIsHunterEarly) {
+    // ── HUNTER ON-COURSE ─────────────────────────────────────────────────
+    // Hunters have no clock. Show entry card only.
+    // Round is inferred from the entry's cls state (no R1 → R1, R1 only → R2).
+    // On FINISH: show score + projected rank from current class standings.
+    const phase = oc.phase || 'ONCOURSE';
+    const ocCd = sel ? cdMap[sel.classNum] : null;
+    const ocClassLabel = sel
+      ? 'Class ' + esc(sel.classNum) + (ocCd && ocCd.className ? ' — ' + esc(ocCd.className) : '')
+      : '';
+    const entryRow = (ocCd && ocCd.entries) ? ocCd.entries.find(e => String(e.entryNum) === String(oc.entry)) : null;
+    const hunterRound = inferHunterRound(entryRow);
+    let phaseLabel = 'On Course';
+    if (phase === 'INTRO') phaseLabel = 'In Gate';
+    else if (phase === 'FINISH') phaseLabel = 'Finished';
+
+    let rightCardHtml = '';
+    if (phase === 'FINISH') {
+      const score = oc.hunterScore || (entryRow && (entryRow.combined || entryRow.r1Total || entryRow.score)) || '';
+      const rank = entryRow && entryRow.place ? entryRow.place : null;
+
+      // Per-judge per-round breakdown — derby only for now. Non-derby multi-round
+      // uses the same renderCompactBreakdown once its parser is wired.
+      let breakdownHtml = '';
+      if (WEST.hunter.isDerby(ocCd)) {
+        const built = WEST.hunter.derby.buildEntries(ocCd);
+        const derbyEntry = built.entries.find(e => String(e.entry_num) === String(oc.entry));
+        if (derbyEntry) {
+          breakdownHtml = WEST.hunter.derby.renderCompactBreakdown(derbyEntry, built.judgeCount);
+        }
+      }
+
+      rightCardHtml = '<div class="oc-card oc-clock-wrap">'
+        + (hunterRound ? '<div class="oc-round-label">' + hunterRound + '</div>' : '')
+        + '<div style="font-family:DM Mono,monospace;font-size:36px;font-weight:600;color:var(--red);line-height:1;">' + esc(score || '—') + '</div>'
+        + '<div class="oc-phase-label">Finished</div>'
+        + (rank ? '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--text-body);margin-top:6px;">Rank: <b>' + esc(rank) + '</b></div>' : '')
+        + breakdownHtml
+        + '</div>';
+    } else {
+      rightCardHtml = '<div class="oc-card oc-clock-wrap">'
+        + (hunterRound ? '<div class="oc-round-label">' + hunterRound + '</div>' : '')
+        + '<div style="font-family:DM Mono,monospace;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);font-weight:600;margin-top:8px;">In The Ring</div>'
+        + '<div class="oc-phase-label">' + esc(phaseLabel) + '</div>'
+        + '</div>';
+    }
+
+    // Equitation: rider primary, horse muted below. Pull city/state from class entry row.
+    const isHunterEq = ocCd && WEST.hunter.isEquitation(ocCd);
+    let leftCardHtml;
+    if (isHunterEq) {
+      const locale = entryRow ? [entryRow.city, entryRow.state].filter(Boolean).join(', ') : '';
+      leftCardHtml = '<div class="oc-card">'
+        + '<div class="oc-card-label">Entry</div>'
+        + '<div class="oc-entry-num">#' + esc(oc.entry) + '</div>'
+        + '<div class="oc-horse">' + esc(oc.rider) + '</div>'
+        + (locale ? '<div class="oc-rider">' + esc(locale) + '</div>' : '')
+        + (oc.horse ? '<div style="font-size:12px;color:#aaa;font-style:italic;margin-top:2px;">' + esc(oc.horse) + '</div>' : '')
+        + '</div>';
+    } else {
+      leftCardHtml = '<div class="oc-card">'
+        + '<div class="oc-card-label">Entry</div>'
+        + '<div class="oc-entry-num">#' + esc(oc.entry) + '</div>'
+        + '<div class="oc-horse">' + esc(oc.horse) + '</div>'
+        + '<div class="oc-rider">' + esc(oc.rider) + '</div>'
+        + '</div>';
+    }
+
+    html += '<div class="oc-wrap">'
+      + '<div class="oc-header"><div class="oc-title">' + esc(phaseLabel) + (ocClassLabel ? ' &mdash; ' + ocClassLabel : '') + '</div></div>'
+      + '<div class="oc-grid">'
+      + leftCardHtml
+      + rightCardHtml
+      + '</div></div>';
+  } else if (showOc) {
+    const phase = oc.phase || 'ONCOURSE';
+    const jCd = sel ? cdMap[sel.classNum] : null;
+    const ocClassLabel = sel
+      ? 'Class ' + esc(sel.classNum) + (jCd && jCd.className ? ' — ' + esc(jCd.className) : '')
+      : '';
+    const roundLabel = oc.label || (oc.round === 2 ? 'Jump Off' : oc.round === 3 ? 'Round 3' : oc.round === 1 ? 'Round 1' : '');
+    let clockVal, clockCls = '', phaseLabel = '', faultsHtml = '';
+
+    if (phase === 'INTRO') {
+      phaseLabel = 'In Gate';
+      clockVal = '45';
+      clockCls = ' countdown';
+    } else if (phase === 'CD') {
+      phaseLabel = 'Countdown';
+      clockVal = Math.max(0, Math.abs((oc.countdown || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000)));
+      clockCls = ' countdown';
+    } else if (phase === 'FINISH') {
+      phaseLabel = 'Finished';
+      clockVal = oc.elapsed || '';
+      if (!oc.isHunter) {
+        faultsHtml = fmtFaultsHtml(oc.jumpFaults, oc.timeFaults);
+      }
+      if (oc.isHunter && oc.hunterScore) {
+        faultsHtml = '<div class="oc-faults">Score: ' + esc(oc.hunterScore) + '</div>';
+      }
+    } else {
+      // ONCOURSE — ticking up
+      phaseLabel = 'On Course';
+      clockVal = oc.paused ? (oc.elapsed || 0)
+        : Math.max(0, (oc.elapsed || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000));
+      const ta = parseFloat(oc.ta) || 0;
+      if (ta > 0 && clockVal > ta) clockCls = ' overtime';
+      // Live fault table — time faults from cls formula, updated by tickClock
+      const jf = parseFloat(oc.jumpFaults) || 0;
+      const fpi = parseFloat(oc.fpi) || 1;
+      const ti  = parseFloat(oc.ti) || 1;
+      const secsOver = ta > 0 ? Math.max(0, clockVal - ta) : 0;
+      const tf = secsOver > 0 ? Math.ceil(secsOver / ti) * fpi : 0;
+      faultsHtml = '<table class="oc-fault-tbl"><tr class="oc-fault-hdr"><td>Jump</td><td>Time</td><td>Total</td></tr>'
+        + '<tr class="oc-fault-vals"><td id="oc-jf">' + jf + '</td><td id="oc-tf">' + tf + '</td><td id="oc-total">' + (jf + tf) + '</td></tr></table>';
+    }
+
+    const taVal = parseFloat(oc.ta) || 0;
+    const taStr = taVal ? 'TA ' + oc.ta + 's' : '';
+    // Check if this is an optimum time class (method 6 / IV.1)
+    const isOptClass = sel && cdMap[sel.classNum] && cdMap[sel.classNum].scoringMethod === '6';
+    const optTime = isOptClass && taVal ? taVal - 4 : 0;
+    const optStr = optTime > 0 ? 'Optimum ' + optTime + 's' : '';
+    // Live distance from optimum (only during ONCOURSE)
+    let optDistHtml = '';
+    if (optTime > 0 && phase === 'ONCOURSE' && typeof clockVal === 'number') {
+      const dist = clockVal - optTime;
+      const sign = dist >= 0 ? '+' : '';
+      optDistHtml = '<div id="oc-opt-dist" style="font-family:DM Mono,monospace;font-size:12px;color:' + (Math.abs(dist) < 2 ? 'var(--green)' : 'var(--text-muted)') + ';margin-top:2px;">' + sign + Math.floor(dist) + 's from opt</div>';
+    }
+
+    html += '<div class="oc-wrap">'
+      + '<div class="oc-header"><div class="oc-title">' + esc(phaseLabel) + (ocClassLabel ? ' &mdash; ' + ocClassLabel : '') + '</div></div>'
+      + '<div class="oc-grid">'
+      + '<div class="oc-card">'
+      + '<div class="oc-card-label">Entry</div>'
+      + '<div class="oc-entry-num">#' + esc(oc.entry) + '</div>'
+      + '<div class="oc-horse">' + esc(oc.horse) + '</div>'
+      + '<div class="oc-rider">' + esc(oc.rider) + '</div>'
+      + '</div>'
+      + '<div class="oc-card oc-clock-wrap">'
+      + (roundLabel ? '<div class="oc-round-label">' + esc(roundLabel) + '</div>' : '')
+      + '<div class="oc-clock' + clockCls + '" id="oc-clock">' + clockVal + '</div>'
+      + '<div class="oc-phase-label">' + esc(phaseLabel) + '</div>'
+      + faultsHtml
+      + (taStr ? '<div class="oc-ta">' + taStr + '</div>' : '')
+      + (optStr ? '<div class="oc-ta" style="color:var(--green);">' + optStr + '</div>' : '')
+      + optDistHtml
+      + '</div>'
+      + '</div></div>';
+  } else if (previousEntry && finishExpired) {
+    // Previous entry card after FINISH expires
+    let prevResult = '';
+    if (previousEntry.isHunter) {
+      const pScore = previousEntry.hunterScore || '—';
+      const pRank = previousEntry.rank ? '<div style="font-family:DM Mono,monospace;font-size:12px;color:var(--text-body);margin-top:4px;">Rank: <b>' + esc(previousEntry.rank) + '</b></div>' : '';
+      const pRound = previousEntry.hunterRound ? '<div class="oc-round-label" style="margin-bottom:4px;">' + esc(previousEntry.hunterRound) + '</div>' : '';
+      prevResult = pRound + '<div style="font-family:DM Mono,monospace;font-size:20px;font-weight:600;color:var(--red);">' + esc(pScore) + '</div>' + pRank;
+    } else if (previousEntry.elapsed) {
+      prevResult = '<div style="font-family:DM Mono,monospace;font-size:14px;color:var(--text-body);">' + esc(previousEntry.elapsed) + 's</div>'
+        + fmtFaultsHtml(previousEntry.jumpFaults, previousEntry.timeFaults);
+    }
+    html += '<div class="oc-wrap" style="border-bottom-color:var(--border);">'
+      + '<div class="oc-header"><div class="oc-title">Previous Entry</div></div>'
+      + '<div class="oc-grid">'
+      + '<div class="oc-card">'
+      + '<div class="oc-entry-num">#' + esc(previousEntry.entry) + '</div>'
+      + '<div class="oc-horse">' + esc(previousEntry.horse) + '</div>'
+      + '<div class="oc-rider">' + esc(previousEntry.rider) + '</div>'
+      + '</div>'
+      + '<div class="oc-card oc-clock-wrap">'
+      + prevResult
+      + '</div>'
+      + '</div></div>';
+  } else {
+    html += '<div class="oc-wrap" style="border-bottom-color:var(--border);">'
+      + '<div class="oc-header"><div class="oc-title">Waiting for next horse&hellip;</div></div>'
+      + '</div>';
+  }
+
+  // Sort active classes: most recently selected first
+  const sorted = [...active].sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+
+  // Render a standings panel for each active class
+  sorted.forEach(ac => {
+    const cd = cdMap[ac.classNum];
+    const isCurrent = sel && String(sel.classNum) === String(ac.classNum);
+    const isJumper = cd && (cd.classType === 'J' || cd.classType === 'T');
+    const isHunter = cd && cd.classType === 'H';
+    const type = cd ? typeLabel(cd.classType) : '';
+    const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+
+    // Class header
+    var subLine = (cd && cd.sponsor) ? cd.sponsor : (cd && cd.trophy) ? cd.trophy : '';
+    var statsUrl = 'stats.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME) + '&embed=1';
+    var classId = 'class-' + ac.classNum;
+    html += '<div class="class-bar">'
+      + '<div class="class-bar-num">Class ' + esc(ac.classNum) + (isCurrent ? ' &mdash; In Ring' : '') + '</div>'
+      + '<div class="class-bar-name">' + esc(ac.className || '') + '</div>'
+      + (subLine ? '<div class="class-bar-sub">' + esc(subLine) + '</div>' : '')
+      + '<div class="class-bar-links">'
+      + '<a class="results-link" href="' + esc(resultsUrl) + '">Full Results</a>'
+    html += (isJumper ? '<a class="results-link" href="' + esc(statsUrl.replace('&embed=1','')) + '">Stats</a>' : '')
+      + '</div>'
+      + '</div></div>';
+
+    // Progress bar
+    if (cd && cd.entries) {
+      const gone = cd.entries.filter(e => e.hasGone).length;
+      const total = cd.entries.length;
+      const pct = total > 0 ? Math.round(gone / total * 100) : 0;
+      html += '<div class="progress-wrap">'
+        + '<div class="progress-label"><span>' + gone + ' of ' + total + ' competed</span><span>' + pct + '%</span></div>'
+        + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>'
+        + '</div>';
+    }
+
+    // Standings
+    // Hunter derby path: use shared renderList for pixel-identical output to results.html
+    const isHunterDerby = isHunter && cd && WEST.hunter.isDerby(cd);
+    if (isHunterDerby) {
+      html += '<div class="standings-section">';
+      html += WEST.hunter.derby.renderList(cd);
+      html += '</div>';
+    } else if (cd && cd.entries) {
+      const gone = cd.entries.filter(e => e.hasGone);
+      if (gone.length) {
+        const standSorted = [...gone].sort((a, b) => {
+          const pa = parseInt(a.overallPlace || a.place || 999);
+          const pb = parseInt(b.overallPlace || b.place || 999);
+          if (pa !== pb) return pa - pb;
+          return (a.entryNum || '').localeCompare(b.entryNum || '');
+        });
+
+        html += '<div class="standings-section">';
+        html += '<div class="standings-wrap">';
+        if (isJumper) {
+          html += '<div class="standings-hdr">'
+            + '<span class="col-place">Plc</span><span class="col-entry">Horse / Rider</span>'
+            + '<span class="col-faults">Faults</span><span class="col-time">Time</span></div>';
+          // Round labels from display config
+          const sm = cd.scoringMethod || '';
+          const prec = cd.clockPrecision || 2;
+          function liveRoundLabel(r) { return WEST.jumper.roundLabel(sm, r); }
+          function liveFmtTime(val) { return WEST.formatTime(val, prec); }
+
+          standSorted.forEach(e => {
+            const place = e.overallPlace || e.place || '';
+            const hasR2 = e.r2TotalTime;
+            const hasR3 = e.r3TotalTime;
+
+            // Build round rows top-down: highest round first
+            let roundsHtml = '';
+            if (hasR3) {
+              const tot3 = parseFloat(e.r3TotalFaults||0);
+              const cls3 = tot3 === 0 ? ' clean' : '';
+              roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(3) + '</span>'
+                + '<span class="s-round-faults' + cls3 + '">' + tot3 + ' flt</span>'
+                + '<span class="s-round-time">' + liveFmtTime(e.r3TotalTime) + '</span></div>';
+            }
+            if (hasR2) {
+              const tot2 = parseFloat(e.r2TotalFaults||0);
+              const cls2 = tot2 === 0 ? ' clean' : '';
+              roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(2) + '</span>'
+                + '<span class="s-round-faults' + cls2 + '">' + tot2 + ' flt</span>'
+                + '<span class="s-round-time">' + liveFmtTime(e.r2TotalTime) + '</span></div>';
+            }
+            // R1/PH1 always shown
+            const tot1 = parseFloat(e.r1TotalFaults||0);
+            const r1Cls = tot1 === 0 ? ' clean' : '';
+            roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(1) + '</span>'
+              + '<span class="s-round-faults' + r1Cls + '">' + tot1 + ' flt</span>'
+              + '<span class="s-round-time">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
+
+            html += '<div class="standing-row standing-row-stacked">'
+              + '<span class="s-place">' + esc(place) + '</span>'
+              + '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(e.entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>'
+              + '<div class="s-rounds">' + roundsHtml + '</div>'
+              + '</div>';
+          });
+        } else if (isHunter) {
+          // Non-derby hunter — minimal Score column.
+          // (Multi-round / multi-judge non-derby follow-up tracked in project_multiround_hunter.md)
+          const isHunterEq = WEST.hunter.isEquitation(cd);
+          html += '<div class="standings-hdr">'
+            + '<span class="col-place">Plc</span>'
+            + '<span class="col-entry">' + (isHunterEq ? 'Rider / Horse' : 'Horse / Rider') + '</span>'
+            + '<span class="col-time">Score</span></div>';
+          standSorted.forEach(e => {
+            const place = e.place || '';
+            const score = e.score || e.combined || e.r1Total || '';
+            let entryHtml;
+            if (isHunterEq) {
+              const locale = [e.city, e.state].filter(Boolean).join(', ');
+              entryHtml = '<div class="s-entry">'
+                + '<div class="s-horse"><span class="s-bib">' + esc(e.entryNum) + '</span>' + esc(e.rider) + (locale ? ' <span style="font-size:11px;color:var(--text-muted);font-weight:400;">' + esc(locale) + '</span>' : '') + '</div>'
+                + '<div class="s-rider">' + esc(e.horse) + '</div>'
+                + '</div>';
+            } else {
+              entryHtml = '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(e.entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>';
+            }
+            html += '<div class="standing-row">'
+              + '<span class="s-place">' + esc(place) + '</span>'
+              + entryHtml
+              + '<span class="s-time">' + esc(score) + '</span>'
+              + '</div>';
+          });
+        } else {
+          html += '<div class="standings-hdr">'
+            + '<span class="col-place">Plc</span><span class="col-entry">Horse / Rider</span></div>';
+          standSorted.forEach(e => {
+            html += '<div class="standing-row">'
+              + '<span class="s-place">' + esc(e.overallPlace || e.place || '') + '</span>'
+              + '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(e.entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>'
+              + '</div>';
+          });
+        }
+        html += '</div>';
+      }
+    }
+    html += '</div>'; // close standings-section
+  });
+
+  if (!html.includes('standings-wrap') && !html.includes('results-wrap')) {
+    html += '<div style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:14px;">No standings available yet</div>';
+  }
+
+  content.innerHTML = html;
+  restoreOpenEntry();
+}
+
+function tickClock() {
+  const el = document.getElementById('oc-clock');
+  if (!el || !liveData.onCourse) return;
+  const oc = liveData.onCourse;
+  const phase = oc.phase || 'ONCOURSE';
+  const ta = parseFloat(oc.ta) || 0;
+
+  if (phase === 'INTRO') {
+    el.textContent = '45';
+    el.className = 'oc-clock countdown';
+  } else if (phase === 'CD') {
+    const sec = Math.max(0, Math.abs((oc.countdown || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000)));
+    el.textContent = sec;
+    el.className = 'oc-clock countdown';
+  } else if (phase === 'FINISH') {
+    // Frozen — show final elapsed time
+    el.textContent = oc.elapsed || '';
+    el.className = 'oc-clock';
+  } else {
+    // ONCOURSE — ticking up
+    const sec = oc.paused ? (oc.elapsed || 0)
+      : Math.max(0, (oc.elapsed || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000));
+    el.textContent = sec;
+    el.className = 'oc-clock' + (ta > 0 && sec > ta ? ' overtime' : '');
+    // Update live fault table — time faults from cls formula
+    const jfEl = document.getElementById('oc-jf');
+    const tfEl = document.getElementById('oc-tf');
+    const totEl = document.getElementById('oc-total');
+    if (jfEl && tfEl && totEl) {
+      const jf = parseFloat(oc.jumpFaults) || 0;
+      const fpi = parseFloat(oc.fpi) || 1;
+      const ti  = parseFloat(oc.ti) || 1;
+      const secsOver = ta > 0 ? Math.max(0, sec - ta) : 0;
+      const tf = secsOver > 0 ? Math.ceil(secsOver / ti) * fpi : 0;
+      jfEl.textContent = jf;
+      tfEl.textContent = tf;
+      totEl.textContent = jf + tf;
+    }
+    // Update optimum distance for IV.1 classes
+    const optEl = document.getElementById('oc-opt-dist');
+    if (optEl && ta > 0) {
+      const sel = liveData.selected;
+      const cdMap = liveData.classData || {};
+      const isOpt = sel && cdMap[sel.classNum] && cdMap[sel.classNum].scoringMethod === '6';
+      if (isOpt) {
+        const opt = ta - 4;
+        const dist = sec - opt;
+        const sign = dist >= 0 ? '+' : '';
+        optEl.textContent = sign + Math.floor(dist) + 's from opt';
+        optEl.style.color = Math.abs(dist) < 2 ? 'var(--green)' : 'var(--text-muted)';
+      }
+    }
+  }
+}
+
+function toggleView(classNum, view) {
+  activeViews[classNum] = view;
+  var resultsEl = document.getElementById('results-view-' + classNum);
+  var statsEl = document.getElementById('stats-view-' + classNum);
+  if (view === 'stats' && statsEl) {
+    if (resultsEl) resultsEl.style.display = 'none';
+    statsEl.style.display = '';
+    // Lazy-load iframe on first toggle
+    var iframe = statsEl.querySelector('iframe');
+    if (iframe && !iframe.src && iframe.dataset.src) {
+      iframe.src = iframe.dataset.src;
+    }
+  } else {
+    if (resultsEl) resultsEl.style.display = '';
+    if (statsEl) statsEl.style.display = 'none';
+  }
+  // Update toggle buttons
+  document.querySelectorAll('.toggle-tab[data-class="' + classNum + '"]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+}
+
+async function poll() {
+  try {
+    const r = await fetch(WORKER + '/getLiveClass?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING + '&_=' + Date.now());
+    if (r.ok) liveData = await r.json();
+  } catch(e) {}
+  render();
+}
+
+poll();
+setInterval(poll, 3000);
+setInterval(tickClock, 1000);
+</script>
+</body>
+</html>

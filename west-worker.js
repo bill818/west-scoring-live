@@ -75,11 +75,26 @@ export default {
       catch(e) { return err('Invalid JSON'); }
       const { slug, ring } = extractSlugRing(body, url);
       if (!slug || !ring) return err('Missing slug or ring');
-      const key = `live:${slug}:${ring}`;
+
+      const classNum = (body.filename || '').replace('.cls', '');
+
+      // Check if show is locked (admin set to complete) — skip all writes
+      const locked = await isShowLocked(env, slug);
+      if (locked) {
+        console.log(`[postClassData] ${slug} LOCKED — ignoring ${classNum}`);
+        return json({ ok: true, classNum, locked: true });
+      }
+
+      // Write classData to per-class KV key — every active class gets its own live data
+      const key = `live:${slug}:${ring}:${classNum}`;
       await env.WEST_LIVE.put(key, JSON.stringify(body), { expirationTtl: 7200 });
+
+      // Active array managed by CLASS_SELECTED (Ctrl+A) and INTRO/ON_COURSE (UDP events)
+      // .cls changes update data only — deliberate operator action puts a class live
+
       ctx.waitUntil(writeToD1(env, body, slug, ring));
-      console.log(`[postClassData] ${key} — class ${(body.filename||'').replace('.cls','')} ${body.classType}`);
-      return json({ ok: true, key });
+      console.log(`[postClassData] ${key} — class ${classNum} ${body.classType}`);
+      return json({ ok: true, classNum });
     }
 
     // ── POST /postUdpEvent ────────────────────────────────────────────────────
@@ -91,6 +106,7 @@ export default {
       catch(e) { return err('Invalid JSON'); }
       const slug = url.searchParams.get('slug') || body.slug || 'unknown';
       const ring = url.searchParams.get('ring') || body.ring || '1';
+      if (await isShowLocked(env, slug)) return json({ ok: false, locked: true });
       const key = `event:${slug}:${ring}`;
       await env.WEST_LIVE.put(key, JSON.stringify(body), { expirationTtl: 300 });
       console.log(`[postUdpEvent] ${key} — ${body.event} #${body.entry}`);
@@ -107,26 +123,201 @@ export default {
       const { slug, ring } = extractSlugRing(body, url);
       if (!slug || !ring) return err('Missing slug or ring');
 
+      // Reject all events if show is locked
+      const locked = await isShowLocked(env, slug);
+      if (locked) return json({ ok: false, locked: true });
+
       const { event, classNum, className } = body;
 
-      if (event === 'CLASS_SELECTED') {
-        // Store selected class in KV — website polls this to know which class is active
-        const key = `selected:${slug}:${ring}`;
+      if (event === 'INTRO') {
+        const key = `oncourse:${slug}:${ring}`;
         await env.WEST_LIVE.put(key, JSON.stringify({
-          classNum, className, ts: new Date().toISOString()
+          entry: body.entry, horse: body.horse, rider: body.rider, owner: body.owner,
+          phase: 'INTRO', ta: body.ta || '',
+          round: body.round || 1, label: body.label || '',
+          fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,
+          ts: new Date().toISOString()
+        }), { expirationTtl: 120 });
+        // Track first horse of the day
+        ctx.waitUntil(recordFirstHorse(env, slug, ring));
+        // Auto-reinstate class to active array — horse entering the ring = class is live
+        const selRaw = await env.WEST_LIVE.get(`selected:${slug}:${ring}`);
+        if (selRaw) {
+          const sel = JSON.parse(selRaw);
+          const activeKey = `active:${slug}:${ring}`;
+          const activeRaw = await env.WEST_LIVE.get(activeKey);
+          let active = activeRaw ? JSON.parse(activeRaw) : [];
+          const idx = active.findIndex(a => String(a.classNum) === String(sel.classNum));
+          if (idx >= 0) {
+            active[idx].ts = new Date().toISOString();
+          } else {
+            active.push({ classNum: sel.classNum, className: sel.className || '', ts: new Date().toISOString() });
+            console.log(`[INTRO] ${sel.classNum} reinstated to active (horse on course)`);
+          }
+          await env.WEST_LIVE.put(activeKey, JSON.stringify(active), { expirationTtl: 7200 });
+        }
+        console.log(`[INTRO] ${slug}:${ring} — #${body.entry} ${body.horse}`);
+        return json({ ok: true, event: 'INTRO', entry: body.entry });
+      }
+
+      if (event === 'FAULT') {
+        const key = `oncourse:${slug}:${ring}`;
+        const existing = await env.WEST_LIVE.get(key);
+        if (existing) {
+          const oc = JSON.parse(existing);
+          oc.jumpFaults = body.jumpFaults || '0';
+          oc.timeFaults = body.timeFaults || '0';
+          await env.WEST_LIVE.put(key, JSON.stringify(oc), { expirationTtl: 300 });
+        }
+        console.log(`[FAULT] ${slug}:${ring} — #${body.entry} jf=${body.jumpFaults}`);
+        return json({ ok: true, event: 'FAULT' });
+      }
+
+      if (event === 'FINISH') {
+        const key = `oncourse:${slug}:${ring}`;
+        const existing = await env.WEST_LIVE.get(key);
+        const prev = existing ? JSON.parse(existing) : {};
+        await env.WEST_LIVE.put(key, JSON.stringify({
+          entry: body.entry || prev.entry, horse: body.horse || prev.horse,
+          rider: body.rider || prev.rider, owner: body.owner || prev.owner,
+          phase: 'FINISH', ta: prev.ta || body.ta || '',
+          elapsed: body.elapsed || '', jumpFaults: body.jumpFaults || '0',
+          timeFaults: body.timeFaults || '0', rank: body.rank || '',
+          hunterScore: body.hunterScore || '', isHunter: !!body.isHunter,
+          round: body.round || 1, label: body.label || '',
+          ts: new Date().toISOString()
+        }), { expirationTtl: 600 }); // 10 min — hunters hold finish display indefinitely on page, need long KV persistence
+        console.log(`[FINISH] ${slug}:${ring} — #${body.entry} rank=${body.rank}`);
+        return json({ ok: true, event: 'FINISH', entry: body.entry });
+      }
+
+      if (event === 'CD_START') {
+        const key = `oncourse:${slug}:${ring}`;
+        await env.WEST_LIVE.put(key, JSON.stringify({
+          entry: body.entry, horse: body.horse, rider: body.rider, owner: body.owner,
+          phase: 'CD', countdown: body.countdown || 0, ta: body.ta || '',
+          round: body.round || 1, label: body.label || '',
+          fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,
+          ts: new Date().toISOString()
+        }), { expirationTtl: 120 });
+        console.log(`[CD_START] ${slug}:${ring} — #${body.entry} ${body.horse} cd=${body.countdown}`);
+        return json({ ok: true, event: 'CD_START', entry: body.entry });
+      }
+
+      if (event === 'ON_COURSE') {
+        const key = `oncourse:${slug}:${ring}`;
+        await env.WEST_LIVE.put(key, JSON.stringify({
+          entry: body.entry, horse: body.horse, rider: body.rider, owner: body.owner,
+          phase: 'ONCOURSE', elapsed: body.elapsed || 0, ta: body.ta || '',
+          round: body.round || 1, label: body.label || '',
+          fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,
+          isHunter: !!body.isHunter,
+          paused: false,
+          ts: new Date().toISOString()
+        }), { expirationTtl: 300 });
+        console.log(`[ON_COURSE] ${slug}:${ring} — #${body.entry} ${body.horse}${body.isHunter ? ' [hunter]' : ''}`);
+        return json({ ok: true, event: 'ON_COURSE', entry: body.entry });
+      }
+
+      if (event === 'CLOCK_STOPPED') {
+        const key = `oncourse:${slug}:${ring}`;
+        const existing = await env.WEST_LIVE.get(key);
+        if (existing) {
+          const oc = JSON.parse(existing);
+          oc.paused = true;
+          oc.elapsed = body.elapsed || oc.elapsed;
+          await env.WEST_LIVE.put(key, JSON.stringify(oc), { expirationTtl: 300 });
+        }
+        console.log(`[CLOCK_STOPPED] ${slug}:${ring} — #${body.entry} el=${body.elapsed}`);
+        return json({ ok: true, event: 'CLOCK_STOPPED' });
+      }
+
+      if (event === 'CLOCK_RESUMED') {
+        const key = `oncourse:${slug}:${ring}`;
+        const existing = await env.WEST_LIVE.get(key);
+        if (existing) {
+          const oc = JSON.parse(existing);
+          oc.paused = false;
+          oc.elapsed = body.elapsed || oc.elapsed;
+          oc.ts = new Date().toISOString(); // reset ts anchor to now
+          await env.WEST_LIVE.put(key, JSON.stringify(oc), { expirationTtl: 300 });
+        }
+        console.log(`[CLOCK_RESUMED] ${slug}:${ring} — #${body.entry} el=${body.elapsed}`);
+        return json({ ok: true, event: 'CLOCK_RESUMED' });
+      }
+
+      if (event === 'CLEAR_ONCOURSE') {
+        await env.WEST_LIVE.delete(`oncourse:${slug}:${ring}`);
+        console.log(`[CLEAR_ONCOURSE] ${slug}:${ring}`);
+        return json({ ok: true, event: 'CLEAR_ONCOURSE' });
+      }
+
+      if (event === 'CLASS_SELECTED') {
+        const now = new Date().toISOString();
+        // Update selected (most recent Ctrl+A) for backward compat
+        await env.WEST_LIVE.put(`selected:${slug}:${ring}`, JSON.stringify({
+          classNum, className, ts: now
         }), { expirationTtl: 7200 });
-        console.log(`[CLASS_SELECTED] ${slug}:${ring} — class ${classNum} ${className}`);
-        return json({ ok: true, event: 'CLASS_SELECTED', classNum });
+        // Add to active classes array (concurrent classes in the ring)
+        const activeKey = `active:${slug}:${ring}`;
+        const activeRaw = await env.WEST_LIVE.get(activeKey);
+        let active = activeRaw ? JSON.parse(activeRaw) : [];
+        // Update existing or add new
+        const idx = active.findIndex(a => String(a.classNum) === String(classNum));
+        if (idx >= 0) {
+          active[idx].ts = now;
+          active[idx].className = className;
+        } else {
+          active.push({ classNum, className, ts: now });
+        }
+        await env.WEST_LIVE.put(activeKey, JSON.stringify(active), { expirationTtl: 7200 });
+        // Reopen class if it was marked complete — operator reopened it on scoring PC
+        ctx.waitUntil(reopenClassIfComplete(env, slug, ring, classNum));
+        console.log(`[CLASS_SELECTED] ${slug}:${ring} — class ${classNum} (${active.length} active)`);
+        return json({ ok: true, event: 'CLASS_SELECTED', classNum, activeCount: active.length });
       }
 
       if (event === 'CLASS_COMPLETE') {
-        // Mark class complete in D1 and update KV
+        // Remove from active classes array
+        const activeKey = `active:${slug}:${ring}`;
+        const activeRaw = await env.WEST_LIVE.get(activeKey);
+        let active = activeRaw ? JSON.parse(activeRaw) : [];
+        active = active.filter(a => String(a.classNum) !== String(classNum));
+        await env.WEST_LIVE.put(activeKey, JSON.stringify(active), { expirationTtl: 7200 });
+        // Clear `selected` if it points at the completed class — otherwise
+        // results/live pages keep showing the Live badge for a closed class
+        const selectedKey = `selected:${slug}:${ring}`;
+        const selRaw = await env.WEST_LIVE.get(selectedKey);
+        if (selRaw) {
+          try {
+            const sel = JSON.parse(selRaw);
+            if (String(sel.classNum) === String(classNum)) {
+              await env.WEST_LIVE.delete(selectedKey);
+            }
+          } catch(e) { /* ignore parse errors */ }
+        }
+        // Mark class complete in D1
         ctx.waitUntil(markClassComplete(env, slug, ring, classNum, className));
-        console.log(`[CLASS_COMPLETE] ${slug}:${ring} — class ${classNum} ${className}`);
+        console.log(`[CLASS_COMPLETE] ${slug}:${ring} — class ${classNum} (${active.length} remaining)`);
         return json({ ok: true, event: 'CLASS_COMPLETE', classNum });
       }
 
       return err('Unknown event type');
+    }
+
+    // ── POST /postSchedule ──────────────────────────────────────────────────
+    // Watcher posts tsked.csv data — updates scheduled_date, schedule_order, schedule_flag
+    if (method === 'POST' && path === '/postSchedule') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); }
+      catch(e) { return err('Invalid JSON'); }
+      const { slug, ring, classes: schedClasses } = body;
+      if (!slug || !ring || !schedClasses) return err('Missing slug, ring, or classes');
+      if (await isShowLocked(env, slug)) return json({ ok: false, locked: true });
+      ctx.waitUntil(writeSchedule(env, slug, ring, schedClasses));
+      console.log(`[postSchedule] ${slug}:${ring} — ${schedClasses.length} classes`);
+      return json({ ok: true, count: schedClasses.length });
     }
 
     // ── POST /heartbeat ───────────────────────────────────────────────────────
@@ -138,6 +329,14 @@ export default {
       catch(e) { body = {}; }
       const slug = url.searchParams.get('slug') || body.slug || 'unknown';
       const ring = url.searchParams.get('ring') || body.ring || '1';
+
+      // Reject heartbeat if show is locked (admin set to complete)
+      const locked = await isShowLocked(env, slug);
+      if (locked) {
+        console.log(`[heartbeat] ${slug} LOCKED — rejecting`);
+        return json({ ok: false, locked: true, message: 'Show is complete — watcher rejected' });
+      }
+
       const payload = {
         ts: new Date().toISOString(),
         slug, ring,
@@ -146,6 +345,8 @@ export default {
       };
       const key = `heartbeat:${slug}:${ring}`;
       await env.WEST_LIVE.put(key, JSON.stringify(payload), { expirationTtl: 120 });
+      // Persistent last-seen — never expires, used when watcher goes offline
+      await env.WEST_LIVE.put(`lastseen:${slug}:${ring}`, JSON.stringify(payload));
       ctx.waitUntil(activateShow(env, slug));
       console.log(`[heartbeat] ${key}`);
       return json({ ok: true });
@@ -157,27 +358,75 @@ export default {
       const slug = url.searchParams.get('slug');
       const ring = url.searchParams.get('ring') || '1';
       if (!slug) return err('Missing slug');
-      const [classRaw, eventRaw, heartbeatRaw, selectedRaw] = await Promise.all([
-        env.WEST_LIVE.get(`live:${slug}:${ring}`),
+      const [activeRaw, eventRaw, heartbeatRaw, selectedRaw, oncourseRaw, lastseenRaw] = await Promise.all([
+        env.WEST_LIVE.get(`active:${slug}:${ring}`),
         env.WEST_LIVE.get(`event:${slug}:${ring}`),
         env.WEST_LIVE.get(`heartbeat:${slug}:${ring}`),
         env.WEST_LIVE.get(`selected:${slug}:${ring}`),
+        env.WEST_LIVE.get(`oncourse:${slug}:${ring}`),
+        env.WEST_LIVE.get(`lastseen:${slug}:${ring}`),
       ]);
+      const active = activeRaw ? JSON.parse(activeRaw) : [];
+      const selected = selectedRaw ? JSON.parse(selectedRaw) : null;
+
+      // Fetch per-class live data for all active classes
+      const classDataMap = {};
+      if (active.length) {
+        const classReads = await Promise.all(
+          active.map(a => env.WEST_LIVE.get(`live:${slug}:${ring}:${a.classNum}`))
+        );
+        active.forEach((a, i) => {
+          if (classReads[i]) classDataMap[a.classNum] = JSON.parse(classReads[i]);
+        });
+      }
+
       return json({
-        ok:           true,
-        classData:    classRaw     ? JSON.parse(classRaw)     : null,
-        latestEvent:  eventRaw     ? JSON.parse(eventRaw)     : null,
-        selected:     selectedRaw  ? JSON.parse(selectedRaw)  : null,
-        watcherAlive: !!heartbeatRaw,
-        heartbeatTs:  heartbeatRaw ? JSON.parse(heartbeatRaw).ts : null,
-        ts:           new Date().toISOString(),
+        ok:             true,
+        activeClasses:  active,
+        selected:       selected,
+        classData:      classDataMap,
+        latestEvent:    eventRaw     ? JSON.parse(eventRaw)     : null,
+        onCourse:       oncourseRaw  ? JSON.parse(oncourseRaw)  : null,
+        watcherAlive:   !!heartbeatRaw,
+        heartbeatTs:    heartbeatRaw ? JSON.parse(heartbeatRaw).ts : null,
+        lastSeenTs:     lastseenRaw  ? JSON.parse(lastseenRaw).ts  : null,
+        ts:             new Date().toISOString(),
       });
+    }
+
+    // ── GET /getShow ──────────────────────────────────────────────────────────
+    // Public — show info + rings for the show hub page
+    if (method === 'GET' && path === '/getShow') {
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      ctx.waitUntil(autoCompleteStaleClasses(env, slug));
+      try {
+        const show = await env.WEST_DB.prepare(
+          'SELECT id, slug, name, venue, dates, location, year, status, rings_count FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return json({ ok: true, show: null, rings: [] });
+        const rings = await env.WEST_DB.prepare(
+          'SELECT ring_num, ring_name, sort_order, status FROM rings WHERE show_id = ? ORDER BY sort_order ASC, CAST(ring_num AS INTEGER) ASC'
+        ).bind(show.id).all();
+        const classCounts = await env.WEST_DB.prepare(
+          "SELECT ring, COUNT(*) as count, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) as complete_count FROM classes WHERE show_id = ? AND (hidden = 0 OR hidden IS NULL) GROUP BY ring"
+        ).bind(show.id).all();
+        const countMap = {};
+        (classCounts.results || []).forEach(r => { countMap[r.ring] = { total: r.count, complete: r.complete_count }; });
+        const ringsData = (rings.results || []).map(r => ({
+          ...r,
+          class_count: countMap[r.ring_num] ? countMap[r.ring_num].total : 0,
+          complete_count: countMap[r.ring_num] ? countMap[r.ring_num].complete : 0,
+        }));
+        return json({ ok: true, show, rings: ringsData });
+      } catch(e) { return err('DB error: ' + e.message); }
     }
 
     // ── GET /getClasses ───────────────────────────────────────────────────────
     // Website gets all classes for a show with status
     if (method === 'GET' && path === '/getClasses') {
       const slug = url.searchParams.get('slug');
+      if (slug) ctx.waitUntil(autoCompleteStaleClasses(env, slug));
       const ring = url.searchParams.get('ring') || null;
       if (!slug) return err('Missing slug');
       try {
@@ -195,7 +444,10 @@ export default {
         `;
         const params = [show.id];
         if (ring) { sql += ' AND c.ring = ?'; params.push(ring); }
-        sql += ' GROUP BY c.id ORDER BY CAST(c.class_num AS INTEGER) ASC';
+        // Public requests (no auth) hide hidden classes; admin sees all
+        const isAdmin = isAuthed(request, env);
+        if (!isAdmin) { sql += ' AND (c.hidden = 0 OR c.hidden IS NULL)'; }
+        sql += ' GROUP BY c.id ORDER BY c.scheduled_date ASC, c.schedule_order ASC, CAST(c.class_num AS INTEGER) ASC';
 
         const result = await env.WEST_DB.prepare(sql).bind(...params).all();
         return json({ ok: true, classes: result.results });
@@ -222,7 +474,8 @@ export default {
 
         // Get all entries with their results
         const entries = await env.WEST_DB.prepare(`
-          SELECT e.entry_num, e.horse, e.rider, e.owner,
+          SELECT e.entry_num, e.horse, e.rider, e.owner, e.country,
+                 e.sire, e.dam, e.city, e.state, e.horse_fei, e.rider_fei,
                  r.round, r.time, r.jump_faults, r.time_faults,
                  r.total, r.place, r.status_code
           FROM entries e
@@ -247,7 +500,17 @@ export default {
       sql += ' ORDER BY created_at DESC';
       try {
         const result = await env.WEST_DB.prepare(sql).bind(...params).all();
-        return json({ ok: true, shows: result.results });
+        // Add class counts per show
+        const shows = result.results || [];
+        for (const s of shows) {
+          const counts = await env.WEST_DB.prepare(
+            "SELECT COUNT(*) as total, SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) as complete FROM classes WHERE show_id = ?"
+          ).bind(s.id).first();
+          s.class_total = counts ? counts.total : 0;
+          s.class_active = counts ? counts.active : 0;
+          s.class_complete = counts ? counts.complete : 0;
+        }
+        return json({ ok: true, shows });
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
@@ -316,7 +579,7 @@ export default {
       const { slug, ...fields } = body;
       if (!slug) return err('Missing slug');
       const allowed = ['name','venue','dates','location','rings_count',
-                       'stats_eligible','status','notes'];
+                       'stats_eligible','status','notes','start_date','end_date'];
       const sets = [], params = [];
       for (const [k, v] of Object.entries(fields)) {
         if (allowed.includes(k)) { sets.push(`${k} = ?`); params.push(v); }
@@ -336,6 +599,150 @@ export default {
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
+    // ── POST /admin/migrate — run schema migrations ───────────────────────────
+    if (method === 'POST' && path === '/admin/migrate') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const results = [];
+      const migrations = [
+        "ALTER TABLE classes ADD COLUMN clock_precision INTEGER DEFAULT 2",
+        "ALTER TABLE classes ADD COLUMN cls_raw TEXT",
+        "ALTER TABLE classes ADD COLUMN hidden INTEGER DEFAULT 0",
+        "ALTER TABLE classes ADD COLUMN stats_exclude INTEGER DEFAULT 0",
+        "ALTER TABLE rings ADD COLUMN sort_order INTEGER DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS ring_activity (id INTEGER PRIMARY KEY AUTOINCREMENT, show_id INTEGER NOT NULL, ring TEXT NOT NULL, date TEXT NOT NULL, first_post_at TEXT NOT NULL, last_post_at TEXT NOT NULL, UNIQUE(show_id, ring, date))",
+        "ALTER TABLE ring_activity ADD COLUMN first_horse_at TEXT",
+        "ALTER TABLE shows ADD COLUMN start_date TEXT",
+        "ALTER TABLE shows ADD COLUMN end_date TEXT",
+      ];
+      for (const sql of migrations) {
+        try { await env.WEST_DB.prepare(sql).run(); results.push({ sql, ok: true }); }
+        catch(e) { results.push({ sql, ok: false, error: e.message }); }
+      }
+      return json({ ok: true, results });
+    }
+
+    // ── POST /admin/removeLiveClass — remove a class from active array ────────
+    if (method === 'POST' && path === '/admin/removeLiveClass') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
+      const { slug, ring, classNum } = body;
+      if (!slug || !ring || !classNum) return err('Missing slug, ring, or classNum');
+      const activeKey = `active:${slug}:${ring}`;
+      const activeRaw = await env.WEST_LIVE.get(activeKey);
+      let active = activeRaw ? JSON.parse(activeRaw) : [];
+      active = active.filter(a => String(a.classNum) !== String(classNum));
+      await env.WEST_LIVE.put(activeKey, JSON.stringify(active), { expirationTtl: 7200 });
+      console.log(`[admin] Removed class ${classNum} from live — ${active.length} remaining`);
+      return json({ ok: true, classNum, remaining: active.length });
+    }
+
+    // ── GET /admin/rings — get rings for a show ────────────────────────────────
+    if (method === 'GET' && path === '/admin/rings') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return json({ ok: true, rings: [] });
+        const result = await env.WEST_DB.prepare(
+          'SELECT * FROM rings WHERE show_id = ? ORDER BY sort_order ASC, CAST(ring_num AS INTEGER) ASC'
+        ).bind(show.id).all();
+        return json({ ok: true, rings: result.results });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /admin/upsertRing — add or update a ring ────────────────────────
+    if (method === 'POST' && path === '/admin/upsertRing') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
+      const { slug, ring_num, ring_name, sort_order } = body;
+      if (!slug || !ring_num) return err('Missing slug or ring_num');
+      try {
+        const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return err('Show not found');
+        await env.WEST_DB.prepare(`
+          INSERT INTO rings (show_id, ring_num, ring_name, sort_order, status)
+          VALUES (?, ?, ?, ?, 'active')
+          ON CONFLICT(show_id, ring_num) DO UPDATE SET
+            ring_name = excluded.ring_name,
+            sort_order = excluded.sort_order
+        `).bind(show.id, ring_num, ring_name || '', sort_order != null ? sort_order : 0).run();
+        return json({ ok: true, ring_num });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── DELETE /admin/deleteRing — remove a ring ─────────────────────────────
+    if (method === 'DELETE' && path === '/admin/deleteRing') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      const ring_num = url.searchParams.get('ring_num');
+      if (!slug || !ring_num) return err('Missing slug or ring_num');
+      try {
+        const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return err('Show not found');
+        await env.WEST_DB.prepare('DELETE FROM rings WHERE show_id = ? AND ring_num = ?').bind(show.id, ring_num).run();
+        return json({ ok: true, ring_num });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /admin/uploadCls — manual cls file upload, bypasses show lock ────
+    if (method === 'POST' && path === '/admin/uploadCls') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); }
+      catch(e) { return err('Invalid JSON'); }
+      const { slug, ring } = extractSlugRing(body, url);
+      if (!slug || !ring) return err('Missing slug or ring');
+      const classNum = (body.filename || '').replace('.cls', '');
+      if (!classNum) return err('Missing filename');
+
+      // Check if this class exists and warn on mismatch
+      const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+      if (!show) return err('Show not found');
+      const existing = await env.WEST_DB.prepare(
+        'SELECT class_num, class_name FROM classes WHERE show_id = ? AND ring = ? AND class_num = ?'
+      ).bind(show.id, ring, classNum).first();
+
+      // Write to D1 — intentionally bypasses isShowLocked
+      await writeToD1(env, body, slug, ring);
+
+      console.log(`[admin/uploadCls] ${slug}:${ring} class ${classNum} — manual upload`);
+      return json({
+        ok: true,
+        classNum,
+        isNew: !existing,
+        existingName: existing ? existing.class_name : null,
+      });
+    }
+
+    // ── POST /admin/updateClass — toggle hidden, stats_exclude, status ────────
+    if (method === 'POST' && path === '/admin/updateClass') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
+      const { slug, ring, classNum } = body;
+      if (!slug || !classNum) return err('Missing slug or classNum');
+      const allowed = ['hidden', 'stats_exclude', 'status'];
+      const sets = [], params = [];
+      for (const [k, v] of Object.entries(body)) {
+        if (allowed.includes(k)) { sets.push(`${k} = ?`); params.push(v); }
+      }
+      if (!sets.length) return err('No valid fields');
+      sets.push('updated_at = datetime(\'now\')');
+      try {
+        const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return err('Show not found');
+        params.push(show.id, ring || '1', classNum);
+        await env.WEST_DB.prepare(
+          `UPDATE classes SET ${sets.join(', ')} WHERE show_id = ? AND ring = ? AND class_num = ?`
+        ).bind(...params).run();
+        console.log(`[updateClass] ${slug}:${classNum} — ${sets.join(', ')}`);
+        return json({ ok: true, classNum });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
     // ── POST /admin/completeClass ─────────────────────────────────────────────
     // Watcher posts on 3x Ctrl+A — marks class complete in D1
     if (method === 'POST' && path === '/admin/completeClass') {
@@ -343,7 +750,7 @@ export default {
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
-      const { slug, ring, classNum, className } = body;
+      const { slug, ring, classNum } = body;
       if (!slug || !classNum) return err('Missing slug or classNum');
       try {
         const show = await env.WEST_DB.prepare(
@@ -397,9 +804,45 @@ export default {
         env.WEST_LIVE.delete(`event:${slug}:${ring}`),
         env.WEST_LIVE.delete(`heartbeat:${slug}:${ring}`),
         env.WEST_LIVE.delete(`selected:${slug}:${ring}`),
+        env.WEST_LIVE.delete(`active:${slug}:${ring}`),
+        env.WEST_LIVE.delete(`oncourse:${slug}:${ring}`),
+        env.WEST_LIVE.delete(`lastseen:${slug}:${ring}`),
       ]);
       console.log(`[admin] Cleared live KV: ${slug}:${ring}`);
       return json({ ok: true, message: `Live data cleared for ${slug} ring ${ring}` });
+    }
+
+    // ── GET /admin/dbStats ─────────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/dbStats') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      try {
+        const [shows, classes, entries, results] = await Promise.all([
+          env.WEST_DB.prepare('SELECT COUNT(*) as c FROM shows').first(),
+          env.WEST_DB.prepare('SELECT COUNT(*) as c FROM classes').first(),
+          env.WEST_DB.prepare('SELECT COUNT(*) as c FROM entries').first(),
+          env.WEST_DB.prepare('SELECT COUNT(*) as c FROM results').first(),
+        ]);
+        return json({ ok: true, shows: shows.c, classes: classes.c, entries: entries.c, results: results.c });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── GET /admin/settings ────────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/settings') {
+      const raw = await env.WEST_LIVE.get('settings');
+      return json({ ok: true, settings: raw ? JSON.parse(raw) : { showDifficultyGauge: false } });
+    }
+
+    // ── POST /admin/settings ───────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/settings') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
+      const raw = await env.WEST_LIVE.get('settings');
+      const settings = raw ? JSON.parse(raw) : {};
+      Object.assign(settings, body);
+      await env.WEST_LIVE.put('settings', JSON.stringify(settings));
+      console.log(`[admin] Settings updated: ${JSON.stringify(settings)}`);
+      return json({ ok: true, settings });
     }
 
     return err('Not found', 404);
@@ -410,13 +853,96 @@ export default {
 // Called on heartbeat — flips status pending→active, updates name if set
 async function activateShow(env, slug) {
   try {
-    await env.WEST_DB.prepare(`
+    // Pending → Active on first heartbeat (never touches complete)
+    const result = await env.WEST_DB.prepare(`
       UPDATE shows SET status = 'active', updated_at = datetime('now')
       WHERE slug = ? AND status = 'pending'
     `).bind(slug).run();
+    if (result.meta.changes > 0) {
+      console.log(`[activateShow] ${slug} — pending → active (first heartbeat)`);
+    }
+    await autoCompleteShow(env, slug);
+    await autoCompleteStaleClasses(env, slug);
   } catch(e) {
     console.error(`[activateShow ERROR] ${e.message}`);
   }
+}
+
+// ── AUTO-COMPLETE SHOW AFTER END DATE ─────────────────────────────────────────
+// If end_date has passed and show is still active, auto-flip to complete
+async function autoCompleteShow(env, slug) {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const result = await env.WEST_DB.prepare(`
+      UPDATE shows SET status = 'complete', updated_at = datetime('now')
+      WHERE slug = ? AND status = 'active' AND end_date IS NOT NULL AND end_date < ?
+    `).bind(slug, today).run();
+    if (result.meta.changes > 0) {
+      console.log(`[autoCompleteShow] ${slug} — end_date passed, auto-completed`);
+    }
+  } catch(e) {
+    console.error(`[autoCompleteShow ERROR] ${e.message}`);
+  }
+}
+
+// ── AUTO-COMPLETE STALE CLASSES ──────────────────────────────────────────────
+// Classes not updated in 3+ hours get marked complete (unless show is locked)
+async function autoCompleteStaleClasses(env, slug) {
+  try {
+    const result = await env.WEST_DB.prepare(`
+      UPDATE classes SET status = 'complete', updated_at = datetime('now')
+      WHERE show_id = (SELECT id FROM shows WHERE slug = ? AND status != 'complete')
+        AND status = 'active'
+        AND updated_at < datetime('now', '-3 hours')
+    `).bind(slug).run();
+    if (result.meta.changes > 0) {
+      console.log(`[autoComplete] ${slug} — ${result.meta.changes} class(es) auto-completed`);
+    }
+  } catch(e) {
+    console.error(`[autoComplete ERROR] ${e.message}`);
+  }
+}
+
+// ── REOPEN CLASS IF COMPLETE ─────────────────────────────────────────────────
+// Called on CLASS_SELECTED — flips class back to active unless show is locked
+async function reopenClassIfComplete(env, slug, ring, classNum) {
+  try {
+    await env.WEST_DB.prepare(`
+      UPDATE classes SET status = 'active', updated_at = datetime('now')
+      WHERE show_id = (SELECT id FROM shows WHERE slug = ? AND status != 'complete')
+        AND ring = ? AND class_num = ? AND status = 'complete'
+    `).bind(slug, ring, classNum).run();
+  } catch(e) {
+    console.error(`[reopenClass ERROR] ${e.message}`);
+  }
+}
+
+// ── RECORD FIRST HORSE ───────────────────────────────────────────────────────
+// Sets first_horse_at on ring_activity — only if not already set for today
+async function recordFirstHorse(env, slug, ring) {
+  try {
+    const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+    if (!show) return;
+    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const today = now.split(' ')[0];
+    // Only set if first_horse_at is null for today — never overwrite
+    await env.WEST_DB.prepare(`
+      UPDATE ring_activity SET first_horse_at = ?
+      WHERE show_id = ? AND ring = ? AND date = ? AND first_horse_at IS NULL
+    `).bind(now, show.id, ring, today).run();
+  } catch(e) {
+    console.error(`[recordFirstHorse ERROR] ${e.message}`);
+  }
+}
+
+// ── CHECK SHOW LOCKED ────────────────────────────────────────────────────────
+async function isShowLocked(env, slug) {
+  try {
+    const show = await env.WEST_DB.prepare(
+      'SELECT status FROM shows WHERE slug = ?'
+    ).bind(slug).first();
+    return show && show.status === 'complete';
+  } catch(e) { return false; }
 }
 
 // ── MARK CLASS COMPLETE ───────────────────────────────────────────────────────
@@ -445,17 +971,18 @@ async function writeToD1(env, body, slug, ring) {
     const year = new Date().getFullYear();
     const now  = new Date().toISOString().replace('T', ' ').split('.')[0];
 
-    // Upsert show — create if new, preserve existing name/venue/dates if set
-    await env.WEST_DB.prepare(`
-      INSERT INTO shows (slug, year, status, created_at, updated_at)
-      VALUES (?, ?, 'pending', ?, ?)
-      ON CONFLICT(slug) DO UPDATE SET updated_at = excluded.updated_at
-    `).bind(slug, year, now, now).run();
-
+    // Look up show — must be created in admin first, watcher does not create shows
     const show = await env.WEST_DB.prepare(
-      'SELECT id FROM shows WHERE slug = ?'
+      'SELECT id, status FROM shows WHERE slug = ?'
     ).bind(slug).first();
-    if (!show) return;
+    if (!show) {
+      console.log(`[D1] Show ${slug} not found — create it in admin first`);
+      return;
+    }
+    // Update timestamp
+    await env.WEST_DB.prepare(
+      'UPDATE shows SET updated_at = ? WHERE id = ?'
+    ).bind(now, show.id).run();
 
     // Upsert ring
     await env.WEST_DB.prepare(`
@@ -463,28 +990,42 @@ async function writeToD1(env, body, slug, ring) {
       ON CONFLICT(show_id, ring_num) DO UPDATE SET status = 'active'
     `).bind(show.id, ring).run();
 
+    // Track ring activity — first and last post per day
+    const today = now.split(' ')[0]; // YYYY-MM-DD
+    await env.WEST_DB.prepare(`
+      INSERT INTO ring_activity (show_id, ring, date, first_post_at, last_post_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(show_id, ring, date) DO UPDATE SET last_post_at = excluded.last_post_at
+    `).bind(show.id, ring, today, now, now).run();
+
     // Upsert class
     const classNum = (body.filename || '').replace('.cls', '');
     if (!classNum) return;
 
     await env.WEST_DB.prepare(`
       INSERT INTO classes (show_id, ring, class_num, class_name, class_type,
-                           scoring_method, is_fei, sponsor, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                           scoring_method, is_fei, show_flags, clock_precision, cls_raw, sponsor, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
       ON CONFLICT(show_id, ring, class_num) DO UPDATE SET
-        class_name     = excluded.class_name,
-        class_type     = excluded.class_type,
-        scoring_method = excluded.scoring_method,
-        is_fei         = excluded.is_fei,
-        sponsor        = excluded.sponsor,
-        status         = CASE WHEN status = 'complete' THEN 'complete' ELSE 'active' END,
-        updated_at     = excluded.updated_at
+        class_name      = excluded.class_name,
+        class_type      = excluded.class_type,
+        scoring_method  = excluded.scoring_method,
+        is_fei          = excluded.is_fei,
+        show_flags      = excluded.show_flags,
+        clock_precision = excluded.clock_precision,
+        cls_raw         = excluded.cls_raw,
+        sponsor         = excluded.sponsor,
+        status          = 'active',
+        updated_at      = excluded.updated_at
     `).bind(
       show.id, ring, classNum,
       body.className      || '',
       body.classType      || '',
       body.scoringMethod  || '',
       body.isFEI ? 1 : 0,
+      body.showFlags ? 1 : 0,
+      parseInt(body.clockPrecision) || 2,
+      body.clsRaw         || '',
       body.sponsor        || '',
       now, now
     ).run();
@@ -501,13 +1042,22 @@ async function writeToD1(env, body, slug, ring) {
 
       // Upsert entry
       await env.WEST_DB.prepare(`
-        INSERT INTO entries (class_id, entry_num, horse, rider, owner, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO entries (class_id, entry_num, horse, rider, owner, country, sire, dam, city, state, horse_fei, rider_fei, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(class_id, entry_num) DO UPDATE SET
           horse = excluded.horse,
           rider = excluded.rider,
-          owner = excluded.owner
-      `).bind(cls.id, e.entryNum, e.horse || '', e.rider || '', e.owner || '', now).run();
+          owner = excluded.owner,
+          country = excluded.country,
+          sire = excluded.sire,
+          dam = excluded.dam,
+          city = excluded.city,
+          state = excluded.state,
+          horse_fei = excluded.horse_fei,
+          rider_fei = excluded.rider_fei
+      `).bind(cls.id, e.entryNum, e.horse || '', e.rider || '', e.owner || '',
+        e.country || '', e.sire || '', e.dam || '', e.city || '', e.state || '',
+        e.horseFEI || '', e.riderFEI || '', now).run();
 
       const entry = await env.WEST_DB.prepare(
         'SELECT id FROM entries WHERE class_id = ? AND entry_num = ?'
@@ -583,6 +1133,34 @@ async function upsertResult(env, entryId, classId, round,
     statusCode  || '',
     now, now
   ).run();
+}
+
+// ── WRITE SCHEDULE ───────────────────────────────────────────────────────────
+// Updates classes with scheduled_date, schedule_order, schedule_flag from tsked data
+async function writeSchedule(env, slug, ring, schedClasses) {
+  try {
+    const show = await env.WEST_DB.prepare(
+      'SELECT id FROM shows WHERE slug = ?'
+    ).bind(slug).first();
+    if (!show) return;
+
+    for (const sc of schedClasses) {
+      await env.WEST_DB.prepare(`
+        UPDATE classes
+        SET scheduled_date = ?, schedule_order = ?, schedule_flag = ?,
+            updated_at = datetime('now')
+        WHERE show_id = ? AND ring = ? AND class_num = ?
+      `).bind(
+        sc.date || null,
+        sc.order != null ? sc.order : null,
+        sc.flag || null,
+        show.id, ring, sc.classNum
+      ).run();
+    }
+    console.log(`[writeSchedule] ${slug}:${ring} — ${schedClasses.length} classes updated`);
+  } catch(e) {
+    console.error(`[writeSchedule ERROR] ${e.message}`);
+  }
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

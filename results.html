@@ -275,251 +275,10 @@ function restoreOpenEntry() {
 }
 
 function renderDerby() {
-  // Derby render path: parse cls_raw directly for per-judge scores
-  // (D1 entries don't yet carry judge-level data — that wires in next session)
-  const judgeCount = WEST.hunter.derby.getJudgeCount(classInfo);
-  const rows = WEST.parseClsRows(classInfo.cls_raw);
-  const derbyEntries = rows.map(r => WEST.hunter.derby.parseEntry(r, judgeCount));
-  WEST.hunter.derby.computeRankings(derbyEntries, judgeCount);
-
-  // Sort: entries with a place first (by place), then by combined desc, then DNS/status at bottom
-  derbyEntries.sort((a, b) => {
-    const pa = parseInt(a.place) || 999;
-    const pb = parseInt(b.place) || 999;
-    if (pa !== pb) return pa - pb;
-    return (b.combined || 0) - (a.combined || 0);
-  });
-
-  if (!derbyEntries.length) {
-    document.getElementById('content').innerHTML = '<div class="no-results">No entries found for this class.</div>';
-    return;
-  }
-
-  let html = '<div class="results-wrap">';
-
-  // Judge summary header (only when multi-judge and judges' #1 cards disagree)
-  if (judgeCount > 1 && WEST.hunter.derby.shouldShowJudgeSummary(derbyEntries, judgeCount)) {
-    html += renderJudgeSummary(derbyEntries, judgeCount);
-  }
-
-  derbyEntries.forEach(g => {
-    html += renderDerbyEntry(g, judgeCount);
-  });
-
-  html += '</div>';
-  document.getElementById('content').innerHTML = html;
+  // Render path now lives in display-config.js (WEST.hunter.derby.renderList)
+  // so live.html can reuse the exact same output.
+  document.getElementById('content').innerHTML = WEST.hunter.derby.renderList(classInfo);
   restoreOpenEntry();
-}
-
-function renderDerbyEntry(g, judgeCount) {
-  const place = g.place || '';
-  const r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
-  const r2Status = WEST.hunter.getStatus(g.r2TextStatus, g.r2NumericStatus);
-  const hasR1 = WEST.hunter.derby.hasR1(g);
-  const hasR2 = WEST.hunter.derby.hasR2(g);
-
-  // R1 status with no R1 score = didn't finish R1 → no place, no expand
-  const r1Failed = !!r1Status && !hasR1;
-  // 2+ judges: expand shows per-judge breakdown. 1 judge: inline on row, no expand.
-  const canExpand = judgeCount > 1 && (hasR1 || hasR2) && !r1Failed;
-
-  const breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
-  const flag = classInfo.show_flags ? countryFlag(g.country) : '';
-
-  let html = '<div class="result-entry' + (canExpand ? ' has-judges' : '') + '"'
-    + ' data-entry-num="' + esc(g.entry_num) + '"'
-    + (canExpand ? ' onclick="toggleEntry(this,event)"' : '') + '>';
-  html += '<div class="result-main">';
-
-  // Movement arrow — only when both rounds completed AND rank actually changed
-  if (hasR1 && hasR2 && g._jt && g._jt.movement) {
-    html += movementHtml(g._jt.movement);
-  } else {
-    html += '<div class="r-move"></div>';
-  }
-
-  // Ribbon / place: place shown unless R1 failed
-  const placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (place || '—');
-  html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
-
-  // Info column
-  html += '<div class="r-info">'
-    + '<div class="r-horse-rider">'
-    + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
-    + '<span class="r-horse">' + esc(g.horse) + '</span>'
-    + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
-    + '</div>'
-    + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
-    + (g.owner && g.owner !== g.rider ? '<div class="r-owner">' + esc(g.owner) + '</div>' : '')
-    + '</div>';
-
-  // Scores column (with judge-hint button below total when expandable)
-  html += renderDerbyScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand);
-
-  html += '</div>'; // result-main
-
-  if (canExpand) {
-    html += derbyExpandHtml(g, judgeCount);
-  }
-
-  html += '</div>'; // result-entry
-  return html;
-}
-
-function renderDerbyScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand) {
-  if (r1Failed) {
-    return '<div class="r-scores"><span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span></div>';
-  }
-  let html = '<div class="r-scores">';
-
-  // 1-judge: inline breakdown (base + hiopt [+ bonus] = total)  with per-round rank
-  // 2+ judges: aggregate totals only — per-judge breakdown lives in expand panel
-  if (judgeCount === 1) {
-    if (hasR1) {
-      const p = g.r1[0];
-      const rank = g._jt ? g._jt.r1Ranks[0] : null;
-      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, 1) + ' = ' + p.phaseTotal + '</span>'
-        + (rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(rank) + ')</span>' : '')
-        + '</div>';
-    }
-    if (hasR2) {
-      const p = g.r2[0];
-      const rank = g._jt ? g._jt.r2Ranks[0] : null;
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, 2) + ' = ' + p.phaseTotal + '</span>'
-        + (rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(rank) + ')</span>' : '')
-        + '</div>';
-    } else if (r2Status) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
-    }
-  } else {
-    // Multi-judge — aggregate row totals
-    if (hasR1) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-        + '<span class="r-score-val primary">' + g.r1Total + '</span></div>';
-    }
-    if (hasR2) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-        + '<span class="r-score-val primary">' + g.r2Total + '</span></div>';
-    } else if (r2Status) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
-    }
-  }
-
-  // Combined total — always 2 decimals. Only when R2 completed (otherwise no combined).
-  if (hasR1 && hasR2) {
-    html += '<div class="r-total">' + g.combined.toFixed(2) + '</div>';
-  } else if (hasR1 && !hasR2 && !r2Status) {
-    // R1 only so far, R2 not yet started — show R1 as running total
-    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
-  } else if (hasR1 && r2Status) {
-    // R1 clean, R2 status — total is R1 alone (that's what place is based on)
-    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
-  }
-
-  if (canExpand) {
-    html += '<div class="r-judge-hint">View Judge Scores</div>';
-  }
-
-  html += '</div>';
-  return html;
-}
-
-function movementHtml(m) {
-  if (m > 0)  return '<div class="r-move up">&uarr;' + m + '</div>';
-  if (m < 0)  return '<div class="r-move down">&darr;' + Math.abs(m) + '</div>';
-  return '<div class="r-move flat">&mdash;</div>';
-}
-
-function derbyExpandHtml(e, judgeCount) {
-  if (!e._jt) return '';
-  const hasR1 = WEST.hunter.derby.hasR1(e);
-  const hasR2 = WEST.hunter.derby.hasR2(e);
-  let html = '<div class="derby-expand"><div class="de-inner">';
-
-  // R1 per judge
-  if (hasR1) {
-    html += '<div class="de-section"><div class="de-section-lbl">Round 1</div>';
-    for (let j = 0; j < judgeCount; j++) {
-      const phase = e.r1[j];
-      const rank = e._jt.r1Ranks[j];
-      const soloWin = rank === 1 && judgeCount > 1;
-      html += '<div class="de-judge-row">'
-        + '<span class="de-judge-lbl">J' + (j + 1) + ' R1</span>'
-        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(phase, 1) + ' = ' + phase.phaseTotal + '</span>'
-        + '<span class="de-judge-rank' + (soloWin ? ' solo-winner' : '') + '">'
-        + (rank ? '(' + WEST.ordinal(rank) + ')' : '') + '</span>'
-        + '</div>';
-    }
-    html += '</div>';
-  }
-
-  // R2 per judge
-  if (hasR2) {
-    html += '<div class="de-section"><div class="de-section-lbl">Round 2</div>';
-    for (let j = 0; j < judgeCount; j++) {
-      const phase = e.r2[j];
-      const rank = e._jt.r2Ranks[j];
-      const soloWin = rank === 1 && judgeCount > 1;
-      html += '<div class="de-judge-row">'
-        + '<span class="de-judge-lbl">J' + (j + 1) + ' R2</span>'
-        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(phase, 2) + ' = ' + phase.phaseTotal + '</span>'
-        + '<span class="de-judge-rank' + (soloWin ? ' solo-winner' : '') + '">'
-        + (rank ? '(' + WEST.ordinal(rank) + ')' : '') + '</span>'
-        + '</div>';
-    }
-    html += '</div>';
-  }
-
-  // Judge card totals — only if multi-judge, multi-round, and ranks not all identical
-  if (judgeCount > 1 && hasR1 && hasR2 && e._jt.judgeCardTotals.some(t => t !== null)) {
-    const allSame = e._jt.judgeCardRanks.every(r => r === e._jt.judgeCardRanks[0]);
-    if (!allSame) {
-      html += '<div class="de-section"><div class="de-section-lbl">Judge Cards</div>';
-      e._jt.judgeCardTotals.forEach((t, idx) => {
-        if (t === null) return;
-        const rank = e._jt.judgeCardRanks[idx];
-        const wouldWin = rank === 1;
-        html += '<div class="de-judge-card-row">'
-          + '<span class="de-judge-card-lbl">J' + (idx + 1) + ' card</span>'
-          + '<span class="de-judge-card-val">' + t.toFixed(2) + '</span>'
-          + '<span class="de-judge-card-rank' + (wouldWin ? ' would-win' : '') + '">'
-          + (rank ? '(' + WEST.ordinal(rank) + ' overall)' : '') + '</span>'
-          + '</div>';
-      });
-      html += '</div>';
-    }
-  }
-
-  html += '</div></div>';
-  return html;
-}
-
-function renderJudgeSummary(entries, judgeCount) {
-  const tops = WEST.hunter.derby.topPerJudge(entries, judgeCount, 3);
-  // Determine which horses differ across judges' #1
-  const topHorses = tops.map(t => t[0] ? t[0].entry.entry_num : null);
-  let html = '<div class="jt-summary">';
-  html += '<div class="jt-summary-head">'
-    + '<span class="jt-summary-title">Judge Cards &mdash; Split Decision</span>'
-    + '<span class="jt-summary-sub">Judges disagree on top placing</span>'
-    + '</div>';
-  tops.forEach((top, j) => {
-    html += '<div class="jt-judge-block">'
-      + '<div class="jt-judge-block-lbl">Judge ' + (j + 1) + '</div>';
-    top.forEach((t, idx) => {
-      const differs = idx === 0 && topHorses.some(h => h && h !== t.entry.entry_num);
-      html += '<div class="jt-judge-row' + (differs ? ' differs' : '') + '">'
-        + '<span class="jt-judge-rank">' + WEST.ordinal(idx + 1) + '</span>'
-        + '<span class="jt-judge-horse">' + esc(t.entry.horse) + '</span>'
-        + '<span class="jt-judge-score">' + t.score + '</span>'
-        + '</div>';
-    });
-    html += '</div>';
-  });
-  html += '</div>';
-  return html;
 }
 
 function renderResults() {
@@ -577,6 +336,7 @@ function renderResults() {
   }
 
   let html = '<div class="results-wrap">';
+  const isHunterEq = isHunter && WEST.hunter.isEquitation(classInfo);
 
   grouped.forEach(g => {
     const place = g.bestPlace || '';
@@ -587,20 +347,31 @@ function renderResults() {
     // Placement
     html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
 
-    // Entry info — horse column + rider column
-    const breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
     const flag = classInfo.show_flags ? countryFlag(g.country) : '';
 
-    // Entry info — matches old site layout
-    html += '<div class="r-info">'
-      + '<div class="r-horse-rider">'
-      + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
-      + '<span class="r-horse">' + esc(g.horse) + '</span>'
-      + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
-      + '</div>'
-      + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
-      + (g.owner && g.owner !== g.rider ? '<div class="r-owner">' + esc(g.owner) + '</div>' : '')
-      + '</div>';
+    if (isHunterEq) {
+      // Equitation — rider primary, city/state next to rider, horse muted below
+      const locale = [g.city, g.state].filter(Boolean).join(', ');
+      html += '<div class="r-info">'
+        + '<div class="r-horse-rider">'
+        + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+        + '<span class="r-horse">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+        + (locale ? '<span class="r-rider-inline">' + esc(locale) + '</span>' : '')
+        + '</div>'
+        + (g.horse ? '<div class="r-owner">' + esc(g.horse) + '</div>' : '')
+        + '</div>';
+    } else {
+      const breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
+      html += '<div class="r-info">'
+        + '<div class="r-horse-rider">'
+        + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+        + '<span class="r-horse">' + esc(g.horse) + '</span>'
+        + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+        + '</div>'
+        + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
+        + (g.owner && g.owner !== g.rider ? '<div class="r-owner">' + esc(g.owner) + '</div>' : '')
+        + '</div>';
+    }
 
     // Scores
     if (hasResult && isJumper) {

@@ -353,10 +353,27 @@ WEST.hunter.getClassLabel = function(classInfo) {
 };
 
 // ── IS DERBY ─────────────────────────────────────────────────────────────────
+// Accepts both D1 naming (class_type/cls_raw) and watcher KV naming (classType/clsRaw)
 WEST.hunter.isDerby = function(classInfo) {
-  if (!classInfo || classInfo.class_type !== 'H') return false;
-  var h = WEST.parseClsHeader(classInfo.cls_raw);
+  if (!classInfo) return false;
+  var ct = classInfo.class_type || classInfo.classType;
+  if (ct !== 'H') return false;
+  var raw = classInfo.cls_raw || classInfo.clsRaw || '';
+  var h = WEST.parseClsHeader(raw);
   return h[2] === '2';
+};
+
+// ── IS EQUITATION ────────────────────────────────────────────────────────────
+// H[10]='True' in the .cls header marks a hunter-formatted equitation class.
+// Jumper-formatted equitation classes (J/T .cls files) are NOT covered by this
+// flag — they need separate handling.
+WEST.hunter.isEquitation = function(classInfo) {
+  if (!classInfo) return false;
+  var ct = classInfo.class_type || classInfo.classType;
+  if (ct !== 'H') return false;
+  var raw = classInfo.cls_raw || classInfo.clsRaw || '';
+  var h = WEST.parseClsHeader(raw);
+  return h[10] === 'True';
 };
 
 // ── DERBY COLUMN MAP ─────────────────────────────────────────────────────────
@@ -686,4 +703,313 @@ WEST.hunter.derby.renderPhaseMath = function(phase, roundNum) {
   var parts = [String(phase.base), String(phase.hiopt)];
   if (roundNum === 2) parts.push(String(phase.bonus));
   return parts.join(' + ');
+};
+
+// Compact per-judge per-round breakdown for the hunter live on-course finish card.
+// Returns small HTML block suitable for embedding under the score+rank. Takes an
+// already-parsed derby entry (from buildEntries) — same data shape used by the
+// main derby renderer. Multi-round non-derby hunters will reuse this once their
+// parser is wired — the shape is judge-count/round-count agnostic.
+WEST.hunter.derby.renderCompactBreakdown = function(entry, judgeCount) {
+  if (!entry) return '';
+  var rows = [];
+  var labelPrefix = function(j) { return judgeCount > 1 ? 'J' + (j + 1) + ' ' : ''; };
+
+  if (WEST.hunter.derby.hasR1(entry)) {
+    for (var j = 0; j < judgeCount; j++) {
+      var p = entry.r1[j];
+      rows.push({
+        lbl: labelPrefix(j) + 'R1',
+        math: WEST.hunter.derby.renderPhaseMath(p, 1),
+        total: p.phaseTotal,
+      });
+    }
+  }
+  if (WEST.hunter.derby.hasR2(entry)) {
+    for (var j2 = 0; j2 < judgeCount; j2++) {
+      var p2 = entry.r2[j2];
+      rows.push({
+        lbl: labelPrefix(j2) + 'R2',
+        math: WEST.hunter.derby.renderPhaseMath(p2, 2),
+        total: p2.phaseTotal,
+      });
+    }
+  }
+  if (!rows.length) return '';
+
+  return '<div class="oc-breakdown">'
+    + rows.map(function(r) {
+        return '<div class="oc-breakdown-row">'
+          + '<span class="oc-breakdown-lbl">' + r.lbl + '</span>'
+          + '<span class="oc-breakdown-math">' + r.math + ' = ' + r.total + '</span>'
+          + '</div>';
+      }).join('')
+    + '</div>';
+};
+
+/* ───────────────────────────────────────────────────────────────────────────
+   DERBY HTML RENDERERS — shared between results.html and live.html
+   Pure string templates, no DOM manipulation. Each page handles event wiring
+   and open-state tracking itself.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+// Normalize field naming — D1 uses cls_raw/show_flags, watcher KV uses clsRaw/showFlags
+WEST.hunter.derby._clsRaw = function(classInfo) {
+  if (!classInfo) return '';
+  return classInfo.cls_raw || classInfo.clsRaw || '';
+};
+WEST.hunter.derby._showFlags = function(classInfo) {
+  if (!classInfo) return false;
+  return !!(classInfo.show_flags || classInfo.showFlags);
+};
+
+// Build parsed+ranked derby entries from classInfo (either D1 row or watcher KV body)
+WEST.hunter.derby.buildEntries = function(classInfo) {
+  var raw = WEST.hunter.derby._clsRaw(classInfo);
+  if (!raw) return { entries: [], judgeCount: 1 };
+  var judgeCount = WEST.hunter.derby.getJudgeCount({ cls_raw: raw });
+  var rows = WEST.parseClsRows(raw);
+  var entries = rows.map(function(r) { return WEST.hunter.derby.parseEntry(r, judgeCount); });
+  WEST.hunter.derby.computeRankings(entries, judgeCount);
+  entries.sort(function(a, b) {
+    var pa = parseInt(a.place) || 999;
+    var pb = parseInt(b.place) || 999;
+    if (pa !== pb) return pa - pb;
+    return (b.combined || 0) - (a.combined || 0);
+  });
+  return { entries: entries, judgeCount: judgeCount };
+};
+
+// Full list — returns complete '<div class="results-wrap">…</div>' HTML string
+// Pages insert this via innerHTML and then bind their own toggleEntry handler
+WEST.hunter.derby.renderList = function(classInfo) {
+  var built = WEST.hunter.derby.buildEntries(classInfo);
+  var entries = built.entries;
+  var judgeCount = built.judgeCount;
+
+  if (!entries.length) {
+    return '<div class="results-wrap"><div class="no-results">No entries found for this class.</div></div>';
+  }
+
+  var html = '<div class="results-wrap">';
+  if (judgeCount > 1 && WEST.hunter.derby.shouldShowJudgeSummary(entries, judgeCount)) {
+    html += WEST.hunter.derby.renderSummary(entries, judgeCount);
+  }
+  for (var i = 0; i < entries.length; i++) {
+    html += WEST.hunter.derby.renderEntry(entries[i], classInfo, judgeCount);
+  }
+  html += '</div>';
+  return html;
+};
+
+// Single entry row — returns '<div class="result-entry">…</div>'
+WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount) {
+  var esc = WEST.esc;
+  var place = g.place || '';
+  var r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
+  var r2Status = WEST.hunter.getStatus(g.r2TextStatus, g.r2NumericStatus);
+  var hasR1 = WEST.hunter.derby.hasR1(g);
+  var hasR2 = WEST.hunter.derby.hasR2(g);
+  var r1Failed = !!r1Status && !hasR1;
+  var canExpand = judgeCount > 1 && (hasR1 || hasR2) && !r1Failed;
+  var showFlags = WEST.hunter.derby._showFlags(classInfo);
+  var flag = showFlags ? WEST.countryFlag(g.country, true) : '';
+  var isEq = WEST.hunter.isEquitation(classInfo);
+
+  var html = '<div class="result-entry' + (canExpand ? ' has-judges' : '') + '"'
+    + ' data-entry-num="' + esc(g.entry_num) + '"'
+    + (canExpand ? ' onclick="toggleEntry(this,event)"' : '') + '>';
+  html += '<div class="result-main">';
+
+  // Movement arrow
+  if (hasR1 && hasR2 && g._jt && g._jt.movement) {
+    html += WEST.hunter.derby.renderMovement(g._jt.movement);
+  } else {
+    html += '<div class="r-move"></div>';
+  }
+
+  // Ribbon / place
+  var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (place || '—');
+  html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+
+  // Info column — rider-first for equitation, horse-first for open hunter/derby
+  if (isEq) {
+    var locale = [g.city, g.state].filter(Boolean).join(', ');
+    html += '<div class="r-info">'
+      + '<div class="r-horse-rider">'
+      + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+      + '<span class="r-horse">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+      + (locale ? '<span class="r-rider-inline">' + esc(locale) + '</span>' : '')
+      + '</div>'
+      + (g.horse ? '<div class="r-owner">' + esc(g.horse) + '</div>' : '')
+      + '</div>';
+  } else {
+    var breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
+    html += '<div class="r-info">'
+      + '<div class="r-horse-rider">'
+      + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+      + '<span class="r-horse">' + esc(g.horse) + '</span>'
+      + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+      + '</div>'
+      + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
+      + (g.owner && g.owner !== g.rider ? '<div class="r-owner">' + esc(g.owner) + '</div>' : '')
+      + '</div>';
+  }
+
+  html += WEST.hunter.derby.renderScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand);
+  html += '</div>'; // result-main
+
+  if (canExpand) {
+    html += WEST.hunter.derby.renderExpand(g, judgeCount);
+  }
+
+  html += '</div>'; // result-entry
+  return html;
+};
+
+WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand) {
+  if (r1Failed) {
+    return '<div class="r-scores"><span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span></div>';
+  }
+  var html = '<div class="r-scores">';
+
+  if (judgeCount === 1) {
+    if (hasR1) {
+      var p1 = g.r1[0];
+      var r1k = g._jt ? g._jt.r1Ranks[0] : null;
+      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
+        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1) + ' = ' + p1.phaseTotal + '</span>'
+        + (r1k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r1k) + ')</span>' : '')
+        + '</div>';
+    }
+    if (hasR2) {
+      var p2 = g.r2[0];
+      var r2k = g._jt ? g._jt.r2Ranks[0] : null;
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
+        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + ' = ' + p2.phaseTotal + '</span>'
+        + (r2k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r2k) + ')</span>' : '')
+        + '</div>';
+    } else if (r2Status) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
+    }
+  } else {
+    if (hasR1) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
+        + '<span class="r-score-val primary">' + g.r1Total + '</span></div>';
+    }
+    if (hasR2) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
+        + '<span class="r-score-val primary">' + g.r2Total + '</span></div>';
+    } else if (r2Status) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
+    }
+  }
+
+  if (hasR1 && hasR2) {
+    html += '<div class="r-total">' + g.combined.toFixed(2) + '</div>';
+  } else if (hasR1 && !hasR2 && !r2Status) {
+    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
+  } else if (hasR1 && r2Status) {
+    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
+  }
+
+  if (canExpand) {
+    html += '<div class="r-judge-hint">View Judge Scores</div>';
+  }
+
+  html += '</div>';
+  return html;
+};
+
+WEST.hunter.derby.renderMovement = function(m) {
+  if (m > 0)  return '<div class="r-move up">&uarr;' + m + '</div>';
+  if (m < 0)  return '<div class="r-move down">&darr;' + Math.abs(m) + '</div>';
+  return '<div class="r-move"></div>';
+};
+
+WEST.hunter.derby.renderExpand = function(e, judgeCount) {
+  if (!e._jt) return '';
+  var hasR1 = WEST.hunter.derby.hasR1(e);
+  var hasR2 = WEST.hunter.derby.hasR2(e);
+  var html = '<div class="derby-expand"><div class="de-inner">';
+
+  if (hasR1) {
+    html += '<div class="de-section"><div class="de-section-lbl">Round 1</div>';
+    for (var j = 0; j < judgeCount; j++) {
+      var p = e.r1[j];
+      var rk = e._jt.r1Ranks[j];
+      var solo = rk === 1 && judgeCount > 1;
+      html += '<div class="de-judge-row">'
+        + '<span class="de-judge-lbl">J' + (j + 1) + ' R1</span>'
+        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p, 1) + ' = ' + p.phaseTotal + '</span>'
+        + '<span class="de-judge-rank' + (solo ? ' solo-winner' : '') + '">'
+        + (rk ? '(' + WEST.ordinal(rk) + ')' : '') + '</span>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+
+  if (hasR2) {
+    html += '<div class="de-section"><div class="de-section-lbl">Round 2</div>';
+    for (var j2 = 0; j2 < judgeCount; j2++) {
+      var p2 = e.r2[j2];
+      var rk2 = e._jt.r2Ranks[j2];
+      var solo2 = rk2 === 1 && judgeCount > 1;
+      html += '<div class="de-judge-row">'
+        + '<span class="de-judge-lbl">J' + (j2 + 1) + ' R2</span>'
+        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + ' = ' + p2.phaseTotal + '</span>'
+        + '<span class="de-judge-rank' + (solo2 ? ' solo-winner' : '') + '">'
+        + (rk2 ? '(' + WEST.ordinal(rk2) + ')' : '') + '</span>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+
+  if (judgeCount > 1 && hasR1 && hasR2 && e._jt.judgeCardTotals.some(function(t) { return t !== null; })) {
+    var allSame = e._jt.judgeCardRanks.every(function(r) { return r === e._jt.judgeCardRanks[0]; });
+    if (!allSame) {
+      html += '<div class="de-section"><div class="de-section-lbl">Judge Cards</div>';
+      e._jt.judgeCardTotals.forEach(function(t, idx) {
+        if (t === null) return;
+        var rank = e._jt.judgeCardRanks[idx];
+        var wouldWin = rank === 1;
+        html += '<div class="de-judge-card-row">'
+          + '<span class="de-judge-card-lbl">J' + (idx + 1) + ' card</span>'
+          + '<span class="de-judge-card-val">' + t.toFixed(2) + '</span>'
+          + '<span class="de-judge-card-rank' + (wouldWin ? ' would-win' : '') + '">'
+          + (rank ? '(' + WEST.ordinal(rank) + ' overall)' : '') + '</span>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+  }
+
+  html += '</div></div>';
+  return html;
+};
+
+WEST.hunter.derby.renderSummary = function(entries, judgeCount) {
+  var esc = WEST.esc;
+  var tops = WEST.hunter.derby.topPerJudge(entries, judgeCount, 3);
+  var topNums = tops.map(function(t) { return t[0] ? t[0].entry.entry_num : null; });
+  var html = '<div class="jt-summary">'
+    + '<div class="jt-summary-head">'
+    + '<span class="jt-summary-title">Judge Cards &mdash; Split Decision</span>'
+    + '<span class="jt-summary-sub">Judges disagree on top placing</span>'
+    + '</div>';
+  tops.forEach(function(top, j) {
+    html += '<div class="jt-judge-block">'
+      + '<div class="jt-judge-block-lbl">Judge ' + (j + 1) + '</div>';
+    top.forEach(function(t, idx) {
+      var differs = idx === 0 && topNums.some(function(n) { return n && n !== t.entry.entry_num; });
+      html += '<div class="jt-judge-row' + (differs ? ' differs' : '') + '">'
+        + '<span class="jt-judge-rank">' + WEST.ordinal(idx + 1) + '</span>'
+        + '<span class="jt-judge-horse">' + esc(t.entry.horse) + '</span>'
+        + '<span class="jt-judge-score">' + t.score + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
 };
