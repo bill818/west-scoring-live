@@ -643,7 +643,7 @@ function render() {
     const isHunterDerby = isHunter && cd && WEST.hunter.isDerby(cd);
     if (isHunterDerby) {
       html += '<div class="standings-section">';
-      html += WEST.hunter.derby.renderList(cd);
+      html += WEST.hunter.derby.renderList(cd, { isLive: true });
       html += '</div>';
     } else if (cd && cd.entries) {
       const gone = cd.entries.filter(e => e.hasGone);

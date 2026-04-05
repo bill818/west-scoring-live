@@ -310,9 +310,12 @@ function restoreOpenEntry() {
 function renderDerby() {
   // Render path lives in display-config.js so live.html can reuse the output.
   // _judgeView toggles between the default combined list and the by-judge view.
+  const sel = liveData.selected;
+  const isLive = !!(sel && String(sel.classNum) === String(CLASS_NUM));
+  const opts = { isLive: isLive };
   const html = _judgeView
-    ? WEST.hunter.derby.renderByJudgeList(classInfo)
-    : WEST.hunter.derby.renderList(classInfo);
+    ? WEST.hunter.derby.renderByJudgeList(classInfo, opts)
+    : WEST.hunter.derby.renderList(classInfo, opts);
   document.getElementById('content').innerHTML = html;
   if (!_judgeView) restoreOpenEntry();
 }
@@ -373,6 +376,8 @@ function renderResults() {
 
   let html = '<div class="results-wrap">';
   const isHunterEq = isHunter && WEST.hunter.isEquitation(classInfo);
+  const sel = liveData.selected;
+  const isLive = !!(sel && String(sel.classNum) === String(CLASS_NUM));
 
   grouped.forEach(g => {
     const place = g.bestPlace || '';
@@ -380,8 +385,13 @@ function renderResults() {
 
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement
-    html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+    // Placement — SVG ribbon when class is not live, numeric when live
+    const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
+    if (ribbonSvg) {
+      html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+    } else {
+      html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+    }
 
     const flag = classInfo.show_flags ? countryFlag(g.country) : '';
 

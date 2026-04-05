@@ -162,6 +162,86 @@ WEST.ordinal = function(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
+// ── RIBBON GRAPHICS ──────────────────────────────────────────────────────────
+// SVG ribbons for placements 1-12, plus champion/reserve champion.
+// Use only for classes that are NOT currently live (places can shuffle during
+// scoring). Port of old site's ribbonSvg/champSvg/placeRibbon.
+WEST.ribbon = {};
+
+WEST.ribbon.svg = function(n) {
+  var C = {
+    1:  {o:'#0a3d8f',i:'#3a7bd5',f:'#e8f0fb',t:'#0a3d8f'},  // Blue
+    2:  {o:'#8b0000',i:'#cc2222',f:'#fbe8e8',t:'#8b0000'},  // Red
+    3:  {o:'#9a7800',i:'#d4a800',f:'#fdf6d8',t:'#7a5e00'},  // Yellow
+    4:  {o:'#888',   i:'#bbb',   f:'#f4f4f4',t:'#555'   },  // White/Grey
+    5:  {o:'#ad1457',i:'#e91e8c',f:'#fde8f3',t:'#ad1457'},  // Pink
+    6:  {o:'#1a6b2a',i:'#2ea043',f:'#e8f5eb',t:'#1a6b2a'},  // Green
+    7:  {o:'#4a2d8e',i:'#7c52cc',f:'#f0ebfb',t:'#4a2d8e'},  // Purple
+    8:  {o:'#5c3317',i:'#8b5e3c',f:'#f5ede6',t:'#5c3317'},  // Brown
+    9:  {o:'#666',   i:'#999',   f:'#f0f0f0',t:'#444'   },  // Grey
+    10: {o:'#1565a8',i:'#5ba3e0',f:'#e3f2fd',t:'#1565a8'},  // Light blue
+    11: {o:'#b0006a',i:'#e8409a',f:'#fce4f2',t:'#8b0052'},  // Fuchsia
+    12: {o:'#3d7a00',i:'#7ec800',f:'#f0fce0',t:'#2d5c00'},  // Lime green
+  };
+  var c = C[n]; if (!c) return '';
+  var p = '';
+  for (var i = 0; i < 12; i++) {
+    var a = i * 30, r = 10, cx = 12, cy = 11, rad = a * Math.PI / 180;
+    var x = (cx + r * Math.sin(rad)).toFixed(1);
+    var y = (cy - r * Math.cos(rad)).toFixed(1);
+    p += '<ellipse cx="' + x + '" cy="' + y + '" rx="3.5" ry="2" fill="' + c.o + '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
+  }
+  var tails = '<rect x="9" y="19" width="3" height="11" rx="1" fill="' + c.o + '" transform="rotate(-6,10.5,24.5)"/><rect x="12" y="19" width="3" height="11" rx="1" fill="' + c.i + '" transform="rotate(6,13.5,24.5)"/>';
+  var circles = '<circle cx="12" cy="11" r="7.5" fill="' + c.i + '"/><circle cx="12" cy="11" r="5.5" fill="' + c.f + '"/>';
+  var fs = n >= 10 ? '6' : '7.5';
+  var dy = n >= 10 ? '14.5' : '14';
+  return '<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">' + tails + p + circles + '<text x="12" y="' + dy + '" text-anchor="middle" font-family="serif" font-weight="bold" font-size="' + fs + '" fill="' + c.t + '">' + n + '</text></svg>';
+};
+
+WEST.ribbon.champSvg = function(isRC) {
+  var cols = isRC ? ['#8b0000','#9a7800','#888'] : ['#0a3d8f','#8b0000','#9a7800'];
+  var p = '';
+  for (var i = 0; i < 12; i++) {
+    var a = i * 30, r = 13, cx = 14, cy = 13, rad = a * Math.PI / 180;
+    var x = (cx + r * Math.sin(rad)).toFixed(1);
+    var y = (cy - r * Math.cos(rad)).toFixed(1);
+    p += '<ellipse cx="' + x + '" cy="' + y + '" rx="4.5" ry="2.5" fill="' + cols[0] + '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
+  }
+  for (var i2 = 0; i2 < 12; i2++) {
+    var a2 = i2 * 30 + 15, r2 = 9, cx2 = 14, cy2 = 13, rad2 = a2 * Math.PI / 180;
+    var x2 = (cx2 + r2 * Math.sin(rad2)).toFixed(1);
+    var y2 = (cy2 - r2 * Math.cos(rad2)).toFixed(1);
+    p += '<ellipse cx="' + x2 + '" cy="' + y2 + '" rx="3.5" ry="2" fill="' + cols[1] + '" transform="rotate(' + a2 + ',' + x2 + ',' + y2 + ')"/>';
+  }
+  for (var i3 = 0; i3 < 8; i3++) {
+    var a3 = i3 * 45, r3 = 5, cx3 = 14, cy3 = 13, rad3 = a3 * Math.PI / 180;
+    var x3 = (cx3 + r3 * Math.sin(rad3)).toFixed(1);
+    var y3 = (cy3 - r3 * Math.cos(rad3)).toFixed(1);
+    p += '<ellipse cx="' + x3 + '" cy="' + y3 + '" rx="3" ry="1.8" fill="' + cols[2] + '" transform="rotate(' + a3 + ',' + x3 + ',' + y3 + ')"/>';
+  }
+  var lbl = isRC ? 'RC' : 'CH';
+  return '<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">'
+    + '<rect x="10" y="24" width="3" height="14" rx="1" fill="' + cols[0] + '" transform="rotate(-7,11.5,31)"/>'
+    + '<rect x="14" y="24" width="3" height="14" rx="1" fill="' + cols[1] + '" transform="rotate(3,15.5,31)"/>'
+    + '<rect x="12" y="24" width="3" height="12" rx="1" fill="' + cols[2] + '" transform="rotate(10,13.5,30)"/>'
+    + p
+    + '<circle cx="14" cy="13" r="6" fill="#fff"/><circle cx="14" cy="13" r="4.5" fill="#f8f4e8"/>'
+    + '<text x="14" y="16.5" text-anchor="middle" font-family="serif" font-weight="bold" font-size="5" fill="#111">' + lbl + '</text>'
+    + '</svg>';
+};
+
+// Returns ribbon SVG for a given place + class name. Champion classes get
+// CH/RC for 1st/2nd. Returns empty string if no ribbon applies (place out of
+// range or unparseable).
+WEST.ribbon.placeRibbon = function(place, className) {
+  var n = parseInt(place);
+  if (!n) return '';
+  var isChamp = className && /champion/i.test(className);
+  if (isChamp && n === 1) return WEST.ribbon.champSvg(false);
+  if (isChamp && n === 2) return WEST.ribbon.champSvg(true);
+  return WEST.ribbon.svg(n) || '';
+};
+
 // ── COUNTRY FLAGS ────────────────────────────────────────────────────────────
 // FEI 3-letter → ISO 2-letter for flagcdn.com images
 // Only displayed when show_flags is enabled on the class (H[26] for jumper)
@@ -831,8 +911,10 @@ WEST.hunter.derby.buildEntries = function(classInfo) {
 };
 
 // Full list — returns complete '<div class="results-wrap">…</div>' HTML string
-// Pages insert this via innerHTML and then bind their own toggleEntry handler
-WEST.hunter.derby.renderList = function(classInfo) {
+// Pages insert this via innerHTML and then bind their own toggleEntry handler.
+// opts.isLive = true when class is currently being scored (suppresses ribbon graphics).
+WEST.hunter.derby.renderList = function(classInfo, opts) {
+  opts = opts || {};
   var built = WEST.hunter.derby.buildEntries(classInfo);
   var entries = built.entries;
   var judgeCount = built.judgeCount;
@@ -846,7 +928,7 @@ WEST.hunter.derby.renderList = function(classInfo) {
     html += WEST.hunter.derby.renderSummary(entries, judgeCount);
   }
   for (var i = 0; i < entries.length; i++) {
-    html += WEST.hunter.derby.renderEntry(entries[i], classInfo, judgeCount);
+    html += WEST.hunter.derby.renderEntry(entries[i], classInfo, judgeCount, opts);
   }
   html += '</div>';
   return html;
@@ -856,7 +938,8 @@ WEST.hunter.derby.renderList = function(classInfo) {
 // that judge's card total desc. Used when the user toggles "View Judges Scores"
 // on the results page. Multi-judge derbies only (1-judge is redundant with
 // combined view and the button is suppressed).
-WEST.hunter.derby.renderByJudgeList = function(classInfo) {
+WEST.hunter.derby.renderByJudgeList = function(classInfo, opts) {
+  opts = opts || {};
   var esc = WEST.esc;
   var built = WEST.hunter.derby.buildEntries(classInfo);
   var entries = built.entries;
@@ -865,6 +948,7 @@ WEST.hunter.derby.renderByJudgeList = function(classInfo) {
 
   var isEq = WEST.hunter.isEquitation(classInfo);
   var showFlags = WEST.hunter.derby._showFlags(classInfo);
+  var className = classInfo && (classInfo.class_name || classInfo.className) || '';
   var html = '<div class="results-wrap by-judge-view">';
 
   for (var j = 0; j < judgeCount; j++) {
@@ -891,9 +975,14 @@ WEST.hunter.derby.renderByJudgeList = function(classInfo) {
         var flag = showFlags ? WEST.countryFlag(g.country, true) : '';
 
         var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (rank ? rank : '—');
+        var ribbonSvg = (!opts.isLive && !r1Failed && rank) ? WEST.ribbon.placeRibbon(rank, className) : '';
 
         html += '<div class="result-entry"><div class="result-main">';
-        html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+        if (ribbonSvg) {
+          html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+        } else {
+          html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+        }
 
         // Info column (EQ-aware)
         if (isEq) {
@@ -952,7 +1041,8 @@ WEST.hunter.derby.renderByJudgeList = function(classInfo) {
 };
 
 // Single entry row — returns '<div class="result-entry">…</div>'
-WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount) {
+WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount, opts) {
+  opts = opts || {};
   var esc = WEST.esc;
   var place = g.place || '';
   var r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
@@ -964,6 +1054,7 @@ WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount) {
   var showFlags = WEST.hunter.derby._showFlags(classInfo);
   var flag = showFlags ? WEST.countryFlag(g.country, true) : '';
   var isEq = WEST.hunter.isEquitation(classInfo);
+  var className = classInfo && (classInfo.class_name || classInfo.className) || '';
 
   var html = '<div class="result-entry' + (canExpand ? ' has-judges' : '') + '"'
     + ' data-entry-num="' + esc(g.entry_num) + '"'
@@ -977,9 +1068,14 @@ WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount) {
     html += '<div class="r-move"></div>';
   }
 
-  // Ribbon / place
+  // Ribbon / place — SVG ribbon when not live AND placed, otherwise numeric
   var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (place || '—');
-  html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+  var ribbonSvg = (!opts.isLive && !r1Failed && place) ? WEST.ribbon.placeRibbon(place, className) : '';
+  if (ribbonSvg) {
+    html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+  } else {
+    html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+  }
 
   // Info column — rider-first for equitation, horse-first for open hunter/derby
   if (isEq) {
