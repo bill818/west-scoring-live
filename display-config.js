@@ -1,0 +1,689 @@
+/**
+ * WEST Scoring Live — Display Configuration
+ * Single source of truth for how classes, scores, and statuses are rendered.
+ * All pages include this file via <script src="display-config.js"></script>
+ * Change here = change everywhere.
+ *
+ * This file does NOT score — Ryegate scores. We only read and display.
+ * The .cls file is always the source of truth for results.
+ *
+ * Currently lives CLIENT-SIDE. Structured to move to Worker when
+ * computation goes server-side. No DOM dependencies except countryFlag()
+ * and esc() which are display-only helpers.
+ *
+ * MIGRATION NOTE: When moving to Worker, this file becomes the computation
+ * engine. The Worker imports it, computes results, and returns formatted data.
+ * Pages become thin display templates. countryFlag() and esc() stay client-side.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * MULTI-ROUND / MULTI-JUDGE HUNTER DERBY RENDERING
+ * ───────────────────────────────────────────────────────────────────────────
+ * Hunter derbies (class_type H, H[2]='2') have per-judge phase scoring that
+ * Ryegate does NOT expose pre-ranked. We compute all relative placings
+ * client-side from raw column data. Judge count comes from H[37] derby type
+ * (derbyTypes[code].judges — 1 for National, 2 for International).
+ *
+ * Per-judge phase card formulas:
+ *   R1 = base + hiopt
+ *   R2 = base + hiopt + bonus   (bonus = handy/option, R2 only)
+ *
+ * Column map (confirmed 2026-04-05 on 1000.cls national + 1001.cls international):
+ *   R1:  [15]=hiOpt  [16]=J1base  [17]=hiOpt(mirror)  [18]=J2base
+ *   R2:  [24]=hiOpt  [25]=J1base  [26]=J1bonus  [27]=hiOpt(mirror)  [28]=J2base  [29]=J2bonus
+ *   [42]=R1total  [43]=R2total  [14]=final place (Ryegate-assigned, trusted)
+ *   [45]=combined is STALE — recompute as [42]+[43]
+ *   [46]/[47]=R1/R2 numeric status  [52]/[53]=R1/R2 text status (RF/HF/EL/OC/DNS/EX)
+ *
+ * Computed per-entry (WEST.hunter.derby.computeRankings):
+ *   _jt.r1Ranks[j]        — relative rank by this judge's R1 phaseTotal
+ *   _jt.r2Ranks[j]        — relative rank by this judge's R2 phaseTotal
+ *   _jt.judgeCardTotals[j]— this judge's R1+R2 sum
+ *   _jt.judgeCardRanks[j] — relative rank if only this judge scored the class
+ *   _jt.movement          — R1-only overall rank minus final place (↑ moved up, ↓ moved down)
+ *   _jt.combinedRank      — final place (from col[14])
+ * Ties use standard competition ranking (1,1,3).
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * DERBY DISPLAY RULES (results.html)
+ * ───────────────────────────────────────────────────────────────────────────
+ * Two distinct render paths based on judge count — 1 judge collapses the
+ * per-judge breakdown onto the row itself since it would be redundant in an
+ * expand panel.
+ *
+ * NATIONAL — 1 judge (derby type 1, 4, 6, 8 per derbyTypes table):
+ *   • Main row shows full breakdown inline:
+ *       R1:  base + hiopt = phaseTotal         (rank)
+ *       R2:  base + hiopt + bonus = phaseTotal (rank)
+ *       Total: combined.toFixed(2)
+ *   • (rank) = per-round rank across all entries (_jt.r1Ranks[0] / r2Ranks[0])
+ *   • NO expand panel, NO click handler, NO "View Judge Scores" button
+ *   • NO judge-summary header (single judge can't disagree with itself)
+ *
+ * INTERNATIONAL / H&G — 2 judges (derby type 0, 2, 3, 5, 7):
+ *   • Main row shows aggregate totals only: R1=[42], R2=[43], Total=.toFixed(2)
+ *   • "View Judge Scores" pill sits inside the scores column below the total
+ *   • Click to expand → right-aligned panel under the row:
+ *       - Round 1 section: J1 R1 / J2 R1 with "base + hiopt = total (rank)"
+ *       - Round 2 section: J1 R2 / J2 R2 with "base + hiopt + bonus = total (rank)"
+ *       - Judge Cards section: per-judge R1+R2 with "(Nth overall)" —
+ *         only rendered when judges' card ranks are not all identical
+ *   • Solo-winner green highlight: rank===1 on a per-phase row when that
+ *     judge alone placed them first (relative to other judges in that phase)
+ *   • Would-win green highlight: rank===1 on a judge card row when that
+ *     single judge's card would make them class winner
+ *   • Judge Cards Summary header (above list): only when judges disagree on #1
+ *
+ * STATUS / EDGE CASES (both paths):
+ *   • R1 status + no R1 score → suppress place, ribbon shows status label, no expand
+ *   • R1 clean + R2 status (e.g. EL in R2) → place stands on R1 alone, R1 row
+ *     normal, R2 row renders status label instead of score, combined = R1Total
+ *   • R1 only, R2 not yet ridden → running total shows R1Total, no movement arrow
+ *   • Movement arrow: hidden unless both rounds complete AND rank actually changed
+ *     (no-change and not-applicable render as empty space to preserve alignment)
+ *
+ * CURRENT DATA SOURCE (temporary):
+ *   results.html parses per-judge data directly from classInfo.cls_raw via
+ *   WEST.parseClsRows + WEST.hunter.derby.parseEntry. Once the watcher emits
+ *   per-judge fields through Worker→D1, the render path switches to reading
+ *   structured fields off entries[] and everything downstream stays identical.
+ *
+ * Last updated: 2026-04-05
+ */
+
+var WEST = WEST || {};
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SHARED — applies to all class types
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ── ESCAPE HTML ──────────────────────────────────────────────────────────────
+WEST.esc = function(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+};
+
+// ── TIME FORMATTING ──────────────────────────────────────────────────────────
+// H[05] ClockPrecision — CONFIRMED 2026-04-05:
+//   0 = thousandths (.XXX)
+//   1 = hundredths (.XX)
+//   2 = whole seconds (probable, untested)
+WEST.formatTime = function(val, precision) {
+  if (!val) return '';
+  var n = parseFloat(val);
+  if (isNaN(n)) return String(val);
+  var p = parseInt(precision);
+  if (isNaN(p)) p = 0;
+  if (p === 0) return n.toFixed(3);
+  if (p === 1) return n.toFixed(2);
+  return Math.round(n).toString();
+};
+
+// ── CLS HEADER PARSER ────────────────────────────────────────────────────────
+WEST.parseClsHeader = function(clsRaw) {
+  if (!clsRaw) return [];
+  var line = clsRaw.split(/\r?\n/)[0] || '';
+  var r = [], c = '', q = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') { if (q && line[i + 1] === '"') { c += '"'; i++; } else q = !q; }
+    else if (ch === ',' && !q) { r.push(c.trim()); c = ''; }
+    else c += ch;
+  }
+  r.push(c.trim());
+  return r;
+};
+
+// ── CLS ENTRY ROW PARSER ─────────────────────────────────────────────────────
+// Parses all entry rows from a .cls file. Skips header (line 0) and @foot lines.
+// Returns array of col arrays — each col array is one entry row.
+WEST.parseClsRows = function(clsRaw) {
+  if (!clsRaw) return [];
+  var lines = clsRaw.split(/\r?\n/);
+  var rows = [];
+  for (var li = 1; li < lines.length; li++) {
+    var line = lines[li];
+    if (!line || line.charAt(0) === '@') continue;
+    var r = [], c = '', q = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line[i];
+      if (ch === '"') { if (q && line[i + 1] === '"') { c += '"'; i++; } else q = !q; }
+      else if (ch === ',' && !q) { r.push(c); c = ''; }
+      else c += ch;
+    }
+    r.push(c);
+    if (r[0] && /^\d/.test(r[0])) rows.push(r);
+  }
+  return rows;
+};
+
+// ── ORDINAL ──────────────────────────────────────────────────────────────────
+WEST.ordinal = function(n) {
+  var s = ['th','st','nd','rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+// ── COUNTRY FLAGS ────────────────────────────────────────────────────────────
+// FEI 3-letter → ISO 2-letter for flagcdn.com images
+// Only displayed when show_flags is enabled on the class (H[26] for jumper)
+WEST.FEI_ISO = {AFG:'af',ALB:'al',ALG:'dz',AND:'ad',ANG:'ao',ANT:'ag',ARG:'ar',ARM:'am',ARU:'aw',AUS:'au',AUT:'at',AZE:'az',BAH:'bs',BAN:'bd',BAR:'bb',BEL:'be',BER:'bm',BIH:'ba',BOL:'bo',BRA:'br',BUL:'bg',CAN:'ca',CAY:'ky',CHI:'cl',CHN:'cn',COL:'co',CRC:'cr',CRO:'hr',CUB:'cu',CYP:'cy',CZE:'cz',DEN:'dk',DOM:'do',ECU:'ec',EGY:'eg',ESP:'es',EST:'ee',ETH:'et',FIN:'fi',FRA:'fr',GAB:'ga',GBR:'gb',GEO:'ge',GER:'de',GHA:'gh',GRE:'gr',GUA:'gt',HKG:'hk',HON:'hn',HUN:'hu',INA:'id',IND:'in',IRI:'ir',IRL:'ie',ISL:'is',ISR:'il',ISV:'vi',ITA:'it',JAM:'jm',JOR:'jo',JPN:'jp',KAZ:'kz',KEN:'ke',KOR:'kr',KSA:'sa',KUW:'kw',LAT:'lv',LBN:'lb',LIE:'li',LTU:'lt',LUX:'lu',MAR:'ma',MAS:'my',MEX:'mx',MGL:'mn',MKD:'mk',MON:'mc',NED:'nl',NEP:'np',NOR:'no',NZL:'nz',OMA:'om',PAN:'pa',PAR:'py',PER:'pe',PHI:'ph',POL:'pl',POR:'pt',PUR:'pr',QAT:'qa',ROU:'ro',RSA:'za',RUS:'ru',SIN:'sg',SLO:'si',SRB:'rs',SUI:'ch',SVK:'sk',SWE:'se',THA:'th',TPE:'tw',TTO:'tt',TUN:'tn',TUR:'tr',UAE:'ae',UKR:'ua',URU:'uy',USA:'us',UZB:'uz',VEN:'ve',VIE:'vn'};
+
+WEST.countryFlag = function(feiCode, showFlags) {
+  if (!feiCode || !showFlags) return '';
+  var iso = WEST.FEI_ISO[String(feiCode).trim().toUpperCase()];
+  if (!iso) return '';
+  return '<img style="margin-left:4px;vertical-align:baseline;position:relative;top:1px;" src="https://flagcdn.com/20x15/' + iso + '.png" alt="' + WEST.esc(feiCode) + '" width="20" height="15">';
+};
+
+// ── CLASS TYPE LABEL ─────────────────────────────────────────────────────────
+// Returns a human-readable label for any class
+WEST.getClassTypeLabel = function(classInfo) {
+  if (!classInfo) return '';
+  var ct = (classInfo.class_type || '').toUpperCase();
+  var sm = classInfo.scoring_method || '';
+
+  if (ct === 'J' || ct === 'T') return WEST.jumper.getMethod(sm).label;
+  if (ct === 'H') return WEST.hunter.getClassLabel(classInfo);
+  if (ct === 'U') return 'Unformatted';
+  return ct;
+};
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   JUMPER — class_type J (Farmtek) or T (TIMY)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+WEST.jumper = {};
+
+// ── SCORING METHODS ──────────────────────────────────────────────────────────
+// H[02] for jumper classes
+WEST.jumper.methods = {
+  '2':  { label: 'Jumper II.2a',       table: 'II.2a', rounds: 2, hasJO: true,  immediate: false, isOptimum: false, isTwoPhase: false },
+  '3':  { label: 'Jumper (3 rounds)',   table: 'III',   rounds: 3, hasJO: true,  immediate: false, isOptimum: false, isTwoPhase: false },
+  '4':  { label: 'Speed II.1',         table: 'II.1',  rounds: 1, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false },
+  '6':  { label: 'Optimum Time IV.1',  table: 'IV.1',  rounds: 1, hasJO: false, immediate: false, isOptimum: true,  isTwoPhase: false },
+  '9':  { label: 'Two-Phase',          table: 'II.2d', rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: true  },
+  '13': { label: 'Jumper II.2b',       table: 'II.2b', rounds: 2, hasJO: true,  immediate: true,  isOptimum: false, isTwoPhase: false },
+};
+
+WEST.jumper.getMethod = function(code) {
+  return WEST.jumper.methods[String(code)] || { label: 'Jumper', table: '', rounds: 1, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false };
+};
+
+// ── ROUND LABELS ─────────────────────────────────────────────────────────────
+WEST.jumper.roundLabel = function(method, round) {
+  var m = WEST.jumper.getMethod(method);
+  if (m.isTwoPhase) return round === 1 ? 'PH1' : round === 2 ? 'PH2' : 'PH' + round;
+  if (m.rounds === 3) return round === 1 ? 'R1' : round === 2 ? 'R2' : 'JO';
+  return round === 1 ? 'R1' : round === 2 ? 'JO' : 'R' + round;
+};
+
+// ── OPTIMUM TIME ─────────────────────────────────────────────────────────────
+// Table IV.1 (method 6): optimum = TA - 4 (hardcoded FEI rule, not in .cls)
+WEST.jumper.OPTIMUM_OFFSET = 4;
+
+WEST.jumper.getOptimumTime = function(ta) {
+  return ta > 0 ? ta - WEST.jumper.OPTIMUM_OFFSET : 0;
+};
+
+WEST.jumper.getOptimumDistance = function(elapsed, ta) {
+  var opt = WEST.jumper.getOptimumTime(ta);
+  if (opt <= 0) return null;
+  return elapsed - opt;
+};
+
+// ── TA VALUES ────────────────────────────────────────────────────────────────
+// Read from cls_raw header: H[08]=R1, H[11]=R2, H[14]=R3
+WEST.jumper.getTAFromRaw = function(clsRaw) {
+  var h = WEST.parseClsHeader(clsRaw);
+  var ct = h[0] || '';
+  if (ct === 'J' || ct === 'T') {
+    return { r1: parseFloat(h[8]) || 0, r2: parseFloat(h[11]) || 0, r3: parseFloat(h[14]) || 0 };
+  }
+  return { r1: 0, r2: 0, r3: 0 };
+};
+
+// ── TIME FAULT FORMULA ───────────────────────────────────────────────────────
+// From cls header: H[07]=faultsPerInterval, H[09]=timeInterval, H[22]=penaltySeconds
+WEST.jumper.getTimeFaultParams = function(clsRaw, round) {
+  var h = WEST.parseClsHeader(clsRaw);
+  var offset = (round - 1) * 3; // R1=[7,8,9], R2=[10,11,12], R3=[13,14,15]
+  return {
+    fpi: parseFloat(h[7 + offset]) || 1,
+    ti:  parseFloat(h[9 + offset]) || 1,
+    ps:  parseFloat(h[22]) || 6,
+  };
+};
+
+WEST.jumper.calcTimeFaults = function(elapsed, ta, fpi, ti) {
+  if (!ta || ta <= 0) return 0;
+  var secsOver = Math.max(0, elapsed - ta);
+  if (secsOver <= 0) return 0;
+  return Math.ceil(secsOver / ti) * fpi;
+};
+
+// ── STATUS CODES ─────────────────────────────────────────────────────────────
+// TIMY (T): col[82]=R1 status, col[83]=R2 status, col[84]=R3 (unconfirmed)
+// Farmtek (J): col[39]=single status
+// Text codes: RF, HF, EL, OC, DNS, DNF, WD, SC
+// RT (Retired): col[82]=empty, often no text — detected by entry having no R2 data
+WEST.jumper.statusCodes = {
+  'RF':  { label: 'RF',   fullLabel: 'Rider Fall'     },
+  'HF':  { label: 'HF',   fullLabel: 'Horse Fall'     },
+  'EL':  { label: 'EL',   fullLabel: 'Eliminated'     },
+  'OC':  { label: 'OC',   fullLabel: 'Off Course'     },
+  'DNS': { label: 'DNS',  fullLabel: 'Did Not Start'  },
+  'DNF': { label: 'DNF',  fullLabel: 'Did Not Finish' },
+  'WD':  { label: 'WD',   fullLabel: 'Withdrawn'      },
+  'SC':  { label: 'SC',   fullLabel: 'Schooling'      },
+  'RT':  { label: 'RT',   fullLabel: 'Retired'        },
+};
+
+WEST.jumper.getStatusLabel = function(code) {
+  if (!code) return null;
+  var s = WEST.jumper.statusCodes[String(code).trim().toUpperCase()];
+  return s ? s.label : String(code).toUpperCase();
+};
+
+// ── HAS COMPETED ─────────────────────────────────────────────────────────────
+// Evidence-based: hasGone flag alone is NOT reliable for jumper
+// Must have time, place, or status code
+WEST.jumper.hasCompeted = function(entry) {
+  return !!(entry.r1TotalTime || entry.overallPlace || entry.statusCode || entry.r1StatusCode);
+};
+
+// ── PLACE DISPLAY ────────────────────────────────────────────────────────────
+// Any status code = suppress place (jumper entries with status didn't complete)
+WEST.jumper.shouldShowPlace = function(entry) {
+  if (entry.statusCode || entry.r1StatusCode || entry.r2StatusCode) return false;
+  return !!entry.overallPlace;
+};
+
+// ── STANDINGS SORT ───────────────────────────────────────────────────────────
+// Places come from .cls file (Ryegate sorts). We trust them.
+// For display sorting when no place: faults asc, then time asc (or optimum distance)
+WEST.jumper.sortEntries = function(entries, method) {
+  var m = WEST.jumper.getMethod(method);
+  return entries.slice().sort(function(a, b) {
+    var pa = parseInt(a.overallPlace || a.place || 999);
+    var pb = parseInt(b.overallPlace || b.place || 999);
+    return pa - pb;
+  });
+};
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HUNTER — class_type H
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+WEST.hunter = {};
+
+// ── DERBY TYPES ──────────────────────────────────────────────────────────────
+// H[37] — confirmed 2026-04-03
+WEST.hunter.derbyTypes = {
+  '0': { label: 'International',           judges: 2, hg: false, showAllRounds: true  },
+  '1': { label: 'National',                judges: 1, hg: false, showAllRounds: false },
+  '2': { label: 'National H&G',            judges: 1, hg: true,  showAllRounds: true  },
+  '3': { label: 'International H&G',       judges: 2, hg: true,  showAllRounds: true  },
+  '4': { label: 'USHJA Pony Derby',        judges: 1, hg: false, showAllRounds: false },
+  '5': { label: 'USHJA Pony Derby H&G',    judges: 1, hg: true,  showAllRounds: true  },
+  '6': { label: 'USHJA 2\'6 Jr Derby',     judges: 1, hg: false, showAllRounds: false },
+  '7': { label: 'USHJA 2\'6 Jr Derby H&G', judges: 1, hg: true,  showAllRounds: true  },
+  '8': { label: 'WCHR Derby Spec',         judges: 1, hg: false, showAllRounds: false },
+};
+
+WEST.hunter.getDerby = function(code) {
+  return WEST.hunter.derbyTypes[String(code)] || null;
+};
+
+// ── CLASS LABEL ──────────────────────────────────────────────────────────────
+WEST.hunter.getClassLabel = function(classInfo) {
+  if (!classInfo) return 'Hunter';
+  // Check if derby via cls_raw header H[37]
+  var h = WEST.parseClsHeader(classInfo.cls_raw);
+  var derbyType = h[37] || '0';
+  var scoreType = h[2] || '0';
+  if (scoreType === '2') {
+    var derby = WEST.hunter.getDerby(derbyType);
+    return derby ? derby.label : 'Hunter Derby';
+  }
+  if (h[10] === 'True') return 'Equitation';
+  if (h[11] === 'True') return 'Hunter Championship';
+  if (h[5] === '1') return 'Hunter Flat';
+  return 'Hunter';
+};
+
+// ── IS DERBY ─────────────────────────────────────────────────────────────────
+WEST.hunter.isDerby = function(classInfo) {
+  if (!classInfo || classInfo.class_type !== 'H') return false;
+  var h = WEST.parseClsHeader(classInfo.cls_raw);
+  return h[2] === '2';
+};
+
+// ── DERBY COLUMN MAP ─────────────────────────────────────────────────────────
+// Where to find scores in hunter entry rows — varies by number of judges
+//
+// National (1 judge):
+//   R1: [15]=hiOpt  [16]=J1base               [42]=R1total
+//   R2: [24]=hiOpt  [25]=J1base  [26]=J1handy  [43]=R2total
+//
+// International (2 judges):
+//   R1: [15]=hiOpt  [16]=J1base  [17]=hiOpt(mirror)  [18]=J2base  [42]=R1total
+//   R2: [24]=hiOpt  [25]=J1base  [26]=J1handy  [27]=hiOpt(mirror)  [28]=J2base  [29]=J2handy  [43]=R2total
+//
+// Combined: [45] = R1+R2 (ONLY reliable after operator views Overall in Ryegate)
+// Safe: always compute R1total + R2total ourselves
+//
+// Standard hunter (not derby):
+//   [15]=score  [42]=R1total  [45]=combined
+//   Two-round: [24]=R2score  [43]=R2total  [45]=R1+R2
+
+// ── STATUS CODES ─────────────────────────────────────────────────────────────
+// col[52]=R1 text, col[53]=R2 text
+// col[46]=R1 numeric, col[47]=R2 numeric
+//
+// Text codes: RF, HF, EL, OC, DNS, EX
+// Numeric: 0=normal, 2=abnormal exit, 3=retired(RT)
+// NOTE: RT does not always write text to col[52/53] — use numeric col[46/47]=3 as fallback
+WEST.hunter.statusCodes = {
+  'RF':  { label: 'RF',   fullLabel: 'Rider Fall'    },
+  'HF':  { label: 'HF',   fullLabel: 'Horse Fall'    },
+  'EL':  { label: 'EL',   fullLabel: 'Eliminated'    },
+  'OC':  { label: 'OC',   fullLabel: 'Off Course'    },
+  'DNS': { label: 'DNS',  fullLabel: 'Did Not Start' },
+  'EX':  { label: 'EX',   fullLabel: 'Excused'       },
+  'RT':  { label: 'RT',   fullLabel: 'Retired'       },
+};
+
+// Numeric fallback: col[46]/col[47]
+WEST.hunter.numericStatusMap = {
+  '2': 'EL',  // Generic — text code has specifics (RF/HF/EL/OC/DNS)
+  '3': 'RT',  // Retired — text code often missing
+};
+
+WEST.hunter.getStatus = function(textCode, numericCode) {
+  // 1. Check text code first (authoritative when present)
+  if (textCode) {
+    var upper = String(textCode).trim().toUpperCase();
+    var s = WEST.hunter.statusCodes[upper];
+    return s || { label: upper, fullLabel: upper };
+  }
+  // 2. Fall back to numeric code
+  if (numericCode && String(numericCode) !== '0') {
+    var mapped = WEST.hunter.numericStatusMap[String(numericCode)];
+    if (mapped) return WEST.hunter.statusCodes[mapped];
+    return { label: '?', fullLabel: 'Unknown Status' };
+  }
+  // 3. No status — normal completion
+  return null;
+};
+
+// ── HAS COMPETED ─────────────────────────────────────────────────────────────
+// Hunter hasGone waterfall:
+// 1. hasGone=1 AND has score/status → competed
+// 2. hasGone=0 but has score → manual entry, still competed
+// 3. hasGone=1 but no score and no status → accidental toggle, NOT competed
+WEST.hunter.hasCompeted = function(entry) {
+  var hasEvidence = !!(entry.score || entry.r1Total || entry.combined ||
+    entry.statusCode || entry.r1TextStatus ||
+    (entry.r1NumericStatus && String(entry.r1NumericStatus) !== '0'));
+  return hasEvidence;
+};
+
+// ── HAS COMPETED R2 ──────────────────────────────────────────────────────────
+// R2 evidence: score, total, or status code
+WEST.hunter.hasCompetedR2 = function(entry) {
+  return !!(entry.r2Score || entry.r2Total ||
+    entry.r2TextStatus ||
+    (entry.r2NumericStatus && String(entry.r2NumericStatus) !== '0'));
+};
+
+// ── PLACE DISPLAY ────────────────────────────────────────────────────────────
+// R1 status with no R1 score → suppress place (never finished R1)
+// R2 status with R1 score → show place (completed R1, ranked on R1 score)
+// No status → show place
+WEST.hunter.shouldShowPlace = function(entry) {
+  var r1Status = WEST.hunter.getStatus(entry.r1TextStatus || entry.statusCode, entry.r1NumericStatus);
+  var hasR1Score = !!(entry.score || entry.r1Total);
+
+  // R1 status with no score = didn't finish, suppress place
+  if (r1Status && !hasR1Score) return false;
+
+  // Everything else = show place if they have one
+  return !!(entry.place || entry.overallPlace);
+};
+
+// ── DIVISION CHAMPION ────────────────────────────────────────────────────────
+// H + IsChampionship + no entries actually competed = division standings only
+// Display as placement list, no score columns, no stats link
+WEST.hunter.isDivisionChampion = function(classInfo, entries) {
+  if (!classInfo || classInfo.class_type !== 'H') return false;
+  var h = WEST.parseClsHeader(classInfo.cls_raw);
+  if (h[11] !== 'True') return false; // Not championship
+  if (!entries || !entries.length) return true;
+  var anyCompeted = entries.some(function(e) { return WEST.hunter.hasCompeted(e); });
+  return !anyCompeted;
+};
+
+// ── COMBINED TOTAL ───────────────────────────────────────────────────────────
+// col[45] is unreliable (only correct after operator views Overall in Ryegate)
+// Always compute ourselves: R1total + R2total
+WEST.hunter.getCombinedTotal = function(entry) {
+  var r1 = parseFloat(entry.r1Total || entry.score || 0) || 0;
+  var r2 = parseFloat(entry.r2Total || 0) || 0;
+  return r1 + r2;
+};
+
+
+/* ───────────────────────────────────────────────────────────────────────────
+   HUNTER DERBY — per-judge scoring, relative ranks, judge cards
+   ─────────────────────────────────────────────────────────────────────────── */
+
+WEST.hunter.derby = {};
+
+// Judge count from header H[37] derby type
+WEST.hunter.derby.getJudgeCount = function(classInfo) {
+  if (!classInfo || !classInfo.cls_raw) return 1;
+  var h = WEST.parseClsHeader(classInfo.cls_raw);
+  var type = WEST.hunter.derbyTypes[String(h[37] || '0')];
+  return type ? type.judges : 1;
+};
+
+// Parse a CLS entry row into a structured derby entry with per-judge scores
+// Column map (confirmed 2026-04-05 against 1000.cls national + 1001.cls international):
+//   R1:  [15]=hiOpt  [16]=J1base  [17]=hiOpt(mirror)  [18]=J2base
+//   R2:  [24]=hiOpt  [25]=J1base  [26]=J1bonus  [27]=hiOpt(mirror)  [28]=J2base  [29]=J2bonus
+//   [42]=R1total  [43]=R2total  [45]=combined (stale — recompute ourselves)
+//   [46]=R1numStatus [47]=R2numStatus [49]=hasGoneR1 [50]=hasGoneR2 [52]=R1textStatus [53]=R2textStatus
+// Per judge phase card:
+//   R1 = base + hiopt
+//   R2 = base + hiopt + bonus  (bonus = handy/option bonus, R2 only)
+WEST.hunter.derby.parseEntry = function(cols, judgeCount) {
+  var num = function(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; };
+  var r1 = [], r2 = [];
+  var r1HiOpt = num(cols[15]);
+  var r2HiOpt = num(cols[24]);
+
+  var j1r1b = num(cols[16]);
+  var j1r2b = num(cols[25]);
+  var j1r2bonus = num(cols[26]);
+  r1.push({ base: j1r1b, hiopt: r1HiOpt, bonus: 0,         phaseTotal: j1r1b + r1HiOpt });
+  r2.push({ base: j1r2b, hiopt: r2HiOpt, bonus: j1r2bonus, phaseTotal: j1r2b + r2HiOpt + j1r2bonus });
+
+  if (judgeCount >= 2) {
+    var j2r1b = num(cols[18]);
+    var j2r2b = num(cols[28]);
+    var j2r2bonus = num(cols[29]);
+    r1.push({ base: j2r1b, hiopt: r1HiOpt, bonus: 0,         phaseTotal: j2r1b + r1HiOpt });
+    r2.push({ base: j2r2b, hiopt: r2HiOpt, bonus: j2r2bonus, phaseTotal: j2r2b + r2HiOpt + j2r2bonus });
+  }
+
+  return {
+    entry_num:       cols[0] || '',
+    horse:           cols[1] || '',
+    rider:           cols[2] || '',
+    country:         cols[4] || '',
+    owner:           cols[5] || '',
+    sire:            cols[6] || '',
+    dam:             cols[7] || '',
+    city:            cols[8] || '',
+    state:           cols[9] || '',
+    horse_fei:       cols[10] || '',
+    rider_fei:       cols[11] || '',
+    place:           (cols[14] && cols[14] !== '0') ? cols[14] : '',
+    r1:              r1,
+    r2:              r2,
+    r1Total:         num(cols[42]),
+    r2Total:         num(cols[43]),
+    combined:        num(cols[42]) + num(cols[43]),
+    r1NumericStatus: cols[46] || '',
+    r2NumericStatus: cols[47] || '',
+    hasGoneR1:       cols[49] === '1',
+    hasGoneR2:       cols[50] === '1',
+    r1TextStatus:    cols[52] || '',
+    r2TextStatus:    cols[53] || '',
+  };
+};
+
+// Did this entry compete R1 / R2?
+WEST.hunter.derby.hasR1 = function(e) {
+  if (e.r1TextStatus) return false;
+  return !!(e.r1 && e.r1.some(function(p) { return p.phaseTotal > 0; }));
+};
+WEST.hunter.derby.hasR2 = function(e) {
+  if (e.r2TextStatus) return false;
+  return !!(e.r2 && e.r2.some(function(p) { return p.phaseTotal > 0; }));
+};
+
+// Assign standard-competition ranks (ties share rank, next skipped)
+WEST.hunter.derby._assignRanks = function(items) {
+  items.sort(function(a, b) { return b.val - a.val; });
+  var ranks = {};
+  for (var i = 0; i < items.length; i++) {
+    if (i > 0 && items[i].val === items[i - 1].val) {
+      ranks[items[i].key] = ranks[items[i - 1].key];
+    } else {
+      ranks[items[i].key] = i + 1;
+    }
+  }
+  return ranks;
+};
+
+// Compute per-judge per-phase ranks, judge card totals + ranks, and movement
+// Mutates each entry with _jt = { judgeCount, r1Ranks, r2Ranks, judgeCardTotals, judgeCardRanks, movement, combinedRank }
+WEST.hunter.derby.computeRankings = function(entries, judgeCount) {
+  var self = WEST.hunter.derby;
+  var assign = self._assignRanks;
+
+  entries.forEach(function(e) {
+    e._jt = {
+      judgeCount:      judgeCount,
+      r1Ranks:         [],
+      r2Ranks:         [],
+      judgeCardTotals: [],
+      judgeCardRanks:  [],
+      movement:        null,
+      combinedRank:    null,
+    };
+  });
+
+  // R1 per-judge ranks
+  for (var j = 0; j < judgeCount; j++) {
+    (function(jj) {
+      var items = entries.filter(self.hasR1).map(function(e) {
+        return { key: e.entry_num, val: e.r1[jj].phaseTotal };
+      });
+      var ranks = assign(items);
+      entries.forEach(function(e) { e._jt.r1Ranks[jj] = ranks[e.entry_num] || null; });
+    })(j);
+  }
+
+  // R2 per-judge ranks
+  for (var j2 = 0; j2 < judgeCount; j2++) {
+    (function(jj) {
+      var items = entries.filter(self.hasR2).map(function(e) {
+        return { key: e.entry_num, val: e.r2[jj].phaseTotal };
+      });
+      var ranks = assign(items);
+      entries.forEach(function(e) { e._jt.r2Ranks[jj] = ranks[e.entry_num] || null; });
+    })(j2);
+  }
+
+  // Judge card totals + ranks (R1 + R2 per judge)
+  for (var jc = 0; jc < judgeCount; jc++) {
+    (function(jj) {
+      entries.forEach(function(e) {
+        if (self.hasR1(e) && self.hasR2(e)) {
+          e._jt.judgeCardTotals[jj] = e.r1[jj].phaseTotal + e.r2[jj].phaseTotal;
+        } else {
+          e._jt.judgeCardTotals[jj] = null;
+        }
+      });
+      var items = entries
+        .filter(function(e) { return e._jt.judgeCardTotals[jj] !== null; })
+        .map(function(e) { return { key: e.entry_num, val: e._jt.judgeCardTotals[jj] }; });
+      var ranks = assign(items);
+      entries.forEach(function(e) { e._jt.judgeCardRanks[jj] = ranks[e.entry_num] || null; });
+    })(jc);
+  }
+
+  // Movement: R1-only overall rank (sum across judges) vs final place
+  var r1OverallItems = entries.filter(self.hasR1).map(function(e) {
+    var sum = 0;
+    for (var j = 0; j < judgeCount; j++) sum += e.r1[j].phaseTotal;
+    return { key: e.entry_num, val: sum };
+  });
+  var r1OverallRanks = assign(r1OverallItems);
+  entries.forEach(function(e) {
+    var r1Rank = r1OverallRanks[e.entry_num] || null;
+    var finalPlace = parseInt(e.place) || null;
+    e._jt.combinedRank = finalPlace;
+    if (r1Rank && finalPlace && self.hasR2(e)) {
+      e._jt.movement = r1Rank - finalPlace; // positive = moved up
+    }
+  });
+
+  return entries;
+};
+
+// Should the Judge Summary header be shown?
+// Only when 2+ judges AND their #1 judge cards disagree
+WEST.hunter.derby.shouldShowJudgeSummary = function(entries, judgeCount) {
+  if (judgeCount < 2) return false;
+  var tops = [];
+  for (var j = 0; j < judgeCount; j++) {
+    var topEntry = null;
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i]._jt && entries[i]._jt.judgeCardRanks[j] === 1) {
+        topEntry = entries[i]; break;
+      }
+    }
+    if (topEntry) tops.push(topEntry.entry_num);
+  }
+  if (tops.length < 2) return false;
+  return tops.some(function(n) { return n !== tops[0]; });
+};
+
+// Top-N per judge (by judge card total) — used by summary header
+WEST.hunter.derby.topPerJudge = function(entries, judgeCount, n) {
+  var out = [];
+  for (var j = 0; j < judgeCount; j++) {
+    (function(jj) {
+      var ranked = entries
+        .filter(function(e) { return e._jt && e._jt.judgeCardTotals[jj] !== null; })
+        .map(function(e) { return { entry: e, score: e._jt.judgeCardTotals[jj] }; })
+        .sort(function(a, b) { return b.score - a.score; })
+        .slice(0, n || 3);
+      out.push(ranked);
+    })(j);
+  }
+  return out;
+};
+
+// Render a phase card math string — always includes all components for the round
+// R1:  "base + hiopt"
+// R2:  "base + hiopt + bonus"
+WEST.hunter.derby.renderPhaseMath = function(phase, roundNum) {
+  var parts = [String(phase.base), String(phase.hiopt)];
+  if (roundNum === 2) parts.push(String(phase.bonus));
+  return parts.join(' + ');
+};

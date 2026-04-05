@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --green: #2e7d32;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);}
+.header-inner{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;height:56px;gap:12px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:#fff;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;text-decoration:none;min-width:44px;min-height:44px;padding:0;background:none;border:none;cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.back-btn:hover{color:var(--red);}
+.logo-tap{display:flex;align-items:center;gap:8px;text-decoration:none;margin-left:auto;}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+
+/* BREADCRUMBS */
+.breadcrumbs{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:0;min-height:40px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.breadcrumbs::-webkit-scrollbar{display:none;}
+.bc-home{display:inline-flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--red);text-decoration:none;padding:10px 10px 10px 0;white-space:nowrap;flex-shrink:0;}
+.bc-home:hover{color:var(--black);}
+.bc-sep{font-family:'DM Mono',monospace;font-size:11px;color:#ccc;padding:0 6px;flex-shrink:0;user-select:none;}
+.bc-link{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--red);text-decoration:none;padding:10px 0;white-space:nowrap;flex-shrink:0;}
+.bc-link:hover{border-bottom:1px solid var(--red);}
+.bc-current{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);padding:10px 0;white-space:nowrap;flex-shrink:0;}
+
+/* TITLE BAR */
+.title-bar{background:#fff;border-bottom:1px solid var(--border);padding:14px 16px 12px;}
+.title-classnum{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-bottom:2px;}
+.title-main{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--black);line-height:1.2;}
+.title-meta{display:flex;align-items:center;gap:12px;margin-top:6px;flex-wrap:wrap;}
+.title-type{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.06em;}
+.title-sponsor{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-top:4px;}
+.stats-btn{display:none;margin-top:10px;background:none;border:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);padding:6px 12px;cursor:pointer;text-decoration:none;}
+.stats-btn:hover{border-color:var(--black);color:var(--black);}
+.stats-btn.visible{display:inline-block;}
+.live-pill{display:inline-flex;align-items:center;gap:4px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:2px;}
+.live-blink{width:5px;height:5px;background:#fff;border-radius:50%;animation:blink 1.6s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* LIVE BUTTON */
+.live-banner{display:flex;align-items:center;gap:10px;background:#fff;border-bottom:3px solid var(--red);padding:12px 16px;text-decoration:none;color:inherit;transition:background .1s;cursor:pointer;}
+.live-banner:hover{background:#fff8f8;}
+.live-blink{width:6px;height:6px;background:var(--red);border-radius:50%;animation:blink 1.6s ease-in-out infinite;flex-shrink:0;}
+.live-banner-text{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);font-weight:600;flex:1;}
+.live-banner-arrow{font-size:18px;color:var(--red);flex-shrink:0;font-weight:700;}
+
+/* RESULTS */
+.results-wrap{padding-bottom:60px;}
+.result-entry{display:block;border-bottom:1px solid var(--border);background:#fff;}
+.result-entry:nth-child(even){background:#fafafa;}
+.result-main{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;}
+.r-ribbon{flex-shrink:0;width:32px;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.r-place-txt{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);line-height:1;}
+.r-bib{display:inline-flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;margin-right:5px;background:#fafafa;vertical-align:middle;flex-shrink:0;}
+.r-info{flex:1;min-width:0;}
+.r-horse-line{display:flex;align-items:baseline;gap:0 6px;line-height:1.3;min-width:0;flex-wrap:nowrap;}
+.r-horse-rider{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;min-width:0;flex:1;}
+.r-horse{font-size:15px;font-weight:600;color:var(--black);}
+.r-rider-inline{font-size:13px;color:var(--text-muted);}
+.r-flag{margin-left:4px;vertical-align:baseline;position:relative;top:1px;}
+.r-breeding{font-size:11px;color:#bbb;font-style:italic;margin-top:1px;padding-left:38px;}
+.r-owner{font-size:12px;color:#aaa;font-style:italic;margin-top:1px;padding-left:38px;}
+.r-locale{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;margin-top:1px;padding-left:38px;}
+.r-scores{flex-shrink:0;text-align:right;font-family:'DM Mono',monospace;min-width:70px;}
+.r-score-row{display:flex;align-items:baseline;justify-content:flex-end;gap:5px;margin-top:2px;}
+.r-score-lbl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#bbb;}
+.r-score-val{font-size:13px;color:var(--text-muted);}
+.r-score-val.primary{font-size:14px;font-weight:600;color:var(--red);}
+.r-score-val.clean{color:var(--green);font-weight:600;}
+.r-total{font-size:14px;font-weight:700;color:var(--black);margin-top:3px;border-top:1px solid var(--border);padding-top:3px;text-align:right;}
+.r-status{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:uppercase;}
+.no-results{text-align:center;padding:50px 20px;color:var(--text-muted);font-size:14px;}
+
+/* DERBY — movement arrow, expand panel, judge summary */
+.r-move{flex-shrink:0;width:22px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;text-align:center;margin-right:2px;line-height:1.2;padding-top:2px;}
+.r-move.up{color:var(--green);}
+.r-move.down{color:var(--red);}
+.r-move.flat{color:#ccc;}
+.result-entry.has-judges{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.result-entry.has-judges:hover{background:#f9f9f9;}
+.result-entry.has-judges:active{background:#f0f0f0;}
+.r-judge-hint{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#aaa;border:1px solid #e0e0e0;border-radius:3px;padding:3px 7px;margin-top:6px;background:#fafafa;white-space:nowrap;float:right;clear:right;}
+.r-judge-hint::before{content:'▸';font-size:9px;}
+.result-entry.open .r-judge-hint{color:var(--red);border-color:#ffd0d0;background:#fff8f8;}
+.result-entry.open .r-judge-hint::before{content:'▾';}
+.derby-expand{display:none;padding:8px 16px 12px;border-top:1px solid var(--border);background:#fcfcfc;justify-content:flex-end;}
+.result-entry.open .derby-expand{display:flex;}
+.de-inner{display:flex;flex-direction:column;align-items:flex-end;}
+.de-section{margin-bottom:8px;text-align:right;}
+.de-section:last-child{margin-bottom:0;}
+.de-section-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#bbb;margin-bottom:3px;text-align:right;}
+.de-judge-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;justify-content:flex-end;}
+.de-judge-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:#999;}
+.de-judge-math{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-body);text-align:right;}
+.de-judge-rank{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);min-width:34px;text-align:right;}
+.de-judge-rank.solo-winner{color:var(--green);font-weight:700;}
+.de-judge-card-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;justify-content:flex-end;}
+.de-judge-card-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:#999;}
+.de-judge-card-val{font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--text-body);}
+.de-judge-card-rank{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);min-width:86px;text-align:right;}
+.de-judge-card-rank.would-win{color:var(--green);font-weight:700;}
+
+/* Judge Summary header */
+.jt-summary{background:#fff8f8;border:1px solid #ffd0d0;border-radius:3px;margin:12px 16px 0;padding:10px 14px;}
+.jt-summary-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.jt-summary-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);font-weight:600;}
+.jt-summary-sub{font-family:'DM Mono',monospace;font-size:9px;color:#aaa;letter-spacing:.04em;}
+.jt-judge-block{margin-bottom:8px;}
+.jt-judge-block:last-child{margin-bottom:0;}
+.jt-judge-block-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#bbb;margin-bottom:3px;}
+.jt-judge-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;}
+.jt-judge-rank{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;min-width:18px;}
+.jt-judge-horse{font-size:13px;font-weight:600;color:var(--black);flex:1;}
+.jt-judge-score{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.jt-judge-row.differs .jt-judge-horse{color:var(--red);}
+
+/* STATES */
+.state-box{text-align:center;padding:60px 20px;}
+.spinner{width:28px;height:28px;border:3px solid #e8e8e8;border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.state-lbl{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+
+/* FOOTER */
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+
+@media(min-width:768px){
+  .header-inner{height:70px;padding:0 clamp(16px,4vw,48px);}
+  .title-bar{padding:18px clamp(16px,4vw,48px) 14px;}
+  .title-main{font-size:26px;}
+  .on-course-wrap{padding:14px clamp(16px,4vw,48px);}
+  .result-main{padding:13px clamp(16px,4vw,48px);}
+  .breadcrumbs{padding:0 clamp(16px,4vw,48px);}
+  footer{padding:26px clamp(16px,4vw,48px);}
+}
+</style>
+<script src="display-config.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="back-btn" id="backBtn" href="classes.html">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Classes
+    </a>
+    <a class="logo-tap" href="index.html">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<nav class="breadcrumbs">
+  <a class="bc-home" href="index.html">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    All Shows
+  </a>
+  <span class="bc-sep">&rsaquo;</span>
+  <a class="bc-link" id="bcShow" href="#">Show</a>
+  <span class="bc-sep">&rsaquo;</span>
+  <span class="bc-current" id="bcClass">Class</span>
+</nav>
+
+<div id="titleArea"></div>
+<div id="liveBtn"></div>
+<div id="content">
+  <div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Results&hellip;</div></div>
+</div>
+
+<footer>
+  <p>WEST Timing and Scoring &nbsp;&middot;&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;&middot;&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+
+<script>
+const WORKER   = 'https://west-worker.bill-acb.workers.dev';
+const params   = new URLSearchParams(location.search);
+const SLUG     = params.get('slug') || 'hits-culpeper';
+const CLASS_NUM = params.get('classNum') || '';
+const RING     = params.get('ring') || '1';
+const SHOW_NAME = decodeURIComponent(params.get('name') || SLUG);
+
+// Back link
+const classesUrl = 'classes.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+document.getElementById('backBtn').href = classesUrl;
+document.getElementById('bcShow').href = classesUrl;
+document.getElementById('bcShow').textContent = SHOW_NAME;
+document.getElementById('bcClass').textContent = 'Class ' + CLASS_NUM;
+
+let classInfo = null;
+let entries   = [];
+let liveData  = {};
+
+var esc = WEST.esc;
+
+// FEI flags and cls header parser now in display-config.js;
+
+var parseClsHeader = WEST.parseClsHeader;
+function countryFlag(code) { return WEST.countryFlag(code, classInfo && classInfo.show_flags); }
+
+function fmtTime(val) {
+  return WEST.formatTime(val, classInfo ? classInfo.clock_precision : 2);
+}
+
+function renderTitle() {
+  if (!classInfo) return;
+  const isJumper = classInfo.class_type === 'J' || classInfo.class_type === 'T';
+  const type = WEST.getClassTypeLabel(classInfo);
+  const sel = liveData.selected;
+  const isLive = sel && String(sel.classNum) === String(CLASS_NUM);
+  const liveBadge = isLive ? ' <span class="live-pill"><span class="live-blink"></span>Live</span>' : '';
+  const statsBtn = isJumper
+    ? '<a class="stats-btn visible" href="stats.html?slug=' + esc(SLUG) + '&classNum=' + esc(CLASS_NUM) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">Stats &amp; Analysis</a>'
+    : '';
+
+  document.title = 'Class ' + CLASS_NUM + ' — ' + SHOW_NAME + ' — WEST Scoring Live';
+
+  document.getElementById('titleArea').innerHTML =
+    '<div class="title-bar">'
+    + '<div class="title-classnum">Class ' + esc(CLASS_NUM) + '</div>'
+    + '<div class="title-main">' + esc(classInfo.class_name) + liveBadge + '</div>'
+    + '<div class="title-meta"><span class="title-type">' + esc(type) + '</span></div>'
+    + (classInfo.sponsor ? '<div class="title-sponsor">' + esc(classInfo.sponsor) + '</div>' : '')
+    + statsBtn
+    + '</div>';
+}
+
+function renderLiveBtn() {
+  const area = document.getElementById('liveBtn');
+  const sel = liveData.selected;
+  if (!sel || String(sel.classNum) !== String(CLASS_NUM) || !liveData.watcherAlive) { area.innerHTML = ''; return; }
+  const liveUrl = 'live.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+  area.innerHTML = '<a class="live-banner" href="' + esc(liveUrl) + '">'
+    + '<div class="live-blink"></div>'
+    + '<div class="live-banner-text">Watch Live &mdash; Clock, Standings &amp; On Course</div>'
+    + '<div class="live-banner-arrow">&rsaquo;</div>'
+    + '</a>';
+}
+
+let _openEntryNum = null;
+function toggleEntry(el, ev) {
+  if (ev) ev.stopPropagation();
+  const num = el.getAttribute('data-entry-num');
+  if (_openEntryNum === num) {
+    el.classList.remove('open');
+    _openEntryNum = null;
+  } else {
+    document.querySelectorAll('.result-entry.open').forEach(n => n.classList.remove('open'));
+    el.classList.add('open');
+    _openEntryNum = num;
+  }
+}
+function restoreOpenEntry() {
+  if (!_openEntryNum) return;
+  const el = document.querySelector('.result-entry[data-entry-num="' + _openEntryNum + '"]');
+  if (el && el.classList.contains('has-judges')) el.classList.add('open');
+  else _openEntryNum = null;
+}
+
+function renderDerby() {
+  // Derby render path: parse cls_raw directly for per-judge scores
+  // (D1 entries don't yet carry judge-level data — that wires in next session)
+  const judgeCount = WEST.hunter.derby.getJudgeCount(classInfo);
+  const rows = WEST.parseClsRows(classInfo.cls_raw);
+  const derbyEntries = rows.map(r => WEST.hunter.derby.parseEntry(r, judgeCount));
+  WEST.hunter.derby.computeRankings(derbyEntries, judgeCount);
+
+  // Sort: entries with a place first (by place), then by combined desc, then DNS/status at bottom
+  derbyEntries.sort((a, b) => {
+    const pa = parseInt(a.place) || 999;
+    const pb = parseInt(b.place) || 999;
+    if (pa !== pb) return pa - pb;
+    return (b.combined || 0) - (a.combined || 0);
+  });
+
+  if (!derbyEntries.length) {
+    document.getElementById('content').innerHTML = '<div class="no-results">No entries found for this class.</div>';
+    return;
+  }
+
+  let html = '<div class="results-wrap">';
+
+  // Judge summary header (only when multi-judge and judges' #1 cards disagree)
+  if (judgeCount > 1 && WEST.hunter.derby.shouldShowJudgeSummary(derbyEntries, judgeCount)) {
+    html += renderJudgeSummary(derbyEntries, judgeCount);
+  }
+
+  derbyEntries.forEach(g => {
+    html += renderDerbyEntry(g, judgeCount);
+  });
+
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+  restoreOpenEntry();
+}
+
+function renderDerbyEntry(g, judgeCount) {
+  const place = g.place || '';
+  const r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
+  const r2Status = WEST.hunter.getStatus(g.r2TextStatus, g.r2NumericStatus);
+  const hasR1 = WEST.hunter.derby.hasR1(g);
+  const hasR2 = WEST.hunter.derby.hasR2(g);
+
+  // R1 status with no R1 score = didn't finish R1 → no place, no expand
+  const r1Failed = !!r1Status && !hasR1;
+  // 2+ judges: expand shows per-judge breakdown. 1 judge: inline on row, no expand.
+  const canExpand = judgeCount > 1 && (hasR1 || hasR2) && !r1Failed;
+
+  const breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
+  const flag = classInfo.show_flags ? countryFlag(g.country) : '';
+
+  let html = '<div class="result-entry' + (canExpand ? ' has-judges' : '') + '"'
+    + ' data-entry-num="' + esc(g.entry_num) + '"'
+    + (canExpand ? ' onclick="toggleEntry(this,event)"' : '') + '>';
+  html += '<div class="result-main">';
+
+  // Movement arrow — only when both rounds completed AND rank actually changed
+  if (hasR1 && hasR2 && g._jt && g._jt.movement) {
+    html += movementHtml(g._jt.movement);
+  } else {
+    html += '<div class="r-move"></div>';
+  }
+
+  // Ribbon / place: place shown unless R1 failed
+  const placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (place || '—');
+  html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+
+  // Info column
+  html += '<div class="r-info">'
+    + '<div class="r-horse-rider">'
+    + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+    + '<span class="r-horse">' + esc(g.horse) + '</span>'
+    + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+    + '</div>'
+    + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
+    + (g.owner && g.owner !== g.rider ? '<div class="r-owner">' + esc(g.owner) + '</div>' : '')
+    + '</div>';
+
+  // Scores column (with judge-hint button below total when expandable)
+  html += renderDerbyScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand);
+
+  html += '</div>'; // result-main
+
+  if (canExpand) {
+    html += derbyExpandHtml(g, judgeCount);
+  }
+
+  html += '</div>'; // result-entry
+  return html;
+}
+
+function renderDerbyScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand) {
+  if (r1Failed) {
+    return '<div class="r-scores"><span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span></div>';
+  }
+  let html = '<div class="r-scores">';
+
+  // 1-judge: inline breakdown (base + hiopt [+ bonus] = total)  with per-round rank
+  // 2+ judges: aggregate totals only — per-judge breakdown lives in expand panel
+  if (judgeCount === 1) {
+    if (hasR1) {
+      const p = g.r1[0];
+      const rank = g._jt ? g._jt.r1Ranks[0] : null;
+      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
+        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, 1) + ' = ' + p.phaseTotal + '</span>'
+        + (rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(rank) + ')</span>' : '')
+        + '</div>';
+    }
+    if (hasR2) {
+      const p = g.r2[0];
+      const rank = g._jt ? g._jt.r2Ranks[0] : null;
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
+        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, 2) + ' = ' + p.phaseTotal + '</span>'
+        + (rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(rank) + ')</span>' : '')
+        + '</div>';
+    } else if (r2Status) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
+    }
+  } else {
+    // Multi-judge — aggregate row totals
+    if (hasR1) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
+        + '<span class="r-score-val primary">' + g.r1Total + '</span></div>';
+    }
+    if (hasR2) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
+        + '<span class="r-score-val primary">' + g.r2Total + '</span></div>';
+    } else if (r2Status) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
+    }
+  }
+
+  // Combined total — always 2 decimals. Only when R2 completed (otherwise no combined).
+  if (hasR1 && hasR2) {
+    html += '<div class="r-total">' + g.combined.toFixed(2) + '</div>';
+  } else if (hasR1 && !hasR2 && !r2Status) {
+    // R1 only so far, R2 not yet started — show R1 as running total
+    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
+  } else if (hasR1 && r2Status) {
+    // R1 clean, R2 status — total is R1 alone (that's what place is based on)
+    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
+  }
+
+  if (canExpand) {
+    html += '<div class="r-judge-hint">View Judge Scores</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function movementHtml(m) {
+  if (m > 0)  return '<div class="r-move up">&uarr;' + m + '</div>';
+  if (m < 0)  return '<div class="r-move down">&darr;' + Math.abs(m) + '</div>';
+  return '<div class="r-move flat">&mdash;</div>';
+}
+
+function derbyExpandHtml(e, judgeCount) {
+  if (!e._jt) return '';
+  const hasR1 = WEST.hunter.derby.hasR1(e);
+  const hasR2 = WEST.hunter.derby.hasR2(e);
+  let html = '<div class="derby-expand"><div class="de-inner">';
+
+  // R1 per judge
+  if (hasR1) {
+    html += '<div class="de-section"><div class="de-section-lbl">Round 1</div>';
+    for (let j = 0; j < judgeCount; j++) {
+      const phase = e.r1[j];
+      const rank = e._jt.r1Ranks[j];
+      const soloWin = rank === 1 && judgeCount > 1;
+      html += '<div class="de-judge-row">'
+        + '<span class="de-judge-lbl">J' + (j + 1) + ' R1</span>'
+        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(phase, 1) + ' = ' + phase.phaseTotal + '</span>'
+        + '<span class="de-judge-rank' + (soloWin ? ' solo-winner' : '') + '">'
+        + (rank ? '(' + WEST.ordinal(rank) + ')' : '') + '</span>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // R2 per judge
+  if (hasR2) {
+    html += '<div class="de-section"><div class="de-section-lbl">Round 2</div>';
+    for (let j = 0; j < judgeCount; j++) {
+      const phase = e.r2[j];
+      const rank = e._jt.r2Ranks[j];
+      const soloWin = rank === 1 && judgeCount > 1;
+      html += '<div class="de-judge-row">'
+        + '<span class="de-judge-lbl">J' + (j + 1) + ' R2</span>'
+        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(phase, 2) + ' = ' + phase.phaseTotal + '</span>'
+        + '<span class="de-judge-rank' + (soloWin ? ' solo-winner' : '') + '">'
+        + (rank ? '(' + WEST.ordinal(rank) + ')' : '') + '</span>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Judge card totals — only if multi-judge, multi-round, and ranks not all identical
+  if (judgeCount > 1 && hasR1 && hasR2 && e._jt.judgeCardTotals.some(t => t !== null)) {
+    const allSame = e._jt.judgeCardRanks.every(r => r === e._jt.judgeCardRanks[0]);
+    if (!allSame) {
+      html += '<div class="de-section"><div class="de-section-lbl">Judge Cards</div>';
+      e._jt.judgeCardTotals.forEach((t, idx) => {
+        if (t === null) return;
+        const rank = e._jt.judgeCardRanks[idx];
+        const wouldWin = rank === 1;
+        html += '<div class="de-judge-card-row">'
+          + '<span class="de-judge-card-lbl">J' + (idx + 1) + ' card</span>'
+          + '<span class="de-judge-card-val">' + t.toFixed(2) + '</span>'
+          + '<span class="de-judge-card-rank' + (wouldWin ? ' would-win' : '') + '">'
+          + (rank ? '(' + WEST.ordinal(rank) + ' overall)' : '') + '</span>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+  }
+
+  html += '</div></div>';
+  return html;
+}
+
+function renderJudgeSummary(entries, judgeCount) {
+  const tops = WEST.hunter.derby.topPerJudge(entries, judgeCount, 3);
+  // Determine which horses differ across judges' #1
+  const topHorses = tops.map(t => t[0] ? t[0].entry.entry_num : null);
+  let html = '<div class="jt-summary">';
+  html += '<div class="jt-summary-head">'
+    + '<span class="jt-summary-title">Judge Cards &mdash; Split Decision</span>'
+    + '<span class="jt-summary-sub">Judges disagree on top placing</span>'
+    + '</div>';
+  tops.forEach((top, j) => {
+    html += '<div class="jt-judge-block">'
+      + '<div class="jt-judge-block-lbl">Judge ' + (j + 1) + '</div>';
+    top.forEach((t, idx) => {
+      const differs = idx === 0 && topHorses.some(h => h && h !== t.entry.entry_num);
+      html += '<div class="jt-judge-row' + (differs ? ' differs' : '') + '">'
+        + '<span class="jt-judge-rank">' + WEST.ordinal(idx + 1) + '</span>'
+        + '<span class="jt-judge-horse">' + esc(t.entry.horse) + '</span>'
+        + '<span class="jt-judge-score">' + t.score + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderResults() {
+  if (!classInfo) return;
+  const isJumper = classInfo.class_type === 'J' || classInfo.class_type === 'T';
+  const isHunter = classInfo.class_type === 'H';
+
+  // Hunter derby → dedicated render path (reads judge data from cls_raw)
+  if (isHunter && WEST.hunter.isDerby(classInfo)) {
+    renderDerby();
+    return;
+  }
+
+  // Group entries by entry_num, merge rounds
+  const byEntry = {};
+  entries.forEach(e => {
+    if (!byEntry[e.entry_num]) {
+      byEntry[e.entry_num] = { entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
+        country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
+        horse_fei: e.horse_fei, rider_fei: e.rider_fei,
+        rounds: [], bestPlace: null };
+    }
+    if (e.round) {
+      byEntry[e.entry_num].rounds.push(e);
+      const p = parseInt(e.place);
+      if (p && (!byEntry[e.entry_num].bestPlace || p < byEntry[e.entry_num].bestPlace)) {
+        byEntry[e.entry_num].bestPlace = p;
+      }
+    }
+  });
+
+  // Display config lookups
+  const sm = classInfo.scoring_method;
+  const method = WEST.jumper.getMethod(sm);
+  const isOptimum = method.isOptimum;
+  let optimumTime = 0;
+  if (isOptimum && classInfo.cls_raw) {
+    const ta = WEST.jumper.getTAFromRaw(classInfo.cls_raw);
+    optimumTime = WEST.jumper.getOptimumTime(ta.r1);
+  }
+  function roundLabel(r) { return WEST.jumper.roundLabel(sm, r); }
+
+  const grouped = Object.values(byEntry);
+  // Sort: entries with results first (by best place), then no-result entries
+  grouped.sort((a, b) => {
+    if (a.bestPlace && b.bestPlace) return a.bestPlace - b.bestPlace;
+    if (a.bestPlace) return -1;
+    if (b.bestPlace) return 1;
+    return 0;
+  });
+
+  if (!grouped.length) {
+    document.getElementById('content').innerHTML = '<div class="no-results">No entries found for this class.</div>';
+    return;
+  }
+
+  let html = '<div class="results-wrap">';
+
+  grouped.forEach(g => {
+    const place = g.bestPlace || '';
+    const hasResult = g.rounds.length > 0;
+
+    html += '<div class="result-entry"><div class="result-main">';
+
+    // Placement
+    html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+
+    // Entry info — horse column + rider column
+    const breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
+    const flag = classInfo.show_flags ? countryFlag(g.country) : '';
+
+    // Entry info — matches old site layout
+    html += '<div class="r-info">'
+      + '<div class="r-horse-rider">'
+      + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+      + '<span class="r-horse">' + esc(g.horse) + '</span>'
+      + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+      + '</div>'
+      + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
+      + (g.owner && g.owner !== g.rider ? '<div class="r-owner">' + esc(g.owner) + '</div>' : '')
+      + '</div>';
+
+    // Scores
+    if (hasResult && isJumper) {
+      html += '<div class="r-scores">';
+      g.rounds.sort((a, b) => b.round - a.round);
+      g.rounds.forEach(r => {
+        const lbl = roundLabel(r.round);
+        const total = parseFloat(r.total) || 0;
+        const isClean = total === 0;
+        html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+          + '<span class="r-score-val' + (isClean ? ' clean' : '') + '">' + (isClean ? '0' : total) + ' flt</span>'
+          + (r.time ? '<span class="r-score-val">' + fmtTime(r.time) + '</span>' : '')
+          + '</div>';
+        // Optimum time distance for IV.1 classes
+        if (isOptimum && optimumTime > 0 && r.time && r.round === 1) {
+          const t = parseFloat(r.time);
+          if (!isNaN(t)) {
+            const dist = t - optimumTime;
+            const sign = dist >= 0 ? '+' : '';
+            html += '<div class="r-score-row"><span class="r-score-lbl">OPT</span>'
+              + '<span class="r-score-val" style="font-size:11px;color:' + (Math.abs(dist) < 1 ? 'var(--green)' : 'var(--text-muted)') + ';">'
+              + sign + dist.toFixed(3) + 's</span></div>';
+          }
+        }
+      });
+      html += '</div>';
+    } else if (hasResult && isHunter) {
+      html += '<div class="r-scores">';
+      g.rounds.forEach(r => {
+        if (r.total) {
+          html += '<div class="r-score-row"><span class="r-score-val primary">' + esc(r.total) + '</span></div>';
+        }
+        if (r.time && r.time !== r.total) {
+          html += '<div class="r-score-row"><span class="r-score-lbl">Score</span><span class="r-score-val">' + fmtTime(r.time) + '</span></div>';
+        }
+      });
+      html += '</div>';
+    } else if (!hasResult) {
+      html += '<div class="r-scores"><span class="r-status">DNS</span></div>';
+    }
+
+    html += '</div></div>';
+  });
+
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+async function loadResults() {
+  try {
+    const r = await fetch(WORKER + '/getResults?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(CLASS_NUM) + '&ring=' + RING);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d.ok) {
+      classInfo = d.class;
+      entries = d.entries || [];
+    }
+  } catch(e) {}
+}
+
+async function pollLive() {
+  try {
+    const r = await fetch(WORKER + '/getLiveClass?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING);
+    if (r.ok) liveData = await r.json();
+  } catch(e) {}
+}
+
+async function loadAll() {
+  await Promise.all([loadResults(), pollLive()]);
+  renderTitle();
+  renderLiveBtn();
+  renderResults();
+}
+
+loadAll();
+// Poll live data every 3s, full results every 5s
+setInterval(async () => { await pollLive(); renderTitle(); renderLiveBtn(); }, 3000);
+setInterval(async () => { await loadResults(); renderResults(); }, 5000);
+</script>
+</body>
+</html>
