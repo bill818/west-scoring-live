@@ -50,6 +50,15 @@ header{background:var(--black);border-bottom:3px solid var(--red);}
 .stats-btn{display:none;margin-top:10px;background:none;border:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);padding:6px 12px;cursor:pointer;text-decoration:none;}
 .stats-btn:hover{border-color:var(--black);color:var(--black);}
 .stats-btn.visible{display:inline-block;}
+.judges-btn{margin-top:10px;margin-right:8px;background:none;border:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);padding:6px 12px;cursor:pointer;}
+.judges-btn:hover{border-color:var(--black);color:var(--black);}
+.judges-btn.active{background:var(--black);color:#fff;border-color:var(--black);}
+.split-pill{display:inline-flex;align-items:center;gap:5px;margin-top:10px;margin-left:4px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:5px 10px;border-radius:2px;font-weight:600;}
+
+/* BY-JUDGE VIEW — judge sections on results page */
+.by-judge-view .judge-section{margin-bottom:20px;}
+.by-judge-view .judge-section:last-child{margin-bottom:0;}
+.by-judge-view .judge-section-hdr{background:#f5f5f5;border-top:2px solid var(--black);border-bottom:1px solid var(--border);padding:10px 16px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--black);font-weight:600;}
 .live-pill{display:inline-flex;align-items:center;gap:4px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:2px;}
 .live-blink{width:5px;height:5px;background:#fff;border-radius:50%;animation:blink 1.6s ease-in-out infinite;}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
@@ -219,9 +228,17 @@ function fmtTime(val) {
   return WEST.formatTime(val, classInfo ? classInfo.clock_precision : 2);
 }
 
+let _judgeView = false;
+function toggleJudgeView() {
+  _judgeView = !_judgeView;
+  renderTitle();
+  renderResults();
+}
+
 function renderTitle() {
   if (!classInfo) return;
   const isJumper = classInfo.class_type === 'J' || classInfo.class_type === 'T';
+  const isHunter = classInfo.class_type === 'H';
   const type = WEST.getClassTypeLabel(classInfo);
   const sel = liveData.selected;
   const isLive = sel && String(sel.classNum) === String(CLASS_NUM);
@@ -229,6 +246,20 @@ function renderTitle() {
   const statsBtn = isJumper
     ? '<a class="stats-btn visible" href="stats.html?slug=' + esc(SLUG) + '&classNum=' + esc(CLASS_NUM) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">Stats &amp; Analysis</a>'
     : '';
+
+  // View Judges Scores toggle — multi-judge hunter derbies only
+  let judgesBtn = '';
+  let splitPill = '';
+  if (isHunter && WEST.hunter.isDerby(classInfo)) {
+    const built = WEST.hunter.derby.buildEntries(classInfo);
+    if (built.judgeCount >= 2) {
+      const btnLabel = _judgeView ? 'View Combined' : 'View Judges Scores';
+      judgesBtn = '<button class="judges-btn' + (_judgeView ? ' active' : '') + '" onclick="toggleJudgeView()">' + btnLabel + '</button>';
+      if (WEST.hunter.derby.shouldShowJudgeSummary(built.entries, built.judgeCount)) {
+        splitPill = '<span class="split-pill">Split Decision</span>';
+      }
+    }
+  }
 
   document.title = 'Class ' + CLASS_NUM + ' — ' + SHOW_NAME + ' — WEST Scoring Live';
 
@@ -239,6 +270,8 @@ function renderTitle() {
     + '<div class="title-meta"><span class="title-type">' + esc(type) + '</span></div>'
     + (classInfo.sponsor ? '<div class="title-sponsor">' + esc(classInfo.sponsor) + '</div>' : '')
     + statsBtn
+    + judgesBtn
+    + splitPill
     + '</div>';
 }
 
@@ -249,7 +282,7 @@ function renderLiveBtn() {
   const liveUrl = 'live.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
   area.innerHTML = '<a class="live-banner" href="' + esc(liveUrl) + '">'
     + '<div class="live-blink"></div>'
-    + '<div class="live-banner-text">Watch Live &mdash; Clock, Standings &amp; On Course</div>'
+    + '<div class="live-banner-text">Watch Live &mdash; On Course &amp; Standings</div>'
     + '<div class="live-banner-arrow">&rsaquo;</div>'
     + '</a>';
 }
@@ -275,10 +308,13 @@ function restoreOpenEntry() {
 }
 
 function renderDerby() {
-  // Render path now lives in display-config.js (WEST.hunter.derby.renderList)
-  // so live.html can reuse the exact same output.
-  document.getElementById('content').innerHTML = WEST.hunter.derby.renderList(classInfo);
-  restoreOpenEntry();
+  // Render path lives in display-config.js so live.html can reuse the output.
+  // _judgeView toggles between the default combined list and the by-judge view.
+  const html = _judgeView
+    ? WEST.hunter.derby.renderByJudgeList(classInfo)
+    : WEST.hunter.derby.renderList(classInfo);
+  document.getElementById('content').innerHTML = html;
+  if (!_judgeView) restoreOpenEntry();
 }
 
 function renderResults() {

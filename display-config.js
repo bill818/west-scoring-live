@@ -676,22 +676,24 @@ WEST.hunter.derby.computeRankings = function(entries, judgeCount) {
   return entries;
 };
 
-// Should the Judge Summary header be shown?
-// Only when 2+ judges AND their #1 judge cards disagree
+// Split decision check — 2+ judges AND they disagree on positions 1, 2, or 3
+// (any of the top 3 placings differ across judges → split).
 WEST.hunter.derby.shouldShowJudgeSummary = function(entries, judgeCount) {
   if (judgeCount < 2) return false;
-  var tops = [];
-  for (var j = 0; j < judgeCount; j++) {
-    var topEntry = null;
-    for (var i = 0; i < entries.length; i++) {
-      if (entries[i]._jt && entries[i]._jt.judgeCardRanks[j] === 1) {
-        topEntry = entries[i]; break;
+  for (var pos = 1; pos <= 3; pos++) {
+    var atPos = [];
+    for (var j = 0; j < judgeCount; j++) {
+      var found = null;
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i]._jt && entries[i]._jt.judgeCardRanks[j] === pos) {
+          found = entries[i]; break;
+        }
       }
+      if (found) atPos.push(found.entry_num);
     }
-    if (topEntry) tops.push(topEntry.entry_num);
+    if (atPos.length >= 2 && atPos.some(function(n) { return n !== atPos[0]; })) return true;
   }
-  if (tops.length < 2) return false;
-  return tops.some(function(n) { return n !== tops[0]; });
+  return false;
 };
 
 // Top-N per judge (by judge card total) — used by summary header
@@ -846,6 +848,105 @@ WEST.hunter.derby.renderList = function(classInfo) {
   for (var i = 0; i < entries.length; i++) {
     html += WEST.hunter.derby.renderEntry(entries[i], classInfo, judgeCount);
   }
+  html += '</div>';
+  return html;
+};
+
+// BY-JUDGE VIEW — renders the class grouped by judge, each section sorted by
+// that judge's card total desc. Used when the user toggles "View Judges Scores"
+// on the results page. Multi-judge derbies only (1-judge is redundant with
+// combined view and the button is suppressed).
+WEST.hunter.derby.renderByJudgeList = function(classInfo) {
+  var esc = WEST.esc;
+  var built = WEST.hunter.derby.buildEntries(classInfo);
+  var entries = built.entries;
+  var judgeCount = built.judgeCount;
+  if (!entries.length || judgeCount < 2) return '<div class="results-wrap"><div class="no-results">No entries found for this class.</div></div>';
+
+  var isEq = WEST.hunter.isEquitation(classInfo);
+  var showFlags = WEST.hunter.derby._showFlags(classInfo);
+  var html = '<div class="results-wrap by-judge-view">';
+
+  for (var j = 0; j < judgeCount; j++) {
+    (function(jj) {
+      // Sort entries by this judge's card total desc, missing cards at bottom
+      var sorted = entries.slice().sort(function(a, b) {
+        var av = a._jt && a._jt.judgeCardTotals[jj];
+        var bv = b._jt && b._jt.judgeCardTotals[jj];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return bv - av;
+      });
+
+      html += '<div class="judge-section">';
+      html += '<div class="judge-section-hdr">Judge ' + (jj + 1) + '</div>';
+
+      sorted.forEach(function(g) {
+        var r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
+        var hasR1 = WEST.hunter.derby.hasR1(g);
+        var hasR2 = WEST.hunter.derby.hasR2(g);
+        var r1Failed = !!r1Status && !hasR1;
+        var rank = g._jt ? g._jt.judgeCardRanks[jj] : null;
+        var flag = showFlags ? WEST.countryFlag(g.country, true) : '';
+
+        var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (rank ? rank : '—');
+
+        html += '<div class="result-entry"><div class="result-main">';
+        html += '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+
+        // Info column (EQ-aware)
+        if (isEq) {
+          var locale = [g.city, g.state].filter(Boolean).join(', ');
+          html += '<div class="r-info">'
+            + '<div class="r-horse-rider">'
+            + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+            + '<span class="r-horse">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+            + (locale ? '<span class="r-rider-inline">' + esc(locale) + '</span>' : '')
+            + '</div>'
+            + (g.horse ? '<div class="r-owner">' + esc(g.horse) + '</div>' : '')
+            + '</div>';
+        } else {
+          html += '<div class="r-info">'
+            + '<div class="r-horse-rider">'
+            + '<span class="r-bib">' + esc(g.entry_num) + '</span>'
+            + '<span class="r-horse">' + esc(g.horse) + '</span>'
+            + '<span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>'
+            + '</div>'
+            + '</div>';
+        }
+
+        // Scores — this judge's R1, R2, and card total
+        html += '<div class="r-scores">';
+        if (r1Failed) {
+          html += '<span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span>';
+        } else {
+          if (hasR1) {
+            var p1 = g.r1[jj];
+            html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
+              + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1) + ' = ' + p1.phaseTotal + '</span>'
+              + '</div>';
+          }
+          if (hasR2) {
+            var p2 = g.r2[jj];
+            html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
+              + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + ' = ' + p2.phaseTotal + '</span>'
+              + '</div>';
+          }
+          var cardTotal = g._jt && g._jt.judgeCardTotals[jj];
+          if (cardTotal != null) {
+            html += '<div class="r-total">' + cardTotal.toFixed(2) + '</div>';
+          }
+        }
+        html += '</div>'; // r-scores
+
+        html += '</div></div>'; // result-main, result-entry
+      });
+
+      html += '</div>'; // judge-section
+    })(j);
+  }
+
   html += '</div>';
   return html;
 };

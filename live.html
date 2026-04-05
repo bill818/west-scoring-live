@@ -109,6 +109,14 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .s-round-faults.clean{color:var(--green);}
 .s-round-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:56px;text-align:right;}
 
+/* HUNTER ON-COURSE FINISH HEADER — two columns: score + rank */
+.oc-finish-header{display:flex;align-items:flex-start;justify-content:center;gap:24px;}
+.oc-finish-col{display:flex;flex-direction:column;align-items:center;}
+.oc-finish-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px;}
+.oc-finish-val{font-family:'DM Mono',monospace;font-size:36px;font-weight:600;line-height:1;}
+.oc-finish-score{color:var(--red);}
+.oc-finish-rank{color:var(--black);}
+
 /* HUNTER ON-COURSE BREAKDOWN — compact per-judge per-round math under finish score */
 .oc-breakdown{margin-top:8px;width:100%;display:flex;flex-direction:column;gap:2px;}
 .oc-breakdown-row{display:flex;align-items:baseline;justify-content:center;gap:6px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
@@ -394,15 +402,28 @@ function render() {
 
     let rightCardHtml = '';
     if (phase === 'FINISH') {
-      // Score + label: show combined as "OVERALL" once R2 is done, otherwise
-      // show the round-specific total with its round label.
+      // Score + label: show combined as "Overall" once R2 is done, otherwise
+      // show the round-specific total. If R1 failed with a status code, show
+      // just the status code (EL/RF/HF/DNS/OC/EX) — no rank.
       const hasR1Score = !!(entryRow && (entryRow.r1Total || entryRow.score));
       const hasR2Score = !!(entryRow && (entryRow.r2Total || entryRow.r2Score));
+      // Watcher emits hunter status in `statusCode` (col[52]=R1 text); display-config
+      // derby parser uses r1TextStatus/r1NumericStatus from clsRaw. Check both.
+      const r1Status = entryRow
+        ? WEST.hunter.getStatus(entryRow.r1TextStatus || entryRow.statusCode, entryRow.r1NumericStatus)
+        : null;
+      const r1Failed = !!r1Status && !hasR1Score;
+
       let displayScore = '';
-      let displayLabel = hunterRound;
-      if (hasR1Score && hasR2Score && entryRow.combined) {
+      let displayLabel = 'Score';
+      let suppressRank = false;
+      if (r1Failed) {
+        displayScore = r1Status.label;
+        displayLabel = 'Status';
+        suppressRank = true;
+      } else if (hasR1Score && hasR2Score && entryRow.combined) {
         displayScore = entryRow.combined;
-        displayLabel = 'OVERALL';
+        displayLabel = 'Overall';
       } else if (hasR2Score) {
         displayScore = entryRow.r2Total || entryRow.r2Score;
         displayLabel = 'R2';
@@ -412,12 +433,12 @@ function render() {
       } else {
         displayScore = oc.hunterScore || '';
       }
-      const rank = entryRow && entryRow.place ? entryRow.place : null;
+      const rank = (!suppressRank && entryRow && entryRow.place) ? entryRow.place : null;
 
-      // Per-judge per-round breakdown — derby only for now. Non-derby multi-round
-      // uses the same renderCompactBreakdown once its parser is wired.
+      // Per-judge per-round breakdown — derby only, and only when we actually
+      // have round data to show. Eliminated entries (no scores) skip the breakdown.
       let breakdownHtml = '';
-      if (WEST.hunter.isDerby(ocCd)) {
+      if (!r1Failed && WEST.hunter.isDerby(ocCd)) {
         const built = WEST.hunter.derby.buildEntries(ocCd);
         const derbyEntry = built.entries.find(e => String(e.entry_num) === String(oc.entry));
         if (derbyEntry) {
@@ -425,12 +446,16 @@ function render() {
         }
       }
 
-      const rankOrdinal = rank ? WEST.ordinal(parseInt(rank) || rank) : '';
       rightCardHtml = '<div class="oc-card oc-clock-wrap">'
-        + (displayLabel ? '<div class="oc-round-label">' + esc(displayLabel) + '</div>' : '')
-        + '<div style="display:flex;align-items:baseline;justify-content:center;gap:10px;">'
-        +   '<div style="font-family:DM Mono,monospace;font-size:36px;font-weight:600;color:var(--red);line-height:1;">' + esc(displayScore || '—') + '</div>'
-        +   (rankOrdinal ? '<div style="font-family:DM Mono,monospace;font-size:18px;font-weight:600;color:var(--red);line-height:1;">' + esc(rankOrdinal) + '</div>' : '')
+        + '<div class="oc-finish-header">'
+        +   '<div class="oc-finish-col">'
+        +     '<div class="oc-finish-lbl">' + esc(displayLabel) + '</div>'
+        +     '<div class="oc-finish-val oc-finish-score">' + esc(displayScore || '—') + '</div>'
+        +   '</div>'
+        +   (rank ? '<div class="oc-finish-col">'
+        +     '<div class="oc-finish-lbl">Rank</div>'
+        +     '<div class="oc-finish-val oc-finish-rank">' + esc(rank) + '</div>'
+        +   '</div>' : '')
         + '</div>'
         + '<div class="oc-phase-label">Finished</div>'
         + breakdownHtml
