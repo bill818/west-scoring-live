@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live — Horse Show Results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --card-radius: 10px;
+  --tap: 52px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
+.header-inner{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
+.logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:24px;color:#fff;line-height:1;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
+.header-right{display:flex;align-items:center;gap:10px;}
+.live-pill{display:none;align-items:center;gap:5px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;border-radius:2px;}
+.live-dot{width:5px;height:5px;background:#fff;border-radius:50%;animation:blink 1.6s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* TOOLBAR */
+.toolbar{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;}
+.toolbar-left{display:flex;align-items:center;gap:14px;}
+.active-block{display:flex;align-items:baseline;gap:5px;}
+.active-num{font-family:'Playfair Display',serif;font-size:34px;font-weight:900;color:var(--red);line-height:1;}
+.active-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);line-height:1.4;}
+.shows-lbl{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.refresh-btn{background:none;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:8px 14px;cursor:pointer;min-height:40px;}
+.refresh-btn:active{background:var(--black);color:#fff;border-color:var(--black);}
+
+/* CARDS */
+.cards{padding:12px 12px 80px;max-width:680px;margin:0 auto;}
+.show-card{background:#fff;border-radius:var(--card-radius);border:1px solid var(--border);margin-bottom:10px;overflow:hidden;cursor:pointer;transition:transform .12s;opacity:0;animation:fadeUp .3s ease forwards;text-decoration:none;color:inherit;display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.show-card:active{transform:scale(.98);}
+.card-top{padding:14px 16px 10px;}
+.card-row1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;}
+.card-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--black);line-height:1.2;flex:1;}
+.card-chevron{font-size:20px;color:#ccc;margin-top:1px;flex-shrink:0;}
+.card-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
+.status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;}
+.status-active{background:#e8f5e9;color:#2e7d32;}
+.status-pending{background:#e3f2fd;color:#1565c0;}
+.status-completed{background:#f5f5f5;color:#757575;}
+.status-live{background:var(--red);color:#fff;display:inline-flex;align-items:center;gap:4px;}
+.card-dates{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-bottom:6px;}
+.card-divider{height:1px;background:var(--border);margin:0 16px;}
+.card-classes{padding:9px 16px 13px;}
+.cls-row-link{display:flex;align-items:baseline;gap:8px;padding:4px 8px;margin:-4px -8px;border-radius:6px;text-decoration:none;color:inherit;transition:background .15s;}
+.cls-row-link:hover{background:var(--off-white);}
+.cls-row-link:hover .cls-num{color:var(--red);}
+.cls-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-width:34px;flex-shrink:0;}
+.cls-name{font-size:13px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.more-cls{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;margin-top:3px;}
+.live-dot-inline{display:inline-block;width:7px;height:7px;background:var(--red);border-radius:50%;margin-left:7px;flex-shrink:0;animation:blink 1.6s ease-in-out infinite;vertical-align:middle;}
+.watcher-chip{font-family:'DM Mono',monospace;font-size:10px;color:#666;display:flex;align-items:center;gap:5px;}
+.watcher-dot{width:6px;height:6px;border-radius:50%;background:#555;}
+.watcher-dot.alive{background:#2e7d32;animation:blink 1.6s ease-in-out infinite;}
+
+/* LOADING / ERROR */
+.spinner{width:30px;height:30px;border:3px solid #e8e8e8;border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-lbl{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+.loading-state{text-align:center;padding:60px 20px;}
+.error-box{margin:12px;background:#fff8f8;border:1px solid #ffd0d0;border-radius:var(--card-radius);padding:36px 20px;text-align:center;}
+.error-box h2{font-family:'Playfair Display',serif;font-size:20px;margin-bottom:8px;}
+.error-box p{font-size:13px;color:var(--text-muted);line-height:1.6;}
+
+/* FOOTER */
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:var(--red);text-decoration:none;}
+
+/* DESKTOP */
+@media(min-width:768px){
+  .header-inner{height:70px;padding:0 clamp(16px,4vw,48px);}
+  .logo-west{font-size:30px;}
+  .logo-sep,.logo-scoring{font-size:17px;}
+  .toolbar{padding:12px clamp(16px,4vw,48px);}
+  .cards{padding:20px clamp(16px,4vw,48px) 80px;max-width:860px;}
+  .show-card{margin-bottom:0;}
+  .card-title{font-size:19px;}
+  footer{padding:26px clamp(16px,4vw,48px);font-size:11px;}
+}
+</style>
+<script src="display-config.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo-tap">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </div>
+    <div class="header-right">
+      <div class="live-pill" id="livePill"><div class="live-dot"></div>Live</div>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="toolbar-left">
+    <div class="active-block">
+      <div class="active-num" id="statNumber">&mdash;</div>
+      <div class="active-lbl">Active<br>Shows</div>
+    </div>
+    <div class="shows-lbl" id="showsLbl"></div>
+  </div>
+  <button class="refresh-btn" onclick="loadData()">&#8634; Refresh</button>
+</div>
+
+<div id="content">
+  <div class="loading-state">
+    <div class="spinner"></div>
+    <div class="loading-lbl">Loading Shows&hellip;</div>
+  </div>
+</div>
+
+<footer>
+  <p>WEST Timing and Scoring &nbsp;&middot;&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;&middot;&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+
+<script>
+const WORKER = 'https://west-worker.bill-acb.workers.dev';
+
+var esc = WEST.esc;
+
+// Fetched live from /getShows on the worker — no more hardcoded array.
+let SHOWS = [];
+
+async function loadData() {
+  const content = document.getElementById('content');
+
+  // Fetch the show list first (once per loadData call)
+  try {
+    const r = await fetch(WORKER + '/getShows');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.ok) {
+        SHOWS = (d.shows || []).map(function(s) {
+          return {
+            slug:     s.slug,
+            name:     s.name || s.slug,
+            dates:    s.dates || '',
+            venue:    s.venue || '',
+            location: s.location || '',
+            ring:     '1', // preview currently uses ring 1; multi-ring preview is a follow-up
+            status:   s.status || 'pending',
+            ringsCount: s.rings_count || 1,
+          };
+        });
+      }
+    }
+  } catch(e) {}
+
+  let activeCount = 0;
+  const cards = [];
+
+  for (const show of SHOWS) {
+    let liveData = null, classes = [], showData = null;
+    try {
+      const [liveRes, classRes, showRes] = await Promise.all([
+        fetch(WORKER + '/getLiveClass?slug=' + encodeURIComponent(show.slug) + '&ring=' + show.ring),
+        fetch(WORKER + '/getClasses?slug=' + encodeURIComponent(show.slug) + '&ring=' + show.ring),
+        fetch(WORKER + '/getShow?slug=' + encodeURIComponent(show.slug))
+      ]);
+      if (liveRes.ok) liveData = await liveRes.json();
+      if (classRes.ok) { const d = await classRes.json(); if (d.ok) classes = d.classes || []; }
+      if (showRes.ok) { const d = await showRes.json(); if (d.ok) showData = d.show; }
+    } catch(e) {}
+
+    const watcherLive = liveData && liveData.watcherAlive;
+    // Use D1 show status — set by admin, source of truth
+    const dbStatus = showData ? showData.status : 'pending';
+    let statusBadge = '';
+    if (dbStatus === 'complete') {
+      statusBadge = '<span class="status-badge status-completed">&#10003; Completed</span>';
+    } else if (dbStatus === 'active') {
+      statusBadge = '<span class="status-badge status-active">&#9679; Active</span>';
+    } else {
+      statusBadge = '<span class="status-badge status-pending">&#9719; Upcoming</span>';
+    }
+
+    // LIVE pill only when watcher is actually sending data
+    const liveBadge = watcherLive
+      ? '<span class="status-badge status-live"><span class="live-dot"></span> Ring Live</span>'
+      : '';
+
+    if (watcherLive) activeCount++;
+
+    // Preview: live class on top if active, then most recent 3 from schedule
+    let previewHtml = '';
+    if (classes.length) {
+      const activeNums = (liveData && liveData.activeClasses) ? liveData.activeClasses.map(function(a) { return String(a.classNum); }) : [];
+      // Most recent 3 scheduled classes (last in schedule order = most recent)
+      const scheduled = classes.filter(function(c) { return c.scheduled_date && c.entry_count > 0; });
+      const recent3 = scheduled.slice(-3).reverse();
+
+      let rows = '';
+
+      // Live classes first
+      if (activeNums.length) {
+        const liveUrl = 'live.html?slug=' + esc(show.slug) + '&ring=' + esc(show.ring) + '&name=' + encodeURIComponent(show.name);
+        activeNums.forEach(function(num) {
+          const c = classes.find(function(x) { return String(x.class_num) === num; });
+          if (!c) return;
+          rows += '<a class="cls-row-link" href="' + esc(liveUrl) + '" onclick="event.stopPropagation()">'
+            + '<span class="cls-num">' + esc(c.class_num) + '</span>'
+            + '<span class="cls-name">' + esc(c.class_name) + '<span class="live-dot-inline"></span></span></a>';
+        });
+      }
+
+      // Recent 3 (skip if already shown as live)
+      recent3.forEach(function(c) {
+        if (activeNums.indexOf(String(c.class_num)) >= 0) return;
+        rows += '<a class="cls-row-link" href="results.html?slug=' + esc(show.slug) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(show.ring) + '&name=' + encodeURIComponent(show.name) + '" onclick="event.stopPropagation()">'
+          + '<span class="cls-num">' + esc(c.class_num) + '</span>'
+          + '<span class="cls-name">' + esc(c.class_name) + '</span></a>';
+      });
+
+      const total = scheduled.length;
+      if (total > 3) rows += '<div class="more-cls">+ ' + (total - 3) + ' more classes</div>';
+      previewHtml = '<div class="card-divider"></div><div class="card-classes">' + rows + '</div>';
+    }
+
+    cards.push(
+      '<a class="show-card" href="show.html?slug=' + esc(show.slug) + '">'
+      + '<div class="card-top">'
+      + '<div class="card-row1"><div class="card-title">' + esc(show.name) + '</div><div class="card-chevron">&rsaquo;</div></div>'
+      + (show.dates ? '<div class="card-dates">' + esc(show.dates) + '</div>' : '')
+      + '<div class="card-meta">' + statusBadge + liveBadge + '</div></div>'
+      + previewHtml
+      + '</a>'
+    );
+  }
+
+  document.getElementById('statNumber').textContent = activeCount;
+  document.getElementById('livePill').style.display = activeCount > 0 ? 'flex' : 'none';
+  document.getElementById('showsLbl').textContent = SHOWS.length + ' show' + (SHOWS.length !== 1 ? 's' : '');
+
+  if (!cards.length) {
+    content.innerHTML = '<div class="error-box"><h2>No Shows Found</h2><p>WEST show results will appear here as they become available.</p></div>';
+    return;
+  }
+  content.innerHTML = '<div class="cards">' + cards.join('') + '</div>';
+}
+
+loadData();
+setInterval(loadData, 2 * 60 * 1000);
+</script>
+</body>
+</html>

@@ -41,6 +41,12 @@ function loadWorkerConfig() {
     } else {
       log('Worker config loaded: ' + WORKER_URL);
     }
+    // Ring override — set explicitly via admin's Export Config button.
+    // Overrides the auto-detect from Ryegate's config.dat FTP path.
+    if (cfg.ring && String(cfg.ring).trim()) {
+      SHOW_RING = String(cfg.ring).trim();
+      log('Ring override from config.json: ' + SHOW_RING);
+    }
   } catch(e) {
     log('WARNING: config.json not found or invalid — Worker posting disabled');
     log('  Expected at: ' + configPath);

@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /
+
+# Allow only Google and Bing when we're ready to go live — uncomment these:
+# User-agent: Googlebot
+# Allow: /
+# User-agent: Bingbot
+# Allow: /

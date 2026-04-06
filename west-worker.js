@@ -488,6 +488,22 @@ export default {
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
+    // ── GET /getShows — public list of shows for the index page ──────────────
+    if (method === 'GET' && path === '/getShows') {
+      try {
+        // Read hideUpcoming setting — if enabled, filter out pending shows
+        const settingsRaw = await env.WEST_LIVE.get('settings');
+        const settings = settingsRaw ? JSON.parse(settingsRaw) : {};
+        const hideUpcoming = !!settings.hideUpcoming;
+
+        let sql = "SELECT slug, name, venue, dates, location, year, status, rings_count, start_date, end_date FROM shows WHERE status != 'hidden'";
+        if (hideUpcoming) sql += " AND status != 'pending'";
+        sql += " ORDER BY COALESCE(start_date, created_at) DESC";
+        const result = await env.WEST_DB.prepare(sql).all();
+        return json({ ok: true, shows: result.results || [] });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
     // ── GET /admin/shows ──────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/shows') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
@@ -669,6 +685,10 @@ export default {
             ring_name = excluded.ring_name,
             sort_order = excluded.sort_order
         `).bind(show.id, ring_num, ring_name || '', sort_order != null ? sort_order : 0).run();
+        // Keep shows.rings_count in sync with actual ring count
+        await env.WEST_DB.prepare(
+          'UPDATE shows SET rings_count = (SELECT COUNT(*) FROM rings WHERE show_id = ?) WHERE id = ?'
+        ).bind(show.id, show.id).run();
         return json({ ok: true, ring_num });
       } catch(e) { return err('DB error: ' + e.message); }
     }
@@ -683,6 +703,10 @@ export default {
         const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
         if (!show) return err('Show not found');
         await env.WEST_DB.prepare('DELETE FROM rings WHERE show_id = ? AND ring_num = ?').bind(show.id, ring_num).run();
+        // Keep shows.rings_count in sync with actual ring count
+        await env.WEST_DB.prepare(
+          'UPDATE shows SET rings_count = (SELECT COUNT(*) FROM rings WHERE show_id = ?) WHERE id = ?'
+        ).bind(show.id, show.id).run();
         return json({ ok: true, ring_num });
       } catch(e) { return err('DB error: ' + e.message); }
     }

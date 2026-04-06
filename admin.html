@@ -506,10 +506,14 @@ function renderShows(shows) {
       <div style="margin-top:12px;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px;background:var(--off-white);">
         <div class="card-title" style="margin-bottom:8px;">Watcher Status</div>
         <div id="watcher-rings-${s.slug}">${Array.from({length:rc}, (_,i) => `
-          <div class="watcher-status" id="watcher-status-${s.slug}-${i+1}">
+          <div class="watcher-status" id="watcher-status-${s.slug}-${i+1}" style="display:flex;align-items:center;gap:10px;">
             <div class="watcher-dot" id="watcher-dot-${s.slug}-${i+1}"></div>
-            <div class="watcher-text" id="watcher-text-${s.slug}-${i+1}">Ring ${i+1} — checking...</div>
+            <div class="watcher-text" id="watcher-text-${s.slug}-${i+1}" style="flex:1;">Ring ${i+1} — checking...</div>
+            <button class="btn-ghost btn-sm" onclick="exportWatcherConfig('${s.slug}', '${i+1}')">Export Config</button>
           </div>`).join('')}
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:8px;line-height:1.5;">
+          Export Config &rarr; download config.json for that ring. Drop it into <code>c:/west/</code> on that ring's scoring PC alongside <code>west-watcher.js</code>.
         </div>
       </div>
 
@@ -727,10 +731,11 @@ async function submitShow() {
 
 function clearForm() {
   ['f-name','f-slug','f-start-date','f-end-date','f-venue','f-location'].forEach(id => {
-    document.getElementById(id).value = '';
+    const el = document.getElementById(id);
+    if (el) el.value = '';
   });
-  document.getElementById('f-rings').value = '1';
-  document.getElementById('f-stats').checked = true;
+  const stats = document.getElementById('f-stats');
+  if (stats) stats.checked = true;
 }
 
 function editShow(slug) {
@@ -895,6 +900,33 @@ async function runMigrations() {
   } catch(e) { toast(e.message, true); }
 }
 
+// ── EXPORT WATCHER CONFIG ────────────────────────────────────────────────────
+// Generates a config.json for a specific show+ring and triggers a browser
+// download. Operator drops it into c:/west/ alongside west-watcher.js on the
+// scoring PC for that ring.
+function exportWatcherConfig(slug, ring) {
+  const show = allShows.find(s => s.slug === slug);
+  if (!show) { toast('Show not found', true); return; }
+  const ringStr = String(ring || '1');
+  const config = {
+    workerUrl: WORKER,
+    authKey: WORKER_KEY,
+    slug: slug,
+    ring: ringStr,
+    showName: show.name || slug,
+  };
+  const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'config.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Ring ' + ringStr + ' config downloaded');
+}
+
 // ── LIVE CLASSES ─────────────────────────────────────────────────────────────
 async function loadLiveClasses(slug) {
   const el = document.getElementById('live-classes-' + slug);
@@ -1007,6 +1039,7 @@ async function addRing(slug) {
     if (!d.ok) throw new Error(d.error);
     toast('Ring ' + nextNum + ' added');
     loadRings(slug);
+    loadShows(); // refresh cached shows so rings_count updates the Watcher Status card
   } catch(e) { toast(e.message, true); }
 }
 
@@ -1056,6 +1089,7 @@ async function deleteRing(slug, ringNum) {
     if (!d.ok) throw new Error(d.error);
     toast('Ring ' + ringNum + ' deleted');
     loadRings(slug);
+    loadShows(); // refresh cached shows so rings_count updates the Watcher Status card
   } catch(e) { toast(e.message, true); }
 }
 

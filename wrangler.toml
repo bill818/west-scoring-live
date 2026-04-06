@@ -1,0 +1,12 @@
+name = "west-worker"
+main = "west-worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "WEST_LIVE"
+id = "838b38e150d24177be0bbdccf7a3e530"
+
+[[d1_databases]]
+binding = "WEST_DB"
+database_name = "west-scoring"
+database_id = "085ce299-f591-441b-8edf-b4327b924422"

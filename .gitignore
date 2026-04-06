@@ -14,3 +14,8 @@ Thumbs.db
 
 # Logs
 *.log
+west_log.txt
+west_udp_log.txt
+
+# Claude Code memory (local only)
+.claude/

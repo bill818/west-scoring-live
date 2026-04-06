@@ -235,4 +235,35 @@ Public stats pages:
 
 ---
 
-Last updated: Session 12 — 2026-03-21
+## IMPLEMENTATION STRATEGY — decided 2026-03-31
+
+Two phases:
+
+### Phase A — Client-side stats (April 15 MVP)
+Stats computed in the browser from `/getResults` data. Same approach as the
+old scraping site's stats.html but wired to our D1-backed Worker endpoints.
+Covers per-class stats: clear round %, fault distribution, course difficulty,
+time analysis, standings with gap-to-leader, multi-rider detection, country flags.
+Quick to build, works with existing endpoints, no new Worker code needed.
+**Limitation:** single-class scope only. Cannot do cross-class, cross-show,
+rider career, or historical trend stats.
+
+### Phase B — Server-side stats (Devon / post-season)
+New `/getStats` Worker endpoints with D1 queries that aggregate across classes,
+shows, and seasons. Enables the big-picture stats from this brainstorm:
+rider/horse career profiles, venue analytics, weather correlation, series
+standings, year-over-year trends. Needs new Worker endpoints + D1 queries.
+Only becomes meaningful after data accumulates over multiple shows.
+
+**DATA SECURITY NOTE:** Phase B exposes aggregated data via public API endpoints.
+Need to decide what's public vs admin-only before building. Some stats
+(business intelligence, show growth, retention rates) should stay behind auth.
+Public stats (rider records, class results, venue profiles) are fine.
+Review this before implementing Phase B endpoints.
+
+D1 data accumulates from day one regardless of which phase we're in —
+every show scored through the watcher feeds the future stats engine.
+
+---
+
+Last updated: Session 17 — 2026-03-31

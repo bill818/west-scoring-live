@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Class Statistics — WEST Scoring Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111;
+  --red: #b82025;
+  --white: #fff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --green: #2e7d32;
+  --amber: #b45309;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;font-size:13px;min-height:100vh;}
+
+/* HEADER — 48px compact */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:100;}
+.header-inner{max-width:1280px;margin:0 auto;padding:0 12px;display:flex;align-items:center;height:48px;gap:10px;}
+.back-btn{display:flex;align-items:center;gap:5px;color:#fff;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;text-decoration:none;min-width:40px;min-height:40px;padding:0;background:none;border:none;cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.back-btn:hover{color:var(--red);}
+.logo-tap{display:flex;align-items:center;gap:6px;text-decoration:none;margin-left:auto;}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:18px;color:#fff;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);margin:0 2px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);letter-spacing:.04em;}
+
+/* LIVE STRIP */
+.live-strip{background:#fff;border-bottom:3px solid var(--red);padding:8px 12px;display:none;}
+.live-strip.active{display:block;}
+.ls-row{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;}
+.ls-phase{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:2px 6px;border-radius:2px;flex-shrink:0;}
+.ls-phase.in-gate{background:#e8f5e9;color:var(--green);}
+.ls-phase.countdown{background:#fff3e0;color:var(--amber);}
+.ls-phase.on-course{background:var(--red);color:#fff;}
+.ls-phase.finished{background:var(--off-white);color:var(--text-muted);}
+.ls-entry{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);flex-shrink:0;}
+.ls-horse{font-weight:600;font-size:13px;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;}
+.ls-rider{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
+.ls-clock-wrap{margin-left:auto;text-align:center;flex-shrink:0;}
+.ls-round-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+.ls-clock{font-family:'DM Mono',monospace;font-size:28px;font-weight:500;color:var(--black);line-height:1;letter-spacing:-.02em;}
+.ls-faults{display:grid;grid-template-columns:repeat(3,auto);gap:0 10px;font-family:'DM Mono',monospace;text-align:center;flex-shrink:0;margin-left:12px;}
+.ls-faults .hdr{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);}
+.ls-faults .val{font-size:14px;font-weight:500;color:var(--black);}
+.ls-waiting{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.06em;}
+.ls-progress{height:3px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden;}
+.ls-progress-fill{height:3px;background:var(--red);border-radius:2px;transition:width .5s ease;}
+
+/* CLASS INFO BAR */
+.class-info{background:#fff;border-bottom:1px solid var(--border);padding:8px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.ci-num{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);font-weight:600;}
+.ci-name{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;color:var(--black);}
+.ci-badge{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:2px;background:var(--off-white);color:var(--text-muted);border:1px solid var(--border);}
+.ci-ta{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
+.ci-entries{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-left:auto;}
+.ci-watcher{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.ci-watcher.alive{background:var(--green);}
+.ci-watcher.dead{background:var(--text-muted);}
+
+/* CONTENT */
+.content{max-width:960px;margin:0 auto;padding:12px 12px 32px;}
+.section-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);margin:16px 0 6px;display:flex;align-items:center;gap:8px;}
+.section-label:first-child{margin-top:0;}
+.toggle-btn{font-family:'DM Mono',monospace;font-size:9px;color:var(--red);cursor:pointer;border:none;background:none;letter-spacing:.06em;padding:0;}
+.toggle-btn:hover{text-decoration:underline;}
+
+/* ORDER OF GO TABLE */
+.oog-wrap{background:#fff;border:1px solid var(--border);border-radius:4px;margin-bottom:12px;overflow:hidden;}
+.oog-hdr{display:flex;gap:6px;align-items:center;border-bottom:2px solid var(--black);padding:5px 10px;}
+.oog-hdr span{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);}
+.oog-go{width:32px;flex-shrink:0;text-align:center;}
+.oog-ent{width:40px;flex-shrink:0;}
+.oog-horse{flex:1;min-width:0;}
+.oog-rider{flex:1;min-width:0;}
+.oog-flag{width:28px;flex-shrink:0;text-align:center;}
+.oog-row{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--border);font-size:12px;}
+.oog-row:last-child{border-bottom:none;}
+.oog-row.on-course{background:#fef3f3;border-left:3px solid var(--red);}
+.oog-row.next-up{background:#f0faf0;border-left:3px solid var(--green);}
+.oog-row .go-num{width:32px;flex-shrink:0;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.oog-row .ent-num{width:40px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.oog-row .horse-name{flex:1;min-width:0;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.oog-row .rider-name{flex:1;min-width:0;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.oog-row .flag-img{width:28px;flex-shrink:0;text-align:center;}
+.oog-indicator{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;margin-right:4px;}
+.oog-indicator.oc{color:var(--red);}
+.oog-indicator.nx{color:var(--green);}
+
+/* ENTRY SUMMARY CARDS */
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:8px;margin-bottom:12px;}
+.sum-card{background:#fff;border:1px solid var(--border);border-radius:4px;padding:8px 10px;}
+.sum-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:500;color:var(--black);line-height:1;}
+.sum-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:3px;}
+.sum-detail{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;}
+.sum-country{display:inline-flex;align-items:center;gap:3px;font-size:10px;}
+.sum-country img{vertical-align:middle;}
+.multi-wrap{background:#fff;border:1px solid var(--border);border-radius:4px;margin-bottom:12px;overflow:hidden;}
+.multi-hdr{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);padding:5px 10px;background:var(--off-white);border-bottom:1px solid var(--border);}
+.multi-row{display:flex;align-items:baseline;gap:8px;padding:4px 10px;border-bottom:1px solid var(--border);font-size:12px;}
+.multi-row:last-child{border-bottom:none;}
+.multi-name{font-weight:600;color:var(--black);white-space:nowrap;min-width:120px;}
+.multi-horses{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
+
+/* FAULT DISTRIBUTION */
+.fault-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(90px, 1fr));gap:6px;margin-bottom:10px;}
+.fault-card{background:#fff;border:1px solid var(--border);border-radius:4px;padding:8px 10px;}
+.fault-card-num{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;line-height:1;}
+.fault-card-num.clear{color:var(--green);}
+.fault-card-num.faulted{color:var(--text-body);}
+.fault-card-num.elim{color:var(--red);}
+.fault-card-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-top:2px;}
+.fault-card-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);}
+.bar-chart{margin-bottom:16px;}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.bar-row:last-child{margin-bottom:0;}
+.bar-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.04em;width:60px;flex-shrink:0;color:var(--text-body);text-align:right;}
+.bar-bg{flex:1;height:8px;background:var(--off-white);border-radius:3px;overflow:hidden;}
+.bar-fill{height:8px;border-radius:3px;transition:width .5s ease;}
+.bar-fill.clear{background:var(--green);}
+.bar-fill.faulted{background:var(--amber);}
+.bar-fill.elim{background:var(--red);}
+.bar-count{font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);width:24px;text-align:right;flex-shrink:0;}
+.bar-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);width:32px;text-align:right;flex-shrink:0;}
+
+/* GAUGE */
+.gauge-wrap{background:white;border:1px solid var(--border);border-radius:4px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.gauge-svg-wrap{flex-shrink:0;}
+.gauge-info{flex:1;min-width:140px;}
+.gauge-title{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;}
+.gauge-score{font-family:'Playfair Display',serif;font-size:36px;font-weight:700;line-height:1;}
+.gauge-label{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-top:2px;}
+.gauge-detail{font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:6px;display:flex;flex-direction:column;gap:1px;}
+
+/* METRICS GRID */
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(130px, 1fr));gap:8px;margin-bottom:16px;}
+.metric-card{background:#fff;border:1px solid var(--border);border-radius:4px;padding:8px 10px;}
+.metric-val{font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--black);}
+.metric-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:2px;}
+.metric-sub{font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:2px;}
+
+/* STANDINGS TABLE */
+.standings-wrap{background:#fff;border:1px solid var(--border);border-radius:4px;margin-bottom:16px;overflow:hidden;}
+.standings-hdr{display:flex;gap:6px;align-items:center;border-bottom:2px solid var(--black);padding:5px 10px;}
+.col-place{width:32px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);}
+.col-entry{flex:1;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);}
+.col-faults{width:48px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);}
+.col-time{width:64px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);}
+.col-gap{width:68px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);}
+.standing-row{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);}
+.standing-row:last-child{border-bottom:none;}
+.standing-row:hover{background:var(--off-white);}
+.s-place{width:32px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:12px;font-weight:500;color:var(--text-muted);}
+.s-entry{flex:1;min-width:0;}
+.s-horse{font-size:12px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-rider{font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-faults{width:48px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:12px;}
+.s-faults.clear{color:var(--green);font-weight:600;}
+.s-faults.faulted{color:var(--text-body);}
+.s-faults.elim{color:var(--red);font-size:9px;letter-spacing:.06em;}
+.s-time{width:64px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.s-gap{width:68px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
+.s-gap.behind{color:var(--amber);}
+.s-gap.fault-gap{color:var(--red);}
+.s-gap.leader{color:var(--green);font-size:8px;letter-spacing:.08em;text-transform:uppercase;}
+.jo-tag{display:inline-block;font-family:'DM Mono',monospace;font-size:7px;letter-spacing:.08em;background:var(--green);color:#fff;padding:1px 4px;border-radius:2px;margin-left:4px;vertical-align:middle;}
+
+/* STATES */
+.state-box{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 16px;gap:12px;}
+.spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.state-lbl{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase;}
+.not-jumper{text-align:center;padding:48px 16px;}
+.not-jumper h2{font-family:'Playfair Display',serif;font-size:20px;margin-bottom:6px;}
+.not-jumper p{color:var(--text-muted);font-size:13px;}
+
+/* FOOTER */
+footer{background:var(--black);padding:16px 12px;text-align:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+
+@media(min-width:768px){
+  .header-inner{padding:0 clamp(12px,3vw,40px);}
+  .live-strip{padding:8px clamp(12px,3vw,40px);}
+  .class-info{padding:8px clamp(12px,3vw,40px);}
+  .content{padding:12px clamp(12px,3vw,40px) 32px;}
+  footer{padding:18px clamp(12px,3vw,40px);}
+}
+@media(max-width:600px){
+  .fault-grid{grid-template-columns:repeat(3,1fr);}
+  .metrics-grid{grid-template-columns:repeat(2,1fr);}
+  .summary-grid{grid-template-columns:repeat(2,1fr);}
+  .ls-horse{max-width:120px;}
+  .ls-rider{max-width:100px;}
+}
+</style>
+<script src="display-config.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="back-btn" id="backBtn" href="results.html">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Results
+    </a>
+    <a class="logo-tap" href="index.html">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<!-- 1. LIVE STRIP -->
+<div class="live-strip" id="liveStrip"></div>
+
+<!-- 2. CLASS INFO BAR -->
+<div class="class-info" id="classInfoBar" style="display:none;"></div>
+
+<!-- MAIN CONTENT -->
+<div id="content" class="content">
+  <div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Statistics&hellip;</div></div>
+</div>
+
+<footer>
+  <p>WEST Timing and Scoring &nbsp;&middot;&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;&middot;&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+
+<script>
+/* ── CONSTANTS & PARAMS ─────────────────────────────────────────────── */
+const WORKER = 'https://west-worker.bill-acb.workers.dev';
+const params = new URLSearchParams(location.search);
+const SLUG = params.get('slug') || '';
+const CLASS_NUM = params.get('classNum') || '';
+const RING = params.get('ring') || '1';
+const SHOW_NAME = decodeURIComponent(params.get('name') || SLUG);
+
+const EMBED = params.get('embed') === '1';
+const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(CLASS_NUM) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+document.getElementById('backBtn').href = resultsUrl;
+
+// When embedded in live page iframe, hide chrome
+if (EMBED) {
+  var hdr = document.querySelector('header');
+  var ftr = document.querySelector('footer');
+  if (hdr) hdr.style.display = 'none';
+  if (ftr) ftr.style.display = 'none';
+  document.body.style.background = '#fff';
+}
+
+var esc = WEST.esc;
+
+/* ── FEI → ISO COUNTRY MAPPING ──────────────────────────────────────── */
+const FEI_ISO={AFG:'af',ALB:'al',ALG:'dz',AND:'ad',ANG:'ao',ANT:'ag',ARG:'ar',ARM:'am',ARU:'aw',AUS:'au',AUT:'at',AZE:'az',BAH:'bs',BAN:'bd',BAR:'bb',BEL:'be',BER:'bm',BIH:'ba',BOL:'bo',BRA:'br',BUL:'bg',CAN:'ca',CAY:'ky',CHI:'cl',CHN:'cn',COL:'co',CRC:'cr',CRO:'hr',CUB:'cu',CYP:'cy',CZE:'cz',DEN:'dk',DOM:'do',ECU:'ec',EGY:'eg',ESP:'es',EST:'ee',ETH:'et',FIN:'fi',FRA:'fr',GAB:'ga',GBR:'gb',GEO:'ge',GER:'de',GHA:'gh',GRE:'gr',GUA:'gt',HKG:'hk',HON:'hn',HUN:'hu',INA:'id',IND:'in',IRI:'ir',IRL:'ie',ISL:'is',ISR:'il',ISV:'vi',ITA:'it',JAM:'jm',JOR:'jo',JPN:'jp',KAZ:'kz',KEN:'ke',KOR:'kr',KSA:'sa',KUW:'kw',LAT:'lv',LBN:'lb',LIE:'li',LTU:'lt',LUX:'lu',MAR:'ma',MAS:'my',MEX:'mx',MGL:'mn',MKD:'mk',MON:'mc',NED:'nl',NEP:'np',NOR:'no',NZL:'nz',OMA:'om',PAN:'pa',PAR:'py',PER:'pe',PHI:'ph',POL:'pl',POR:'pt',PUR:'pr',QAT:'qa',ROU:'ro',RSA:'za',RUS:'ru',SIN:'sg',SLO:'si',SRB:'rs',SUI:'ch',SVK:'sk',SWE:'se',THA:'th',TPE:'tw',TTO:'tt',TUN:'tn',TUR:'tr',UAE:'ae',UKR:'ua',URU:'uy',USA:'us',UZB:'uz',VEN:'ve',VIE:'vn'};
+
+function countryFlag(code) {
+  if (!code) return '';
+  var iso = FEI_ISO[code.trim().toUpperCase()];
+  if (!iso) return '';
+  return '<img src="https://flagcdn.com/20x15/' + iso + '.png" alt="' + esc(code) + '" width="20" height="15" style="vertical-align:middle;">';
+}
+
+/* ── STATE ───────────────────────────────────────────────────────────── */
+let classInfo = null;
+let rawEntries = [];
+let liveData = null;
+let showDifficultyGauge = false;
+let orderOfGo = [];
+let oogCollapsed = false;
+let clockInterval = null;
+let clockBase = 0;
+let clockPaused = false;
+let clockTs = 0;
+
+/* ── TIME FORMATTING ─────────────────────────────────────────────────── */
+function fmtTime(val, precision) {
+  var n = parseFloat(val);
+  if (isNaN(n)) return '';
+  var p = parseInt(precision);
+  if (p === 2) return n.toFixed(3);
+  if (p === 1) return n.toFixed(2);
+  return n.toFixed(0);
+}
+
+function fmtTimePrecision(val) {
+  if (!classInfo) return String(val);
+  return fmtTime(val, classInfo.clock_precision);
+}
+
+/* ── CSV PARSER ──────────────────────────────────────────────────────── */
+function parseCSVLine(line) {
+  var cols = [], cur = '', inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') { if (inQ && line[i + 1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+    else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  cols.push(cur.trim());
+  return cols;
+}
+
+/* ── PARSE TA AND ORDER OF GO FROM cls_raw ───────────────────────────── */
+function parseClsRaw(clsRaw) {
+  var result = { r1TA: 0, r2TA: 0, r3TA: 0, clockPrecision: 0, oog: [] };
+  if (!clsRaw) return result;
+  var lines = clsRaw.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  if (!lines.length) return result;
+
+  var hdr = parseCSVLine(lines[0]);
+  var classType = hdr[0]; // J or T
+  result.clockPrecision = parseInt(hdr[5]) || 0;
+  result.r1TA = parseFloat(hdr[8]) || 0;
+  result.r2TA = parseFloat(hdr[11]) || 0;
+  result.r3TA = parseFloat(hdr[14]) || 0;
+
+  // Parse entry rows for order of go
+  var rideOrderCol = classType === 'T' ? 13 : 35; // T type col[13], J type col[35]
+  var entries = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = parseCSVLine(lines[i]);
+    if (!cols[0]) continue;
+    var entryNum = cols[0];
+    var horse = cols[1] || '';
+    var rider = cols[2] || '';
+    var country = cols[4] || '';
+    var rideOrder = parseInt(cols[rideOrderCol]) || 0;
+    entries.push({ entryNum: entryNum, horse: horse, rider: rider, country: country, rideOrder: rideOrder });
+  }
+  entries.sort(function(a, b) { return a.rideOrder - b.rideOrder; });
+  result.oog = entries.filter(function(e) { return e.rideOrder > 0; });
+  result.totalEntries = entries.length;
+
+  return result;
+}
+
+/* ── DATA PROCESSING ─────────────────────────────────────────────────── */
+function processData() {
+  var byEntry = {};
+  rawEntries.forEach(function(e) {
+    if (!byEntry[e.entry_num]) {
+      byEntry[e.entry_num] = { entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, rounds: {} };
+    }
+    var rnd = parseInt(e.round);
+    if (rnd >= 1) {
+      byEntry[e.entry_num].rounds[rnd] = {
+        round: rnd,
+        time: e.time || '',
+        jump_faults: e.jump_faults || '',
+        time_faults: e.time_faults || '',
+        total: e.total || '',
+        place: e.place || '',
+        status_code: e.status_code || ''
+      };
+    } else {
+      if (e.status_code) byEntry[e.entry_num].status_code = e.status_code;
+    }
+  });
+  return Object.values(byEntry);
+}
+
+function isElimStatus(sc) {
+  if (!sc) return false;
+  var u = String(sc).toUpperCase();
+  return ['E', 'EL', 'ELIM', 'WD', 'RT', 'RET', 'MR', 'DQ'].indexOf(u) >= 0;
+}
+
+function buildFaultBuckets(validEntries, getFaults, elimCount) {
+  var faultValSet = {};
+  validEntries.forEach(function(g) {
+    var f = getFaults(g);
+    if (!isNaN(f)) faultValSet[f] = true;
+  });
+  var faultVals = Object.keys(faultValSet).map(Number).sort(function(a, b) { return a - b; });
+  var buckets = [];
+  faultVals.filter(function(f) { return f <= 8; }).forEach(function(f) {
+    var isClear = f === 0;
+    buckets.push({
+      label: isClear ? '0' : String(f),
+      displayLabel: isClear ? 'Clear' : f + ' Faults',
+      count: validEntries.filter(function(g) { return getFaults(g) === f; }).length,
+      cls: isClear ? 'clear' : 'faulted'
+    });
+  });
+  var mid = validEntries.filter(function(g) { var f = getFaults(g); return f >= 9 && f <= 11; });
+  if (mid.length) buckets.push({ label: '9-11', displayLabel: '9-11 Faults', count: mid.length, cls: 'faulted' });
+  var high = validEntries.filter(function(g) { return getFaults(g) >= 12; });
+  if (high.length) buckets.push({ label: '12+', displayLabel: '12+ Faults', count: high.length, cls: 'faulted' });
+  if (elimCount > 0) buckets.push({ label: 'Elim/WD', displayLabel: 'Elim / WD / RT', count: elimCount, cls: 'elim' });
+  return buckets;
+}
+
+function computeStats(grouped) {
+  var r1Entries = [], r1ElimEntries = [], dnsEntries = [];
+  grouped.forEach(function(g) {
+    var r1 = g.rounds[1];
+    if (!r1) { dnsEntries.push(g); return; }
+    var totalF = parseFloat(r1.total);
+    if (isNaN(totalF) || isElimStatus(r1.status_code)) { r1ElimEntries.push(g); }
+    else { r1Entries.push(g); }
+  });
+  var starters = r1Entries.length + r1ElimEntries.length;
+
+  // JO entries (round 2)
+  var joEntries = [], joElimEntries = [];
+  grouped.forEach(function(g) {
+    var jo = g.rounds[2];
+    if (!jo) return;
+    var totalF = parseFloat(jo.total);
+    if (isNaN(totalF) || isElimStatus(jo.status_code)) { joElimEntries.push(g); }
+    else { joEntries.push(g); }
+  });
+  var hasJO = joEntries.length > 0 || joElimEntries.length > 0;
+
+  // R1 fault analysis
+  var r1FaultValues = r1Entries.map(function(g) { return parseFloat(g.rounds[1].total) || 0; });
+  var clearCount = r1FaultValues.filter(function(f) { return f === 0; }).length;
+  var clearRate = starters > 0 ? Math.round((clearCount / starters) * 100) : 0;
+  var avgFaults = r1FaultValues.length > 0 ? (r1FaultValues.reduce(function(a, b) { return a + b; }, 0) / r1FaultValues.length) : 0;
+
+  // Time fault rate
+  var r1TimeFaultCount = r1Entries.filter(function(g) { return parseFloat(g.rounds[1].time_faults) > 0; }).length;
+  var timeFaultRate = starters > 0 ? Math.round((r1TimeFaultCount / starters) * 100) : 0;
+
+  // R1 fault buckets
+  var r1Buckets = buildFaultBuckets(r1Entries, function(g) { return parseFloat(g.rounds[1].total) || 0; }, r1ElimEntries.length);
+
+  // Fastest 4-fault
+  var f4 = r1Entries.filter(function(g) { return parseFloat(g.rounds[1].total) === 4; });
+  var fastest4 = null;
+  if (f4.length > 0) {
+    fastest4 = f4.reduce(function(best, g) {
+      var t = parseFloat(g.rounds[1].time);
+      if (!best || t < parseFloat(best.rounds[1].time)) return g;
+      return best;
+    }, null);
+  }
+
+  // Avg vs TA (all entries + clears only)
+  var taInfo = parseClsRaw(classInfo.cls_raw);
+  var avgVsTA = null, avgVsTAClears = null;
+  if (hasJO && taInfo.r1TA > 0) {
+    var allTimes = r1Entries.map(function(g) { return parseFloat(g.rounds[1].time) || 0; }).filter(function(t) { return t > 0; });
+    if (allTimes.length > 0) {
+      var avgTime = allTimes.reduce(function(a, b) { return a + b; }, 0) / allTimes.length;
+      avgVsTA = avgTime - taInfo.r1TA;
+    }
+    var clearTimes = r1Entries.filter(function(g) { return parseFloat(g.rounds[1].total) === 0; })
+      .map(function(g) { return parseFloat(g.rounds[1].time) || 0; }).filter(function(t) { return t > 0; });
+    if (clearTimes.length > 0) {
+      var avgClearTime = clearTimes.reduce(function(a, b) { return a + b; }, 0) / clearTimes.length;
+      avgVsTAClears = avgClearTime - taInfo.r1TA;
+    }
+  }
+
+  // R1 sorted
+  var r1Sorted = r1Entries.slice().sort(function(a, b) {
+    var af = parseFloat(a.rounds[1].total) || 0, bf = parseFloat(b.rounds[1].total) || 0;
+    if (af !== bf) return af - bf;
+    return (parseFloat(a.rounds[1].time) || 0) - (parseFloat(b.rounds[1].time) || 0);
+  });
+  r1ElimEntries.forEach(function(g) { r1Sorted.push(g); });
+
+  var r1Leader = r1Sorted[0] || null;
+  var minR1Faults = r1Leader ? (parseFloat(r1Leader.rounds[1].total) || 0) : 0;
+
+  var r1WithGap = r1Sorted.map(function(g, i) {
+    var r1 = g.rounds[1];
+    if (!r1 || isNaN(parseFloat(r1.total))) {
+      var sc = r1 ? (r1.status_code || '').toUpperCase() : '';
+      return Object.assign({}, g, { gap: sc || 'ELIM', gapClass: 'fault-gap', sortPlace: i + 1, isJOQualifier: false });
+    }
+    var ef = parseFloat(r1.total) || 0;
+    var et = parseFloat(r1.time) || 0;
+    var gap = '', gapClass = '';
+    if (hasJO && taInfo.r1TA > 0) {
+      var taDist = parseFloat((et - taInfo.r1TA).toFixed(3));
+      gap = (taDist >= 0 ? '+' : '') + taDist.toFixed(3) + 's';
+      gapClass = taDist > 0 ? 'fault-gap' : taDist < -3 ? 'leader' : 'behind';
+    } else {
+      if (i === 0) { gap = 'Leader'; gapClass = 'leader'; }
+      else if (r1Leader) {
+        var lf = parseFloat(r1Leader.rounds[1].total) || 0;
+        var lt = parseFloat(r1Leader.rounds[1].time) || 0;
+        if (ef > lf) { gap = '+' + (ef - lf) + ' flt'; gapClass = 'fault-gap'; }
+        else { gap = '+' + (et - lt).toFixed(3) + 's'; gapClass = 'behind'; }
+      }
+    }
+    var isJOQualifier = hasJO && ef === minR1Faults;
+    return Object.assign({}, g, { gap: gap, gapClass: gapClass, sortPlace: i + 1, isJOQualifier: isJOQualifier });
+  });
+
+  // JO sorted
+  var joSorted = joEntries.slice().sort(function(a, b) {
+    var af = parseFloat(a.rounds[2].total) || 0, bf = parseFloat(b.rounds[2].total) || 0;
+    if (af !== bf) return af - bf;
+    return (parseFloat(a.rounds[2].time) || 0) - (parseFloat(b.rounds[2].time) || 0);
+  });
+  joElimEntries.forEach(function(g) { joSorted.push(g); });
+  var joLeader = joSorted[0] || null;
+  var joWithGap = joSorted.map(function(g, i) {
+    var jo = g.rounds[2];
+    if (!jo || isNaN(parseFloat(jo.total))) {
+      var sc = jo ? (jo.status_code || '').toUpperCase() : '';
+      return Object.assign({}, g, { gap: sc || 'ELIM', gapClass: 'fault-gap', sortPlace: i + 1 });
+    }
+    var ef = parseFloat(jo.total) || 0;
+    var et = parseFloat(jo.time) || 0;
+    var gap = '', gapClass = '';
+    if (i === 0) { gap = 'Leader'; gapClass = 'leader'; }
+    else if (joLeader) {
+      var lf = parseFloat(joLeader.rounds[2].total) || 0;
+      var lt = parseFloat(joLeader.rounds[2].time) || 0;
+      if (ef > lf) { gap = '+' + (ef - lf) + ' flt'; gapClass = 'fault-gap'; }
+      else { gap = '+' + (et - lt).toFixed(3) + 's'; gapClass = 'behind'; }
+    }
+    return Object.assign({}, g, { gap: gap, gapClass: gapClass, sortPlace: i + 1 });
+  });
+
+  // JO fault buckets
+  var joBuckets = hasJO ? buildFaultBuckets(joEntries, function(g) { return parseFloat(g.rounds[2].total) || 0; }, joElimEntries.length) : [];
+
+  // Course difficulty
+  var targetClears = Math.max(8, Math.floor(starters / 5));
+  var clearRatio = clearCount / Math.max(targetClears, 1);
+  var timeFaultRatio = starters > 0 ? r1TimeFaultCount / starters : 0;
+  var rawDiff = Math.max(0, Math.min(10, (1 - clearRatio) * 7 + timeFaultRatio * 3));
+  var diffScore = Math.round(rawDiff * 10) / 10;
+  var diffLabel = diffScore <= 2 ? 'Easy' : diffScore <= 4 ? 'Moderate' : diffScore <= 6 ? 'Technical' : diffScore <= 8 ? 'Challenging' : 'Severe';
+  var diffColor = diffScore <= 3 ? 'var(--green)' : diffScore <= 6 ? 'var(--amber)' : 'var(--red)';
+
+  // Unique riders & multi-ride
+  var riderMap = {};
+  grouped.forEach(function(g) {
+    if (!g.rider) return;
+    var key = g.rider.replace(/\s*\([A-Z]{2,3}\)\s*$/, '').trim().toUpperCase();
+    if (!key) return;
+    if (!riderMap[key]) riderMap[key] = { name: g.rider.replace(/\s*\([A-Z]{2,3}\)\s*$/, '').trim(), horses: [] };
+    riderMap[key].horses.push(g.horse);
+  });
+  var uniqueRiderCount = Object.keys(riderMap).length;
+  var multiRiders = Object.values(riderMap).filter(function(r) { return r.horses.length > 1; })
+    .sort(function(a, b) { return b.horses.length - a.horses.length; });
+
+  // Country data
+  var countryMap = {};
+  grouped.forEach(function(g) {
+    var m = g.rider ? g.rider.match(/\(([A-Z]{2,3})\)\s*$/) : null;
+    if (m) countryMap[m[1]] = (countryMap[m[1]] || 0) + 1;
+  });
+  var countryKeys = Object.keys(countryMap);
+  var countries = countryKeys.length > 0 ? countryKeys
+    .sort(function(a, b) { return countryMap[b] - countryMap[a]; })
+    .map(function(c) { return { code: c, count: countryMap[c] }; }) : null;
+
+  return {
+    starters: starters, finishers: r1Entries.length, clearCount: clearCount,
+    clearRate: clearRate, avgFaults: avgFaults, fastest4: fastest4,
+    timeFaultRate: timeFaultRate, avgVsTA: avgVsTA, avgVsTAClears: avgVsTAClears,
+    r1Buckets: r1Buckets, r1WithGap: r1WithGap,
+    hasJO: hasJO, joBuckets: joBuckets, joWithGap: joWithGap,
+    joEntryCount: joEntries.length + joElimEntries.length,
+    diffScore: diffScore, diffLabel: diffLabel, diffColor: diffColor, targetClears: targetClears,
+    uniqueRiderCount: uniqueRiderCount, multiRiders: multiRiders, countries: countries,
+    dnsCount: dnsEntries.length, taInfo: parseClsRaw(classInfo.cls_raw)
+  };
+}
+
+/* ── RENDER: LIVE STRIP ──────────────────────────────────────────────── */
+function renderLiveStrip() {
+  var strip = document.getElementById('liveStrip');
+  if (!liveData) { strip.classList.remove('active'); return; }
+
+  var sel = liveData.selected;
+  if (String(sel) !== String(CLASS_NUM)) { strip.classList.remove('active'); return; }
+
+  var oc = liveData.onCourse;
+  strip.classList.add('active');
+
+  // Count competed
+  var competed = 0, total = 0;
+  var cd = liveData.classData && liveData.classData[CLASS_NUM];
+  if (cd && cd.entries) {
+    total = Object.keys(cd.entries).length;
+    Object.values(cd.entries).forEach(function(e) {
+      if (e.status && e.status !== 'pending') competed++;
+    });
+  }
+  if (total === 0 && orderOfGo.length > 0) total = orderOfGo.length;
+
+  if (!oc || !oc.horse) {
+    strip.innerHTML = '<div class="ls-waiting">Waiting for next horse&hellip;</div>'
+      + (total > 0 ? '<div class="ls-progress"><div class="ls-progress-fill" style="width:' + (total > 0 ? Math.round(competed / total * 100) : 0) + '%"></div></div>' : '');
+    return;
+  }
+
+  // Determine phase
+  var phase = oc.phase || 'on-course';
+  var phaseLabel = phase === 'inGate' ? 'In Gate' : phase === 'countdown' ? 'Countdown' : phase === 'finished' ? 'Finished' : 'On Course';
+  var phaseCls = phase === 'inGate' ? 'in-gate' : phase === 'countdown' ? 'countdown' : phase === 'finished' ? 'finished' : 'on-course';
+
+  // Clock value
+  var elapsed = parseFloat(oc.elapsed) || 0;
+  var clockDisplay = Math.floor(elapsed);
+
+  // Time faults calculated from clock vs TA
+  var ta = parseFloat(oc.ta) || 0;
+  var jf = parseFloat(oc.jumpFaults) || 0;
+  var tf = parseFloat(oc.timeFaults) || 0;
+  // If live on course, calculate time faults from elapsed vs TA
+  if (phase === 'on-course' && ta > 0 && elapsed > ta) {
+    var fpi = parseFloat(oc.fpi) || 1;
+    var ti = parseFloat(oc.ti) || 1;
+    tf = Math.ceil((elapsed - ta) / ti) * fpi;
+  }
+  var totalF = jf + tf;
+
+  var roundLabel = oc.label || (oc.round ? 'Round ' + oc.round : '');
+
+  var html = '<div class="ls-row">'
+    + '<span class="ls-phase ' + phaseCls + '">' + esc(phaseLabel) + '</span>'
+    + '<span class="ls-entry">#' + esc(oc.entry) + '</span>'
+    + '<span class="ls-horse">' + esc(oc.horse) + '</span>'
+    + '<span class="ls-rider">' + esc(oc.rider) + '</span>'
+    + '<div class="ls-clock-wrap">'
+    + (roundLabel ? '<div class="ls-round-label">' + esc(roundLabel) + '</div>' : '')
+    + '<div class="ls-clock" id="liveClock">' + clockDisplay + '</div>'
+    + '</div>'
+    + '<div class="ls-faults">'
+    + '<span class="hdr">Jump</span><span class="hdr">Time</span><span class="hdr">Total</span>'
+    + '<span class="val">' + jf + '</span><span class="val">' + tf.toFixed(0) + '</span><span class="val">' + totalF.toFixed(0) + '</span>'
+    + '</div>'
+    + '</div>';
+
+  if (total > 0) {
+    html += '<div class="ls-progress"><div class="ls-progress-fill" style="width:' + Math.round(competed / total * 100) + '%"></div></div>';
+  }
+
+  strip.innerHTML = html;
+
+  // Set up clock tick state
+  clockBase = elapsed;
+  clockPaused = oc.paused || (phase === 'finished') || (phase === 'inGate');
+  clockTs = parseFloat(oc.ts) || Date.now();
+}
+
+function tickClock() {
+  var el = document.getElementById('liveClock');
+  if (!el || clockPaused) return;
+  var now = Date.now();
+  var diff = (now - clockTs) / 1000;
+  var display = Math.floor(clockBase + diff);
+  if (display < 0) display = 0;
+  el.textContent = display;
+}
+
+/* ── RENDER: CLASS INFO BAR ──────────────────────────────────────────── */
+function renderClassInfoBar() {
+  if (!classInfo) { document.getElementById('classInfoBar').style.display = 'none'; return; }
+  var bar = document.getElementById('classInfoBar');
+  bar.style.display = '';
+
+  var ct = (classInfo.class_type || '').toUpperCase();
+  var sm = classInfo.scoring_method || '';
+  var typeLabel = sm === '9' ? 'Two-Phase'
+    : sm === '4' || sm === '6' ? 'Speed'
+    : sm === '2' ? 'Jumper II.2a'
+    : sm === '13' ? 'Jumper II.2b'
+    : sm === '3' ? 'Jumper (3 rounds)'
+    : (ct === 'J' || ct === 'T') ? 'Jumper'
+    : ct === 'H' ? 'Hunter' : ct;
+  var taInfo = parseClsRaw(classInfo.cls_raw);
+  var taStr = '';
+  if (taInfo.r1TA > 0) taStr += 'R1=' + taInfo.r1TA + 's';
+  if (taInfo.r2TA > 0) taStr += (taStr ? ', JO=' : 'JO=') + taInfo.r2TA + 's';
+
+  var totalEntries = taInfo.totalEntries || rawEntries.length || 0;
+  var watcherAlive = liveData && liveData.watcherAlive;
+
+  bar.innerHTML = '<span class="ci-num">Class ' + esc(CLASS_NUM) + '</span>'
+    + '<span class="ci-name">' + esc(classInfo.class_name) + '</span>'
+    + '<span class="ci-badge">' + esc(typeLabel) + '</span>'
+    + (taStr ? '<span class="ci-ta">' + esc(taStr) + '</span>' : '')
+    + '<span class="ci-entries">' + totalEntries + ' drawn</span>'
+    + '<span class="ci-watcher ' + (watcherAlive ? 'alive' : 'dead') + '" title="Watcher ' + (watcherAlive ? 'connected' : 'offline') + '"></span>';
+}
+
+/* ── RENDER: ORDER OF GO ─────────────────────────────────────────────── */
+function renderOrderOfGo() {
+  if (!orderOfGo.length) return '';
+
+  // Build set of entries that have already gone (from D1 results)
+  var goneSet = {};
+  rawEntries.forEach(function(e) { if (e.round) goneSet[e.entry_num] = true; });
+
+  var onCourseEntry = liveData && liveData.onCourse ? String(liveData.onCourse.entry) : '';
+
+  // Filter: only show entries that haven't gone yet + the one currently on course
+  var remaining = orderOfGo.filter(function(e) {
+    return !goneSet[e.entryNum] || String(e.entryNum) === onCourseEntry;
+  });
+
+  if (!remaining.length) return ''; // all gone, hide OOG entirely
+
+  var nextEntry = '';
+  if (onCourseEntry) {
+    for (var i = 0; i < remaining.length; i++) {
+      if (String(remaining[i].entryNum) === onCourseEntry && i + 1 < remaining.length) {
+        nextEntry = String(remaining[i + 1].entryNum);
+        break;
+      }
+    }
+  }
+
+  var html = '<div class="section-label">Order of Go (' + remaining.length + ' remaining)'
+    + ' <button class="toggle-btn" onclick="toggleOOG()">' + (oogCollapsed ? 'Show' : 'Hide') + '</button></div>';
+  html += '<div class="oog-wrap" id="oogTable" style="' + (oogCollapsed ? 'display:none' : '') + '">';
+  html += '<div class="oog-hdr"><span class="oog-go">Go</span><span class="oog-ent">Entry</span><span class="oog-horse">Horse</span><span class="oog-rider">Rider</span><span class="oog-flag"></span></div>';
+  remaining.forEach(function(e, i) {
+    var isOC = String(e.entryNum) === onCourseEntry;
+    var isNext = String(e.entryNum) === nextEntry;
+    var rowCls = isOC ? ' on-course' : isNext ? ' next-up' : '';
+    html += '<div class="oog-row' + rowCls + '">'
+      + '<span class="go-num">';
+    if (isOC) html += '<span class="oog-indicator oc">OC</span>';
+    else if (isNext) html += '<span class="oog-indicator nx">Next</span>';
+    else html += e.rideOrder;
+    html += '</span>'
+      + '<span class="ent-num">' + esc(e.entryNum) + '</span>'
+      + '<span class="horse-name">' + esc(e.horse) + '</span>'
+      + '<span class="rider-name">' + esc(e.rider) + '</span>'
+      + '<span class="flag-img">' + countryFlag(e.country) + '</span>'
+      + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+/* ── RENDER: ENTRY SUMMARY ───────────────────────────────────────────── */
+function renderEntrySummary(grouped, stats) {
+  var html = '<div class="section-label">Entry Summary</div>';
+  html += '<div class="summary-grid">';
+  html += '<div class="sum-card"><div class="sum-val">' + grouped.length + '</div><div class="sum-label">Total Entries</div></div>';
+  html += '<div class="sum-card"><div class="sum-val">' + stats.uniqueRiderCount + '</div><div class="sum-label">Unique Riders</div></div>';
+
+  if (stats.countries && stats.countries.length > 0) {
+    html += '<div class="sum-card" style="grid-column:span 2;">'
+      + '<div class="sum-val">' + stats.countries.length + '</div>'
+      + '<div class="sum-label">Countries</div>'
+      + '<div class="sum-detail">';
+    stats.countries.forEach(function(c) {
+      html += '<span class="sum-country">' + countryFlag(c.code) + ' ' + esc(c.code) + ' (' + c.count + ')</span>';
+    });
+    html += '</div></div>';
+  }
+  html += '</div>';
+
+  if (stats.multiRiders.length > 0) {
+    html += '<div class="multi-wrap"><div class="multi-hdr">Multi-Ride Riders</div>';
+    stats.multiRiders.forEach(function(r) {
+      html += '<div class="multi-row"><span class="multi-name">' + esc(r.name) + '</span>'
+        + '<span class="multi-horses">' + r.horses.map(function(h) { return esc(h); }).join(', ') + '</span></div>';
+    });
+    html += '</div>';
+  }
+  return html;
+}
+
+/* ── RENDER: FAULT SECTION ───────────────────────────────────────────── */
+function renderFaultSection(buckets, total) {
+  if (!buckets.length) return '';
+  var html = '';
+  var pctFn = function(n) { return total > 0 ? Math.round((n / total) * 100) : 0; };
+  var max = Math.max.apply(null, buckets.map(function(b) { return b.count; }));
+
+  html += '<div class="fault-grid">';
+  buckets.forEach(function(b) {
+    html += '<div class="fault-card">'
+      + '<div class="fault-card-num ' + b.cls + '">' + b.count + '</div>'
+      + '<div class="fault-card-label">' + esc(b.displayLabel) + '</div>'
+      + '<div class="fault-card-pct">' + pctFn(b.count) + '%</div></div>';
+  });
+  html += '</div>';
+
+  html += '<div class="bar-chart">';
+  buckets.forEach(function(b) {
+    var w = max > 0 ? Math.round((b.count / max) * 100) : 0;
+    html += '<div class="bar-row">'
+      + '<span class="bar-label">' + esc(b.label) + '</span>'
+      + '<div class="bar-bg"><div class="bar-fill ' + b.cls + '" style="width:' + w + '%"></div></div>'
+      + '<span class="bar-count">' + b.count + '</span>'
+      + '<span class="bar-pct">' + pctFn(b.count) + '%</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+/* ── RENDER: GAUGE ───────────────────────────────────────────────────── */
+function renderGauge(s) {
+  var score = s.diffScore;
+  var scorePct = score / 10;
+  var angle = Math.PI - (scorePct * Math.PI);
+  var cx = 70, cy = 65, r = 52;
+  var nx = cx + r * Math.cos(angle);
+  var ny = cy - r * Math.sin(angle);
+  var largeArc = scorePct > 0.5 ? 1 : 0;
+  var gc = score <= 3 ? '#2e7d32' : score <= 6 ? '#b45309' : '#b82025';
+
+  return '<div class="gauge-wrap">'
+    + '<div class="gauge-svg-wrap">'
+    + '<svg width="140" height="80" viewBox="0 0 140 80" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M18 65 A52 52 0 0 1 122 65" fill="none" stroke="#e2e2e2" stroke-width="8" stroke-linecap="round"/>'
+    + '<path d="M18 65 A52 52 0 ' + largeArc + ' 1 ' + nx.toFixed(1) + ' ' + ny.toFixed(1) + '" fill="none" stroke="' + gc + '" stroke-width="8" stroke-linecap="round"/>'
+    + '<line x1="70" y1="65" x2="' + nx.toFixed(1) + '" y2="' + ny.toFixed(1) + '" stroke="#111" stroke-width="2.5" stroke-linecap="round"/>'
+    + '<circle cx="70" cy="65" r="4" fill="#111"/>'
+    + '<text x="14" y="78" font-family="DM Mono,monospace" font-size="8" fill="#aaa" text-anchor="middle">Easy</text>'
+    + '<text x="126" y="78" font-family="DM Mono,monospace" font-size="8" fill="#aaa" text-anchor="middle">Hard</text>'
+    + '</svg></div>'
+    + '<div class="gauge-info">'
+    + '<div class="gauge-title">Course Difficulty</div>'
+    + '<div class="gauge-score" style="color:' + gc + '">' + score.toFixed(1) + '<span style="font-size:16px;color:var(--text-muted);font-family:DM Mono,monospace;margin-left:4px;">/10</span></div>'
+    + '<div class="gauge-label" style="color:' + gc + '">' + esc(s.diffLabel) + '</div>'
+    + '<div class="gauge-detail">'
+    + '<span>Target clears: ' + s.targetClears + ' &middot; Actual: ' + s.clearCount + '</span>'
+    + '<span>Clear rate: ' + s.clearRate + '% of ' + s.starters + ' starters</span>'
+    + '</div></div></div>';
+}
+
+/* ── RENDER: METRICS ─────────────────────────────────────────────────── */
+function metricCard(val, label, sub) {
+  return '<div class="metric-card">'
+    + '<div class="metric-val">' + esc(val) + '</div>'
+    + '<div class="metric-label">' + esc(label) + '</div>'
+    + (sub ? '<div class="metric-sub">' + sub + '</div>' : '')
+    + '</div>';
+}
+
+/* ── RENDER: STANDINGS TABLE ─────────────────────────────────────────── */
+function renderStandingsTable(entries, roundNum) {
+  var html = '<div class="standings-wrap">';
+  html += '<div class="standings-hdr">'
+    + '<span class="col-place">#</span>'
+    + '<span class="col-entry">Horse / Rider</span>'
+    + '<span class="col-faults">Faults</span>'
+    + '<span class="col-time">Time</span>'
+    + '<span class="col-gap">Gap</span></div>';
+
+  entries.forEach(function(g, i) {
+    var rd = g.rounds[roundNum];
+    var faultVal = rd ? parseFloat(rd.total) : NaN;
+    var fCls = isNaN(faultVal) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
+    var fDisplay = isNaN(faultVal) ? (rd && rd.status_code ? rd.status_code.toUpperCase() : 'ELIM') : String(faultVal);
+    var timeStr = rd && rd.time ? fmtTimePrecision(rd.time) : '\u2014';
+
+    html += '<div class="standing-row">'
+      + '<span class="s-place">' + (i + 1) + '</span>'
+      + '<div class="s-entry"><div class="s-horse">' + esc(g.horse) + '</div><div class="s-rider">' + esc(g.rider) + '</div></div>'
+      + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
+      + '<span class="s-time">' + esc(timeStr) + '</span>'
+      + '<span class="s-gap ' + esc(g.gapClass) + '">' + esc(g.gap) + '</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderR1StandingsTable(entries, hasJO) {
+  var gapLabel = hasJO ? 'vs TA' : 'Gap';
+  var html = '<div class="standings-wrap">';
+  html += '<div class="standings-hdr">'
+    + '<span class="col-place">#</span>'
+    + '<span class="col-entry">Horse / Rider</span>'
+    + '<span class="col-faults">Faults</span>'
+    + '<span class="col-time">Time</span>'
+    + '<span class="col-gap">' + gapLabel + '</span></div>';
+
+  entries.forEach(function(g, i) {
+    var r1 = g.rounds[1];
+    var faultVal = r1 ? parseFloat(r1.total) : NaN;
+    var fCls = isNaN(faultVal) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
+    var fDisplay = isNaN(faultVal) ? (r1 && r1.status_code ? r1.status_code.toUpperCase() : 'ELIM') : String(faultVal);
+    var timeStr = r1 && r1.time ? fmtTimePrecision(r1.time) : '\u2014';
+    var placeDisplay = (hasJO && g.isJOQualifier) ? '<span class="jo-tag">JO</span>' : String(i + 1);
+
+    html += '<div class="standing-row">'
+      + '<span class="s-place">' + placeDisplay + '</span>'
+      + '<div class="s-entry"><div class="s-horse">' + esc(g.horse) + '</div><div class="s-rider">' + esc(g.rider) + '</div></div>'
+      + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
+      + '<span class="s-time">' + esc(timeStr) + '</span>'
+      + '<span class="s-gap ' + esc(g.gapClass) + '">' + esc(g.gap) + '</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+/* ── MAIN RENDER ─────────────────────────────────────────────────────── */
+function renderAll() {
+  if (!classInfo) return;
+
+  document.title = 'Class ' + CLASS_NUM + ' Stats \u2014 ' + SHOW_NAME + ' \u2014 WEST Scoring Live';
+
+  var ct = (classInfo.class_type || '').toUpperCase();
+  if (ct !== 'J' && ct !== 'T') {
+    document.getElementById('content').innerHTML =
+      '<div class="not-jumper"><h2>Not a Jumper Class</h2>'
+      + '<p>Statistics are only available for jumper classes.</p>'
+      + '<p style="margin-top:10px"><a href="' + esc(resultsUrl) + '" style="color:var(--red)">Back to Results</a></p></div>';
+    return;
+  }
+
+  // Parse order of go
+  var parsedRaw = parseClsRaw(classInfo.cls_raw);
+  orderOfGo = parsedRaw.oog;
+
+  renderClassInfoBar();
+
+  var grouped = processData();
+  if (grouped.length === 0) {
+    // Still show OOG even with no results
+    var html = renderOrderOfGo();
+    html += '<div class="state-box"><div class="state-lbl">No results yet. Waiting for entries&hellip;</div></div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  var s = computeStats(grouped);
+  var html = '';
+
+  /* 3. ORDER OF GO */
+  html += renderOrderOfGo();
+
+  /* 4. ENTRY SUMMARY */
+  html += renderEntrySummary(grouped, s);
+
+  /* 5. FAULT DISTRIBUTION R1 — only when >=1 horse competed */
+  if (s.starters >= 1) {
+    html += '<div class="section-label">Fault Distribution &mdash; Round 1</div>';
+    html += renderFaultSection(s.r1Buckets, s.starters);
+  }
+
+  /* 6. COURSE DIFFICULTY GAUGE — conditional */
+  if (showDifficultyGauge && s.starters >= 4) {
+    html += '<div class="section-label">Course Difficulty</div>';
+    html += renderGauge(s);
+  }
+
+  /* 7. COURSE METRICS */
+  if (s.starters >= 1) {
+    html += '<div class="section-label">Course Metrics</div>';
+    html += '<div class="metrics-grid">';
+    html += metricCard(s.finishers + ' / ' + s.starters, 'Finishers / Starters');
+    html += metricCard(s.clearRate + '%', 'Clear Rate');
+    html += metricCard(s.avgFaults.toFixed(1), 'Avg Faults');
+    if (s.fastest4) {
+      html += '<div class="metric-card">'
+        + '<div class="metric-val">' + esc(fmtTimePrecision(s.fastest4.rounds[1].time)) + '</div>'
+        + '<div class="metric-label">Fastest 4-Fault</div>'
+        + '<div class="metric-sub">' + esc(s.fastest4.horse) + ' &mdash; ' + esc(s.fastest4.rider) + '</div></div>';
+    }
+    if (s.avgVsTA !== null) {
+      var sign = s.avgVsTA >= 0 ? '+' : '';
+      html += metricCard(sign + s.avgVsTA.toFixed(3) + 's', 'Avg vs TA (All)');
+    }
+    if (s.avgVsTAClears !== null) {
+      var sign2 = s.avgVsTAClears >= 0 ? '+' : '';
+      html += metricCard(sign2 + s.avgVsTAClears.toFixed(3) + 's', 'Avg vs TA (Clears)');
+    }
+    html += metricCard(s.timeFaultRate + '%', 'Time Fault Rate');
+    html += '</div>';
+  }
+
+  /* 8. JO STANDINGS + JO FAULT BREAKDOWN */
+  if (s.hasJO && s.joWithGap.length > 0) {
+    html += '<div class="section-label">Jump-Off Standings (' + s.joEntryCount + ' entries)</div>';
+    html += renderStandingsTable(s.joWithGap, 2);
+    html += '<div class="section-label">Fault Distribution &mdash; Jump-Off</div>';
+    html += renderFaultSection(s.joBuckets, s.joEntryCount);
+  }
+
+  /* 9. R1 STANDINGS */
+  var r1Label = s.hasJO ? 'Round 1 &mdash; Faults &amp; Time vs TA' : 'Round 1 Standings';
+  html += '<div class="section-label">' + r1Label + ' (' + s.starters + ' starters)</div>';
+  html += renderR1StandingsTable(s.r1WithGap, s.hasJO);
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function toggleOOG() {
+  oogCollapsed = !oogCollapsed;
+  var t = document.getElementById('oogTable');
+  if (t) t.style.display = oogCollapsed ? 'none' : '';
+  var btns = document.querySelectorAll('.toggle-btn');
+  btns.forEach(function(b) { b.textContent = oogCollapsed ? 'Show' : 'Hide'; });
+}
+
+/* ── DATA FETCH ──────────────────────────────────────────────────────── */
+async function loadSettings() {
+  try {
+    var r = await fetch(WORKER + '/admin/settings');
+    if (r.ok) {
+      var d = await r.json();
+      showDifficultyGauge = d.settings && d.settings.showDifficultyGauge;
+    }
+  } catch (e) { /* silent */ }
+}
+
+async function loadResults() {
+  try {
+    var url = WORKER + '/getResults?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(CLASS_NUM) + '&ring=' + RING;
+    var r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var d = await r.json();
+    if (d.ok) {
+      classInfo = d.class || {};
+      rawEntries = d.entries || [];
+      renderAll();
+    } else {
+      document.getElementById('content').innerHTML =
+        '<div class="state-box"><div class="state-lbl">Failed to load class data.</div></div>';
+    }
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      '<div class="state-box"><div class="state-lbl">Error loading data. Try refreshing.</div></div>';
+  }
+}
+
+async function loadLiveClass() {
+  try {
+    var url = WORKER + '/getLiveClass?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING;
+    var r = await fetch(url);
+    if (r.ok) {
+      liveData = await r.json();
+      renderLiveStrip();
+      // Update class info bar watcher status
+      renderClassInfoBar();
+    }
+  } catch (e) { /* silent */ }
+}
+
+/* ── INIT ────────────────────────────────────────────────────────────── */
+async function init() {
+  await loadSettings();
+  await loadResults();
+  loadLiveClass();
+}
+
+init();
+
+// Polling intervals
+setInterval(loadLiveClass, 3000);   // Live strip: 3s
+setInterval(loadResults, 15000);    // Results/stats: 15s
+
+// Clock tick: 1s
+clockInterval = setInterval(tickClock, 1000);
+</script>
+</body>
+</html>

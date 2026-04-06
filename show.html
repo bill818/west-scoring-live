@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --green: #2e7d32;
+  --card-radius: 10px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
+.header-inner{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;height:56px;gap:12px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:#fff;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;text-decoration:none;min-width:44px;min-height:44px;padding:0;background:none;border:none;cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.back-btn:hover{color:var(--red);}
+.logo-tap{display:flex;align-items:center;gap:8px;text-decoration:none;margin-left:auto;}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+
+/* BREADCRUMBS */
+.breadcrumbs{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:0;min-height:40px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.breadcrumbs::-webkit-scrollbar{display:none;}
+.bc-home{display:inline-flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--red);text-decoration:none;padding:10px 10px 10px 0;white-space:nowrap;flex-shrink:0;}
+.bc-home:hover{color:var(--black);}
+.bc-sep{font-family:'DM Mono',monospace;font-size:11px;color:#ccc;padding:0 6px;flex-shrink:0;user-select:none;}
+.bc-current{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);padding:10px 0;white-space:nowrap;flex-shrink:0;}
+
+/* HERO */
+.hero{background:#fff;border-bottom:1px solid var(--border);padding:24px 16px 20px;}
+.hero-name{font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:var(--black);line-height:1.15;margin-bottom:6px;}
+.hero-dates{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:8px;}
+.hero-venue{font-size:15px;color:var(--text-body);margin-bottom:4px;}
+.hero-location{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
+.status-badge{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:8px;}
+.status-active{background:#e8f5e9;color:var(--green);}
+.status-upcoming{background:#e3f2fd;color:#1565c0;}
+.status-complete{background:#f5f5f5;color:#757575;}
+
+/* WEATHER */
+.weather-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin:16px 16px 0;overflow:hidden;display:none;}
+.weather-card.loaded{display:block;opacity:0;animation:fadeUp .3s ease forwards;}
+.weather-current{display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid var(--border);}
+.weather-icon{font-size:36px;line-height:1;flex-shrink:0;}
+.weather-temp{font-family:'Playfair Display',serif;font-size:32px;font-weight:900;color:var(--black);line-height:1;}
+.weather-desc{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-top:2px;}
+.weather-loc{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;letter-spacing:.04em;margin-top:2px;}
+.forecast-strip{display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.forecast-strip::-webkit-scrollbar{display:none;}
+.forecast-day{flex:1;min-width:0;text-align:center;padding:12px 8px;border-right:1px solid var(--border);}
+.forecast-day:last-child{border-right:none;}
+.forecast-name{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;}
+.forecast-icon{font-size:20px;line-height:1;margin-bottom:4px;}
+.forecast-temps{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-body);}
+.forecast-temps span{color:var(--text-muted);}
+
+/* SECTION HEADER */
+.section-header{padding:20px 16px 8px;display:flex;align-items:baseline;gap:8px;}
+.section-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+
+/* RING CARDS */
+.ring-grid{display:grid;grid-template-columns:1fr;gap:10px;padding:0 16px 8px;}
+.ring-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;cursor:pointer;text-decoration:none;color:inherit;display:block;transition:transform .12s;opacity:0;animation:fadeUp .3s ease forwards;}
+.ring-card:active{transform:scale(.98);}
+.ring-card.single{max-width:480px;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.ring-top{padding:14px 16px 12px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.ring-name{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--black);line-height:1.2;flex:1;}
+.ring-chevron{font-size:20px;color:#ccc;flex-shrink:0;}
+.ring-meta{padding:0 16px 6px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.ring-live{display:inline-flex;align-items:center;gap:5px;color:var(--red);font-weight:600;}
+.ring-live-dot{width:7px;height:7px;background:var(--red);border-radius:50%;animation:blink 1.6s ease-in-out infinite;flex-shrink:0;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.ring-progress{margin:0 16px 14px;height:6px;background:#eee;border-radius:3px;overflow:hidden;}
+.ring-progress-bar{height:100%;background:var(--green);border-radius:3px;transition:width .4s ease;}
+
+/* STATS PREVIEW */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 16px 8px;}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 12px;text-align:center;}
+.stat-value{font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:var(--black);line-height:1;}
+.stat-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
+.stat-placeholder{color:#ccc;}
+
+/* STATES */
+.state-box{text-align:center;padding:60px 20px;}
+.spinner{width:28px;height:28px;border:3px solid #e8e8e8;border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.state-lbl{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+
+/* FOOTER */
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+
+/* DESKTOP */
+@media(min-width:768px){
+  .header-inner{height:70px;padding:0 clamp(16px,4vw,48px);}
+  .logo-west{font-size:24px;}
+  .logo-sep,.logo-scoring{font-size:14px;}
+  .breadcrumbs{padding:0 clamp(16px,4vw,48px);}
+  .hero{padding:28px clamp(16px,4vw,48px) 24px;}
+  .hero-name{font-size:34px;}
+  .weather-card{margin:16px clamp(16px,4vw,48px) 0;}
+  .section-header{padding:20px clamp(16px,4vw,48px) 8px;}
+  .ring-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr));padding:0 clamp(16px,4vw,48px) 8px;}
+  .ring-card.single{max-width:none;}
+  .stats-grid{padding:0 clamp(16px,4vw,48px) 8px;}
+  footer{padding:26px clamp(16px,4vw,48px);font-size:11px;}
+}
+</style>
+<script src="display-config.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="back-btn" href="index.html">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Shows
+    </a>
+    <a class="logo-tap" href="index.html">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<nav class="breadcrumbs">
+  <a class="bc-home" href="index.html">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    All Shows
+  </a>
+  <span class="bc-sep">&rsaquo;</span>
+  <span class="bc-current" id="bcShow">Show</span>
+</nav>
+
+<div id="heroArea">
+  <div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Show&hellip;</div></div>
+</div>
+
+<div id="weatherArea"></div>
+<div id="ringsArea"></div>
+<div id="statsArea"></div>
+
+<footer>
+  <p>WEST Timing and Scoring &nbsp;&middot;&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;&middot;&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+
+<script>
+const WORKER = 'https://west-worker.bill-acb.workers.dev';
+const params = new URLSearchParams(location.search);
+const SLUG   = params.get('slug') || '';
+
+let showData = null;
+let ringLive = {};
+let liveTimers = [];
+
+var esc = WEST.esc;
+
+/* ── Weather helpers ─────────────────────────────── */
+function weatherIcon(code) {
+  if (code === 0) return '\u2600\uFE0F';           // clear
+  if (code >= 1 && code <= 3) return '\u26C5';      // partly cloudy
+  if (code >= 45 && code <= 48) return '\uD83C\uDF2B\uFE0F'; // fog
+  if (code >= 51 && code <= 67) return '\uD83C\uDF27\uFE0F'; // rain/drizzle
+  if (code >= 71 && code <= 77) return '\uD83C\uDF28\uFE0F'; // snow
+  if (code >= 80 && code <= 82) return '\uD83C\uDF26\uFE0F'; // showers
+  if (code >= 95 && code <= 99) return '\u26C8\uFE0F';       // thunderstorm
+  return '\u2600\uFE0F';
+}
+
+function weatherDesc(code) {
+  if (code === 0) return 'Clear';
+  if (code >= 1 && code <= 3) return 'Partly Cloudy';
+  if (code >= 45 && code <= 48) return 'Foggy';
+  if (code >= 51 && code <= 55) return 'Drizzle';
+  if (code >= 56 && code <= 57) return 'Freezing Drizzle';
+  if (code >= 61 && code <= 65) return 'Rain';
+  if (code >= 66 && code <= 67) return 'Freezing Rain';
+  if (code >= 71 && code <= 77) return 'Snow';
+  if (code >= 80 && code <= 82) return 'Rain Showers';
+  if (code >= 95 && code <= 99) return 'Thunderstorm';
+  return 'Clear';
+}
+
+function dayName(iso) {
+  try {
+    var d = new Date(iso + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short' });
+  } catch(e) { return iso; }
+}
+
+/* ── Load show data ──────────────────────────────── */
+async function loadShow() {
+  if (!SLUG) {
+    document.getElementById('heroArea').innerHTML =
+      '<div class="state-box"><div class="state-lbl">No show specified. <a href="index.html" style="color:var(--red)">Back to shows</a></div></div>';
+    return;
+  }
+  try {
+    var r = await fetch(WORKER + '/getShow?slug=' + encodeURIComponent(SLUG));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var d = await r.json();
+    showData = d;
+    renderHero();
+    renderRings();
+    renderStats();
+    startLivePolling();
+    loadWeather();
+  } catch(e) {
+    document.getElementById('heroArea').innerHTML =
+      '<div class="state-box"><div class="state-lbl">Could not load show data. <a href="index.html" style="color:var(--red)">Back to shows</a></div></div>';
+  }
+}
+
+/* ── Render hero ─────────────────────────────────── */
+function renderHero() {
+  var s = showData.show || {};
+  document.title = (s.name || SLUG) + ' \u2014 WEST Scoring Live';
+  document.getElementById('bcShow').textContent = s.name || SLUG;
+
+  var statusClass = 'status-upcoming', statusText = '\u25F7 Upcoming';
+  if (s.status === 'active') { statusClass = 'status-active'; statusText = '\u25CF Active'; }
+  else if (s.status === 'complete') { statusClass = 'status-complete'; statusText = '\u2713 Complete'; }
+
+  var html = '<div class="hero">';
+  html += '<div class="hero-name">' + esc(s.name) + '</div>';
+  if (s.dates) html += '<div class="hero-dates">' + esc(s.dates) + '</div>';
+  if (s.venue) html += '<div class="hero-venue">' + esc(s.venue) + '</div>';
+  if (s.location) html += '<div class="hero-location">' + esc(s.location) + '</div>';
+  html += '<div class="status-badge ' + statusClass + '">' + statusText + '</div>';
+  html += '</div>';
+  document.getElementById('heroArea').innerHTML = html;
+}
+
+/* ── Render ring cards ───────────────────────────── */
+function renderRings() {
+  var rings = showData.rings || [];
+  var s = showData.show || {};
+
+  // If no rings from API, show a default Ring 1 card
+  var displayRings = rings.length > 0
+    ? rings.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); })
+    : [{ ring_num: 1, ring_name: '', class_count: 0, complete_count: 0 }];
+  var isSingle = displayRings.length === 1;
+
+  var html = '<div class="section-header"><span class="section-title">Rings</span></div>';
+  html += '<div class="ring-grid">';
+
+  for (var i = 0; i < displayRings.length; i++) {
+    var ring = displayRings[i];
+    var rn = ring.ring_num;
+    var name = ring.ring_name || ('Ring ' + rn);
+    var total = ring.class_count || 0;
+    var done = ring.complete_count || 0;
+    var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    var url = 'classes.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + rn + '&name=' + encodeURIComponent(s.name || SLUG);
+
+    html += '<a class="ring-card' + (isSingle ? ' single' : '') + '" href="' + esc(url) + '" data-ring="' + rn + '">';
+    html += '<div class="ring-top"><div class="ring-name">' + esc(name) + '</div><div class="ring-chevron">&rsaquo;</div></div>';
+    html += '<div class="ring-meta">';
+    html += '<span>' + total + ' class' + (total !== 1 ? 'es' : '') + '</span>';
+    if (done > 0) html += '<span>\u00B7 ' + done + ' complete</span>';
+    html += '<span class="ring-live" id="ringLive' + rn + '" style="display:none;"><span class="ring-live-dot"></span> <span id="ringLiveText' + rn + '"></span></span>';
+    html += '</div>';
+    html += '<div class="ring-progress"><div class="ring-progress-bar" id="ringBar' + rn + '" style="width:' + pct + '%"></div></div>';
+    html += '</a>';
+  }
+
+  html += '</div>';
+  document.getElementById('ringsArea').innerHTML = html;
+}
+
+/* ── Render stats ────────────────────────────────── */
+function renderStats() {
+  var rings = showData.rings || [];
+  var totalClasses = 0, totalComplete = 0;
+  for (var i = 0; i < rings.length; i++) {
+    totalClasses += (rings[i].class_count || 0);
+    totalComplete += (rings[i].complete_count || 0);
+  }
+
+  var html = '<div class="section-header"><span class="section-title">Show Statistics</span></div>';
+  html += '<div class="stats-grid">';
+  html += '<div class="stat-card"><div class="stat-value">' + totalClasses + '</div><div class="stat-label">Total Classes</div></div>';
+  html += '<div class="stat-card"><div class="stat-value">' + totalComplete + '</div><div class="stat-label">Classes Complete</div></div>';
+  html += '<div class="stat-card"><div class="stat-value stat-placeholder">&mdash;</div><div class="stat-label">Coming Soon</div></div>';
+  html += '</div>';
+  document.getElementById('statsArea').innerHTML = html;
+}
+
+/* ── Live polling per ring ───────────────────────── */
+function startLivePolling() {
+  // Clear any previous timers
+  for (var i = 0; i < liveTimers.length; i++) clearInterval(liveTimers[i]);
+  liveTimers = [];
+
+  var rings = showData.rings || [];
+  var displayRings = rings.length > 0 ? rings : [{ ring_num: 1 }];
+
+  for (var i = 0; i < displayRings.length; i++) {
+    (function(rn) {
+      pollRingLive(rn);
+      liveTimers.push(setInterval(function() { pollRingLive(rn); }, 10000));
+    })(displayRings[i].ring_num);
+  }
+}
+
+async function pollRingLive(ringNum) {
+  try {
+    var r = await fetch(WORKER + '/getLiveClass?slug=' + encodeURIComponent(SLUG) + '&ring=' + ringNum);
+    if (!r.ok) return;
+    var d = await r.json();
+    ringLive[ringNum] = d;
+    updateRingLiveUI(ringNum, d);
+  } catch(e) {}
+}
+
+function updateRingLiveUI(ringNum, data) {
+  var el = document.getElementById('ringLive' + ringNum);
+  var textEl = document.getElementById('ringLiveText' + ringNum);
+  if (!el || !textEl) return;
+
+  var active = data.activeClasses || [];
+  var alive = data.watcherAlive;
+
+  if (alive && active.length > 0) {
+    el.style.display = 'inline-flex';
+    textEl.textContent = active.length + ' class' + (active.length !== 1 ? 'es' : '') + ' in ring';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+/* ── Weather ─────────────────────────────────────── */
+async function loadWeather() {
+  var s = showData.show || {};
+  var loc = s.location;
+  if (!loc) return;
+
+  // Check sessionStorage cache (30 min TTL)
+  var cacheKey = 'weather_' + SLUG;
+  var cached = sessionStorage.getItem(cacheKey);
+  if (cached) {
+    try {
+      var c = JSON.parse(cached);
+      if (c.ts && (Date.now() - c.ts) < 30 * 60 * 1000) {
+        renderWeather(c.data, loc);
+        return;
+      }
+    } catch(e) {}
+  }
+
+  try {
+    // Extract city name from location string (e.g. "Culpeper, VA" -> "Culpeper")
+    var city = loc.split(',')[0].trim();
+    var geoR = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=1');
+    if (!geoR.ok) return;
+    var geo = await geoR.json();
+    if (!geo.results || !geo.results.length) return;
+
+    var lat = geo.results[0].latitude;
+    var lon = geo.results[0].longitude;
+
+    var wxR = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current=temperature_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=America/New_York&forecast_days=5&temperature_unit=fahrenheit');
+    if (!wxR.ok) return;
+    var wx = await wxR.json();
+
+    // Cache result
+    sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: wx }));
+    renderWeather(wx, loc);
+  } catch(e) {
+    // Weather is optional — fail silently
+  }
+}
+
+function renderWeather(wx, loc) {
+  if (!wx || !wx.current) return;
+
+  var cur = wx.current;
+  var daily = wx.daily || {};
+
+  var html = '<div class="weather-card loaded">';
+
+  // Current conditions
+  html += '<div class="weather-current">';
+  html += '<div class="weather-icon">' + weatherIcon(cur.weathercode) + '</div>';
+  html += '<div>';
+  html += '<div class="weather-temp">' + Math.round(cur.temperature_2m) + '\u00B0F</div>';
+  html += '<div class="weather-desc">' + esc(weatherDesc(cur.weathercode)) + '</div>';
+  html += '<div class="weather-loc">' + esc(loc) + '</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // 5-day forecast strip
+  if (daily.time && daily.time.length) {
+    html += '<div class="forecast-strip">';
+    for (var i = 0; i < daily.time.length; i++) {
+      html += '<div class="forecast-day">';
+      html += '<div class="forecast-name">' + dayName(daily.time[i]) + '</div>';
+      html += '<div class="forecast-icon">' + weatherIcon(daily.weathercode[i]) + '</div>';
+      html += '<div class="forecast-temps">' + Math.round(daily.temperature_2m_max[i]) + '\u00B0 <span>' + Math.round(daily.temperature_2m_min[i]) + '\u00B0</span></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  document.getElementById('weatherArea').innerHTML = html;
+}
+
+/* ── Init ────────────────────────────────────────── */
+loadShow();
+</script>
+</body>
+</html>
