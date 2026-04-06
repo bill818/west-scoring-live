@@ -834,12 +834,12 @@ function startPort31000Listener() {
 
 let selectedClassNum = null; // tracks most recent Ctrl+A class for inferRound
 let flatEntriesSeen = {};   // tracks entries seen in fr=11 rotation for flat classes — { entryNum: { entry, horse, rider } }
-let flatResults = [];       // tracks placements from fr=14 results frames — [{ entry, horse, rider, place }] in announcement order
+let hunterResults = [];       // tracks placements from fr=14 results frames — [{ entry, horse, rider, place }] in announcement order
 
 function handleClassSelected(classNum, className) {
   selectedClassNum = classNum;
   flatEntriesSeen = {}; // reset flat entry tracking on new class selection
-  flatResults = [];     // reset flat results on new class selection
+  hunterResults = [];     // reset flat results on new class selection
   logSeparator();
   log(`CLASS SELECTED: class ${classNum} — ${className}`);
   log(`  Screens watching this class will refresh`);
@@ -1138,8 +1138,8 @@ function startUdpListener(scoreboardPort) {
 
     // ── Hunter {fr}=14 — RESULTS DISPLAY (flat/forced classes) ─────────────────
     // Operator announces ribbons one at a time. Each fr=14 frame carries one
-    // entry + its placement. We accumulate them in flatResults and post each
-    // as a FLAT_RESULT event so the live page can render ribbons in real time.
+    // entry + its placement. We accumulate them in hunterResults and post each
+    // as a HUNTER_RESULT event so the live page can render ribbons in real time.
     // tags: {1}=entry {2}=horse {3}=rider {4}=owner {8}=place ("1st","2nd",...)  {14}=score (empty for forced)
     if (fr === '14') {
       const rEntry = (tags['1'] || '').trim();
@@ -1150,14 +1150,14 @@ function startUdpListener(scoreboardPort) {
       const rScore = (tags['14'] || '').trim();
 
       // Dedupe — don't re-add if we already have this entry in the results
-      if (!flatResults.some(function(r) { return r.entry === rEntry; })) {
-        flatResults.push({ entry: rEntry, horse: rHorse, rider: rRider, owner: rOwner, place: rPlace, score: rScore });
+      if (!hunterResults.some(function(r) { return r.entry === rEntry; })) {
+        hunterResults.push({ entry: rEntry, horse: rHorse, rider: rRider, owner: rOwner, place: rPlace, score: rScore });
         udpLog(`[HUNTER RESULT] #${rEntry} ${rHorse} / ${rRider} — ${rPlace}${rScore ? ' score=' + rScore : ''}`);
 
         postToWorker('/postClassEvent',
-          { event: 'FLAT_RESULT', entry: rEntry, horse: rHorse, rider: rRider, owner: rOwner,
-            place: rPlace, score: rScore, isHunter: true, flatResults: flatResults.slice() },
-          `FLAT_RESULT #${rEntry} ${rPlace}`);
+          { event: 'HUNTER_RESULT', entry: rEntry, horse: rHorse, rider: rRider, owner: rOwner,
+            place: rPlace, score: rScore, isHunter: true, hunterResults: hunterResults.slice() },
+          `HUNTER_RESULT #${rEntry} ${rPlace}`);
       }
       return;
     }

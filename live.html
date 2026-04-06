@@ -120,7 +120,8 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 
 /* FLAT RESULTS — ribbons appearing in real time */
 .flat-results{padding:8px 0;}
-.flat-result-row{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border);animation:fadeUp .3s ease forwards;}
+.flat-result-row{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border);}
+.flat-result-row.new{animation:fadeUp .3s ease forwards;}
 .flat-result-row:last-child{border-bottom:none;}
 .flat-result-ribbon{flex-shrink:0;width:28px;display:flex;justify-content:center;}
 .flat-result-place{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);}
@@ -301,6 +302,8 @@ function fmtTime(val, cd) { return WEST.formatTime(val, cd ? cd.clockPrecision :
 // Derby expand toggle — mirrors results.html, page-local state tracker so it
 // survives the 3s poll re-render.
 let _openEntryNum = null;
+let _animatedHunterResults = {}; // tracks entries that have already animated — keyed by entry number
+let _lastHunterResultCount = 0;  // tracks how many results we had last render — reset animations if count drops
 function toggleEntry(el, ev) {
   if (ev) ev.stopPropagation();
   const num = el.getAttribute('data-entry-num');
@@ -404,9 +407,10 @@ function render() {
 
   // Reset finish timer when a new horse appears
   if (oc && oc.phase !== 'FINISH') { finishShownAt = 0; }
+  if (!oc || oc.phase !== 'RESULTS') { _animatedHunterResults = {}; }
 
   // ── FLAT RESULTS — ribbons announced one at a time ──────────────────────────
-  if (showOc && oc.phase === 'RESULTS' && oc.flatResults && oc.flatResults.length) {
+  if (showOc && oc.phase === 'RESULTS' && oc.hunterResults && oc.hunterResults.length) {
     const ocCd = sel ? cdMap[sel.classNum] : null;
     const ocClassName = (ocCd && ocCd.className) || (sel ? sel.className : '');
     const isHunterEq = ocCd && WEST.hunter.isEquitation(ocCd);
@@ -417,13 +421,21 @@ function render() {
       + (ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
       + '</div></div>';
 
+    // Reset animation tracking if the results list shrunk (new ceremony / new class)
+    if (oc.hunterResults.length < _lastHunterResultCount) {
+      _animatedHunterResults = {};
+    }
+    _lastHunterResultCount = oc.hunterResults.length;
+
     html += '<div class="flat-results">';
-    oc.flatResults.forEach(function(fr) {
+    oc.hunterResults.forEach(function(fr) {
       var ribbonSvg = WEST.ribbon.svg(parseInt(fr.place)) || '';
       var nameHtml = isHunterEq
         ? '<span class="flat-result-name">' + esc(fr.rider) + '</span><span class="flat-result-sub">' + esc(fr.horse) + '</span>'
         : '<span class="flat-result-name">' + esc(fr.horse) + '</span><span class="flat-result-sub">' + esc(fr.rider) + '</span>';
-      html += '<div class="flat-result-row">'
+      var shouldAnimate = !_animatedHunterResults[fr.entry];
+      if (shouldAnimate) _animatedHunterResults[fr.entry] = true;
+      html += '<div class="flat-result-row' + (shouldAnimate ? ' new' : '') + '">'
         + '<div class="flat-result-ribbon">' + (ribbonSvg || '<span class="flat-result-place">' + esc(fr.place) + '</span>') + '</div>'
         + '<span class="flat-result-num">#' + esc(fr.entry) + '</span>'
         + nameHtml

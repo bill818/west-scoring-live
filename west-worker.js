@@ -220,7 +220,7 @@ export default {
         return json({ ok: true, event: 'ON_COURSE', entry: body.entry });
       }
 
-      if (event === 'FLAT_RESULT') {
+      if (event === 'HUNTER_RESULT') {
         // Flat/forced class result announcement — accumulates results as operator
         // announces ribbons. Store the growing list on oncourse KV so live page
         // can render ribbons appearing in real time.
@@ -233,11 +233,11 @@ export default {
           entry: body.entry, horse: body.horse, rider: body.rider,
           place: body.place, score: body.score || '',
           isHunter: true,
-          flatResults: body.flatResults || [],
+          hunterResults: body.hunterResults || [],
           ts: new Date().toISOString()
         }), { expirationTtl: 600 });
-        console.log(`[FLAT_RESULT] ${slug}:${ring} — #${body.entry} ${body.place}`);
-        return json({ ok: true, event: 'FLAT_RESULT', entry: body.entry });
+        console.log(`[HUNTER_RESULT] ${slug}:${ring} — #${body.entry} ${body.place}`);
+        return json({ ok: true, event: 'HUNTER_RESULT', entry: body.entry });
       }
 
       if (event === 'CLOCK_STOPPED') {
