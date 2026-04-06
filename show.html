@@ -84,7 +84,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .ring-meta{padding:0 16px 6px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .ring-live{display:inline-flex;align-items:center;gap:5px;color:var(--red);font-weight:600;}
 .ring-live-dot{width:7px;height:7px;background:var(--red);border-radius:50%;animation:blink 1.6s ease-in-out infinite;flex-shrink:0;}
-.ring-live-btn{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 12px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;border-radius:4px;text-decoration:none;transition:background .1s;}
+.ring-live-btn{display:flex;align-items:center;justify-content:center;gap:6px;margin:0 16px 10px;padding:10px 16px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;border-radius:6px;text-decoration:none;transition:background .1s;}
 .ring-live-btn:hover{background:#8b1519;}
 .ring-live-btn .ring-live-dot{background:#fff;}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
@@ -280,10 +280,10 @@ function renderRings() {
     if (done > 0) html += '<span>\u00B7 ' + done + ' complete</span>';
     html += '<span class="ring-live" id="ringLive' + rn + '" style="display:none;"><span class="ring-live-dot"></span> <span id="ringLiveText' + rn + '"></span></span>';
     html += '</div>';
-    var liveUrl = 'live.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + rn + '&name=' + encodeURIComponent(s.name || SLUG);
-    html += '<a class="ring-live-btn" id="ringLiveLink' + rn + '" href="' + esc(liveUrl) + '" style="display:none;" onclick="event.stopPropagation()"><span class="ring-live-dot"></span> Watch Live</a>';
     html += '<div class="ring-progress"><div class="ring-progress-bar" id="ringBar' + rn + '" style="width:' + pct + '%"></div></div>';
     html += '</a>';
+    var liveUrl = 'live.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + rn + '&name=' + encodeURIComponent(s.name || SLUG);
+    html += '<a class="ring-live-btn" id="ringLiveLink' + rn + '" href="' + esc(liveUrl) + '" style="display:none;"><span class="ring-live-dot"></span> Watch Live &mdash; ' + esc(name) + '</a>';
   }
 
   html += '</div>';
