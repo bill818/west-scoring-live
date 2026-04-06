@@ -25,6 +25,7 @@ body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans
 header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
 .header-inner{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
 .logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
+.logo-img{height:30px;width:auto;filter:invert(1);}
 .logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:24px;color:#fff;line-height:1;}
 .logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
 .logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
@@ -104,6 +105,7 @@ footer a{color:var(--red);text-decoration:none;}
 <header>
   <div class="header-inner">
     <div class="logo-tap">
+      <img class="logo-img" src="assets/logo.png" alt="WEST">
       <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
     </div>
     <div class="header-right">
