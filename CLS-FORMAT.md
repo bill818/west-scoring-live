@@ -399,24 +399,36 @@ WARNING: Zero crossover with Jumper schema.
 H[00] ClassType              H
 H[01] ClassName              text
 
-H[02] ScoreType              0=Over Fences/Flat (standard)
+H[02] ClassMode              CONFIRMED 2026-04-06 by cycling all 4 Ryegate class type settings:
+                             0=Over Fences (standard hunter, scored or forced)
+                             1=Flat (no jumps, scored)
                              2=Derby (auto-set when Derby selected)
-                             3=Special class
+                             3=Special (custom multi-round, Normal or Team)
 
-H[03] NumRounds              1=single round, 2=two rounds ✓
+H[03] NumRounds              1=single round, 2=two rounds, 3=three rounds ✓
 
-H[04] HardwareType(?)        always 1 in hunter — may differ from jumper meaning
+H[04] Ribbons                ribbon count — 8=standard, 12=derbies ✓
+                             NOTE: was mislabeled HardwareType — corrected 2026-04-06
 
-H[05] IsFlat                 0=Over Fences, 1=Flat ✓
+H[05] ScoringType            CONFIRMED 2026-04-06 by cycling scoring type settings:
+                             0=Forced (operator manually enters placements, no computed scores)
+                             1=Scored (places derived from judge scores, Total method)
+                             2=Hi-Lo (drop highest + lowest judge scores, average the rest)
+                             NOTE: was mislabeled IsFlat — corrected 2026-04-06
 
-H[06] ?                      0=standard, 1=observed only on WCHR Derby Spec (H[37]=8)
-                             Purpose unknown — may be a scoring behavior flag
-                             Not needed for display — we read results, not score
+H[06] ScoreMethod            CONFIRMED 2026-04-06:
+                             0=Total (sum all judge scores)
+                             1=Average (average all judge scores)
+                             NOTE: also 1 for WCHR Derby Spec (H[37]=8) — may have dual meaning
 
-H[07] NumScores              1=one score, 2=two, 3=three ✓
-                             Auto-adjusts per derby sub-type
+H[07] NumJudges              number of judges / score inputs — 1 to 5+ ✓
+                             CONFIRMED 2026-04-06 by setting from 1 to 5
+                             Auto-adjusts per derby sub-type for derbies
+                             NOTE: was labeled NumScores — clarified to NumJudges 2026-04-06
 
-H[08] Ribbons                8=standard, 12=derbies ✓
+H[08] RibbonCount            ribbon count passed to scoreboard ✓
+                             NOTE: H[04] is the class-level ribbon count, H[08] is the
+                             scoreboard ribbon count — may differ
 
 H[09] SBDelay                numeric scoreboard delay (tested at value 4)
 

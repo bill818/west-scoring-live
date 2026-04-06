@@ -220,13 +220,16 @@ function parseCls(content, filename) {
       }
 
       if (isHunterHeader) {
-        // Hunter header — confirmed 2026-03-22 from toggle test
-        result.scoringMethod    = cols[2] || '';   // H[02] ScoreType (0=standard, 2=Derby, 3=Special)
+        // Hunter header — CONFIRMED 2026-04-06 by cycling all Ryegate settings
+        result.classMode        = cols[2] || '0';  // H[02] 0=OverFences, 1=Flat, 2=Derby, 3=Special
+        result.scoringMethod    = cols[2] || '0';  // alias for backward compat
         result.numRounds        = cols[3] || '1';  // H[03] NumRounds
-        result.isFlat           = cols[5] === '1'; // H[05] IsFlat
-        result.numScores        = cols[7] || '1';  // H[07] NumScores
-        result.ribbons          = cols[8] || '';   // H[08] Ribbons
-        result.sbDelay          = cols[9] || '4';  // H[09] SBDelay
+        result.ribbons          = cols[4] || '';    // H[04] Ribbons
+        result.scoringType      = cols[5] || '0';  // H[05] 0=Forced, 1=Scored, 2=HiLo
+        result.scoreMethod      = cols[6] || '0';  // H[06] 0=Total, 1=Average
+        result.numJudges        = cols[7] || '1';  // H[07] NumJudges (1-5+)
+        result.sbRibbons        = cols[8] || '';    // H[08] Scoreboard ribbon count
+        result.sbDelay          = cols[9] || '4';   // H[09] SBDelay
         result.isEquitation     = cols[10] === 'True'; // H[10]
         result.isChampionship   = cols[11] === 'True'; // H[11]
         result.isJogged         = cols[12] === 'True'; // H[12]
@@ -234,18 +237,33 @@ function parseCls(content, filename) {
         result.ignoreSireDam    = cols[14] === 'True'; // H[14]
         result.printJudgeScores = cols[15] === 'True'; // H[15]
         result.reverseRank      = cols[16] === 'True'; // H[16]
-        result.californiaSplit  = cols[17] === 'True'; // H[17]
-        result.caliSplitSections = cols[33] || '2'; // H[33] CaliSplitSections
-        result.showAllRounds    = cols[35] === 'True'; // H[35]
-        result.derbyType        = parseInt(cols[37] || '0'); // H[37] 0=none,1-8=derby types
-        result.ihsa             = cols[38] === 'True'; // H[38]
-        result.ribbonsOnly      = cols[39] === 'True'; // H[39]
+        result.californiaSplit   = cols[17] === 'True'; // H[17]
+        result.r1TieBreak       = cols[18] || '0';  // H[18] 0=LeaveTied, 1-N=ByJudgeN
+        result.r2TieBreak       = cols[19] || '0';  // H[19]
+        result.r3TieBreak       = cols[20] || '0';  // H[20]
+        result.overallTieBreak  = cols[21] || '0';  // H[21] 0=LeaveTied, 20=ByOverallScore
+        result.phaseWeights     = [cols[22]||'100', cols[23]||'100', cols[24]||'100'];
         result.phaseLabels      = [cols[25]||'', cols[26]||'', cols[27]||''].filter(Boolean);
         result.message          = cols[28] || '';
         const rawSponsor        = cols[29] || '';
         result.sponsor = (rawSponsor === 'True' || rawSponsor === 'False' || !rawSponsor.trim()) ? '' : rawSponsor;
-        // numJudges for display
-        result.numJudges        = cols[7] || '1';
+        result.runOff           = cols[30] === 'True'; // H[30]
+        result.avgRounds        = cols[31] === 'True'; // H[31]
+        result.noCutOff         = cols[32] === 'True'; // H[32]
+        result.caliSplitSections = cols[33] || '2';    // H[33]
+        result.isTeam           = cols[34] === 'True';  // H[34] Team flag (Special Team)
+        result.showAllRounds    = cols[35] === 'True'; // H[35]
+        result.displayNATTeam   = cols[36] === 'True'; // H[36]
+        result.derbyType        = parseInt(cols[37] || '0'); // H[37] 0-8 derby types
+        result.ihsa             = cols[38] === 'True'; // H[38]
+        result.ribbonsOnly      = cols[39] === 'True'; // H[39]
+        // Derived convenience flags
+        result.isFlat           = cols[2] === '1';
+        result.isDerby          = cols[2] === '2';
+        result.isSpecial        = cols[2] === '3';
+        result.isForced         = cols[5] === '0';
+        result.isScored         = cols[5] === '1';
+        result.isHiLo           = cols[5] === '2';
       }
 
       result.raw.header = cols;
@@ -382,7 +400,10 @@ function logClass(parsed, changed) {
   if (isHunter) {
     typeStr = 'Hunter';
     if (parsed.derbyType > 0) typeStr += ' Derby';
-    else if (parsed.isFlat) typeStr += ' Flat';
+    else if (parsed.isFlat) typeStr = 'Hunter Flat';
+    else if (parsed.isSpecial) typeStr = 'Hunter Special' + (parsed.isTeam ? ' (Team)' : '');
+    else if (parsed.isForced) typeStr += ' (Forced)';
+    else if (parsed.isHiLo) typeStr += ' (Hi-Lo)';
     if (parsed.isEquitation) typeStr += ' Equitation';
     if (parsed.isChampionship) typeStr += ' Championship';
   }

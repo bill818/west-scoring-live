@@ -416,19 +416,26 @@ WEST.hunter.getDerby = function(code) {
 };
 
 // ── CLASS LABEL ──────────────────────────────────────────────────────────────
+// Hunter header column meanings (CONFIRMED 2026-04-06):
+//   H[2]  ClassMode:   0=Over Fences, 1=Flat, 2=Derby, 3=Special
+//   H[5]  ScoringType: 0=Forced, 1=Scored, 2=Hi-Lo
+//   H[7]  NumJudges:   1-5+
+//   H[10] IsEquitation
+//   H[11] IsChampionship
+//   H[37] DerbyType (only when H[2]=2)
 WEST.hunter.getClassLabel = function(classInfo) {
   if (!classInfo) return 'Hunter';
-  // Check if derby via cls_raw header H[37]
-  var h = WEST.parseClsHeader(classInfo.cls_raw);
-  var derbyType = h[37] || '0';
-  var scoreType = h[2] || '0';
-  if (scoreType === '2') {
-    var derby = WEST.hunter.getDerby(derbyType);
+  var raw = classInfo.cls_raw || classInfo.clsRaw || '';
+  var h = WEST.parseClsHeader(raw);
+  var classMode = h[2] || '0';
+  if (classMode === '2') {
+    var derby = WEST.hunter.getDerby(h[37] || '0');
     return derby ? derby.label : 'Hunter Derby';
   }
+  if (classMode === '3') return 'Hunter Special';
+  if (classMode === '1') return 'Hunter Flat';
   if (h[10] === 'True') return 'Equitation';
   if (h[11] === 'True') return 'Hunter Championship';
-  if (h[5] === '1') return 'Hunter Flat';
   return 'Hunter';
 };
 
@@ -577,12 +584,20 @@ WEST.hunter.getCombinedTotal = function(entry) {
 
 WEST.hunter.derby = {};
 
-// Judge count from header H[37] derby type
+// Judge count — for derbies use H[37] derby type table, for all others use H[7] directly
+// CONFIRMED 2026-04-06: H[7] = NumJudges for all hunter classes
 WEST.hunter.derby.getJudgeCount = function(classInfo) {
-  if (!classInfo || !classInfo.cls_raw) return 1;
-  var h = WEST.parseClsHeader(classInfo.cls_raw);
-  var type = WEST.hunter.derbyTypes[String(h[37] || '0')];
-  return type ? type.judges : 1;
+  var raw = classInfo ? (classInfo.cls_raw || classInfo.clsRaw || '') : '';
+  if (!raw) return 1;
+  var h = WEST.parseClsHeader(raw);
+  // Derby: judge count comes from the derby type table
+  if (h[2] === '2') {
+    var type = WEST.hunter.derbyTypes[String(h[37] || '0')];
+    return type ? type.judges : 1;
+  }
+  // All other hunter classes: H[7] is the judge count directly
+  var n = parseInt(h[7]) || 1;
+  return n > 0 ? n : 1;
 };
 
 // Parse a CLS entry row into a structured derby entry with per-judge scores
