@@ -230,6 +230,15 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .recent-name{font-size:14px;color:var(--black);flex:1;font-weight:500;}
 .recent-ago{font-family:'DM Mono',monospace;font-size:10px;color:#aaa;flex-shrink:0;}
 .recent-arrow{font-size:18px;color:#ccc;flex-shrink:0;font-weight:700;}
+.recent-card{border-bottom:1px solid var(--border);}
+.recent-card:last-child{border-bottom:none;}
+.recent-preview{padding:0 16px 12px;}
+.recent-preview-row{display:flex;align-items:center;gap:8px;padding:4px 0;}
+.recent-preview-ribbon{flex-shrink:0;width:24px;display:flex;justify-content:center;}
+.recent-preview-place{font-family:'Playfair Display',serif;font-size:12px;font-weight:700;color:var(--black);}
+.recent-preview-name{font-size:13px;font-weight:600;color:var(--black);}
+.recent-preview-sub{font-size:12px;color:var(--text-muted);margin-left:4px;}
+.recent-full-link{display:block;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--red);text-decoration:none;padding:6px 0 0;}
 
 /* NO LIVE STATE */
 .no-live{text-align:center;padding:80px 20px;}
@@ -353,6 +362,67 @@ function inferHunterRound(entryRow, phase) {
   return null;
 }
 
+// Cache for recent class results — fetched once per class, keyed by classNum
+let _recentResultsCache = {};
+
+function renderRecentSection(recentClasses) {
+  var html = '<div class="recent-section">';
+  html += '<div class="recent-header">Recent Results</div>';
+
+  recentClasses.forEach(function(rc) {
+    var resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+    var ago = rc.completedAt ? timeAgo(rc.completedAt) : '';
+
+    html += '<div class="recent-card">';
+    html += '<a class="recent-row" href="' + esc(resultsUrl) + '">'
+      + '<span class="recent-num">Class ' + esc(rc.classNum) + '</span>'
+      + '<span class="recent-name">' + esc(rc.className || '') + '</span>'
+      + (ago ? '<span class="recent-ago">' + esc(ago) + '</span>' : '')
+      + '<span class="recent-arrow">&rsaquo;</span>'
+      + '</a>';
+
+    // Preview top 3 results if cached
+    var cached = _recentResultsCache[rc.classNum];
+    if (cached && cached.length) {
+      html += '<div class="recent-preview">';
+      var top = cached.slice(0, 3);
+      top.forEach(function(e) {
+        var ribbonSvg = WEST.ribbon.svg(parseInt(e.place)) || '';
+        var name = e.horse || e.rider || '';
+        var sub = e.rider && e.horse ? e.rider : '';
+        html += '<div class="recent-preview-row">'
+          + '<div class="recent-preview-ribbon">' + (ribbonSvg || '<span class="recent-preview-place">' + esc(e.place || '') + '</span>') + '</div>'
+          + '<span class="recent-preview-name">' + esc(name) + '</span>'
+          + (sub ? '<span class="recent-preview-sub">' + esc(sub) + '</span>' : '')
+          + '</div>';
+      });
+      html += '<a class="recent-full-link" href="' + esc(resultsUrl) + '">View Full Results &rsaquo;</a>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    // Fetch results if not cached yet
+    if (!_recentResultsCache[rc.classNum]) {
+      _recentResultsCache[rc.classNum] = []; // mark as fetching
+      fetch(WORKER + '/getResults?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING)
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.ok && d.entries && d.entries.length) {
+            // Sort by place, take entries with a place
+            var placed = d.entries.filter(function(e) { return e.place && parseInt(e.place); });
+            placed.sort(function(a, b) { return (parseInt(a.place) || 999) - (parseInt(b.place) || 999); });
+            _recentResultsCache[rc.classNum] = placed;
+          }
+        })
+        .catch(function() {});
+    }
+  });
+
+  html += '</div>';
+  return html;
+}
+
 function timeAgo(isoStr) {
   if (!isoStr) return '';
   var secs = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
@@ -393,19 +463,7 @@ function render() {
 
     // Still show Recent Results even when no active classes
     if (recentClasses.length) {
-      noLiveHtml += '<div class="recent-section">';
-      noLiveHtml += '<div class="recent-header">Recent Results</div>';
-      recentClasses.forEach(function(rc) {
-        const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
-        const ago = rc.completedAt ? timeAgo(rc.completedAt) : '';
-        noLiveHtml += '<a class="recent-row" href="' + esc(resultsUrl) + '">'
-          + '<span class="recent-num">Class ' + esc(rc.classNum) + '</span>'
-          + '<span class="recent-name">' + esc(rc.className || '') + '</span>'
-          + (ago ? '<span class="recent-ago">' + esc(ago) + '</span>' : '')
-          + '<span class="recent-arrow">&rsaquo;</span>'
-          + '</a>';
-      });
-      noLiveHtml += '</div>';
+      noLiveHtml += renderRecentSection(recentClasses);
     }
 
     content.innerHTML = noLiveHtml;
@@ -876,19 +934,7 @@ function render() {
 
   // ── RECENT RESULTS — completed classes that stay visible for 30 min ────────
   if (recentClasses.length) {
-    html += '<div class="recent-section">';
-    html += '<div class="recent-header">Recent Results</div>';
-    recentClasses.forEach(function(rc) {
-      const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
-      const ago = rc.completedAt ? timeAgo(rc.completedAt) : '';
-      html += '<a class="recent-row" href="' + esc(resultsUrl) + '">'
-        + '<span class="recent-num">Class ' + esc(rc.classNum) + '</span>'
-        + '<span class="recent-name">' + esc(rc.className || '') + '</span>'
-        + (ago ? '<span class="recent-ago">' + esc(ago) + '</span>' : '')
-        + '<span class="recent-arrow">&rsaquo;</span>'
-        + '</a>';
-    });
-    html += '</div>';
+    html += renderRecentSection(recentClasses);
   }
 
   if (!html.includes('standings-wrap') && !html.includes('results-wrap') && !recentClasses.length) {
