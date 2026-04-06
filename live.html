@@ -381,13 +381,34 @@ function render() {
 
   document.getElementById('livePill').style.display = (active.length && alive) ? 'flex' : 'none';
 
+  const recentClasses = liveData.recentClasses || [];
+
   if (!active.length || !alive) {
-    content.innerHTML = '<div class="no-live">'
+    let noLiveHtml = '<div class="no-live">'
       + '<div class="no-live-icon">&#9711;</div>'
       + '<h2>No Class in the Ring</h2>'
       + '<p>When a class goes live, it will appear here<br>with a running clock and live standings.</p>'
       + '<a class="no-live-link" href="' + esc(classesUrl) + '">View Schedule</a>'
       + '</div>';
+
+    // Still show Recent Results even when no active classes
+    if (recentClasses.length) {
+      noLiveHtml += '<div class="recent-section">';
+      noLiveHtml += '<div class="recent-header">Recent Results</div>';
+      recentClasses.forEach(function(rc) {
+        const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+        const ago = rc.completedAt ? timeAgo(rc.completedAt) : '';
+        noLiveHtml += '<a class="recent-row" href="' + esc(resultsUrl) + '">'
+          + '<span class="recent-num">Class ' + esc(rc.classNum) + '</span>'
+          + '<span class="recent-name">' + esc(rc.className || '') + '</span>'
+          + (ago ? '<span class="recent-ago">' + esc(ago) + '</span>' : '')
+          + '<span class="recent-arrow">&rsaquo;</span>'
+          + '</a>';
+      });
+      noLiveHtml += '</div>';
+    }
+
+    content.innerHTML = noLiveHtml;
     document.title = 'Live — WEST Scoring Live';
     return;
   }
@@ -854,7 +875,6 @@ function render() {
   });
 
   // ── RECENT RESULTS — completed classes that stay visible for 30 min ────────
-  const recentClasses = liveData.recentClasses || [];
   if (recentClasses.length) {
     html += '<div class="recent-section">';
     html += '<div class="recent-header">Recent Results</div>';
