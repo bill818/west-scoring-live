@@ -212,11 +212,32 @@ export default {
           round: body.round || 1, label: body.label || '',
           fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,
           isHunter: !!body.isHunter,
+          flatEntries: body.flatEntries || null,
           paused: false,
           ts: new Date().toISOString()
         }), { expirationTtl: 300 });
-        console.log(`[ON_COURSE] ${slug}:${ring} — #${body.entry} ${body.horse}${body.isHunter ? ' [hunter]' : ''}`);
+        console.log(`[ON_COURSE] ${slug}:${ring} — #${body.entry} ${body.horse}${body.isHunter ? ' [hunter]' : ''}${body.flatEntries ? ' [flat:' + body.flatEntries.length + ']' : ''}`);
         return json({ ok: true, event: 'ON_COURSE', entry: body.entry });
+      }
+
+      if (event === 'FLAT_RESULT') {
+        // Flat/forced class result announcement — accumulates results as operator
+        // announces ribbons. Store the growing list on oncourse KV so live page
+        // can render ribbons appearing in real time.
+        const key = `oncourse:${slug}:${ring}`;
+        const existing = await env.WEST_LIVE.get(key);
+        const prev = existing ? JSON.parse(existing) : {};
+        await env.WEST_LIVE.put(key, JSON.stringify({
+          ...prev,
+          phase: 'RESULTS',
+          entry: body.entry, horse: body.horse, rider: body.rider,
+          place: body.place, score: body.score || '',
+          isHunter: true,
+          flatResults: body.flatResults || [],
+          ts: new Date().toISOString()
+        }), { expirationTtl: 600 });
+        console.log(`[FLAT_RESULT] ${slug}:${ring} — #${body.entry} ${body.place}`);
+        return json({ ok: true, event: 'FLAT_RESULT', entry: body.entry });
       }
 
       if (event === 'CLOCK_STOPPED') {

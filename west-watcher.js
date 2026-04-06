@@ -833,9 +833,13 @@ function startPort31000Listener() {
 }
 
 let selectedClassNum = null; // tracks most recent Ctrl+A class for inferRound
+let flatEntriesSeen = {};   // tracks entries seen in fr=11 rotation for flat classes — { entryNum: { entry, horse, rider } }
+let flatResults = [];       // tracks placements from fr=14 results frames — [{ entry, horse, rider, place }] in announcement order
 
 function handleClassSelected(classNum, className) {
   selectedClassNum = classNum;
+  flatEntriesSeen = {}; // reset flat entry tracking on new class selection
+  flatResults = [];     // reset flat results on new class selection
   logSeparator();
   log(`CLASS SELECTED: class ${classNum} — ${className}`);
   log(`  Screens watching this class will refresh`);
@@ -1099,17 +1103,61 @@ function startUdpListener(scoreboardPort) {
 
     // ── Hunter {fr}=11 — ON COURSE signal ─────────────────────────────────────
     // {17} in hunter packets is scoreboard message text, NOT elapsed time.
-    // Only act on Page A (has {3} rider). Page B (has {18} sire) — ignore.
+    // Page A (has {3} rider) = entry info → track + post ON_COURSE
+    // Page B (has {18} sire) = breeding info → ignore (display only)
+    //
+    // Flat classes rotate all entries rapidly (~2s per page). We track every
+    // entry seen in flatEntriesSeen and include the full list in each post
+    // so the live page can show "entries in the ring" instead of flickering
+    // between individual on-course cards.
     if (fr === '11') {
       if (tags['3']) {
         const hEntry = (tags['1'] || '').trim();
         const hHorse = (tags['2'] || '').trim();
         const hRider = (tags['3'] || '').trim();
         const hOwner = (tags['4'] || '').trim();
-        udpLog(`[HUNTER ON_COURSE] #${hEntry} ${hHorse} / ${hRider}`);
+
+        // Track this entry in the flat rotation set
+        const isNew = !flatEntriesSeen[hEntry];
+        flatEntriesSeen[hEntry] = { entry: hEntry, horse: hHorse, rider: hRider, owner: hOwner };
+
+        if (isNew) {
+          udpLog(`[HUNTER ON_COURSE] #${hEntry} ${hHorse} / ${hRider}`);
+        }
+
+        // Build ordered list of entries seen so far
+        const flatList = Object.values(flatEntriesSeen);
+
         postToWorker('/postClassEvent',
-          { event: 'ON_COURSE', entry: hEntry, horse: hHorse, rider: hRider, owner: hOwner, isHunter: true },
-          `ON_COURSE #${hEntry}`);
+          { event: 'ON_COURSE', entry: hEntry, horse: hHorse, rider: hRider, owner: hOwner,
+            isHunter: true, flatEntries: flatList },
+          isNew ? `ON_COURSE #${hEntry}` : `ON_COURSE #${hEntry} (rotation)`);
+      }
+      return;
+    }
+
+    // ── Hunter {fr}=14 — RESULTS DISPLAY (flat/forced classes) ─────────────────
+    // Operator announces ribbons one at a time. Each fr=14 frame carries one
+    // entry + its placement. We accumulate them in flatResults and post each
+    // as a FLAT_RESULT event so the live page can render ribbons in real time.
+    // tags: {1}=entry {2}=horse {3}=rider {4}=owner {8}=place ("1st","2nd",...)  {14}=score (empty for forced)
+    if (fr === '14') {
+      const rEntry = (tags['1'] || '').trim();
+      const rHorse = (tags['2'] || '').trim();
+      const rRider = (tags['3'] || '').trim();
+      const rOwner = (tags['4'] || '').trim();
+      const rPlace = (tags['8'] || '').trim();
+      const rScore = (tags['14'] || '').trim();
+
+      // Dedupe — don't re-add if we already have this entry in the results
+      if (!flatResults.some(function(r) { return r.entry === rEntry; })) {
+        flatResults.push({ entry: rEntry, horse: rHorse, rider: rRider, owner: rOwner, place: rPlace, score: rScore });
+        udpLog(`[HUNTER RESULT] #${rEntry} ${rHorse} / ${rRider} — ${rPlace}${rScore ? ' score=' + rScore : ''}`);
+
+        postToWorker('/postClassEvent',
+          { event: 'FLAT_RESULT', entry: rEntry, horse: rHorse, rider: rRider, owner: rOwner,
+            place: rPlace, score: rScore, isHunter: true, flatResults: flatResults.slice() },
+          `FLAT_RESULT #${rEntry} ${rPlace}`);
       }
       return;
     }

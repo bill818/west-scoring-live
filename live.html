@@ -110,6 +110,26 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .s-round-faults.clean{color:var(--green);}
 .s-round-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:56px;text-align:right;}
 
+/* FLAT CLASS — entry list in the ring */
+.flat-entries{padding:8px 0;}
+.flat-entry{display:flex;align-items:baseline;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border);}
+.flat-entry:last-child{border-bottom:none;}
+.flat-entry-num{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);min-width:36px;flex-shrink:0;}
+.flat-entry-name{font-size:15px;font-weight:600;color:var(--black);}
+.flat-entry-sub{font-size:13px;color:var(--text-muted);}
+
+/* FLAT RESULTS — ribbons appearing in real time */
+.flat-results{padding:8px 0;}
+.flat-result-row{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border);animation:fadeUp .3s ease forwards;}
+.flat-result-row:last-child{border-bottom:none;}
+.flat-result-ribbon{flex-shrink:0;width:28px;display:flex;justify-content:center;}
+.flat-result-place{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);}
+.flat-result-num{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);min-width:36px;flex-shrink:0;}
+.flat-result-name{font-size:15px;font-weight:600;color:var(--black);}
+.flat-result-sub{font-size:13px;color:var(--text-muted);margin-left:6px;}
+.flat-result-score{font-family:'DM Mono',monospace;font-size:13px;color:var(--text-body);margin-left:auto;flex-shrink:0;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
 /* HUNTER ON-COURSE FINISH HEADER — two columns: score + rank */
 .oc-finish-header{display:flex;align-items:flex-start;justify-content:center;gap:24px;}
 .oc-finish-col{display:flex;flex-direction:column;align-items:center;}
@@ -385,8 +405,65 @@ function render() {
   // Reset finish timer when a new horse appears
   if (oc && oc.phase !== 'FINISH') { finishShownAt = 0; }
 
-  // On course block — renders differently per phase
-  if (showOc && ocIsHunterEarly) {
+  // ── FLAT RESULTS — ribbons announced one at a time ──────────────────────────
+  if (showOc && oc.phase === 'RESULTS' && oc.flatResults && oc.flatResults.length) {
+    const ocCd = sel ? cdMap[sel.classNum] : null;
+    const ocClassName = (ocCd && ocCd.className) || (sel ? sel.className : '');
+    const isHunterEq = ocCd && WEST.hunter.isEquitation(ocCd);
+
+    html += '<div class="oc-wrap">'
+      + '<div class="oc-header"><div class="oc-title">Results'
+      + (sel ? ' &mdash; Class ' + esc(sel.classNum) : '')
+      + (ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
+      + '</div></div>';
+
+    html += '<div class="flat-results">';
+    oc.flatResults.forEach(function(fr) {
+      var ribbonSvg = WEST.ribbon.svg(parseInt(fr.place)) || '';
+      var nameHtml = isHunterEq
+        ? '<span class="flat-result-name">' + esc(fr.rider) + '</span><span class="flat-result-sub">' + esc(fr.horse) + '</span>'
+        : '<span class="flat-result-name">' + esc(fr.horse) + '</span><span class="flat-result-sub">' + esc(fr.rider) + '</span>';
+      html += '<div class="flat-result-row">'
+        + '<div class="flat-result-ribbon">' + (ribbonSvg || '<span class="flat-result-place">' + esc(fr.place) + '</span>') + '</div>'
+        + '<span class="flat-result-num">#' + esc(fr.entry) + '</span>'
+        + nameHtml
+        + (fr.score ? '<span class="flat-result-score">' + esc(fr.score) + '</span>' : '')
+        + '</div>';
+    });
+    html += '</div></div>';
+
+  // ── FLAT CLASS — show entry list banner instead of individual on-course card ──
+  } else if (showOc && ocIsHunterEarly && oc.flatEntries && oc.flatEntries.length > 1) {
+    const ocCd = sel ? cdMap[sel.classNum] : null;
+    const ocClassName = (ocCd && ocCd.className) || (sel ? sel.className : '');
+    const isHunterEq = ocCd && WEST.hunter.isEquitation(ocCd);
+
+    html += '<div class="oc-wrap">'
+      + '<div class="oc-header"><div class="oc-title">Flat Class in the Ring'
+      + (sel ? ' &mdash; Class ' + esc(sel.classNum) : '')
+      + (ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
+      + '</div></div>';
+
+    html += '<div class="flat-entries">';
+    oc.flatEntries.forEach(function(fe) {
+      if (isHunterEq) {
+        html += '<div class="flat-entry">'
+          + '<span class="flat-entry-num">#' + esc(fe.entry) + '</span>'
+          + '<span class="flat-entry-name">' + esc(fe.rider) + '</span>'
+          + '<span class="flat-entry-sub">' + esc(fe.horse) + '</span>'
+          + '</div>';
+      } else {
+        html += '<div class="flat-entry">'
+          + '<span class="flat-entry-num">#' + esc(fe.entry) + '</span>'
+          + '<span class="flat-entry-name">' + esc(fe.horse) + '</span>'
+          + '<span class="flat-entry-sub">' + esc(fe.rider) + '</span>'
+          + '</div>';
+      }
+    });
+    html += '</div></div>';
+
+  // ── HUNTER ON-COURSE (non-flat) ────────────────────────────────────────────
+  } else if (showOc && ocIsHunterEarly) {
     // ── HUNTER ON-COURSE ─────────────────────────────────────────────────
     // Hunters have no clock. Show entry card only.
     // Round is inferred from the entry's cls state (no R1 → R1, R1 only → R2).
