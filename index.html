@@ -82,6 +82,16 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .error-box h2{font-family:'Playfair Display',serif;font-size:20px;margin-bottom:8px;}
 .error-box p{font-size:13px;color:var(--text-muted);line-height:1.6;}
 
+/* SEARCH */
+.search-bar{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;}
+.search-wrap{flex:1;position:relative;}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;pointer-events:none;}
+.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Source Sans 3',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
+.search-input::placeholder{color:#aaa;}
+.search-input:focus{border-color:var(--black);}
+.year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;appearance:auto;-webkit-appearance:auto;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.no-results{background:#fff;border-radius:var(--card-radius);border:1px solid var(--border);padding:40px 20px;margin:12px 16px;text-align:center;color:var(--text-muted);font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;display:none;}
+
 /* FOOTER */
 footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
 footer a{color:var(--red);text-decoration:none;}
@@ -91,6 +101,7 @@ footer a{color:var(--red);text-decoration:none;}
   .header-inner{height:70px;padding:0 clamp(16px,4vw,48px);}
   .logo-west{font-size:30px;}
   .logo-sep,.logo-scoring{font-size:17px;}
+  .search-bar{padding:14px clamp(16px,4vw,48px);}
   .toolbar{padding:12px clamp(16px,4vw,48px);}
   .cards{padding:20px clamp(16px,4vw,48px) 80px;max-width:860px;}
   .show-card{margin-bottom:0;}
@@ -125,12 +136,26 @@ footer a{color:var(--red);text-decoration:none;}
   <button class="refresh-btn" onclick="loadData()">&#8634; Refresh</button>
 </div>
 
+<div class="search-bar">
+  <div class="search-wrap">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="6.5" cy="6.5" r="5" stroke="#888" stroke-width="1.5"/>
+      <path d="M10.5 10.5L14 14" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input type="search" id="searchInput" class="search-input" placeholder="Search shows&hellip;" oninput="filterShows()" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <select id="yearSelect" class="year-sel" onchange="filterShows()">
+    <option value="recent">Recent</option>
+  </select>
+</div>
+
 <div id="content">
   <div class="loading-state">
     <div class="spinner"></div>
     <div class="loading-lbl">Loading Shows&hellip;</div>
   </div>
 </div>
+<div class="no-results" id="noResultsCard">No shows match your search</div>
 
 <footer>
   <p>WEST Timing and Scoring &nbsp;&middot;&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;&middot;&nbsp; <a href="admin.html">Admin</a></p>
@@ -155,16 +180,20 @@ async function loadData() {
       if (d.ok) {
         SHOWS = (d.shows || []).map(function(s) {
           return {
-            slug:     s.slug,
-            name:     s.name || s.slug,
-            dates:    s.dates || '',
-            venue:    s.venue || '',
-            location: s.location || '',
-            ring:     '1', // preview currently uses ring 1; multi-ring preview is a follow-up
-            status:   s.status || 'pending',
+            slug:      s.slug,
+            name:      s.name || s.slug,
+            dates:     s.dates || '',
+            venue:     s.venue || '',
+            location:  s.location || '',
+            ring:      '1', // preview currently uses ring 1; multi-ring preview is a follow-up
+            status:    s.status || 'pending',
             ringsCount: s.rings_count || 1,
+            year:      s.year || (s.start_date ? s.start_date.slice(0, 4) : String(new Date().getFullYear())),
+            startDate: s.start_date || '',
+            endDate:   s.end_date || '',
           };
         });
+        buildYearDropdown();
       }
     }
   } catch(e) {}
@@ -240,7 +269,11 @@ async function loadData() {
     }
 
     cards.push(
-      '<a class="show-card" href="show.html?slug=' + esc(show.slug) + '">'
+      '<a class="show-card" href="show.html?slug=' + esc(show.slug) + '"'
+      + ' data-name="' + esc((show.name + ' ' + show.venue + ' ' + show.location).toLowerCase()) + '"'
+      + ' data-year="' + esc(show.year) + '"'
+      + ' data-end-date="' + esc(show.endDate) + '"'
+      + '>'
       + '<div class="card-top">'
       + '<div class="card-row1"><div class="card-title">' + esc(show.name) + '</div><div class="card-chevron">&rsaquo;</div></div>'
       + (show.dates ? '<div class="card-dates">' + esc(show.dates) + '</div>' : '')
@@ -259,6 +292,61 @@ async function loadData() {
     return;
   }
   content.innerHTML = '<div class="cards">' + cards.join('') + '</div>';
+  filterShows();
+}
+
+// ── YEAR DROPDOWN ──────────────────────────────────────────────────────────
+function buildYearDropdown() {
+  var sel = document.getElementById('yearSelect');
+  var years = {};
+  SHOWS.forEach(function(s) { if (s.year) years[s.year] = true; });
+  var sorted = Object.keys(years).sort().reverse();
+  sel.innerHTML = '<option value="recent">Recent</option>';
+  sorted.forEach(function(y) {
+    sel.innerHTML += '<option value="' + y + '">' + y + '</option>';
+  });
+  sel.innerHTML += '<option value="all">All Shows</option>';
+}
+
+// ── SEARCH + YEAR FILTER ──────────────────────────────────────────────────
+// Display rules ported from old site:
+// - "Recent" = shows whose end_date is within 90 days, OR current year if no dates
+// - Auto-fallback: recent → current year → previous year → all (if nothing matches)
+// - Search matches against name, venue, location
+function filterShows(forceYr) {
+  var q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  var sel = document.getElementById('yearSelect');
+  var yr = forceYr || sel.value;
+  var now = new Date();
+  var cutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  var curYear = String(now.getFullYear());
+  var prevYear = String(now.getFullYear() - 1);
+  var cards = document.querySelectorAll('.show-card');
+  var vis = 0;
+
+  cards.forEach(function(c) {
+    var name = c.dataset.name || '';
+    var year = String(c.dataset.year || '');
+    var endDate = c.dataset.endDate ? new Date(c.dataset.endDate) : null;
+    var words = q.split(/\s+/).filter(Boolean);
+    var matchesSearch = !q || words.every(function(w) { return name.indexOf(w) >= 0; });
+    var matchesYear = false;
+    if (yr === 'all') matchesYear = true;
+    else if (yr === 'recent') matchesYear = endDate ? endDate >= cutoff : year === curYear;
+    else matchesYear = year === yr;
+    var ok = matchesSearch && matchesYear;
+    c.style.display = ok ? '' : 'none';
+    if (ok) vis++;
+  });
+
+  // Auto-fallback: recent → curYear → prevYear → all
+  if (vis === 0 && yr === 'recent') { sel.value = curYear; filterShows(curYear); return; }
+  if (vis === 0 && yr === curYear) { sel.value = prevYear; filterShows(prevYear); return; }
+  if (vis === 0 && yr === prevYear) { sel.value = 'all'; filterShows('all'); return; }
+
+  document.getElementById('showsLbl').textContent = vis ? vis + ' show' + (vis !== 1 ? 's' : '') : '';
+  var nr = document.getElementById('noResultsCard');
+  if (nr) nr.style.display = vis === 0 ? '' : 'none';
 }
 
 loadData();
