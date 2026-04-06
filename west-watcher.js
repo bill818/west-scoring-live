@@ -871,6 +871,21 @@ function handleClassComplete(classNum, className) {
   log(`  Triggered by 3x Ctrl+A on port ${CLASS_COMPLETE_PORT}`);
   logSeparator();
 
+  // Force-read the .cls file and post fresh data BEFORE the CLASS_COMPLETE
+  // event. For forced/flat hunter classes, the .cls may have just been written
+  // with final placements — we need that data in D1 before marking complete.
+  const filename = classNum + '.cls';
+  const fullPath = path.join(CLASSES_DIR, filename);
+  const content = safeRead(fullPath);
+  if (content) {
+    fileStates[filename] = content;
+    const parsed = parseCls(content, filename);
+    if (parsed) {
+      postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (class-complete forced)`);
+      log(`[CLASS_COMPLETE] Forced re-post of ${filename}`);
+    }
+  }
+
   postToWorker('/postClassEvent',
     { event: 'CLASS_COMPLETE', classNum, className },
     `CLASS_COMPLETE class ${classNum}`);
