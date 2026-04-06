@@ -317,9 +317,18 @@ export default {
             }
           } catch(e) { /* ignore parse errors */ }
         }
+        // Add to recent completions list (30 min TTL, live page shows "Recent Results")
+        const recentKey = `recent:${slug}:${ring}`;
+        const recentRaw = await env.WEST_LIVE.get(recentKey);
+        let recent = recentRaw ? JSON.parse(recentRaw) : [];
+        // Remove if already present (re-complete), then add at top
+        recent = recent.filter(r => String(r.classNum) !== String(classNum));
+        recent.unshift({ classNum, className, completedAt: new Date().toISOString() });
+        await env.WEST_LIVE.put(recentKey, JSON.stringify(recent), { expirationTtl: 1800 });
+
         // Mark class complete in D1
         ctx.waitUntil(markClassComplete(env, slug, ring, classNum, className));
-        console.log(`[CLASS_COMPLETE] ${slug}:${ring} — class ${classNum} (${active.length} remaining)`);
+        console.log(`[CLASS_COMPLETE] ${slug}:${ring} — class ${classNum} (${active.length} remaining, ${recent.length} recent)`);
         return json({ ok: true, event: 'CLASS_COMPLETE', classNum });
       }
 
@@ -379,13 +388,14 @@ export default {
       const slug = url.searchParams.get('slug');
       const ring = url.searchParams.get('ring') || '1';
       if (!slug) return err('Missing slug');
-      const [activeRaw, eventRaw, heartbeatRaw, selectedRaw, oncourseRaw, lastseenRaw] = await Promise.all([
+      const [activeRaw, eventRaw, heartbeatRaw, selectedRaw, oncourseRaw, lastseenRaw, recentRaw] = await Promise.all([
         env.WEST_LIVE.get(`active:${slug}:${ring}`),
         env.WEST_LIVE.get(`event:${slug}:${ring}`),
         env.WEST_LIVE.get(`heartbeat:${slug}:${ring}`),
         env.WEST_LIVE.get(`selected:${slug}:${ring}`),
         env.WEST_LIVE.get(`oncourse:${slug}:${ring}`),
         env.WEST_LIVE.get(`lastseen:${slug}:${ring}`),
+        env.WEST_LIVE.get(`recent:${slug}:${ring}`),
       ]);
       const active = activeRaw ? JSON.parse(activeRaw) : [];
       const selected = selectedRaw ? JSON.parse(selectedRaw) : null;
@@ -401,9 +411,15 @@ export default {
         });
       }
 
+      // Filter recent completions — drop anything older than 30 min
+      let recentClasses = recentRaw ? JSON.parse(recentRaw) : [];
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      recentClasses = recentClasses.filter(r => r.completedAt > thirtyMinAgo);
+
       return json({
         ok:             true,
         activeClasses:  active,
+        recentClasses:  recentClasses,
         selected:       selected,
         classData:      classDataMap,
         latestEvent:    eventRaw     ? JSON.parse(eventRaw)     : null,

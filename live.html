@@ -221,6 +221,16 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .jt-judge-score{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
 .jt-judge-row.differs .jt-judge-horse{color:var(--red);}
 
+/* RECENT RESULTS */
+.recent-section{background:#fff;border-top:2px solid var(--border);margin-top:12px;}
+.recent-header{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:12px 16px 8px;font-weight:600;}
+.recent-row{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;transition:background .1s;}
+.recent-row:hover{background:var(--off-white);}
+.recent-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);font-weight:600;min-width:70px;flex-shrink:0;}
+.recent-name{font-size:14px;color:var(--black);flex:1;font-weight:500;}
+.recent-ago{font-family:'DM Mono',monospace;font-size:10px;color:#aaa;flex-shrink:0;}
+.recent-arrow{font-size:18px;color:#ccc;flex-shrink:0;font-weight:700;}
+
 /* NO LIVE STATE */
 .no-live{text-align:center;padding:80px 20px;}
 .no-live-icon{font-size:40px;opacity:.3;margin-bottom:16px;}
@@ -341,6 +351,14 @@ function inferHunterRound(entryRow, phase) {
   if (!hasR1) return 'R1';
   if (!hasR2) return 'R2';
   return null;
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '';
+  var secs = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  return Math.floor(secs / 3600) + 'h ago';
 }
 
 function fmtFaultsHtml(jf, tf) {
@@ -835,7 +853,25 @@ function render() {
     html += '</div>'; // close standings-section
   });
 
-  if (!html.includes('standings-wrap') && !html.includes('results-wrap')) {
+  // ── RECENT RESULTS — completed classes that stay visible for 30 min ────────
+  const recentClasses = liveData.recentClasses || [];
+  if (recentClasses.length) {
+    html += '<div class="recent-section">';
+    html += '<div class="recent-header">Recent Results</div>';
+    recentClasses.forEach(function(rc) {
+      const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+      const ago = rc.completedAt ? timeAgo(rc.completedAt) : '';
+      html += '<a class="recent-row" href="' + esc(resultsUrl) + '">'
+        + '<span class="recent-num">Class ' + esc(rc.classNum) + '</span>'
+        + '<span class="recent-name">' + esc(rc.className || '') + '</span>'
+        + (ago ? '<span class="recent-ago">' + esc(ago) + '</span>' : '')
+        + '<span class="recent-arrow">&rsaquo;</span>'
+        + '</a>';
+    });
+    html += '</div>';
+  }
+
+  if (!html.includes('standings-wrap') && !html.includes('results-wrap') && !recentClasses.length) {
     html += '<div style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:14px;">No standings available yet</div>';
   }
 
