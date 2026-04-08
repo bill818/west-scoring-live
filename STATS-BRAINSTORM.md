@@ -235,20 +235,22 @@ Public stats pages:
 
 ---
 
-## IMPLEMENTATION STRATEGY — decided 2026-03-31
+## IMPLEMENTATION STRATEGY
 
-Two phases:
+### Phase A — Server-side per-class stats ✅ COMPLETE (2026-04-08)
+Worker pre-computes all per-class stats via `computeClassResults()` on every
+postClassData. Results stored in KV (live) and D1 final_results (permanent).
+Pages receive finished JSON — no client-side computation.
 
-### Phase A — Client-side stats (April 15 MVP)
-Stats computed in the browser from `/getResults` data. Same approach as the
-old scraping site's stats.html but wired to our D1-backed Worker endpoints.
-Covers per-class stats: clear round %, fault distribution, course difficulty,
-time analysis, standings with gap-to-leader, multi-rider detection, country flags.
-Quick to build, works with existing endpoints, no new Worker code needed.
-**Limitation:** single-class scope only. Cannot do cross-class, cross-show,
-rider career, or historical trend stats.
+Jumper: clear rounds, fault buckets, averages, leaderboard with gap, TA analysis.
+Hunter derby: per-judge rankings, judge card totals, movement, split decisions.
+Hunter non-derby scored: per-judge scores, sequential layout, up to 7 judges.
+Hunter forced/flat: place only (no scores to compute).
 
-### Phase B — Server-side stats (Devon / post-season)
+stats.html consumes pre-computed stats object from `/getResults`. Falls back
+to client-side computation for historical classes without pre-computed data.
+
+### Phase B — Cross-class / cross-show stats (Devon / post-season)
 New `/getStats` Worker endpoints with D1 queries that aggregate across classes,
 shows, and seasons. Enables the big-picture stats from this brainstorm:
 rider/horse career profiles, venue analytics, weather correlation, series
@@ -266,4 +268,4 @@ every show scored through the watcher feeds the future stats engine.
 
 ---
 
-Last updated: Session 17 — 2026-03-31
+Last updated: Session 18 — 2026-04-08

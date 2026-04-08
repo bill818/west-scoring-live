@@ -1,5 +1,5 @@
 # WEST Scoring Live — Available Data & Stats Inventory
-# Last updated: 2026-04-03
+# Last updated: 2026-04-08
 
 Everything we currently collect, store, and can compute from.
 This is what we HAVE — not aspirational. Reference this before building stats features.
@@ -26,13 +26,16 @@ This is what we HAVE — not aspirational. Reference this before building stats 
 
 ### classes
 - class_num, class_name, class_type (H/J/T/U)
-- scoring_method (2=II.2a, 3=3rounds, 4=speed, 6=speedII, 9=two-phase, 13=II.2b)
-- clock_precision (0=whole, 1=hundredths, 2=thousandths)
+- scoring_method — JUMPER: (2=II.2a, 3=3rounds, 4=speed, 6=speedII, 9=two-phase, 13=II.2b)
+                   HUNTER: H[2] ClassMode (0=Over Fences, 1=Flat, 2=Derby, 3=Special)
+- clock_precision — JUMPER: (0=thousandths, 1=hundredths, 2=whole)
+                    HUNTER: H[5] ScoringType (0=Forced, 1=Scored, 2=Hi-Lo)
 - is_fei, show_flags, sponsor
 - scheduled_date, schedule_order, schedule_flag (S=scored, JO=jump order)
 - hidden, stats_exclude
 - status (active/complete)
 - cls_raw — full raw .cls file content (re-parseable for any future need)
+- final_results — pre-computed JSON frozen on CLASS_COMPLETE (rankings, per-judge, stats)
 - created_at, updated_at
 
 ### entries
@@ -61,6 +64,15 @@ This is what we HAVE — not aspirational. Reference this before building stats 
 
 ### Per class:
 - classData (full parsed .cls with all entries and scores — live standings)
+- results (pre-computed by Worker on every postClassData):
+  - Hunter derby: per-judge phase cards {base, hiopt, bonus, phaseTotal}, per-judge
+    ranks, judge card totals/ranks, movement, split decision flag
+  - Hunter non-derby scored: per-judge scores {score, phaseTotal}, per-judge ranks
+  - Jumper: structured round data + stats (clear count, fault buckets, leaderboard)
+  - Frozen into D1 final_results on CLASS_COMPLETE
+
+### Recent completions:
+- recent:slug:ring — classes completed within last 30 min (30 min TTL)
 
 ---
 
@@ -73,17 +85,28 @@ This is what we HAVE — not aspirational. Reference this before building stats 
 - Days of operation per ring per show
 - Ring utilization patterns across show week
 
-### Class Stats (from D1 results + cls_raw)
-- Clear round percentage (R1, JO, per phase)
-- Fault distribution — smart buckets (0, 1-8, 9-11, 12+, elim)
+### Jumper Class Stats (pre-computed by Worker, stored in KV + D1 final_results)
+- Total entries, competed, eliminated counts
+- Clear round count and percentage
 - Average faults per round
-- Fastest clear round
-- Fastest 4-fault entry
-- Time Allowed values per round (from cls_raw header)
-- Time fault rate (entries over TA)
-- Average elapsed vs TA (all entries, clears only)
-- Jump-off qualification rate (clears / starters)
-- JO clear rate
+- Time fault count
+- Average time (all entries), average clear time
+- Fault distribution buckets (0-8 individual, 9-11 grouped, 12+, eliminated)
+- Fastest 4-fault entry (horse, rider, time)
+- TA values per round (from header)
+- Optimum time + distance (method 6 / IV.1)
+- Leaderboard with gap from leader (faults asc, time asc)
+
+### Hunter Class Stats (pre-computed by Worker)
+- Per-judge per-round rankings (1-7+ judges confirmed)
+- Judge card totals + ranks (R1+R2 per judge)
+- R1/R2 overall ranks (aggregate across judges)
+- Movement arrows (R1 rank vs final place)
+- Split decision detection (top 3 positional disagreement)
+- Derby: base + hiopt + bonus breakdown per phase per judge
+- Non-derby scored: sequential judge scores per phase
+
+### General Class Stats (from D1)
 - DNS / DNF / WD / RF / EL / OC counts and percentages
 - Prize money (from cls_raw @money rows)
 - Class duration estimate (updated_at - created_at, rough)
@@ -191,10 +214,12 @@ The full .cls file is stored per class. This contains:
 ## DATA SECURITY NOTES
 
 ### Public (no auth):
+- /getShows — show list (respects hideUpcoming setting)
 - /getShow — show info + rings
 - /getClasses — class list (hidden classes filtered)
-- /getResults — full results per class (includes cls_raw!)
-- /getLiveClass — live state
+- /getResults — pre-computed results (cls_raw NEVER sent to client)
+  Priority: KV pre-computed → D1 final_results → D1 computed-fallback → D1 raw entries
+- /getLiveClass — live state + pre-computed results per active class
 - /admin/settings — global settings (read only)
 
 ### Auth required:
@@ -202,8 +227,8 @@ The full .cls file is stored per class. This contains:
 - /admin/shows — show list with admin fields
 - /admin/dbStats — database counts
 
-### TODO:
-- cls_raw in /getResults response is large — consider stripping for public
-- Entry PII (city, state, FEI numbers) — decide what's public vs admin
+### RESOLVED:
+- ✅ cls_raw stripped from /getResults — computation is server-side now
+- Entry PII (city, state, FEI numbers) — currently public, decide if needs restricting
 - ring_activity data — admin only or public?
 - Business intelligence stats (show growth, retention) — admin only
