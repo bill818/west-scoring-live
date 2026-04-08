@@ -498,9 +498,8 @@ function renderResults() {
         + '</div>';
     }
 
-    // Scores — eliminated entries with no round data show just the status code.
-    // Eliminated entries WITH round data (e.g. EL in JO) show their rounds + status.
-    if (isElim && !hasResult) {
+    // Scores — eliminated entries show status code only, no faults/time
+    if (isElim) {
       html += '<div class="r-scores"><span class="r-status">' + esc(statusCode) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
@@ -525,8 +524,6 @@ function renderResults() {
           }
         }
       });
-      // Append status code after round rows if eliminated
-      if (isElim) html += '<div class="r-score-row"><span class="r-status">' + esc(statusCode) + '</span></div>';
       html += '</div>';
     } else if (hasResult && isHunter) {
       html += '<div class="r-scores">';
