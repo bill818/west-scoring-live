@@ -414,13 +414,14 @@ function parseCls(content, filename) {
         entry.r2StatusCode = cols[83] || '';
         entry.statusCode   = cols[83] || cols[82] || ''; // most recent round's status
       }
-      // hasGone = evidence of actually competing (entered the ring).
-      // DNS = did NOT start — they never competed, hasGone stays false.
-      // Other status codes (EL, RF, HF, OC, WD, DNF, SC, RT) = they DID enter, hasGone = true.
-      const dnsStatuses = ['DNS'];
+      // hasGone = evidence of actually competing.
+      // Round time is the ultimate proof — if no time and no status, treat as not gone.
+      // Ryegate may leave hasGone=1 or place stuck from testing — ignore those without time.
+      // DNS = did not start, not competed.
       const sc = (entry.statusCode || entry.r1StatusCode || '').toUpperCase();
-      const hasEvidence = !!(entry.r1TotalTime || entry.overallPlace || (sc && !dnsStatuses.includes(sc)));
-      entry.hasGone = hasEvidence;
+      const hasTime = !!(entry.r1TotalTime);
+      const hasStatus = !!(sc && sc !== 'DNS');
+      entry.hasGone = hasTime || hasStatus;
     }
 
     result.entries.push(entry);
