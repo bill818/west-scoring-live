@@ -253,12 +253,18 @@ function renderTitle() {
   let judgesBtn = '';
   let splitPill = '';
   if (isHunter && WEST.hunter.isDerby(classInfo)) {
-    const built = WEST.hunter.derby.buildEntries(classInfo);
-    if (built.judgeCount >= 2) {
+    const c = classInfo._computed;
+    const judgeCount = c ? (c.judgeCount || 1) : WEST.hunter.derby.getJudgeCount(classInfo);
+    if (judgeCount >= 2) {
       const btnLabel = _judgeView ? 'View Combined' : 'View Judges Scores';
       judgesBtn = '<button class="judges-btn' + (_judgeView ? ' active' : '') + '" onclick="toggleJudgeView()">' + btnLabel + '</button>';
-      if (WEST.hunter.derby.shouldShowJudgeSummary(built.entries, built.judgeCount)) {
+      if (c ? c.isSplitDecision : false) {
         splitPill = '<span class="split-pill">Split Decision</span>';
+      } else if (!c) {
+        const built = WEST.hunter.derby.buildEntries(classInfo);
+        if (WEST.hunter.derby.shouldShowJudgeSummary(built.entries, built.judgeCount)) {
+          splitPill = '<span class="split-pill">Split Decision</span>';
+        }
       }
     }
   }
@@ -310,53 +316,98 @@ function restoreOpenEntry() {
 }
 
 function renderDerby() {
-  // Render path lives in display-config.js so live.html can reuse the output.
-  // _judgeView toggles between the default combined list and the by-judge view.
   const sel = liveData.selected;
   const isLive = !!(sel && String(sel.classNum) === String(CLASS_NUM));
   const opts = { isLive: isLive };
-  const html = _judgeView
-    ? WEST.hunter.derby.renderByJudgeList(classInfo, opts)
-    : WEST.hunter.derby.renderList(classInfo, opts);
+
+  // If server pre-computed results are available, use renderPrecomputed path.
+  // Otherwise fall back to display-config.js buildEntries (parses cls_raw client-side).
+  const c = classInfo._computed;
+  let html;
+  if (c && c.entries && c.entries.length && c.entries[0].r1Ranks) {
+    html = _judgeView
+      ? WEST.hunter.derby.renderPrecomputedByJudge(c, opts)
+      : WEST.hunter.derby.renderPrecomputed(c, opts);
+  } else {
+    html = _judgeView
+      ? WEST.hunter.derby.renderByJudgeList(classInfo, opts)
+      : WEST.hunter.derby.renderList(classInfo, opts);
+  }
   document.getElementById('content').innerHTML = html;
   if (!_judgeView) restoreOpenEntry();
 }
 
 function renderResults() {
   if (!classInfo) return;
-  const isJumper = classInfo.class_type === 'J' || classInfo.class_type === 'T';
-  const isHunter = classInfo.class_type === 'H';
+  const ct = classInfo.class_type || (classInfo._computed ? classInfo._computed.classType : '');
+  const isJumper = ct === 'J' || ct === 'T';
+  const isHunter = ct === 'H';
 
-  // Hunter derby → dedicated render path (reads judge data from cls_raw)
+  // Hunter derby → dedicated render path
   if (isHunter && WEST.hunter.isDerby(classInfo)) {
     renderDerby();
     return;
   }
 
-  // Group entries by entry_num, merge rounds
+  // Group entries by entry_num, merge rounds.
+  // Pre-computed entries (from Worker) have round data at top level (r1TotalFaults etc.)
+  // Legacy D1 entries have round sub-objects from the JOIN.
+  const isPrecomputed = !!(classInfo._computed);
   const byEntry = {};
-  entries.forEach(e => {
-    if (!byEntry[e.entry_num]) {
-      byEntry[e.entry_num] = { entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
-        country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
-        horse_fei: e.horse_fei, rider_fei: e.rider_fei,
-        rounds: [], bestPlace: null };
-    }
-    if (e.round) {
-      byEntry[e.entry_num].rounds.push(e);
-      const p = parseInt(e.place);
-      if (p && (!byEntry[e.entry_num].bestPlace || p < byEntry[e.entry_num].bestPlace)) {
-        byEntry[e.entry_num].bestPlace = p;
-      }
-    }
-  });
 
-  // Display config lookups
-  const sm = classInfo.scoring_method;
+  if (isPrecomputed && isJumper) {
+    // Pre-computed jumper: entries already have all round data inline
+    entries.forEach(e => {
+      const rounds = [];
+      if (e.r1TotalTime) rounds.push({ round: 1, time: e.r1TotalTime, total: e.r1TotalFaults, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, place: e.place });
+      if (e.r2TotalTime) rounds.push({ round: 2, time: e.r2TotalTime, total: e.r2TotalFaults, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, place: e.place });
+      if (e.r3TotalTime) rounds.push({ round: 3, time: e.r3TotalTime, total: e.r3TotalFaults, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, place: e.place });
+      byEntry[e.entry_num] = {
+        entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
+        country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
+        rounds: rounds, bestPlace: parseInt(e.place) || null
+      };
+    });
+  } else if (isPrecomputed && isHunter) {
+    // Pre-computed non-derby hunter: entries have place, score, combined at top level
+    entries.forEach(e => {
+      const rounds = [];
+      if (e.r1Total || e.score) rounds.push({ round: 1, total: e.r1Total || e.score, place: e.place });
+      if (e.r2Total) rounds.push({ round: 2, total: e.r2Total, place: e.place });
+      byEntry[e.entry_num] = {
+        entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
+        country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
+        rounds: rounds, bestPlace: parseInt(e.place) || null
+      };
+    });
+  } else {
+    // Legacy D1 entries: round sub-objects from JOIN
+    entries.forEach(e => {
+      if (!byEntry[e.entry_num]) {
+        byEntry[e.entry_num] = { entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
+          country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
+          horse_fei: e.horse_fei, rider_fei: e.rider_fei,
+          rounds: [], bestPlace: null };
+      }
+      if (e.round) {
+        byEntry[e.entry_num].rounds.push(e);
+        const p = parseInt(e.place);
+        if (p && (!byEntry[e.entry_num].bestPlace || p < byEntry[e.entry_num].bestPlace)) {
+          byEntry[e.entry_num].bestPlace = p;
+        }
+      }
+    });
+  }
+
+  // Display config lookups — pre-computed path has these directly
+  const c = classInfo._computed;
+  const sm = c ? (c.scoringMethod || '') : (classInfo.scoring_method || '');
   const method = WEST.jumper.getMethod(sm);
-  const isOptimum = method.isOptimum;
+  const isOptimum = c ? !!c.isOptimum : method.isOptimum;
   let optimumTime = 0;
-  if (isOptimum && classInfo.cls_raw) {
+  if (c && c.optimumTime) {
+    optimumTime = c.optimumTime;
+  } else if (isOptimum && classInfo.cls_raw) {
     const ta = WEST.jumper.getTAFromRaw(classInfo.cls_raw);
     optimumTime = WEST.jumper.getOptimumTime(ta.r1);
   }
@@ -474,8 +525,25 @@ async function loadResults() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     if (d.ok) {
-      classInfo = d.class;
-      entries = d.entries || [];
+      if (d.computed) {
+        // Pre-computed results from Worker — entries already ranked, no cls_raw needed.
+        // Map the computed shape onto classInfo so existing render functions work.
+        const c = d.computed;
+        classInfo = {
+          class_type: c.classType, class_name: c.className, class_num: c.classNum,
+          cls_raw: '', // not needed — computation done server-side
+          scoring_method: c.scoringMethod || c.classMode || '',
+          clock_precision: c.clockPrecision, show_flags: c.showFlags,
+          sponsor: c.sponsor, trophy: c.trophy,
+          // Pass through pre-computed flags so display-config can skip parsing
+          _computed: c,
+        };
+        entries = d.computed.entries || [];
+      } else {
+        // Legacy D1 fallback — old shape
+        classInfo = d.class;
+        entries = d.entries || [];
+      }
     }
   } catch(e) {}
 }

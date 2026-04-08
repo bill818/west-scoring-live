@@ -425,6 +425,7 @@ WEST.hunter.getDerby = function(code) {
 //   H[37] DerbyType (only when H[2]=2)
 WEST.hunter.getClassLabel = function(classInfo) {
   if (!classInfo) return 'Hunter';
+  if (classInfo._computed && classInfo._computed.label) return classInfo._computed.label;
   var raw = classInfo.cls_raw || classInfo.clsRaw || '';
   var h = WEST.parseClsHeader(raw);
   var classMode = h[2] || '0';
@@ -440,9 +441,10 @@ WEST.hunter.getClassLabel = function(classInfo) {
 };
 
 // ── IS DERBY ─────────────────────────────────────────────────────────────────
-// Accepts both D1 naming (class_type/cls_raw) and watcher KV naming (classType/clsRaw)
+// Accepts D1 naming, watcher KV naming, and pre-computed _computed objects.
 WEST.hunter.isDerby = function(classInfo) {
   if (!classInfo) return false;
+  if (classInfo._computed) return !!classInfo._computed.isDerby;
   var ct = classInfo.class_type || classInfo.classType;
   if (ct !== 'H') return false;
   var raw = classInfo.cls_raw || classInfo.clsRaw || '';
@@ -451,11 +453,10 @@ WEST.hunter.isDerby = function(classInfo) {
 };
 
 // ── IS EQUITATION ────────────────────────────────────────────────────────────
-// H[10]='True' in the .cls header marks a hunter-formatted equitation class.
-// Jumper-formatted equitation classes (J/T .cls files) are NOT covered by this
-// flag — they need separate handling.
+// Accepts D1 naming, watcher KV naming, and pre-computed _computed objects.
 WEST.hunter.isEquitation = function(classInfo) {
   if (!classInfo) return false;
+  if (classInfo._computed) return !!classInfo._computed.isEquitation;
   var ct = classInfo.class_type || classInfo.classType;
   if (ct !== 'H') return false;
   var raw = classInfo.cls_raw || classInfo.clsRaw || '';
@@ -587,6 +588,7 @@ WEST.hunter.derby = {};
 // Judge count — for derbies use H[37] derby type table, for all others use H[7] directly
 // CONFIRMED 2026-04-06: H[7] = NumJudges for all hunter classes
 WEST.hunter.derby.getJudgeCount = function(classInfo) {
+  if (classInfo && classInfo._computed) return classInfo._computed.judgeCount || 1;
   var raw = classInfo ? (classInfo.cls_raw || classInfo.clsRaw || '') : '';
   if (!raw) return 1;
   var h = WEST.parseClsHeader(raw);
@@ -923,6 +925,129 @@ WEST.hunter.derby.buildEntries = function(classInfo) {
     return (b.combined || 0) - (a.combined || 0);
   });
   return { entries: entries, judgeCount: judgeCount };
+};
+
+// Shim _jt fields onto a pre-computed entry from the Worker so the existing
+// renderers (renderEntry, renderExpand, etc.) work without modification.
+// Worker stores ranks at top level; renderers expect _jt.
+WEST.hunter.derby._shimJt = function(entries, judgeCount) {
+  entries.forEach(function(e) {
+    if (e._jt) return; // already shimmed
+    e._jt = {
+      judgeCount:      judgeCount,
+      r1Ranks:         e.r1Ranks || [],
+      r2Ranks:         e.r2Ranks || [],
+      judgeCardTotals: e.judgeCardTotals || [],
+      judgeCardRanks:  e.judgeCardRanks || [],
+      r1OverallRank:   e.r1OverallRank || null,
+      r2OverallRank:   e.r2OverallRank || null,
+      movement:        e.movement || null,
+      combinedRank:    e.combinedRank || null,
+    };
+  });
+  return entries;
+};
+
+// Render from pre-computed Worker results (no cls_raw parsing needed).
+// Takes the computed object directly, shims _jt, fakes a classInfo for renderers.
+WEST.hunter.derby.renderPrecomputed = function(computed, opts) {
+  opts = opts || {};
+  var entries = WEST.hunter.derby._shimJt(computed.entries || [], computed.judgeCount || 1);
+  var fakeClassInfo = {
+    class_name: computed.className, className: computed.className,
+    class_type: 'H', classType: 'H',
+    cls_raw: '', clsRaw: '',
+    show_flags: computed.showFlags, showFlags: computed.showFlags,
+    _computed: computed,
+  };
+  var judgeCount = computed.judgeCount || 1;
+
+  if (!entries.length) {
+    return '<div class="results-wrap"><div class="no-results">No entries found for this class.</div></div>';
+  }
+
+  var html = '<div class="results-wrap">';
+  if (judgeCount > 1 && computed.isSplitDecision) {
+    html += WEST.hunter.derby.renderSummary(entries, judgeCount);
+  }
+  for (var i = 0; i < entries.length; i++) {
+    html += WEST.hunter.derby.renderEntry(entries[i], fakeClassInfo, judgeCount, opts);
+  }
+  html += '</div>';
+  return html;
+};
+
+WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
+  opts = opts || {};
+  var entries = WEST.hunter.derby._shimJt(computed.entries || [], computed.judgeCount || 1);
+  var fakeClassInfo = {
+    class_name: computed.className, className: computed.className,
+    class_type: 'H', classType: 'H',
+    cls_raw: '', clsRaw: '',
+    show_flags: computed.showFlags, showFlags: computed.showFlags,
+    _computed: computed,
+  };
+  // Reuse the existing renderByJudgeList but with pre-shimmed entries
+  // by temporarily setting cls_raw so buildEntries falls through
+  // Actually — easier to just inline the by-judge render with pre-computed data
+  var esc = WEST.esc;
+  var judgeCount = computed.judgeCount || 1;
+  if (!entries.length || judgeCount < 2) return '<div class="results-wrap"><div class="no-results">No entries found for this class.</div></div>';
+
+  var isEq = computed.isEquitation;
+  var showFlags = computed.showFlags;
+  var className = computed.className || '';
+  var html = '<div class="results-wrap by-judge-view">';
+
+  for (var j = 0; j < judgeCount; j++) {
+    (function(jj) {
+      var sorted = entries.slice().sort(function(a, b) {
+        var av = a._jt && a._jt.judgeCardTotals[jj];
+        var bv = b._jt && b._jt.judgeCardTotals[jj];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return bv - av;
+      });
+
+      html += '<div class="judge-section"><div class="judge-section-hdr">Judge ' + (jj + 1) + '</div>';
+      sorted.forEach(function(g) {
+        var r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
+        var gHasR1 = WEST.hunter.derby.hasR1(g);
+        var r1Failed = !!r1Status && !gHasR1;
+        var rank = g._jt ? g._jt.judgeCardRanks[jj] : null;
+        var flag = showFlags ? WEST.countryFlag(g.country, true) : '';
+        var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (rank ? rank : '—');
+        var ribbonSvg = (!opts.isLive && !r1Failed && rank) ? WEST.ribbon.placeRibbon(rank, className) : '';
+
+        html += '<div class="result-entry"><div class="result-main">';
+        html += ribbonSvg ? '<div class="r-ribbon">' + ribbonSvg + '</div>' : '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
+        if (isEq) {
+          var locale = [g.city, g.state].filter(Boolean).join(', ');
+          html += '<div class="r-info"><div class="r-horse-rider"><span class="r-bib">' + esc(g.entry_num) + '</span><span class="r-horse">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span>' + (locale ? '<span class="r-rider-inline">' + esc(locale) + '</span>' : '') + '</div>' + (g.horse ? '<div class="r-owner">' + esc(g.horse) + '</div>' : '') + '</div>';
+        } else {
+          html += '<div class="r-info"><div class="r-horse-rider"><span class="r-bib">' + esc(g.entry_num) + '</span><span class="r-horse">' + esc(g.horse) + '</span><span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span></div></div>';
+        }
+        html += '<div class="r-scores">';
+        if (r1Failed) {
+          html += '<span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span>';
+        } else {
+          if (gHasR1 && g.r1[jj]) {
+            html += '<div class="r-score-row"><span class="r-score-lbl">R1</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r1[jj], 1) + ' = ' + g.r1[jj].phaseTotal + '</span></div>';
+          }
+          if (WEST.hunter.derby.hasR2(g) && g.r2[jj]) {
+            html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r2[jj], 2) + ' = ' + g.r2[jj].phaseTotal + '</span></div>';
+          }
+          var cardTotal = g._jt && g._jt.judgeCardTotals[jj];
+          if (cardTotal != null) html += '<div class="r-total">' + cardTotal.toFixed(2) + '</div>';
+        }
+        html += '</div></div></div>';
+      });
+      html += '</div>';
+    })(j);
+  }
+  html += '</div>';
+  return html;
 };
 
 // Full list — returns complete '<div class="results-wrap">…</div>' HTML string
