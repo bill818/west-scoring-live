@@ -414,10 +414,12 @@ function parseCls(content, filename) {
         entry.r2StatusCode = cols[83] || '';
         entry.statusCode   = cols[83] || cols[82] || ''; // most recent round's status
       }
-      // hasGone = must have evidence of competing (time, place, or status code)
-      // Fixes: hasGone=1 with no data (accidental toggle) → not gone
-      // Fixes: hasGone=0 with scores (manual entry) → gone
-      const hasEvidence = !!(entry.r1TotalTime || entry.overallPlace || entry.statusCode);
+      // hasGone = evidence of actually competing (entered the ring).
+      // DNS = did NOT start — they never competed, hasGone stays false.
+      // Other status codes (EL, RF, HF, OC, WD, DNF, SC, RT) = they DID enter, hasGone = true.
+      const dnsStatuses = ['DNS'];
+      const sc = (entry.statusCode || entry.r1StatusCode || '').toUpperCase();
+      const hasEvidence = !!(entry.r1TotalTime || entry.overallPlace || (sc && !dnsStatuses.includes(sc)));
       entry.hasGone = hasEvidence;
     }
 
