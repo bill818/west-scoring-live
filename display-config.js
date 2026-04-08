@@ -284,9 +284,9 @@ WEST.isElimStatus = function(code) {
 WEST.statusDisplayLabel = function(code) {
   var c = (code || '').toUpperCase();
   if (WEST.elimStatuses.indexOf(c) >= 0) return 'EL';
-  if (c === 'RT' || c === 'DNF') return 'Retired';
+  if (c === 'RT' || c === 'DNF') return 'RT';
   if (c === 'WD') return 'WD';
-  if (c === 'SC') return 'Schooling';
+  if (c === 'SC') return 'SC';
   if (c === 'DNS') return 'DNS';
   return c || '';
 };
