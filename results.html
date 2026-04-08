@@ -440,6 +440,8 @@ function renderResults() {
   const sel = liveData.selected;
   const isLive = !!(sel && String(sel.classNum) === String(CLASS_NUM));
 
+  const elimStatuses = ['EL','RF','HF','OC','WD','DNF','SC','RT','DNS'];
+
   grouped.forEach(g => {
     const place = g.bestPlace || '';
     const hasResult = g.rounds.length > 0;
@@ -447,14 +449,23 @@ function renderResults() {
     // Skip entries with no results and no place — they're pending, not competed
     if (!hasResult && !place) return;
 
+    // Detect eliminated/status entries — check statusCode (pre-computed) or round status_code (legacy)
+    const statusCode = (g.statusCode || g.r1StatusCode || '').toUpperCase()
+      || (g.rounds.length && g.rounds[0].status_code ? g.rounds[0].status_code.toUpperCase() : '');
+    const isElim = elimStatuses.includes(statusCode);
+
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement — SVG ribbon when class is not live, numeric when live
-    const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
-    if (ribbonSvg) {
-      html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+    // Placement — eliminated entries show status label instead of place/ribbon
+    if (isElim) {
+      html += '<div class="r-ribbon"><div class="r-status">' + esc(statusCode) + '</div></div>';
     } else {
-      html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+      const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
+      if (ribbonSvg) {
+        html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+      } else {
+        html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+      }
     }
 
     const flag = classInfo.show_flags ? countryFlag(g.country) : '';
