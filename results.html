@@ -249,11 +249,13 @@ function renderTitle() {
     ? '<a class="stats-btn visible" href="stats.html?slug=' + esc(SLUG) + '&classNum=' + esc(CLASS_NUM) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">Stats &amp; Analysis</a>'
     : '';
 
-  // View Judges Scores toggle — multi-judge hunter derbies only
+  // View Judges Scores toggle — multi-judge hunter classes (derbies + scored non-derby)
   let judgesBtn = '';
   let splitPill = '';
-  if (isHunter && WEST.hunter.isDerby(classInfo)) {
-    const c = classInfo._computed;
+  const _c = classInfo._computed;
+  const hasPerJudge = WEST.hunter.isDerby(classInfo) || (_c && _c.entries && _c.entries.length && _c.entries[0].r1Ranks);
+  if (isHunter && hasPerJudge) {
+    const c = _c;
     const judgeCount = c ? (c.judgeCount || 1) : WEST.hunter.derby.getJudgeCount(classInfo);
     if (judgeCount >= 2) {
       const btnLabel = _judgeView ? 'View Combined' : 'View Judges Scores';
@@ -343,9 +345,15 @@ function renderResults() {
   const isJumper = ct === 'J' || ct === 'T';
   const isHunter = ct === 'H';
 
-  // Hunter derby → dedicated render path
+  // Hunter derby OR non-derby scored with per-judge data → dedicated render path
   if (isHunter && WEST.hunter.isDerby(classInfo)) {
     renderDerby();
+    return;
+  }
+  // Non-derby scored hunter with pre-computed per-judge rankings
+  const c = classInfo._computed;
+  if (isHunter && c && c.entries && c.entries.length && c.entries[0].r1Ranks) {
+    renderDerby(); // same renderer — pre-computed data has identical shape
     return;
   }
 
