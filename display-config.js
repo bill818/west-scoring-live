@@ -257,7 +257,7 @@ WEST.getClassTypeLabel = function(classInfo) {
 // Status codes — confirmed 2026-04-08
 // Eliminations: entry gets dash for place, round data hidden for that round
 // Non-eliminations (WD/RT/DNS/SC): different display behavior per code
-WEST.elimStatuses = ['EL','RO','RF','OC','HF','EX','DQ','DNF'];
+WEST.elimStatuses = ['EL','RO','RF','OC','HF','EX','DQ'];
 
 // Statuses that hide the entry entirely (never competed)
 WEST.hideStatuses = ['DNS'];
@@ -284,7 +284,7 @@ WEST.isElimStatus = function(code) {
 WEST.statusDisplayLabel = function(code) {
   var c = (code || '').toUpperCase();
   if (WEST.elimStatuses.indexOf(c) >= 0) return 'EL';
-  if (c === 'RT' || c === 'DNF') return 'RT';
+  if (c === 'RT') return 'RT';
   if (c === 'WD') return 'WD';
   if (c === 'HC') return 'HC';
   if (c === 'DNS') return 'DNS';
