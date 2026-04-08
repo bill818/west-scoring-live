@@ -503,7 +503,7 @@ function renderResults() {
 
     // Scores — full elimination = status only. Otherwise per-round check.
     if (fullElim) {
-      html += '<div class="r-scores"><span class="r-status">' + esc(statusCode) + '</span></div>';
+      html += '<div class="r-scores"><span class="r-status">' + esc(WEST.statusDisplayLabel(statusCode)) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
       // Per-round status: check r1StatusCode, r2StatusCode, r3StatusCode on the grouped entry
@@ -520,7 +520,7 @@ function renderResults() {
         if (rscIsElim) {
           // This round had an elimination — show label + status, hide faults/time
           html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-            + '<span class="r-status">' + esc(rsc) + '</span></div>';
+            + '<span class="r-status">' + esc(WEST.statusDisplayLabel(rsc)) + '</span></div>';
         } else {
           const total = parseFloat(r.total) || 0;
           const isClean = total === 0;

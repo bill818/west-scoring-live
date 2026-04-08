@@ -279,6 +279,18 @@ WEST.isElimStatus = function(code) {
   return WEST.elimStatuses.indexOf(c) >= 0;
 };
 
+// Display labels for status codes — viewers see generic labels, not specific codes.
+// We don't advertise horses falling or specific elimination reasons.
+WEST.statusDisplayLabel = function(code) {
+  var c = (code || '').toUpperCase();
+  if (WEST.elimStatuses.indexOf(c) >= 0) return 'EL';
+  if (c === 'RT' || c === 'DNF') return 'Retired';
+  if (c === 'WD') return 'WD';
+  if (c === 'SC') return 'Schooling';
+  if (c === 'DNS') return 'DNS';
+  return c || '';
+};
+
 // Check if a status code means hide entirely (never competed)
 WEST.isHideStatus = function(code) {
   return WEST.hideStatuses.indexOf((code || '').toUpperCase()) >= 0;
