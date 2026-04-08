@@ -408,7 +408,7 @@ function renderResults() {
   }
 
   // Display config lookups — pre-computed path has these directly
-  const c = classInfo._computed;
+  // (c already declared above for the per-judge routing check)
   const sm = c ? (c.scoringMethod || '') : (classInfo.scoring_method || '');
   const method = WEST.jumper.getMethod(sm);
   const isOptimum = c ? !!c.isOptimum : method.isOptimum;
