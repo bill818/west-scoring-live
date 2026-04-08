@@ -185,7 +185,7 @@ H[02]  USEF                          FEI                           FEI Article
 11/1   II.2c (FEI variant)           Two-Phase PH1 no clock        Art 222.1.4.2
 11/2   II.2c (FEI variant)           Two-Phase PH1 with clock      Art 222.1.4.3
 13     II.2b (immediate JO)          NOT IN FEI                    —
-14     Team                          Team                          (TBD)
+14     Team                          Nations Cup                   Art 226
 15     Winning Round                 Winning Round                 Art 223.2
  7     Timed Equitation              NOT FEI (USEF only)           —
 ```
