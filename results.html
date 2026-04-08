@@ -460,9 +460,9 @@ function renderResults() {
 
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement — eliminated entries show status label instead of place/ribbon
+    // Placement — eliminated entries get a dash, no place or ribbon
     if (isElim) {
-      html += '<div class="r-ribbon"><div class="r-status">' + esc(statusCode) + '</div></div>';
+      html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
       const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
       if (ribbonSvg) {
@@ -498,8 +498,10 @@ function renderResults() {
         + '</div>';
     }
 
-    // Scores
-    if (hasResult && isJumper) {
+    // Scores — eliminated entries show status code instead of faults/time
+    if (isElim) {
+      html += '<div class="r-scores"><span class="r-status">' + esc(statusCode) + '</span></div>';
+    } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
       g.rounds.sort((a, b) => b.round - a.round);
       g.rounds.forEach(r => {
