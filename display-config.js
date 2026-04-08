@@ -286,7 +286,7 @@ WEST.statusDisplayLabel = function(code) {
   if (WEST.elimStatuses.indexOf(c) >= 0) return 'EL';
   if (c === 'RT' || c === 'DNF') return 'RT';
   if (c === 'WD') return 'WD';
-  if (c === 'SC') return 'SC';
+  if (c === 'SC') return 'HC';
   if (c === 'DNS') return 'DNS';
   return c || '';
 };
