@@ -42,6 +42,29 @@ function json(data, status = 200) {
   });
 }
 
+// ETag-aware JSON response. If the client sent If-None-Match and the
+// data hasn't changed, returns 304 (zero bytes). Otherwise returns the
+// full response with an ETag header. Uses a simple FNV-1a hash — fast,
+// no crypto overhead, collisions don't matter (worst case = one extra fetch).
+async function jsonWithEtag(request, data) {
+  const body = JSON.stringify(data);
+  // FNV-1a 32-bit hash
+  let h = 0x811c9dc5;
+  for (let i = 0; i < body.length; i++) {
+    h ^= body.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  const etag = '"' + (h >>> 0).toString(36) + '"';
+  const clientEtag = request.headers.get('If-None-Match');
+  if (clientEtag === etag) {
+    return new Response(null, { status: 304, headers: CORS });
+  }
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'ETag': etag, ...CORS },
+  });
+}
+
 function err(msg, status = 400) {
   return json({ ok: false, error: msg }, status);
 }
@@ -425,7 +448,7 @@ export default {
       const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
       recentClasses = recentClasses.filter(r => r.completedAt > thirtyMinAgo);
 
-      return json({
+      return jsonWithEtag(request, {
         ok:             true,
         activeClasses:  active,
         recentClasses:  recentClasses,
@@ -437,7 +460,6 @@ export default {
         watcherAlive:   !!heartbeatRaw,
         heartbeatTs:    heartbeatRaw ? JSON.parse(heartbeatRaw).ts : null,
         lastSeenTs:     lastseenRaw  ? JSON.parse(lastseenRaw).ts  : null,
-        ts:             new Date().toISOString(),
       });
     }
 
@@ -497,7 +519,7 @@ export default {
         sql += ' GROUP BY c.id ORDER BY c.scheduled_date ASC, c.schedule_order ASC, CAST(c.class_num AS INTEGER) ASC';
 
         const result = await env.WEST_DB.prepare(sql).bind(...params).all();
-        return json({ ok: true, classes: result.results });
+        return jsonWithEtag(request, { ok: true, classes: result.results });
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
@@ -515,7 +537,7 @@ export default {
         const resultsKey = `results:${slug}:${ring}:${classNum}`;
         const kvResults = await env.WEST_LIVE.get(resultsKey);
         if (kvResults) {
-          return json({ ok: true, source: 'live', computed: JSON.parse(kvResults) });
+          return jsonWithEtag(request, { ok: true, source: 'live', computed: JSON.parse(kvResults) });
         }
 
         // Fallback: D1 (historical/completed classes)
@@ -531,7 +553,7 @@ export default {
 
         // If we have final_results in D1 (frozen on CLASS_COMPLETE), serve that
         if (cls.final_results) {
-          return json({ ok: true, source: 'final', computed: JSON.parse(cls.final_results) });
+          return jsonWithEtag(request, { ok: true, source: 'final', computed: JSON.parse(cls.final_results) });
         }
 
         // Last resort: compute on-the-fly from D1 cls_raw if available.
@@ -551,7 +573,7 @@ export default {
               entries: [], // not needed — computation reads from clsRaw for hunter derby
             };
             const computed = computeClassResults(fakeBody);
-            return json({ ok: true, source: 'computed-fallback', computed });
+            return jsonWithEtag(request, { ok: true, source: 'computed-fallback', computed });
           } catch(e) {
             console.error('[getResults] On-the-fly compute failed:', e.message);
           }
@@ -570,7 +592,7 @@ export default {
         `).bind(cls.id).all();
 
         const { cls_raw: _raw, ...clsSafe } = cls;
-        return json({ ok: true, source: 'db', class: clsSafe, entries: entries.results });
+        return jsonWithEtag(request, { ok: true, source: 'db', class: clsSafe, entries: entries.results });
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
