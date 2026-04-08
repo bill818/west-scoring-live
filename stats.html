@@ -1017,8 +1017,29 @@ async function loadResults() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     var d = await r.json();
     if (d.ok) {
-      classInfo = d.class || {};
-      rawEntries = d.entries || [];
+      if (d.computed) {
+        // Pre-computed results from Worker — map onto the shapes stats.html expects
+        var c = d.computed;
+        classInfo = {
+          class_type: c.classType, class_name: c.className, class_num: c.classNum,
+          scoring_method: c.scoringMethod || '', clock_precision: c.clockPrecision,
+          show_flags: c.showFlags, sponsor: c.sponsor, cls_raw: '',
+          _computed: c,
+        };
+        // Stats page expects D1-shaped entries with round sub-objects.
+        // Pre-computed jumper entries have round data at top level — convert.
+        rawEntries = [];
+        (c.entries || []).forEach(function(e) {
+          if (e.r1TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state, round: 1, time: e.r1TotalTime, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, total: e.r1TotalFaults, place: e.place, status_code: e.r1StatusCode || e.statusCode || '' });
+          if (e.r2TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 2, time: e.r2TotalTime, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, total: e.r2TotalFaults, place: e.place, status_code: e.r2StatusCode || '' });
+          if (e.r3TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 3, time: e.r3TotalTime, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, total: e.r3TotalFaults, place: e.place, status_code: '' });
+          // If no rounds but has entry data, still include for OOG
+          if (!e.r1TotalTime && !e.r2TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: null, time: null, total: null, place: e.place, status_code: e.statusCode || '' });
+        });
+      } else {
+        classInfo = d.class || {};
+        rawEntries = d.entries || [];
+      }
       renderAll();
     } else {
       document.getElementById('content').innerHTML =

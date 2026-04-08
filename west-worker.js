@@ -408,12 +408,15 @@ export default {
 
       // Fetch per-class live data for all active classes
       const classDataMap = {};
+      const computedMap = {};
       if (active.length) {
-        const classReads = await Promise.all(
-          active.map(a => env.WEST_LIVE.get(`live:${slug}:${ring}:${a.classNum}`))
-        );
+        const [classReads, resultsReads] = await Promise.all([
+          Promise.all(active.map(a => env.WEST_LIVE.get(`live:${slug}:${ring}:${a.classNum}`))),
+          Promise.all(active.map(a => env.WEST_LIVE.get(`results:${slug}:${ring}:${a.classNum}`))),
+        ]);
         active.forEach((a, i) => {
           if (classReads[i]) classDataMap[a.classNum] = JSON.parse(classReads[i]);
+          if (resultsReads[i]) computedMap[a.classNum] = JSON.parse(resultsReads[i]);
         });
       }
 
@@ -428,6 +431,7 @@ export default {
         recentClasses:  recentClasses,
         selected:       selected,
         classData:      classDataMap,
+        computed:       computedMap,
         latestEvent:    eventRaw     ? JSON.parse(eventRaw)     : null,
         onCourse:       oncourseRaw  ? JSON.parse(oncourseRaw)  : null,
         watcherAlive:   !!heartbeatRaw,

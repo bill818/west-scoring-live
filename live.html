@@ -831,7 +831,14 @@ function render() {
     const isHunterDerby = isHunter && cd && WEST.hunter.isDerby(cd);
     if (isHunterDerby) {
       html += '<div class="standings-section">';
-      html += WEST.hunter.derby.renderList(cd, { isLive: true });
+      // Use pre-computed results from Worker when available (no cls_raw parsing)
+      const compMap = liveData.computed || {};
+      const comp = compMap[ac.classNum];
+      if (comp && comp.entries && comp.entries.length && comp.entries[0].r1Ranks) {
+        html += WEST.hunter.derby.renderPrecomputed(comp, { isLive: true });
+      } else {
+        html += WEST.hunter.derby.renderList(cd, { isLive: true });
+      }
       html += '</div>';
     } else if (cd && cd.entries) {
       const gone = cd.entries.filter(e => e.hasGone);
