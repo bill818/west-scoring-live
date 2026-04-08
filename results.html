@@ -446,6 +446,8 @@ function renderResults() {
   const isLive = !!(sel && String(sel.classNum) === String(CLASS_NUM));
 
   const elimStatuses = ['EL','RF','HF','OC','WD','DNF','SC','RT','DNS'];
+  // Scoring methods where PH2/R2 elimination carries back to eliminate ALL phases
+  const r2CarryBack = ['9']; // II.2d two-phase. Add '3' for 2rnd+JO when needed (July).
 
   grouped.forEach(g => {
     const place = g.bestPlace || '';
@@ -454,17 +456,21 @@ function renderResults() {
     // Skip entries with no results and no place — they're pending, not competed
     if (!hasResult && !place) return;
 
-    // Detect eliminated/status entries — check statusCode (pre-computed) or round status_code (legacy)
+    // Detect eliminated/status entries
     const statusCode = (g.statusCode || g.r1StatusCode || '').toUpperCase()
       || (g.rounds.length && g.rounds[0].status_code ? g.rounds[0].status_code.toUpperCase() : '');
     const isElim = elimStatuses.includes(statusCode);
+    const r1sc = (g.r1StatusCode || '').toUpperCase();
+    const r2sc = (g.r2StatusCode || '').toUpperCase();
+    const r1Elim = elimStatuses.includes(r1sc);
+    const r2Elim = elimStatuses.includes(r2sc);
+    // For carry-back scoring methods, R2 elim = full elimination (no place, hide all rounds)
+    const fullElim = isElim && (r1Elim || !hasResult || (r2Elim && r2CarryBack.includes(sm)));
 
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement — R1 status = no place (dash). JO/R2+ status = place still valid.
-    const r1sc = (g.r1StatusCode || '').toUpperCase();
-    const r1Elim = elimStatuses.includes(r1sc);
-    if (isElim && (r1Elim || !hasResult)) {
+    // Placement
+    if (fullElim) {
       html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
       const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
@@ -501,9 +507,8 @@ function renderResults() {
         + '</div>';
     }
 
-    // Scores — per-round status check. Hide faults/time for any round that has a status.
-    // Show the status code for that round instead.
-    if (isElim && !hasResult) {
+    // Scores — full elimination = status only. Otherwise per-round check.
+    if (fullElim) {
       html += '<div class="r-scores"><span class="r-status">' + esc(statusCode) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
