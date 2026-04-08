@@ -1,93 +1,71 @@
 /**
  * WEST Scoring Live — Display Configuration
- * Single source of truth for how classes, scores, and statuses are rendered.
- * All pages include this file via <script src="display-config.js"></script>
- * Change here = change everywhere.
+ * Client-side rendering helpers for all pages. Formats scores, statuses,
+ * ribbons, and per-judge breakdowns. All pages include via <script src="display-config.js">
  *
- * This file does NOT score — Ryegate scores. We only read and display.
- * The .cls file is always the source of truth for results.
- *
- * Currently lives CLIENT-SIDE. Structured to move to Worker when
- * computation goes server-side. No DOM dependencies except countryFlag()
- * and esc() which are display-only helpers.
- *
- * MIGRATION NOTE: When moving to Worker, this file becomes the computation
- * engine. The Worker imports it, computes results, and returns formatted data.
- * Pages become thin display templates. countryFlag() and esc() stay client-side.
+ * This file does NOT score — Ryegate scores. We only render.
+ * The .cls file is the source of truth. The Worker pre-computes all
+ * rankings, and pages receive finished JSON — no client-side parsing.
  *
  * ───────────────────────────────────────────────────────────────────────────
- * MULTI-ROUND / MULTI-JUDGE HUNTER DERBY RENDERING
+ * ARCHITECTURE (as of 2026-04-08)
  * ───────────────────────────────────────────────────────────────────────────
- * Hunter derbies (class_type H, H[2]='2') have per-judge phase scoring that
- * Ryegate does NOT expose pre-ranked. We compute all relative placings
- * client-side from raw column data. Judge count comes from H[37] derby type
- * (derbyTypes[code].judges — 1 for National, 2 for International).
+ * Watcher reads .cls → parses header + entries → posts to Worker
+ * Worker runs computeClassResults() → pre-computes rankings, stats,
+ *   per-judge breakdowns → stores in KV (results:slug:ring:classNum)
+ * Pages poll /getResults → receive pre-computed JSON → just render
  *
- * Per-judge phase card formulas:
- *   R1 = base + hiopt
- *   R2 = base + hiopt + bonus   (bonus = handy/option, R2 only)
+ * This file provides:
+ *   - Formatting helpers: esc(), formatTime(), countryFlag(), ordinal()
+ *   - Ribbon SVG graphics: WEST.ribbon.svg(), placeRibbon(), champSvg()
+ *   - Hunter rendering: renderPrecomputed(), renderEntry(), renderExpand(),
+ *     renderScoresCol(), renderSummary(), renderCompactBreakdown()
+ *   - Detection helpers: isDerby(), isEquitation(), getClassLabel()
+ *   - Client-side fallback: buildEntries() + computeRankings() for
+ *     historical classes that don't have pre-computed results yet
  *
- * Column map (confirmed 2026-04-05 on 1000.cls national + 1001.cls international):
- *   R1:  [15]=hiOpt  [16]=J1base  [17]=hiOpt(mirror)  [18]=J2base
- *   R2:  [24]=hiOpt  [25]=J1base  [26]=J1bonus  [27]=hiOpt(mirror)  [28]=J2base  [29]=J2bonus
- *   [42]=R1total  [43]=R2total  [14]=final place (Ryegate-assigned, trusted)
- *   [45]=combined is STALE — recompute as [42]+[43]
- *   [46]/[47]=R1/R2 numeric status  [52]/[53]=R1/R2 text status (RF/HF/EL/OC/DNS/EX)
- *
- * Computed per-entry (WEST.hunter.derby.computeRankings):
- *   _jt.r1Ranks[j]        — relative rank by this judge's R1 phaseTotal
- *   _jt.r2Ranks[j]        — relative rank by this judge's R2 phaseTotal
- *   _jt.judgeCardTotals[j]— this judge's R1+R2 sum
- *   _jt.judgeCardRanks[j] — relative rank if only this judge scored the class
- *   _jt.movement          — R1-only overall rank minus final place (↑ moved up, ↓ moved down)
- *   _jt.combinedRank      — final place (from col[14])
- * Ties use standard competition ranking (1,1,3).
+ * renderPhaseMath auto-detects format from the data shape:
+ *   - Worker sends { base, hiopt, bonus, phaseTotal } for derbies
+ *     → renders "base + hiopt [+ bonus] = total" (always, even when 0)
+ *   - Worker sends { score, phaseTotal } for non-derby scored classes
+ *     → renders just the score number
+ *   - The data shape IS the instruction — no isDerby flag needed
  *
  * ───────────────────────────────────────────────────────────────────────────
- * DERBY DISPLAY RULES (results.html)
+ * HUNTER HEADER MAP (confirmed 2026-04-06)
  * ───────────────────────────────────────────────────────────────────────────
- * Two distinct render paths based on judge count — 1 judge collapses the
- * per-judge breakdown onto the row itself since it would be redundant in an
- * expand panel.
+ * H[2]  ClassMode:    0=Over Fences, 1=Flat, 2=Derby, 3=Special
+ * H[5]  ScoringType:  0=Forced, 1=Scored, 2=Hi-Lo
+ * H[6]  ScoreMethod:  0=Total, 1=Average
+ * H[7]  NumJudges:    1-7+ (confirmed up to 7)
+ * H[10] IsEquitation  True/False
+ * H[11] IsChampionship True/False
+ * H[37] DerbyType:    0-8 (only when H[2]=2)
  *
- * NATIONAL — 1 judge (derby type 1, 4, 6, 8 per derbyTypes table):
- *   • Main row shows full breakdown inline:
- *       R1:  base + hiopt = phaseTotal         (rank)
- *       R2:  base + hiopt + bonus = phaseTotal (rank)
- *       Total: combined.toFixed(2)
- *   • (rank) = per-round rank across all entries (_jt.r1Ranks[0] / r2Ranks[0])
- *   • NO expand panel, NO click handler, NO "View Judge Scores" button
- *   • NO judge-summary header (single judge can't disagree with itself)
+ * DERBY column layout (H[2]=2, 1-2 judges):
+ *   R1: [15]=hiOpt [16]=J1base [17]=hiOpt(mirror) [18]=J2base
+ *   R2: [24]=hiOpt [25]=J1base [26]=J1bonus [27]=mirror [28]=J2base [29]=J2bonus
+ *   Phase card: base + hiopt + bonus = phaseTotal
  *
- * INTERNATIONAL / H&G — 2 judges (derby type 0, 2, 3, 5, 7):
- *   • Main row shows aggregate totals only: R1=[42], R2=[43], Total=.toFixed(2)
- *   • "View Judge Scores" pill sits inside the scores column below the total
- *   • Click to expand → right-aligned panel under the row:
- *       - Round 1 section: J1 R1 / J2 R1 with "base + hiopt = total (rank)"
- *       - Round 2 section: J1 R2 / J2 R2 with "base + hiopt + bonus = total (rank)"
- *       - Judge Cards section: per-judge R1+R2 with "(Nth overall)" —
- *         only rendered when judges' card ranks are not all identical
- *   • Solo-winner green highlight: rank===1 on a per-phase row when that
- *     judge alone placed them first (relative to other judges in that phase)
- *   • Would-win green highlight: rank===1 on a judge card row when that
- *     single judge's card would make them class winner
- *   • Judge Cards Summary header (above list): only when judges disagree on #1
+ * NON-DERBY SCORED layout (H[2]=0, H[5]=1/2, 1-7+ judges):
+ *   R1: col[15+j] for j=0..numJudges-1 (sequential)
+ *   R2: col[24+j] for j=0..numJudges-1 (sequential)
+ *   Phase card: just the score (no hiopt/bonus fields)
+ *   Confirmed 2026-04-08 from class 1002 (7 judges, 2 rounds)
  *
- * STATUS / EDGE CASES (both paths):
- *   • R1 status + no R1 score → suppress place, ribbon shows status label, no expand
- *   • R1 clean + R2 status (e.g. EL in R2) → place stands on R1 alone, R1 row
- *     normal, R2 row renders status label instead of score, combined = R1Total
- *   • R1 only, R2 not yet ridden → running total shows R1Total, no movement arrow
- *   • Movement arrow: hidden unless both rounds complete AND rank actually changed
- *     (no-change and not-applicable render as empty space to preserve alignment)
+ * ───────────────────────────────────────────────────────────────────────────
+ * DISPLAY RULES
+ * ───────────────────────────────────────────────────────────────────────────
+ * 1-judge classes: inline breakdown on the row, no expand panel
+ * 2+ judge classes: aggregate totals on row, click-to-expand per-judge panel
+ * Split Decision pill: judges disagree on any of top 3 positions
+ * View Judges Scores toggle: by-judge view for multi-judge classes
+ * Ribbons: SVG for places 1-12, CH/RC for championships, only on non-live
+ * Equitation: rider-first layout (rider bold, city/state, horse muted below)
+ * Movement arrows: R1 rank vs final place, only when both rounds complete
+ * Status codes: R1 failed → suppress place; R2 failed → place on R1 alone
  *
- * CURRENT DATA SOURCE (temporary):
- *   results.html parses per-judge data directly from classInfo.cls_raw via
- *   WEST.parseClsRows + WEST.hunter.derby.parseEntry. Once the watcher emits
- *   per-judge fields through Worker→D1, the render path switches to reading
- *   structured fields off entries[] and everything downstream stays identical.
- *
- * Last updated: 2026-04-05
+ * Last updated: 2026-04-08
  */
 
 var WEST = WEST || {};
