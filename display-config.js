@@ -264,7 +264,7 @@ WEST.hideStatuses = ['DNS'];
 
 // Statuses where the entry may have partial data but is not eliminated
 // Show with status label, keep any round data that exists
-WEST.partialStatuses = ['WD','RT','SC'];
+WEST.partialStatuses = ['WD','RT','HC'];
 
 // Scoring methods where PH2/R2 elimination carries back to all phases.
 // The entry is fully eliminated — no place, no round data shown.
@@ -286,7 +286,7 @@ WEST.statusDisplayLabel = function(code) {
   if (WEST.elimStatuses.indexOf(c) >= 0) return 'EL';
   if (c === 'RT' || c === 'DNF') return 'RT';
   if (c === 'WD') return 'WD';
-  if (c === 'SC') return 'HC';
+  if (c === 'HC') return 'HC';
   if (c === 'DNS') return 'DNS';
   return c || '';
 };
