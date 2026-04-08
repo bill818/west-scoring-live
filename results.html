@@ -460,8 +460,8 @@ function renderResults() {
 
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement — eliminated entries get a dash, no place or ribbon
-    if (isElim) {
+    // Placement — eliminated with no round data = dash. With round data = show place (may be real).
+    if (isElim && !hasResult) {
       html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
       const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
@@ -498,8 +498,9 @@ function renderResults() {
         + '</div>';
     }
 
-    // Scores — eliminated entries show status code only, no faults/time
-    if (isElim) {
+    // Scores — eliminated with no round data = status code only.
+    // Eliminated WITH round data = show rounds + status (e.g. clear R1, EL in JO).
+    if (isElim && !hasResult) {
       html += '<div class="r-scores"><span class="r-status">' + esc(statusCode) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
@@ -524,6 +525,7 @@ function renderResults() {
           }
         }
       });
+      if (isElim) html += '<div class="r-score-row"><span class="r-status">' + esc(statusCode) + '</span></div>';
       html += '</div>';
     } else if (hasResult && isHunter) {
       html += '<div class="r-scores">';
