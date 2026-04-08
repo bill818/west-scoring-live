@@ -93,8 +93,9 @@ H[01] ClassName              text e.g. "1.15m Jumper"
 H[02] ScoringMethodCode      see Scoring Methods below
 H[03] ScoringModifier        context-dependent per H[02] — see table below
 H[04] RoundsCompleted        increments 0→1→2→3 as each round is scored
-H[05] ClockPrecision         0=thousandths (.001), 1=hundredths (.01), 2=whole seconds
+H[05] ClockPrecision         0=thousandths (.001), 1=hundredths (.01)
                              CONFIRMED 2026-04-08 by toggling precision setting
+                             No whole seconds option observed in Ryegate
 H[06] ImmediateJumpoff       1=immediate (2b/2c/2d), 0=clears return (2a)
 H[07] R1_FaultsPerInterval   fault points per time interval
                              1.0 = standard, 0.25 = quarter, 0 = no time faults (top score)
