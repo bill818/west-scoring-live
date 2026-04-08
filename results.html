@@ -374,6 +374,7 @@ function renderResults() {
         entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
         statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
+        r2StatusCode: e.r2StatusCode || '', r3StatusCode: '',
         rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
@@ -460,8 +461,10 @@ function renderResults() {
 
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement — eliminated with no round data = dash. With round data = show place (may be real).
-    if (isElim && !hasResult) {
+    // Placement — R1 status = no place (dash). JO/R2+ status = place still valid.
+    const r1sc = (g.r1StatusCode || '').toUpperCase();
+    const r1Elim = elimStatuses.includes(r1sc);
+    if (isElim && (r1Elim || !hasResult)) {
       html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
       const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
@@ -498,21 +501,35 @@ function renderResults() {
         + '</div>';
     }
 
-    // Scores — eliminated with no round data = status code only.
-    // Eliminated WITH round data = show rounds + status (e.g. clear R1, EL in JO).
+    // Scores — per-round status check. Hide faults/time for any round that has a status.
+    // Show the status code for that round instead.
     if (isElim && !hasResult) {
       html += '<div class="r-scores"><span class="r-status">' + esc(statusCode) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
+      // Per-round status: check r1StatusCode, r2StatusCode, r3StatusCode on the grouped entry
+      const roundStatus = {
+        1: (g.r1StatusCode || '').toUpperCase(),
+        2: (g.r2StatusCode || '').toUpperCase(),
+        3: (g.r3StatusCode || '').toUpperCase(),
+      };
       g.rounds.sort((a, b) => b.round - a.round);
       g.rounds.forEach(r => {
         const lbl = roundLabel(r.round);
-        const total = parseFloat(r.total) || 0;
-        const isClean = total === 0;
-        html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-          + '<span class="r-score-val' + (isClean ? ' clean' : '') + '">' + (isClean ? '0' : total) + ' flt</span>'
-          + (r.time ? '<span class="r-score-val">' + fmtTime(r.time) + '</span>' : '')
-          + '</div>';
+        const rsc = roundStatus[r.round] || (r.status_code || '').toUpperCase();
+        const rscIsElim = elimStatuses.includes(rsc);
+        if (rscIsElim) {
+          // This round had an elimination — show label + status, hide faults/time
+          html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+            + '<span class="r-status">' + esc(rsc) + '</span></div>';
+        } else {
+          const total = parseFloat(r.total) || 0;
+          const isClean = total === 0;
+          html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+            + '<span class="r-score-val' + (isClean ? ' clean' : '') + '">' + (isClean ? '0' : total) + ' flt</span>'
+            + (r.time ? '<span class="r-score-val">' + fmtTime(r.time) + '</span>' : '')
+            + '</div>';
+        }
         // Optimum time distance for IV.1 classes
         if (isOptimum && optimumTime > 0 && r.time && r.round === 1) {
           const t = parseFloat(r.time);
@@ -525,7 +542,6 @@ function renderResults() {
           }
         }
       });
-      if (isElim) html += '<div class="r-score-row"><span class="r-status">' + esc(statusCode) + '</span></div>';
       html += '</div>';
     } else if (hasResult && isHunter) {
       html += '<div class="r-scores">';
