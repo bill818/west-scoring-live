@@ -244,6 +244,57 @@ WEST.getClassTypeLabel = function(classInfo) {
 };
 
 
+// ── ELIMINATION RULES ────────────────────────────────────────────────────────
+// Central config for how eliminations display per scoring method.
+// Change here = change everywhere. Pages read from this, not hardcoded logic.
+//
+// elimStatuses: status codes that mean "eliminated / did not finish"
+// r2CarryBack:  scoring methods where R2/PH2 elimination wipes ALL phases
+//               (entry gets dash + status, no round data shown, no place)
+// For all OTHER scoring methods: R2 elimination only hides R2 data,
+// R1 data still shows, place still valid (based on R1).
+
+// Status codes — confirmed 2026-04-08
+// Eliminations: entry gets dash for place, round data hidden for that round
+// Non-eliminations (WD/RT/DNS/SC): different display behavior per code
+WEST.elimStatuses = ['EL','RO','RF','OC','HF','EX','DQ','DNF'];
+
+// Statuses that hide the entry entirely (never competed)
+WEST.hideStatuses = ['DNS'];
+
+// Statuses where the entry may have partial data but is not eliminated
+// Show with status label, keep any round data that exists
+WEST.partialStatuses = ['WD','RT','SC'];
+
+// Scoring methods where PH2/R2 elimination carries back to all phases.
+// The entry is fully eliminated — no place, no round data shown.
+WEST.r2CarryBack = {
+  '9':  true,  // II.2d — two-phase, all advance, PH2 EL = all EL
+  // '3': true, // 2 Rounds + JO — add when needed (July)
+};
+
+// Check if a status code is an elimination (no place, hide round data)
+WEST.isElimStatus = function(code) {
+  var c = (code || '').toUpperCase();
+  return WEST.elimStatuses.indexOf(c) >= 0;
+};
+
+// Check if a status code means hide entirely (never competed)
+WEST.isHideStatus = function(code) {
+  return WEST.hideStatuses.indexOf((code || '').toUpperCase()) >= 0;
+};
+
+// Check if a status code allows partial display (may have round data)
+WEST.isPartialStatus = function(code) {
+  return WEST.partialStatuses.indexOf((code || '').toUpperCase()) >= 0;
+};
+
+// Check if this scoring method carries R2 elimination back to all rounds
+WEST.isR2CarryBack = function(scoringMethod) {
+  return !!WEST.r2CarryBack[String(scoringMethod)];
+};
+
+
 /* ═══════════════════════════════════════════════════════════════════════════
    JUMPER — class_type J (Farmtek) or T (TIMY)
    ═══════════════════════════════════════════════════════════════════════════ */

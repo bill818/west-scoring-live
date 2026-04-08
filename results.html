@@ -445,10 +445,6 @@ function renderResults() {
   const sel = liveData.selected;
   const isLive = !!(sel && String(sel.classNum) === String(CLASS_NUM));
 
-  const elimStatuses = ['EL','RF','HF','OC','WD','DNF','SC','RT','DNS'];
-  // Scoring methods where PH2/R2 elimination carries back to eliminate ALL phases
-  const r2CarryBack = ['9']; // II.2d two-phase. Add '3' for 2rnd+JO when needed (July).
-
   grouped.forEach(g => {
     const place = g.bestPlace || '';
     const hasResult = g.rounds.length > 0;
@@ -456,16 +452,14 @@ function renderResults() {
     // Skip entries with no results and no place — they're pending, not competed
     if (!hasResult && !place) return;
 
-    // Detect eliminated/status entries
+    // Detect eliminated/status entries — uses centralized config from display-config.js
     const statusCode = (g.statusCode || g.r1StatusCode || '').toUpperCase()
       || (g.rounds.length && g.rounds[0].status_code ? g.rounds[0].status_code.toUpperCase() : '');
-    const isElim = elimStatuses.includes(statusCode);
-    const r1sc = (g.r1StatusCode || '').toUpperCase();
-    const r2sc = (g.r2StatusCode || '').toUpperCase();
-    const r1Elim = elimStatuses.includes(r1sc);
-    const r2Elim = elimStatuses.includes(r2sc);
-    // For carry-back scoring methods, R2 elim = full elimination (no place, hide all rounds)
-    const fullElim = isElim && (r1Elim || !hasResult || (r2Elim && r2CarryBack.includes(sm)));
+    const isElim = WEST.isElimStatus(statusCode);
+    const r1Elim = WEST.isElimStatus(g.r1StatusCode);
+    const r2Elim = WEST.isElimStatus(g.r2StatusCode);
+    // Full elimination: R1 elim, no data, or R2 elim on a carry-back scoring method
+    const fullElim = isElim && (r1Elim || !hasResult || (r2Elim && WEST.isR2CarryBack(sm)));
 
     html += '<div class="result-entry"><div class="result-main">';
 
@@ -522,7 +516,7 @@ function renderResults() {
       g.rounds.forEach(r => {
         const lbl = roundLabel(r.round);
         const rsc = roundStatus[r.round] || (r.status_code || '').toUpperCase();
-        const rscIsElim = elimStatuses.includes(rsc);
+        const rscIsElim = WEST.isElimStatus(rsc);
         if (rscIsElim) {
           // This round had an elimination — show label + status, hide faults/time
           html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
