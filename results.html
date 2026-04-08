@@ -444,6 +444,9 @@ function renderResults() {
     const place = g.bestPlace || '';
     const hasResult = g.rounds.length > 0;
 
+    // Skip entries with no results and no place — they're pending, not competed
+    if (!hasResult && !place) return;
+
     html += '<div class="result-entry"><div class="result-main">';
 
     // Placement — SVG ribbon when class is not live, numeric when live
@@ -517,7 +520,8 @@ function renderResults() {
       });
       html += '</div>';
     } else if (!hasResult) {
-      html += '<div class="r-scores"><span class="r-status">DNS</span></div>';
+      // Entry has a place but no round data (e.g. forced placement)
+      // Show place only, no score
     }
 
     html += '</div></div>';

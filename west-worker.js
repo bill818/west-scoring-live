@@ -1723,8 +1723,8 @@ function computeJumperResults(body, h, base) {
   const isOptimum = sm === '6';
   const optimumTime = isOptimum && ta.r1 > 0 ? ta.r1 - 4 : 0;
 
-  // Build structured entries with all round data
-  const structured = entries.map(e => ({
+  // Build structured entries with all round data — only entries that competed
+  const structured = entries.filter(e => e.hasGone).map(e => ({
     entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
     owner: e.owner || '', country: e.country || '',
     sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
