@@ -307,20 +307,55 @@ function parseCls(content, filename) {
     };
 
     if (isHunter || result.classType === 'U') {
-      // Hunter entry cols — confirmed 2026-03-20 (97-class analysis)
-      // col[13]=GoOrder, col[14]=CurrentPlace, col[15]=R1Score
-      // col[42]=R1Total, col[45]=CombinedTotal
-      // col[49]=HasGone_R1, col[50]=HasGone_R2, col[52]=StatusCode_R1
+      // Hunter entry cols
+      // col[13]=GoOrder, col[14]=CurrentPlace
+      // col[42]=R1Total, col[43]=R2Total, col[45]=CombinedTotal
+      // col[49]=HasGone_R1, col[50]=HasGone_R2, col[52]=R1StatusText, col[53]=R2StatusText
+      // col[46]=R1StatusNumeric, col[47]=R2StatusNumeric
       entry.place      = cols[14] && cols[14] !== '0' ? cols[14] : '';
-      entry.score      = cols[15] && cols[15] !== '0' ? cols[15] : '';
       entry.r1Total    = cols[42] && cols[42] !== '0' ? cols[42] : '';
+      entry.r2Total    = cols[43] && cols[43] !== '0' ? cols[43] : '';
       entry.combined   = cols[45] && cols[45] !== '0' ? cols[45] : '';
       entry.hasGone    = cols[49] === '1' || cols[50] === '1';
       entry.hasGoneR1  = cols[49] === '1';
       entry.hasGoneR2  = cols[50] === '1';
       entry.statusCode = cols[52] || '';
-      // Two-round classic: R2 score at col[24]
-      entry.r2Score    = cols[24] && cols[24] !== '0' ? cols[24] : '';
+      entry.r1TextStatus = cols[52] || '';
+      entry.r2TextStatus = cols[53] || '';
+      entry.r1NumericStatus = cols[46] || '';
+      entry.r2NumericStatus = cols[47] || '';
+
+      // Per-judge scores — layout depends on class mode (derby vs non-derby)
+      const numJudges = parseInt(result.numJudges) || 1;
+
+      if (result.isDerby) {
+        // Derby layout: col[15]=hiopt, col[16]=J1base, [17]=hiopt mirror, [18]=J2base
+        // R2: col[24]=hiopt, col[25]=J1base, [26]=J1bonus, [27]=hiopt mirror, [28]=J2base, [29]=J2bonus
+        entry.r1HiOpt = cols[15] || '0';
+        entry.r1Judges = [cols[16] || '0'];
+        if (numJudges >= 2) entry.r1Judges.push(cols[18] || '0');
+        entry.r2HiOpt = cols[24] || '0';
+        entry.r2Judges = [cols[25] || '0'];
+        entry.r2Bonus  = [cols[26] || '0'];
+        if (numJudges >= 2) {
+          entry.r2Judges.push(cols[28] || '0');
+          entry.r2Bonus.push(cols[29] || '0');
+        }
+      } else {
+        // Non-derby scored: sequential from col[15] for R1, col[24] for R2
+        // Confirmed 2026-04-08: 7 judges at cols 15-21 (R1) and 24-30 (R2)
+        entry.r1Judges = [];
+        entry.r2Judges = [];
+        for (let j = 0; j < numJudges; j++) {
+          entry.r1Judges.push(cols[15 + j] || '0');
+          entry.r2Judges.push(cols[24 + j] || '0');
+        }
+      }
+
+      // Backward compat: single "score" field = first judge R1 or R1 total
+      entry.score = cols[15] && cols[15] !== '0' ? cols[15] : '';
+      entry.r2Score = cols[24] && cols[24] !== '0' ? cols[24] : '';
+
       // Edge case: manually entered scores bypass hasGone flag — treat as gone if has score or place
       if (!entry.hasGone && (entry.score || entry.place)) entry.hasGone = true;
     }

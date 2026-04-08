@@ -1584,14 +1584,61 @@ function computeHunterResults(body, h, base) {
     });
 
     result.entries = entries;
+  } else if (info.scoringType === '1' || info.scoringType === '2') {
+    // Non-derby scored hunter (scored or hi-lo) — watcher sends r1Judges/r2Judges arrays.
+    // Build per-judge phase cards and compute rankings (same engine as derby).
+    // Column map confirmed 2026-04-08: R1=col[15+j], R2=col[24+j], sequential.
+    const jc = info.judgeCount;
+    let entries = (body.entries || []).map(e => {
+      const r1 = (e.r1Judges || []).map(v => {
+        const s = parseFloat(v) || 0;
+        return { base: s, hiopt: 0, bonus: 0, phaseTotal: s };
+      });
+      const r2 = (e.r2Judges || []).map(v => {
+        const s = parseFloat(v) || 0;
+        return { base: s, hiopt: 0, bonus: 0, phaseTotal: s };
+      });
+      // Pad arrays to judgeCount if watcher sent fewer
+      while (r1.length < jc) r1.push({ base: 0, hiopt: 0, bonus: 0, phaseTotal: 0 });
+      while (r2.length < jc) r2.push({ base: 0, hiopt: 0, bonus: 0, phaseTotal: 0 });
+
+      return {
+        entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
+        owner: e.owner || '', country: e.country || '',
+        sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
+        place: e.place || '',
+        r1, r2,
+        r1Total: parseFloat(e.r1Total) || 0,
+        r2Total: parseFloat(e.r2Total) || 0,
+        combined: (parseFloat(e.r1Total) || 0) + (parseFloat(e.r2Total) || 0),
+        r1NumericStatus: e.r1NumericStatus || '',
+        r2NumericStatus: e.r2NumericStatus || '',
+        r1TextStatus: e.r1TextStatus || '',
+        r2TextStatus: e.r2TextStatus || '',
+        hasGone: e.hasGone, statusCode: e.statusCode || '',
+      };
+    });
+
+    // Compute per-judge rankings using the same engine as derby
+    entries = computeDerbyRankings(entries, jc);
+    result.isSplitDecision = isSplitDecision(entries, jc);
+
+    // Sort by place
+    entries.sort((a, b) => {
+      const pa = parseInt(a.place) || 999, pb = parseInt(b.place) || 999;
+      if (pa !== pb) return pa - pb;
+      return (b.combined || 0) - (a.combined || 0);
+    });
+
+    result.entries = entries;
   } else {
-    // Non-derby hunter — use watcher-parsed entries
+    // Forced/flat hunter (no scores) — just pass entries with place
     result.entries = (body.entries || []).map(e => ({
       entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
       owner: e.owner || '', country: e.country || '',
       sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
       place: e.place || '', score: e.score || '',
-      r1Total: e.r1Total || '', r2Total: e.r2Total || e.r2Score || '',
+      r1Total: e.r1Total || '', r2Total: e.r2Total || '',
       combined: e.combined || '',
       hasGone: e.hasGone, statusCode: e.statusCode || '',
     }));

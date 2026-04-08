@@ -537,12 +537,35 @@ col[49] HasGone_R1           1=competed
 col[52] StatusCode           EX=Excused, RF=RiderFall, OC=OffCourse
 ```
 
-### Two-round classic (1 judge, 2 rounds):
+### Non-derby scored (H[2]=0, H[5]=1 or 2) — 1 to 7+ judges, 1-2 rounds:
+### CONFIRMED 2026-04-08 from class 1002 (7 judges, 2 rounds, scores 1-7)
+```
+Per-judge scores are SEQUENTIAL — no hiopt, no bonus, no mirrors.
+R1: col[15 + j] where j = 0..numJudges-1   (J1=col[15], J2=col[16], ... J7=col[21])
+R2: col[24 + j] where j = 0..numJudges-1   (J1=col[24], J2=col[25], ... J7=col[30])
+col[42] R1Total              sum of all judge R1 scores
+col[43] R2Total              sum of all judge R2 scores
+col[45] CombinedTotal        R1Total + R2Total
+col[46] R1_NumericStatus
+col[47] R2_NumericStatus
+col[49] HasGone_R1
+col[50] HasGone_R2
+col[52] StatusCode_R1
+col[53] StatusCode_R2
+
+NOTE: This layout is COMPLETELY DIFFERENT from derby layout.
+      Derby interleaves hiopt/base/bonus/mirrors.
+      Non-derby is straight sequential scores.
+      H[2] determines which layout to use (0=non-derby, 2=derby).
+      Maximum 7 judges confirmed. cols 22-23 unused (padding between R1 and R2 blocks).
+```
+
+### Two-round classic (1 judge, 2 rounds — legacy reference):
 ```
 col[13] GoOrder
 col[14] CurrentPlace
-col[15] R1Score
-col[24] R2Score              round 2 (handy or second O/F)
+col[15] R1Score              (= J1 score when 1 judge)
+col[24] R2Score              (= J1 R2 score when 1 judge)
 col[42] R1Total
 col[43] R2Total
 col[45] CombinedTotal        R1+R2
