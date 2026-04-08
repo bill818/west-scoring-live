@@ -561,7 +561,50 @@ export default {
         // was deployed. Once computed, the result is NOT cached (one-off).
         if (cls.cls_raw) {
           try {
-            // Build a body shape that computeClassResults expects
+            // Fetch D1 entries to populate the body for jumper computation
+            // (hunter derby reads from clsRaw, but jumper needs the entries array)
+            const d1Entries = await env.WEST_DB.prepare(`
+              SELECT e.entry_num, e.horse, e.rider, e.owner, e.country,
+                     e.sire, e.dam, e.city, e.state, e.horse_fei, e.rider_fei,
+                     r.round, r.time, r.jump_faults, r.time_faults,
+                     r.total, r.place, r.status_code
+              FROM entries e
+              LEFT JOIN results r ON r.entry_id = e.id
+              WHERE e.class_id = ?
+              ORDER BY e.entry_num, r.round
+            `).bind(cls.id).all();
+
+            // Map D1 rows into the watcher's entry shape (grouped by entry_num)
+            const entryMap = {};
+            (d1Entries.results || []).forEach(row => {
+              if (!entryMap[row.entry_num]) {
+                entryMap[row.entry_num] = {
+                  entryNum: row.entry_num, horse: row.horse, rider: row.rider,
+                  owner: row.owner, country: row.country, sire: row.sire, dam: row.dam,
+                  city: row.city, state: row.state, hasGone: false,
+                  place: '', overallPlace: '', statusCode: '',
+                };
+              }
+              const e = entryMap[row.entry_num];
+              if (row.round === 1) {
+                e.r1Time = row.time || ''; e.r1TotalTime = row.time || '';
+                e.r1JumpFaults = row.jump_faults || '0'; e.r1TimeFaults = row.time_faults || '0';
+                e.r1TotalFaults = row.total || '0'; e.hasGone = true;
+                e.r1StatusCode = row.status_code || '';
+              } else if (row.round === 2) {
+                e.r2Time = row.time || ''; e.r2TotalTime = row.time || '';
+                e.r2JumpFaults = row.jump_faults || '0'; e.r2TimeFaults = row.time_faults || '0';
+                e.r2TotalFaults = row.total || '0';
+                e.r2StatusCode = row.status_code || '';
+              } else if (row.round === 3) {
+                e.r3Time = row.time || ''; e.r3TotalTime = row.time || '';
+                e.r3JumpFaults = row.jump_faults || '0'; e.r3TimeFaults = row.time_faults || '0';
+                e.r3TotalFaults = row.total || '0';
+              }
+              if (row.place) { e.place = row.place; e.overallPlace = row.place; }
+              if (row.status_code) e.statusCode = row.status_code;
+            });
+
             const fakeBody = {
               filename: cls.class_num + '.cls',
               classType: cls.class_type || 'U',
@@ -570,7 +613,7 @@ export default {
               trophy: '',
               showFlags: !!cls.show_flags,
               clsRaw: cls.cls_raw,
-              entries: [], // not needed — computation reads from clsRaw for hunter derby
+              entries: Object.values(entryMap),
             };
             const computed = computeClassResults(fakeBody);
             return jsonWithEtag(request, { ok: true, source: 'computed-fallback', computed });
