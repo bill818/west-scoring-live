@@ -165,7 +165,33 @@ Others:                0 (default, no modifier)
 FEI classes use the SAME H[02] scoring method codes as USEF.
 The ONLY header difference is H[18]=True (FEI flag).
 FEI defaults to H[05]=1 (hundredths precision).
-FEI Art 4.2 vs 4.3 distinguished by H[03] modifier on H[02]=11.
+
+### USEF ↔ FEI Cross-Reference (confirmed 2026-04-08):
+```
+H[02]  USEF                          FEI                           FEI Article
+─────  ────                          ───                           ───────────
+ 0     Table III (Faults Converted)  Table C                       —
+ 1     R1+JO (ties unbroken)         R1+JO (ties unbroken)         Art 220.1.1.3
+ 2     II.2a (fewest faults return)  Round+JO (ties broken)        Art 220.2.1.2
+ 3/0   2 Rounds+JO (break by R1)    2 Rounds+JO (break by R1)     Art 221.4.1
+ 3/1   2 Rounds+JO (remain tied)    2 Rounds+JO (remain tied)     Art 221.4.2
+ 4     II.1 Speed                    Time First Round              Art 220.1.1.1
+ 5/0   Gamblers Choice               NOT VALID FEI                 —
+ 5/1   Accumulator                   Accumulator                   Art 229
+ 6     IV.1 Optimum Time             NOT IN FEI                    —
+ 8     Table II (faults only)        Table II (faults only)        —
+ 9     II.2d (two-phase, EL=all)     Two-Phase Special             Art 222.2.3
+10     II.2f (stratified JO)         R1+JO (ties unbroken)         Art 220.1.1.3
+11/1   II.2c (FEI variant)           Two-Phase PH1 no clock        Art 222.1.4.2
+11/2   II.2c (FEI variant)           Two-Phase PH1 with clock      Art 222.1.4.3
+13     II.2b (immediate JO)          NOT IN FEI                    —
+14     Team                          Team                          (TBD)
+15     Winning Round                 Winning Round                 Art 223.2
+ 7     Timed Equitation              NOT FEI (USEF only)           —
+```
+NOTE: H[02]/H[03] shown as "H[02]/H[03]" when H[03] matters.
+Gamblers Choice, Optimum Time, and II.2b have no FEI equivalent.
+Timed Equitation is USEF-only (uses jumper UDP, rider-first display).
 
 NOTE: Two-phase (9) uses TIMY blocks 2 and 3 instead of 1 and 2.
 
