@@ -244,43 +244,30 @@ WEST.getClassTypeLabel = function(classInfo) {
 };
 
 
-// ── ELIMINATION RULES ────────────────────────────────────────────────────────
-// Central config for how eliminations display per scoring method.
-// Change here = change everywhere. Pages read from this, not hardcoded logic.
-//
-// elimStatuses: status codes that mean "eliminated / did not finish"
-// r2CarryBack:  scoring methods where R2/PH2 elimination wipes ALL phases
-//               (entry gets dash + status, no round data shown, no place)
-// For all OTHER scoring methods: R2 elimination only hides R2 data,
-// R1 data still shows, place still valid (based on R1).
+// ── ELIMINATION / STATUS DISPLAY RULES ───────────────────────────────────────
+// Central config. Change here = change everywhere.
+// Confirmed 2026-04-08 by reviewing every scoring method with Bill.
 
-// Status codes — confirmed 2026-04-08
-// Eliminations: entry gets dash for place, round data hidden for that round
-// Non-eliminations (WD/RT/DNS/SC): different display behavior per code
-WEST.elimStatuses = ['EL','RO','RF','OC','HF','EX','DQ'];
+// Status code categories
+WEST.elimStatuses   = ['EL','RO','RF','OC','HF','EX','DQ'];  // Eliminations
+WEST.hideStatuses   = ['DNS'];                                 // Hide entirely
+WEST.partialStatuses = ['WD','RT','HC'];                       // May have partial data
 
-// Statuses that hide the entry entirely (never competed)
-WEST.hideStatuses = ['DNS'];
-
-// Statuses where the entry may have partial data but is not eliminated
-// Show with status label, keep any round data that exists
-WEST.partialStatuses = ['WD','RT','HC'];
-
-// Scoring methods where PH2/R2 elimination carries back to all phases.
-// The entry is fully eliminated — no place, no round data shown.
-WEST.r2CarryBack = {
-  '9':  true,  // II.2d — two-phase, all advance, PH2 EL = all EL
-  // '3': true, // 2 Rounds + JO — add when needed (July)
-};
-
-// Check if a status code is an elimination (no place, hide round data)
 WEST.isElimStatus = function(code) {
+  return WEST.elimStatuses.indexOf((code || '').toUpperCase()) >= 0;
+};
+WEST.isHideStatus = function(code) {
+  return WEST.hideStatuses.indexOf((code || '').toUpperCase()) >= 0;
+};
+WEST.isPartialStatus = function(code) {
+  return WEST.partialStatuses.indexOf((code || '').toUpperCase()) >= 0;
+};
+WEST.isAnyStatus = function(code) {
   var c = (code || '').toUpperCase();
-  return WEST.elimStatuses.indexOf(c) >= 0;
+  return WEST.isElimStatus(c) || WEST.isHideStatus(c) || WEST.isPartialStatus(c);
 };
 
-// Display labels for status codes — viewers see generic labels, not specific codes.
-// We don't advertise horses falling or specific elimination reasons.
+// Display labels — viewers see generic codes, not specific reasons.
 WEST.statusDisplayLabel = function(code) {
   var c = (code || '').toUpperCase();
   if (WEST.elimStatuses.indexOf(c) >= 0) return 'EL';
@@ -291,27 +278,82 @@ WEST.statusDisplayLabel = function(code) {
   return c || '';
 };
 
-// Check if a status code means hide entirely (never competed)
-WEST.isHideStatus = function(code) {
-  return WEST.hideStatuses.indexOf((code || '').toUpperCase()) >= 0;
-};
-
-// Check if a status code allows partial display (may have round data)
-WEST.isPartialStatus = function(code) {
-  return WEST.partialStatuses.indexOf((code || '').toUpperCase()) >= 0;
-};
-
-// Check if this scoring method carries R2 elimination back to all rounds
-WEST.isR2CarryBack = function(scoringMethod) {
-  return !!WEST.r2CarryBack[String(scoringMethod)];
-};
-
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   JUMPER — class_type J (Farmtek) or T (TIMY)
-   ═══════════════════════════════════════════════════════════════════════════ */
+// ── JUMPER ELIMINATION DISPLAY TABLE ─────────────────────────────────────────
+// Three patterns based on scoring method (H[2]):
+//
+// SINGLE ROUND (0,4,5,6,7,8):
+//   Any status = no place, no data shown.
+//
+// CARRY-BACK (3,9,14):
+//   R1 status = no place, hide all.
+//   R2 status = no place, carry-back wipes all (show R1 data for context, hide R2).
+//   JO status = place valid (on R1+R2), show R1+R2, hide JO.
+//
+// R1-HOLDS (1,2,10,11,13,15):
+//   R1 status = no place, hide all.
+//   R2/PH2 status = place valid (on R1), show R1, hide R2.
+//   JO status = place valid (on R1), show R1, hide JO.
+//   Exception: 15 (Winning Round) JO status = no place (R1 wiped for JO).
+//
+// For ALL methods: R1/PH1 status = always no place, always hide data.
 
 WEST.jumper = {};
+
+WEST.jumper.singleRound = { '0':1, '4':1, '5':1, '6':1, '7':1, '8':1 };
+WEST.jumper.r2CarryBack = { '3':1, '9':1, '14':1 };
+WEST.jumper.r1Holds     = { '1':1, '2':1, '10':1, '11':1, '13':1, '15':1 };
+
+// Returns display rules for a status entry. null = no status, render normally.
+// { showPlace, rounds: { 1: show|hide|status, 2: ..., 3: ... }, label }
+WEST.jumper.getStatusDisplay = function(sm, r1Status, r2Status, r3Status) {
+  var r1 = (r1Status || '').toUpperCase();
+  var r2 = (r2Status || '').toUpperCase();
+  var r3 = (r3Status || '').toUpperCase();
+  var has1 = WEST.isAnyStatus(r1);
+  var has2 = WEST.isAnyStatus(r2);
+  var has3 = WEST.isAnyStatus(r3);
+  if (!has1 && !has2 && !has3) return null; // no status — normal entry
+
+  var label = WEST.statusDisplayLabel(r1 || r2 || r3);
+  var s = String(sm);
+
+  // R1 status — always no place, hide everything
+  if (has1) {
+    return { showPlace: false, showR1: false, showR2: false, showR3: false, label: label };
+  }
+
+  // Single round — should never have R2/R3 status but handle gracefully
+  if (WEST.jumper.singleRound[s]) {
+    return { showPlace: false, showR1: false, showR2: false, showR3: false, label: label };
+  }
+
+  // Carry-back methods (3, 9, 14) — R2 status wipes all, no place
+  if (WEST.jumper.r2CarryBack[s] && has2) {
+    return { showPlace: false, showR1: true, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r2) };
+  }
+
+  // R1-holds methods — R2/PH2 status: place valid, show R1, hide R2
+  if (WEST.jumper.r1Holds[s] && has2) {
+    return { showPlace: true, showR1: true, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r2) };
+  }
+
+  // JO (R3) status
+  if (has3) {
+    if (s === '15') {
+      // Winning Round: JO is fresh start, JO status = no place
+      return { showPlace: false, showR1: false, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r3) };
+    }
+    if (WEST.jumper.r2CarryBack[s]) {
+      // Carry-back: JO status = place on R1+R2
+      return { showPlace: true, showR1: true, showR2: true, showR3: false, label: WEST.statusDisplayLabel(r3) };
+    }
+    // R1-holds: JO status = place on R1
+    return { showPlace: true, showR1: true, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r3) };
+  }
+
+  // Fallback
+  return { showPlace: false, showR1: false, showR2: false, showR3: false, label: label };
+};
 
 // ── SCORING METHODS ──────────────────────────────────────────────────────────
 // H[02] for jumper classes
