@@ -534,7 +534,30 @@ export default {
           return json({ ok: true, source: 'final', computed: JSON.parse(cls.final_results) });
         }
 
-        // Last resort: D1 entries + class metadata (no cls_raw sent to client)
+        // Last resort: compute on-the-fly from D1 cls_raw if available.
+        // This handles historical classes completed before the computation engine
+        // was deployed. Once computed, the result is NOT cached (one-off).
+        if (cls.cls_raw) {
+          try {
+            // Build a body shape that computeClassResults expects
+            const fakeBody = {
+              filename: cls.class_num + '.cls',
+              classType: cls.class_type || 'U',
+              className: cls.class_name || '',
+              sponsor: cls.sponsor || '',
+              trophy: '',
+              showFlags: !!cls.show_flags,
+              clsRaw: cls.cls_raw,
+              entries: [], // not needed — computation reads from clsRaw for hunter derby
+            };
+            const computed = computeClassResults(fakeBody);
+            return json({ ok: true, source: 'computed-fallback', computed });
+          } catch(e) {
+            console.error('[getResults] On-the-fly compute failed:', e.message);
+          }
+        }
+
+        // Absolute last resort: raw D1 entries (no cls_raw sent to client)
         const entries = await env.WEST_DB.prepare(`
           SELECT e.entry_num, e.horse, e.rider, e.owner, e.country,
                  e.sire, e.dam, e.city, e.state, e.horse_fei, e.rider_fei,
@@ -546,8 +569,7 @@ export default {
           ORDER BY CAST(r.place AS INTEGER), e.entry_num, r.round
         `).bind(cls.id).all();
 
-        // Strip cls_raw from class metadata before sending
-        const { cls_raw, ...clsSafe } = cls;
+        const { cls_raw: _raw, ...clsSafe } = cls;
         return json({ ok: true, source: 'db', class: clsSafe, entries: entries.results });
       } catch(e) { return err('DB error: ' + e.message); }
     }
