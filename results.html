@@ -373,6 +373,7 @@ function renderResults() {
       byEntry[e.entry_num] = {
         entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
+        statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
         rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
@@ -385,6 +386,7 @@ function renderResults() {
       byEntry[e.entry_num] = {
         entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
+        statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
         rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
@@ -395,6 +397,7 @@ function renderResults() {
         byEntry[e.entry_num] = { entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
           country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
           horse_fei: e.horse_fei, rider_fei: e.rider_fei,
+          statusCode: '', r1StatusCode: '',
           rounds: [], bestPlace: null };
       }
       if (e.round) {
@@ -403,6 +406,7 @@ function renderResults() {
         if (p && (!byEntry[e.entry_num].bestPlace || p < byEntry[e.entry_num].bestPlace)) {
           byEntry[e.entry_num].bestPlace = p;
         }
+        if (e.status_code) byEntry[e.entry_num].statusCode = e.status_code;
       }
     });
   }
