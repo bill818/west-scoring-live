@@ -84,16 +84,14 @@ WEST.esc = function(s) {
 // H[05] ClockPrecision — CONFIRMED 2026-04-05:
 //   0 = thousandths (.XXX)
 //   1 = hundredths (.XX)
-//   2 = whole seconds (probable, untested)
+// Confirmed 2026-04-08: only these two options exist in Ryegate.
 WEST.formatTime = function(val, precision) {
   if (!val) return '';
   var n = parseFloat(val);
   if (isNaN(n)) return String(val);
   var p = parseInt(precision);
-  if (isNaN(p)) p = 0;
-  if (p === 0) return n.toFixed(3);
   if (p === 1) return n.toFixed(2);
-  return Math.round(n).toString();
+  return n.toFixed(3); // default to thousandths
 };
 
 // ── CLS HEADER PARSER ────────────────────────────────────────────────────────
