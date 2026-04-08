@@ -630,7 +630,7 @@ function render() {
         const built = WEST.hunter.derby.buildEntries(ocCd);
         const derbyEntry = built.entries.find(e => String(e.entry_num) === String(oc.entry));
         if (derbyEntry) {
-          breakdownHtml = WEST.hunter.derby.renderCompactBreakdown(derbyEntry, built.judgeCount, WEST.hunter.isDerby(ocCd));
+          breakdownHtml = WEST.hunter.derby.renderCompactBreakdown(derbyEntry, built.judgeCount);
         }
       }
 

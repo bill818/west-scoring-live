@@ -812,25 +812,18 @@ WEST.hunter.derby.topPerJudge = function(entries, judgeCount, n) {
 // Render a phase card math string.
 // Derby: ALWAYS show all components including zeros — "90 + 4 + 0 = 94"
 // Non-derby: just the score — "5" (hiopt and bonus are always 0, don't display them)
-// isDerby parameter controls display mode:
-// Derby: ALWAYS show "base + hiopt [+ bonus] = total" (even when 0)
-// Non-derby: just show the score (phaseTotal) — no hiopt/bonus columns exist
-// If isDerby is not passed, auto-detect: show additions only if hiopt or bonus > 0
-WEST.hunter.derby.renderPhaseMath = function(phase, roundNum, isDerby) {
-  if (isDerby === true) {
+// Render a phase card math string. Auto-detects format from the data:
+// Derby phase cards have { base, hiopt, bonus } → show "base + hiopt [+ bonus] = total"
+// Non-derby phase cards have { score } only → show just the score
+// The Worker decides which shape to send — the renderer just reads what's there.
+WEST.hunter.derby.renderPhaseMath = function(phase, roundNum) {
+  if (phase.base !== undefined) {
+    // Derby format — always show all components including zeros
     var parts = [String(phase.base), String(phase.hiopt)];
     if (roundNum === 2) parts.push(String(phase.bonus));
     return parts.join(' + ') + ' = ' + phase.phaseTotal;
   }
-  if (isDerby === false) {
-    return String(phase.phaseTotal);
-  }
-  // Auto-detect: if hiopt or bonus present, show breakdown
-  if (phase.hiopt || (roundNum === 2 && phase.bonus)) {
-    var ap = [String(phase.base), String(phase.hiopt)];
-    if (roundNum === 2) ap.push(String(phase.bonus));
-    return ap.join(' + ') + ' = ' + phase.phaseTotal;
-  }
+  // Non-derby — just the score
   return String(phase.phaseTotal);
 };
 
@@ -850,7 +843,7 @@ WEST.hunter.derby.renderPhaseMath = function(phase, roundNum, isDerby) {
 //   J2 R2   base + hiopt + bonus = phaseTotal
 // (1-judge derbies suppress the J-prefixed per-judge rows since they're
 // redundant with the R1/R2 totals.)
-WEST.hunter.derby.renderCompactBreakdown = function(entry, judgeCount, isDerby) {
+WEST.hunter.derby.renderCompactBreakdown = function(entry, judgeCount) {
   if (!entry) return '';
   var hasR1 = WEST.hunter.derby.hasR1(entry);
   var hasR2 = WEST.hunter.derby.hasR2(entry);
@@ -882,7 +875,7 @@ WEST.hunter.derby.renderCompactBreakdown = function(entry, judgeCount, isDerby) 
     var cellHtml = function(lbl, p, roundNum, rank) {
       return '<span class="oc-breakdown-cell">'
         + '<span class="oc-breakdown-lbl">' + lbl + '</span>'
-        + '<span class="oc-breakdown-math">' + WEST.hunter.derby.renderPhaseMath(p, roundNum, isDerby) + '</span>'
+        + '<span class="oc-breakdown-math">' + WEST.hunter.derby.renderPhaseMath(p, roundNum) + '</span>'
         + (rank ? '<span class="oc-breakdown-rank">(' + WEST.ordinal(rank) + ')</span>' : '')
         + '</span>';
     };
@@ -995,7 +988,6 @@ WEST.hunter.derby.renderPrecomputed = function(computed, opts) {
 
 WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
   opts = opts || {};
-  var isDerby = !!computed.isDerby;
   var entries = WEST.hunter.derby._shimJt(computed.entries || [], computed.judgeCount || 1);
   var fakeClassInfo = {
     class_name: computed.className, className: computed.className,
@@ -1050,10 +1042,10 @@ WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
           html += '<span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span>';
         } else {
           if (gHasR1 && g.r1[jj]) {
-            html += '<div class="r-score-row"><span class="r-score-lbl">R1</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r1[jj], 1, isDerby) + '</span></div>';
+            html += '<div class="r-score-row"><span class="r-score-lbl">R1</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r1[jj], 1) + '</span></div>';
           }
           if (WEST.hunter.derby.hasR2(g) && g.r2[jj]) {
-            html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r2[jj], 2, isDerby) + '</span></div>';
+            html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r2[jj], 2) + '</span></div>';
           }
           var cardTotal = g._jt && g._jt.judgeCardTotals[jj];
           if (cardTotal != null) html += '<div class="r-total">' + cardTotal.toFixed(2) + '</div>';
@@ -1170,13 +1162,13 @@ WEST.hunter.derby.renderByJudgeList = function(classInfo, opts) {
           if (hasR1) {
             var p1 = g.r1[jj];
             html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-              + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1, isDerby) + '</span>'
+              + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1) + '</span>'
               + '</div>';
           }
           if (hasR2) {
             var p2 = g.r2[jj];
             html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-              + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2, isDerby) + '</span>'
+              + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + '</span>'
               + '</div>';
           }
           var cardTotal = g._jt && g._jt.judgeCardTotals[jj];
@@ -1201,7 +1193,6 @@ WEST.hunter.derby.renderByJudgeList = function(classInfo, opts) {
 WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount, opts) {
   opts = opts || {};
   var esc = WEST.esc;
-  var isDerby = WEST.hunter.isDerby(classInfo);
   var place = g.place || '';
   var r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
   var r2Status = WEST.hunter.getStatus(g.r2TextStatus, g.r2NumericStatus);
@@ -1259,18 +1250,18 @@ WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount, opts) {
       + '</div>';
   }
 
-  html += WEST.hunter.derby.renderScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand, isDerby);
+  html += WEST.hunter.derby.renderScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand);
   html += '</div>'; // result-main
 
   if (canExpand) {
-    html += WEST.hunter.derby.renderExpand(g, judgeCount, isDerby);
+    html += WEST.hunter.derby.renderExpand(g, judgeCount);
   }
 
   html += '</div>'; // result-entry
   return html;
 };
 
-WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand, isDerby) {
+WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand) {
   if (r1Failed) {
     return '<div class="r-scores"><span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span></div>';
   }
@@ -1281,7 +1272,7 @@ WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Stat
       var p1 = g.r1[0];
       var r1k = g._jt ? g._jt.r1Ranks[0] : null;
       html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1, isDerby) + '</span>'
+        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1) + '</span>'
         + (r1k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r1k) + ')</span>' : '')
         + '</div>';
     }
@@ -1289,7 +1280,7 @@ WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Stat
       var p2 = g.r2[0];
       var r2k = g._jt ? g._jt.r2Ranks[0] : null;
       html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2, isDerby) + '</span>'
+        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + '</span>'
         + (r2k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r2k) + ')</span>' : '')
         + '</div>';
     } else if (r2Status) {
@@ -1336,7 +1327,7 @@ WEST.hunter.derby.renderMovement = function(m) {
   return '<div class="r-move"></div>';
 };
 
-WEST.hunter.derby.renderExpand = function(e, judgeCount, isDerby) {
+WEST.hunter.derby.renderExpand = function(e, judgeCount) {
   if (!e._jt) return '';
   var hasR1 = WEST.hunter.derby.hasR1(e);
   var hasR2 = WEST.hunter.derby.hasR2(e);
@@ -1350,7 +1341,7 @@ WEST.hunter.derby.renderExpand = function(e, judgeCount, isDerby) {
       var solo = rk === 1 && judgeCount > 1;
       html += '<div class="de-judge-row">'
         + '<span class="de-judge-lbl">J' + (j + 1) + ' R1</span>'
-        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p, 1, isDerby) + '</span>'
+        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p, 1) + '</span>'
         + '<span class="de-judge-rank' + (solo ? ' solo-winner' : '') + '">'
         + (rk ? '(' + WEST.ordinal(rk) + ')' : '') + '</span>'
         + '</div>';
@@ -1366,7 +1357,7 @@ WEST.hunter.derby.renderExpand = function(e, judgeCount, isDerby) {
       var solo2 = rk2 === 1 && judgeCount > 1;
       html += '<div class="de-judge-row">'
         + '<span class="de-judge-lbl">J' + (j2 + 1) + ' R2</span>'
-        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p2, 2, isDerby) + '</span>'
+        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + '</span>'
         + '<span class="de-judge-rank' + (solo2 ? ' solo-winner' : '') + '">'
         + (rk2 ? '(' + WEST.ordinal(rk2) + ')' : '') + '</span>'
         + '</div>';

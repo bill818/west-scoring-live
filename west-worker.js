@@ -1590,17 +1590,18 @@ function computeHunterResults(body, h, base) {
     // Column map confirmed 2026-04-08: R1=col[15+j], R2=col[24+j], sequential.
     const jc = info.judgeCount;
     let entries = (body.entries || []).map(e => {
+      // Non-derby: phase cards are just { score, phaseTotal } — no hiopt/bonus fields.
+      // The ABSENCE of hiopt/bonus tells the renderer to show score only.
       const r1 = (e.r1Judges || []).map(v => {
         const s = parseFloat(v) || 0;
-        return { base: s, hiopt: 0, bonus: 0, phaseTotal: s };
+        return { score: s, phaseTotal: s };
       });
       const r2 = (e.r2Judges || []).map(v => {
         const s = parseFloat(v) || 0;
-        return { base: s, hiopt: 0, bonus: 0, phaseTotal: s };
+        return { score: s, phaseTotal: s };
       });
-      // Pad arrays to judgeCount if watcher sent fewer
-      while (r1.length < jc) r1.push({ base: 0, hiopt: 0, bonus: 0, phaseTotal: 0 });
-      while (r2.length < jc) r2.push({ base: 0, hiopt: 0, bonus: 0, phaseTotal: 0 });
+      while (r1.length < jc) r1.push({ score: 0, phaseTotal: 0 });
+      while (r2.length < jc) r2.push({ score: 0, phaseTotal: 0 });
 
       return {
         entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
