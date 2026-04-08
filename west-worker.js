@@ -89,11 +89,17 @@ export default {
       const key = `live:${slug}:${ring}:${classNum}`;
       await env.WEST_LIVE.put(key, JSON.stringify(body), { expirationTtl: 7200 });
 
+      // Pre-compute results — runs once here instead of on every viewer's phone.
+      // Stored in KV for live polling, and written to D1 on CLASS_COMPLETE.
+      const computed = computeClassResults(body);
+      const resultsKey = `results:${slug}:${ring}:${classNum}`;
+      await env.WEST_LIVE.put(resultsKey, JSON.stringify(computed), { expirationTtl: 7200 });
+
       // Active array managed by CLASS_SELECTED (Ctrl+A) and INTRO/ON_COURSE (UDP events)
       // .cls changes update data only — deliberate operator action puts a class live
 
       ctx.waitUntil(writeToD1(env, body, slug, ring));
-      console.log(`[postClassData] ${key} — class ${classNum} ${body.classType}`);
+      console.log(`[postClassData] ${key} — class ${classNum} ${body.classType} [computed]`);
       return json({ ok: true, classNum });
     }
 
@@ -492,13 +498,23 @@ export default {
     }
 
     // ── GET /getResults ───────────────────────────────────────────────────────
-    // Website gets full results for a specific class
+    // Website gets full results for a specific class.
+    // Priority: KV pre-computed results (live/recent) → D1 fallback (historical).
+    // cls_raw is NEVER sent to the client — computation happens server-side.
     if (method === 'GET' && path === '/getResults') {
       const slug     = url.searchParams.get('slug');
       const classNum = url.searchParams.get('classNum');
       const ring     = url.searchParams.get('ring') || '1';
       if (!slug || !classNum) return err('Missing slug or classNum');
       try {
+        // Try KV pre-computed results first (live or recently completed classes)
+        const resultsKey = `results:${slug}:${ring}:${classNum}`;
+        const kvResults = await env.WEST_LIVE.get(resultsKey);
+        if (kvResults) {
+          return json({ ok: true, source: 'live', computed: JSON.parse(kvResults) });
+        }
+
+        // Fallback: D1 (historical/completed classes)
         const show = await env.WEST_DB.prepare(
           'SELECT id FROM shows WHERE slug = ?'
         ).bind(slug).first();
@@ -509,7 +525,12 @@ export default {
         ).bind(show.id, ring, classNum).first();
         if (!cls) return json({ ok: true, class: null, entries: [] });
 
-        // Get all entries with their results
+        // If we have final_results in D1 (frozen on CLASS_COMPLETE), serve that
+        if (cls.final_results) {
+          return json({ ok: true, source: 'final', computed: JSON.parse(cls.final_results) });
+        }
+
+        // Last resort: D1 entries + class metadata (no cls_raw sent to client)
         const entries = await env.WEST_DB.prepare(`
           SELECT e.entry_num, e.horse, e.rider, e.owner, e.country,
                  e.sire, e.dam, e.city, e.state, e.horse_fei, e.rider_fei,
@@ -521,7 +542,9 @@ export default {
           ORDER BY CAST(r.place AS INTEGER), e.entry_num, r.round
         `).bind(cls.id).all();
 
-        return json({ ok: true, class: cls, entries: entries.results });
+        // Strip cls_raw from class metadata before sending
+        const { cls_raw, ...clsSafe } = cls;
+        return json({ ok: true, source: 'db', class: clsSafe, entries: entries.results });
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
@@ -666,6 +689,7 @@ export default {
         "ALTER TABLE ring_activity ADD COLUMN first_horse_at TEXT",
         "ALTER TABLE shows ADD COLUMN start_date TEXT",
         "ALTER TABLE shows ADD COLUMN end_date TEXT",
+        "ALTER TABLE classes ADD COLUMN final_results TEXT",
       ];
       for (const sql of migrations) {
         try { await env.WEST_DB.prepare(sql).run(); results.push({ sql, ok: true }); }
@@ -1015,11 +1039,17 @@ async function markClassComplete(env, slug, ring, classNum, className) {
     ).bind(slug).first();
     if (!show) return;
     const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+    // Freeze pre-computed results into D1 — permanent record
+    const resultsKey = `results:${slug}:${ring}:${classNum}`;
+    const kvResults = await env.WEST_LIVE.get(resultsKey);
+    const finalResults = kvResults || null;
+
     await env.WEST_DB.prepare(`
-      UPDATE classes SET status = 'complete', updated_at = ?
+      UPDATE classes SET status = 'complete', updated_at = ?, final_results = ?
       WHERE show_id = ? AND ring = ? AND class_num = ?
-    `).bind(now, show.id, ring, classNum).run();
-    console.log(`[markClassComplete] ${slug}:${ring} class ${classNum} — ${className}`);
+    `).bind(now, finalResults, show.id, ring, classNum).run();
+    console.log(`[markClassComplete] ${slug}:${ring} class ${classNum} — ${className}${finalResults ? ' [results frozen]' : ''}`);
   } catch(e) {
     console.error(`[markClassComplete ERROR] ${e.message}`);
   }
@@ -1231,4 +1261,435 @@ function extractSlugRing(body, url) {
   if (!slug) slug = body.slug || null;
   if (!ring) ring = body.ring || '1';
   return { slug, ring };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SERVER-SIDE COMPUTATION — pre-compute results from watcher data
+// Runs once in the Worker on every postClassData. Pages receive the finished
+// result object and just render — no parsing, no ranking, no cls_raw needed.
+//
+// The .cls file is the source of truth. Ryegate scores and places. We only:
+//   1. Parse — structure raw columns into clean fields
+//   2. Rank per-judge — the ONE thing Ryegate doesn't give us (derby only)
+//   3. Aggregate — fault buckets, averages, leaderboard (jumper stats)
+//   4. Package — one JSON object, ready to render
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── CLS PARSING (ported from display-config.js) ─────────────────────────────
+
+function parseClsHeader(clsRaw) {
+  if (!clsRaw) return [];
+  const line = clsRaw.split(/\r?\n/)[0] || '';
+  const r = []; let c = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { if (q && line[i + 1] === '"') { c += '"'; i++; } else q = !q; }
+    else if (ch === ',' && !q) { r.push(c.trim()); c = ''; }
+    else c += ch;
+  }
+  r.push(c.trim());
+  return r;
+}
+
+function parseClsRows(clsRaw) {
+  if (!clsRaw) return [];
+  const lines = clsRaw.split(/\r?\n/);
+  const rows = [];
+  for (let li = 1; li < lines.length; li++) {
+    const line = lines[li];
+    if (!line || line.charAt(0) === '@') continue;
+    const r = []; let c = '', q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { if (q && line[i + 1] === '"') { c += '"'; i++; } else q = !q; }
+      else if (ch === ',' && !q) { r.push(c); c = ''; }
+      else c += ch;
+    }
+    r.push(c);
+    if (r[0] && /^\d/.test(r[0])) rows.push(r);
+  }
+  return rows;
+}
+
+function ordinal(n) {
+  const s = ['th','st','nd','rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// ── HUNTER HEADER INTERPRETATION ────────────────────────────────────────────
+// H[2]=ClassMode (0=OverFences, 1=Flat, 2=Derby, 3=Special)
+// H[5]=ScoringType (0=Forced, 1=Scored, 2=HiLo)
+// H[7]=NumJudges
+// H[10]=IsEquitation, H[11]=IsChampionship
+// H[37]=DerbyType (only when H[2]=2)
+
+const DERBY_TYPES = {
+  '0': { label: 'International',       judges: 2 },
+  '1': { label: 'National',            judges: 1 },
+  '2': { label: 'National H&G',        judges: 1 },
+  '3': { label: 'International H&G',   judges: 2 },
+  '4': { label: 'USHJA Pony Derby',    judges: 1 },
+  '5': { label: 'USHJA Pony Derby H&G',judges: 1 },
+  '6': { label: 'USHJA 2\'6 Jr Derby', judges: 1 },
+  '7': { label: 'USHJA 2\'6 Jr Derby H&G', judges: 1 },
+  '8': { label: 'WCHR Derby Spec',     judges: 1 },
+};
+
+function getHunterClassInfo(h) {
+  const classMode = h[2] || '0';
+  const isDerby = classMode === '2';
+  const isFlat = classMode === '1';
+  const isSpecial = classMode === '3';
+  const isEquitation = h[10] === 'True';
+  const isChampionship = h[11] === 'True';
+  const scoringType = h[5] || '0'; // 0=forced, 1=scored, 2=hilo
+  const scoreMethod = h[6] || '0'; // 0=total, 1=average
+  let judgeCount = parseInt(h[7]) || 1;
+  if (isDerby) {
+    const dt = DERBY_TYPES[String(h[37] || '0')];
+    judgeCount = dt ? dt.judges : 1;
+  }
+  let label = 'Hunter';
+  if (isDerby) {
+    const dt = DERBY_TYPES[String(h[37] || '0')];
+    label = dt ? dt.label : 'Hunter Derby';
+  } else if (isSpecial) label = 'Hunter Special';
+  else if (isFlat) label = 'Hunter Flat';
+  else if (isEquitation) label = 'Equitation';
+  else if (isChampionship) label = 'Hunter Championship';
+
+  return { classMode, isDerby, isFlat, isSpecial, isEquitation, isChampionship,
+           scoringType, scoreMethod, judgeCount, label };
+}
+
+// ── HUNTER DERBY: PARSE PER-JUDGE FROM CLS ROW ──────────────────────────────
+// Column map (confirmed 2026-04-05):
+//   R1:  [15]=hiOpt  [16]=J1base  [17]=hiOpt(mirror)  [18]=J2base
+//   R2:  [24]=hiOpt  [25]=J1base  [26]=J1bonus  [27]=hiOpt(mirror)  [28]=J2base  [29]=J2bonus
+//   [42]=R1total  [43]=R2total  [14]=place
+//   [46]/[47]=R1/R2 numeric status  [52]/[53]=R1/R2 text status
+
+function parseDerbyEntry(cols, judgeCount) {
+  const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+  const r1 = [], r2 = [];
+  const r1HiOpt = num(cols[15]), r2HiOpt = num(cols[24]);
+
+  const j1r1b = num(cols[16]), j1r2b = num(cols[25]), j1r2bonus = num(cols[26]);
+  r1.push({ base: j1r1b, hiopt: r1HiOpt, bonus: 0, phaseTotal: j1r1b + r1HiOpt });
+  r2.push({ base: j1r2b, hiopt: r2HiOpt, bonus: j1r2bonus, phaseTotal: j1r2b + r2HiOpt + j1r2bonus });
+
+  if (judgeCount >= 2) {
+    const j2r1b = num(cols[18]), j2r2b = num(cols[28]), j2r2bonus = num(cols[29]);
+    r1.push({ base: j2r1b, hiopt: r1HiOpt, bonus: 0, phaseTotal: j2r1b + r1HiOpt });
+    r2.push({ base: j2r2b, hiopt: r2HiOpt, bonus: j2r2bonus, phaseTotal: j2r2b + r2HiOpt + j2r2bonus });
+  }
+
+  return {
+    entry_num: cols[0] || '', horse: cols[1] || '', rider: cols[2] || '',
+    country: cols[4] || '', owner: cols[5] || '', sire: cols[6] || '', dam: cols[7] || '',
+    city: cols[8] || '', state: cols[9] || '',
+    place: (cols[14] && cols[14] !== '0') ? cols[14] : '',
+    r1, r2,
+    r1Total: num(cols[42]), r2Total: num(cols[43]),
+    combined: num(cols[42]) + num(cols[43]),
+    r1NumericStatus: cols[46] || '', r2NumericStatus: cols[47] || '',
+    r1TextStatus: cols[52] || '', r2TextStatus: cols[53] || '',
+  };
+}
+
+// ── RANKING ENGINE ──────────────────────────────────────────────────────────
+// Standard competition ranking (1,1,3). Ties share rank, next rank is skipped.
+
+function assignRanks(items) {
+  items.sort((a, b) => b.val - a.val);
+  const ranks = {};
+  for (let i = 0; i < items.length; i++) {
+    if (i > 0 && items[i].val === items[i - 1].val) {
+      ranks[items[i].key] = ranks[items[i - 1].key];
+    } else {
+      ranks[items[i].key] = i + 1;
+    }
+  }
+  return ranks;
+}
+
+function hasR1(e) {
+  if (e.r1TextStatus) return false;
+  return e.r1 && e.r1.some(p => p.phaseTotal > 0);
+}
+function hasR2(e) {
+  if (e.r2TextStatus) return false;
+  return e.r2 && e.r2.some(p => p.phaseTotal > 0);
+}
+
+function computeDerbyRankings(entries, judgeCount) {
+  entries.forEach(e => {
+    e.r1Ranks = []; e.r2Ranks = [];
+    e.judgeCardTotals = []; e.judgeCardRanks = [];
+    e.r1OverallRank = null; e.r2OverallRank = null;
+    e.movement = null; e.combinedRank = null;
+  });
+
+  // Per-judge per-round ranks
+  for (let j = 0; j < judgeCount; j++) {
+    let items = entries.filter(hasR1).map(e => ({ key: e.entry_num, val: e.r1[j].phaseTotal }));
+    let ranks = assignRanks(items);
+    entries.forEach(e => { e.r1Ranks[j] = ranks[e.entry_num] || null; });
+
+    items = entries.filter(hasR2).map(e => ({ key: e.entry_num, val: e.r2[j].phaseTotal }));
+    ranks = assignRanks(items);
+    entries.forEach(e => { e.r2Ranks[j] = ranks[e.entry_num] || null; });
+  }
+
+  // Judge card totals + ranks
+  for (let j = 0; j < judgeCount; j++) {
+    entries.forEach(e => {
+      e.judgeCardTotals[j] = (hasR1(e) && hasR2(e))
+        ? e.r1[j].phaseTotal + e.r2[j].phaseTotal : null;
+    });
+    const items = entries.filter(e => e.judgeCardTotals[j] !== null)
+      .map(e => ({ key: e.entry_num, val: e.judgeCardTotals[j] }));
+    const ranks = assignRanks(items);
+    entries.forEach(e => { e.judgeCardRanks[j] = ranks[e.entry_num] || null; });
+  }
+
+  // R1/R2 overall ranks (aggregate across judges)
+  let r1Items = entries.filter(hasR1).map(e => {
+    let sum = 0; for (let j = 0; j < judgeCount; j++) sum += e.r1[j].phaseTotal;
+    return { key: e.entry_num, val: sum };
+  });
+  const r1Ranks = assignRanks(r1Items);
+
+  let r2Items = entries.filter(hasR2).map(e => {
+    let sum = 0; for (let j = 0; j < judgeCount; j++) sum += e.r2[j].phaseTotal;
+    return { key: e.entry_num, val: sum };
+  });
+  const r2Ranks = assignRanks(r2Items);
+
+  entries.forEach(e => {
+    e.r1OverallRank = r1Ranks[e.entry_num] || null;
+    e.r2OverallRank = r2Ranks[e.entry_num] || null;
+    e.combinedRank = parseInt(e.place) || null;
+    if (e.r1OverallRank && e.combinedRank && hasR2(e)) {
+      e.movement = e.r1OverallRank - e.combinedRank;
+    }
+  });
+
+  return entries;
+}
+
+// Split decision check — judges disagree on any of positions 1/2/3
+function isSplitDecision(entries, judgeCount) {
+  if (judgeCount < 2) return false;
+  for (let pos = 1; pos <= 3; pos++) {
+    const atPos = [];
+    for (let j = 0; j < judgeCount; j++) {
+      const found = entries.find(e => e.judgeCardRanks && e.judgeCardRanks[j] === pos);
+      if (found) atPos.push(found.entry_num);
+    }
+    if (atPos.length >= 2 && atPos.some(n => n !== atPos[0])) return true;
+  }
+  return false;
+}
+
+// ── COMPUTE CLASS RESULTS ────────────────────────────────────────────────────
+// Main entry point. Takes the body from postClassData (parsed .cls + clsRaw).
+// Returns a pre-computed results object ready for page rendering.
+
+function computeClassResults(body) {
+  const clsRaw = body.clsRaw || '';
+  const h = parseClsHeader(clsRaw);
+  const classType = h[0] || body.classType || 'U';
+
+  const base = {
+    classNum: (body.filename || '').replace('.cls', ''),
+    className: body.className || h[1] || '',
+    classType,
+    sponsor: body.sponsor || '',
+    trophy: body.trophy || '',
+  };
+
+  if (classType === 'H') return computeHunterResults(body, h, base);
+  if (classType === 'J' || classType === 'T') return computeJumperResults(body, h, base);
+
+  // Unformatted — just pass entries with place
+  return { ...base, label: 'Unformatted', entries: (body.entries || []).map(e => ({
+    entry_num: e.entryNum, horse: e.horse, rider: e.rider, owner: e.owner,
+    place: e.place || '', hasGone: e.hasGone,
+  })) };
+}
+
+// ── HUNTER RESULTS ──────────────────────────────────────────────────────────
+
+function computeHunterResults(body, h, base) {
+  const info = getHunterClassInfo(h);
+  const clsRaw = body.clsRaw || '';
+
+  const result = {
+    ...base,
+    label: info.label,
+    isDerby: info.isDerby,
+    isFlat: info.isFlat,
+    isSpecial: info.isSpecial,
+    isEquitation: info.isEquitation,
+    isChampionship: info.isChampionship,
+    judgeCount: info.judgeCount,
+    scoringType: info.scoringType,
+    scoreMethod: info.scoreMethod,
+    classMode: info.classMode,
+    clockPrecision: parseInt(h[5]) || 0,
+    showFlags: body.showFlags || false,
+    isSplitDecision: false,
+    entries: [],
+  };
+
+  if (info.isDerby) {
+    // Parse per-judge data from cls rows
+    const rows = parseClsRows(clsRaw);
+    let entries = rows.map(r => parseDerbyEntry(r, info.judgeCount));
+    entries = computeDerbyRankings(entries, info.judgeCount);
+    result.isSplitDecision = isSplitDecision(entries, info.judgeCount);
+
+    // Sort: placed first by place, then by combined desc
+    entries.sort((a, b) => {
+      const pa = parseInt(a.place) || 999, pb = parseInt(b.place) || 999;
+      if (pa !== pb) return pa - pb;
+      return (b.combined || 0) - (a.combined || 0);
+    });
+
+    result.entries = entries;
+  } else {
+    // Non-derby hunter — use watcher-parsed entries
+    result.entries = (body.entries || []).map(e => ({
+      entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
+      owner: e.owner || '', country: e.country || '',
+      sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
+      place: e.place || '', score: e.score || '',
+      r1Total: e.r1Total || '', r2Total: e.r2Total || e.r2Score || '',
+      combined: e.combined || '',
+      hasGone: e.hasGone, statusCode: e.statusCode || '',
+    }));
+  }
+
+  return result;
+}
+
+// ── JUMPER RESULTS + STATS ──────────────────────────────────────────────────
+
+function computeJumperResults(body, h, base) {
+  const entries = body.entries || [];
+  const sm = h[2] || '';
+  const clockPrecision = parseInt(h[5]) || 0;
+  const ta = { r1: parseFloat(h[8]) || 0, r2: parseFloat(h[11]) || 0, r3: parseFloat(h[14]) || 0 };
+  const isOptimum = sm === '6';
+  const optimumTime = isOptimum && ta.r1 > 0 ? ta.r1 - 4 : 0;
+
+  // Build structured entries with all round data
+  const structured = entries.map(e => ({
+    entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
+    owner: e.owner || '', country: e.country || '',
+    sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
+    place: e.overallPlace || e.place || '',
+    hasGone: e.hasGone, statusCode: e.statusCode || '',
+    r1StatusCode: e.r1StatusCode || '', r2StatusCode: e.r2StatusCode || '',
+    r1Time: e.r1Time || '', r1TotalTime: e.r1TotalTime || '',
+    r1JumpFaults: e.r1JumpFaults || '0', r1TimeFaults: e.r1TimeFaults || '0',
+    r1TotalFaults: e.r1TotalFaults || '0',
+    r2Time: e.r2Time || '', r2TotalTime: e.r2TotalTime || '',
+    r2JumpFaults: e.r2JumpFaults || '0', r2TimeFaults: e.r2TimeFaults || '0',
+    r2TotalFaults: e.r2TotalFaults || '0',
+    r3Time: e.r3Time || '', r3TotalTime: e.r3TotalTime || '',
+    r3JumpFaults: e.r3JumpFaults || '0', r3TimeFaults: e.r3TimeFaults || '0',
+    r3TotalFaults: e.r3TotalFaults || '0',
+  }));
+
+  // ── Stats computation ──────────────────────────────────────────────────────
+  const elimStatuses = ['EL','RF','HF','OC','WD','DNS','DNF','SC','RT'];
+  const isElim = sc => elimStatuses.includes((sc || '').toUpperCase());
+
+  const competed = structured.filter(e => e.hasGone);
+  const r1Valid = competed.filter(e => !isElim(e.statusCode) && !isElim(e.r1StatusCode) && e.r1TotalTime);
+  const r1Elim = competed.filter(e => isElim(e.statusCode) || isElim(e.r1StatusCode));
+  const r1Faults = r1Valid.map(e => parseFloat(e.r1TotalFaults) || 0);
+  const r1Times = r1Valid.map(e => parseFloat(e.r1TotalTime) || 0).filter(t => t > 0);
+
+  const clearCount = r1Faults.filter(f => f === 0).length;
+  const avgFaults = r1Faults.length ? r1Faults.reduce((a, b) => a + b, 0) / r1Faults.length : 0;
+  const timeFaultCount = r1Valid.filter(e => parseFloat(e.r1TimeFaults) > 0).length;
+  const avgTime = r1Times.length ? r1Times.reduce((a, b) => a + b, 0) / r1Times.length : 0;
+
+  const clearTimes = r1Valid.filter(e => parseFloat(e.r1TotalFaults) === 0)
+    .map(e => parseFloat(e.r1TotalTime) || 0).filter(t => t > 0);
+  const avgClearTime = clearTimes.length ? clearTimes.reduce((a, b) => a + b, 0) / clearTimes.length : 0;
+
+  // Fault buckets: 0-8 individual, 9-11 grouped, 12+ grouped
+  const faultBuckets = [];
+  const faultSet = {};
+  r1Faults.forEach(f => { faultSet[f] = true; });
+  Object.keys(faultSet).map(Number).sort((a, b) => a - b)
+    .filter(f => f <= 8)
+    .forEach(f => {
+      faultBuckets.push({ label: f + ' faults', value: f, count: r1Faults.filter(x => x === f).length });
+    });
+  const mid = r1Faults.filter(f => f >= 9 && f <= 11);
+  if (mid.length) faultBuckets.push({ label: '9-11 faults', value: 'mid', count: mid.length });
+  const high = r1Faults.filter(f => f >= 12);
+  if (high.length) faultBuckets.push({ label: '12+ faults', value: 'high', count: high.length });
+  if (r1Elim.length) faultBuckets.push({ label: 'Eliminated', value: 'elim', count: r1Elim.length });
+
+  // Fastest 4-fault
+  const f4 = r1Valid.filter(e => parseFloat(e.r1TotalFaults) === 4);
+  let fastest4Fault = null;
+  if (f4.length) {
+    const best = f4.reduce((b, e) => {
+      const t = parseFloat(e.r1TotalTime) || 999;
+      return t < (b.time || 999) ? { entry_num: e.entry_num, horse: e.horse, rider: e.rider, time: t } : b;
+    }, { time: 999 });
+    if (best.entry_num) fastest4Fault = best;
+  }
+
+  // Leaderboard: sorted by faults asc, then time asc, with gap from leader
+  const leaderboard = r1Valid.slice().sort((a, b) => {
+    const fa = parseFloat(a.r1TotalFaults) || 0, fb = parseFloat(b.r1TotalFaults) || 0;
+    if (fa !== fb) return fa - fb;
+    return (parseFloat(a.r1TotalTime) || 0) - (parseFloat(b.r1TotalTime) || 0);
+  });
+  const leaderTime = leaderboard.length ? (parseFloat(leaderboard[0].r1TotalTime) || 0) : 0;
+  const leaderFaults = leaderboard.length ? (parseFloat(leaderboard[0].r1TotalFaults) || 0) : 0;
+  const leaderboardWithGap = leaderboard.map((e, i) => {
+    const f = parseFloat(e.r1TotalFaults) || 0;
+    const t = parseFloat(e.r1TotalTime) || 0;
+    let gap = '';
+    if (i > 0) {
+      if (f > leaderFaults) gap = '+' + (f - leaderFaults) + ' flt';
+      else if (t > leaderTime) gap = '+' + (t - leaderTime).toFixed(3) + 's';
+    }
+    return { ...e, rank: i + 1, gap };
+  });
+
+  return {
+    ...base,
+    label: 'Jumper',
+    scoringMethod: sm,
+    clockPrecision,
+    showFlags: body.showFlags || false,
+    ta,
+    isOptimum,
+    optimumTime,
+    entries: structured,
+    stats: {
+      totalEntries: structured.length,
+      competed: competed.length,
+      eliminated: r1Elim.length,
+      clearRounds: clearCount,
+      clearPct: r1Faults.length ? Math.round(clearCount / r1Faults.length * 1000) / 10 : 0,
+      avgFaults: Math.round(avgFaults * 100) / 100,
+      timeFaultCount,
+      avgTime: Math.round(avgTime * 1000) / 1000,
+      avgClearTime: Math.round(avgClearTime * 1000) / 1000,
+      faultBuckets,
+      fastest4Fault,
+      leaderboard: leaderboardWithGap,
+    },
+  };
 }
