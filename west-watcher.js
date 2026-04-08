@@ -193,30 +193,38 @@ function parseCls(content, filename) {
       const isHunterHeader = cols[0] === 'H';
 
       if (isJumperHeader) {
-        // Jumper header — confirmed 2026-03-22 from class 221 live session
-        result.scoringMethod    = cols[2] || '';   // H[02] ScoringMethodCode
-        result.roundsCompleted  = cols[4] || '0';  // H[04] RoundsCompleted counter (0→1→2→3)
-        result.clockPrecision   = cols[5] || '0';  // H[05] ClockPrecision
-        result.immediateJO      = cols[6] === '1'; // H[06] ImmediateJumpoff
-        result.r1FaultsPerInt   = cols[7] || '1';  // H[07] R1_FaultsPerInterval
-        result.r1TimeAllowed    = cols[8] || '';    // H[08] R1_TimeAllowed (seconds)
-        result.r1TimeInterval   = cols[9] || '1';  // H[09] R1_TimeInterval
-        result.r2FaultsPerInt   = cols[10] || '1'; // H[10] R2_FaultsPerInterval
-        result.r2TimeAllowed    = cols[11] || '';   // H[11] R2_TimeAllowed
-        result.r2TimeInterval   = cols[12] || '1'; // H[12] R2_TimeInterval
-        result.r3FaultsPerInt   = cols[13] || '1'; // H[13] R3_FaultsPerInterval (stale if <3 rounds)
-        result.r3TimeAllowed    = cols[14] || '';   // H[14] R3_TimeAllowed
-        result.r3TimeInterval   = cols[15] || '1'; // H[15] R3_TimeInterval
-        result.californiaSplit  = cols[16] === '1' || cols[16] === 'True'; // H[16]
-        result.isFEI            = cols[17] === '1' || cols[17] === 'True'; // H[17]
-        result.caliSplitSecs    = cols[21] || '2'; // H[21] CaliSplitSections
-        result.penaltySeconds   = cols[22] || '6'; // H[22] PenaltySeconds
+        // Jumper header — CONFIRMED 2026-04-08 by cycling ALL Ryegate settings
+        result.scoringMethod    = cols[2] || '';    // H[02] ScoringMethodCode (see CLS-FORMAT.md)
+        result.scoringModifier  = cols[3] || '0';   // H[03] Context-dependent modifier per H[02]
+        result.roundsCompleted  = cols[4] || '0';   // H[04] RoundsCompleted counter (0→1→2→3)
+        result.clockPrecision   = cols[5] || '0';   // H[05] 0=.001, 1=.01, 2=whole
+        result.immediateJO      = cols[6] === '1';  // H[06] 1=immediate (2b/2c/2d), 0=clears return
+        result.r1FaultsPerInt   = cols[7] || '1';   // H[07] 0=no time faults (top score)
+        result.r1TimeAllowed    = cols[8] || '';     // H[08] 0 for faults converted/top score
+        result.r1TimeInterval   = cols[9] || '1';   // H[09]
+        result.r2FaultsPerInt   = cols[10] || '1';  // H[10]
+        result.r2TimeAllowed    = cols[11] || '';    // H[11]
+        result.r2TimeInterval   = cols[12] || '1';  // H[12]
+        result.r3FaultsPerInt   = cols[13] || '1';  // H[13] stale if <3 rounds
+        result.r3TimeAllowed    = cols[14] || '';    // H[14]
+        result.r3TimeInterval   = cols[15] || '1';  // H[15]
+        // H[16] unknown — always 1 in all tests
+        result.californiaSplit  = cols[17] === '1' || cols[17] === 'True'; // H[17] CORRECTED (was H[16])
+        result.isFEI            = cols[18] === 'True'; // H[18] CORRECTED (was H[17])
+        const rawSponsor = cols[19] || '';
+        result.sponsor = (rawSponsor === 'True' || rawSponsor === 'False' || !rawSponsor.trim()) ? '' : rawSponsor;
+        result.caliSplitSecs    = cols[21] || '2';  // H[21]
+        result.penaltySeconds   = cols[22] || '6';  // H[22]
         result.noRank           = cols[23] === 'True'; // H[23]
         result.showStandingsTime = cols[25] === 'True'; // H[25]
         result.showFlags        = cols[26] === 'True'; // H[26]
+        result.feiWdTiedWithEl  = cols[27] === 'True'; // H[27] CORRECTED (was "always True")
         result.showFaultsAsDecimals = cols[28] === 'True'; // H[28]
-        const rawSponsor = cols[19] || '';
-        result.sponsor = (rawSponsor === 'True' || rawSponsor === 'False' || !rawSponsor.trim()) ? '' : rawSponsor;
+        // Derived convenience flags
+        result.isTimedEq        = cols[2] === '7';
+        result.isTopScore       = cols[2] === '5';
+        result.isFaultsConverted = cols[2] === '0';
+        result.isTeam           = cols[2] === '14';
       }
 
       if (isHunterHeader) {

@@ -88,20 +88,17 @@ H[01] ClassName              text e.g. "1.15m Jumper"
 ```
 
 ### Jumper-specific cols 2+:
+### CONFIRMED 2026-04-08 by cycling ALL Ryegate class type settings (USEF + FEI)
 ```
 H[02] ScoringMethodCode      see Scoring Methods below
-H[03] ?                      always 0 — legacy unused
-H[04] RoundsCompleted        CONFIRMED counter — increments 0→1→2→3 as each
-                             round is scored. Was mislabeled HardwareType.
-                             Corrected 2026-03-22 from live session evidence.
-H[05] ClockPrecision         0=thousandths (.XXX), 1=hundredths (.XX), 2=whole seconds
-                             CONFIRMED 2026-04-05: 0=.001, 1=.01 (was documented inverted)
-H[06] ImmediateJumpoff       1=immediate JO (2b), 0=clears return (2a)
+H[03] ScoringModifier        context-dependent per H[02] — see table below
+H[04] RoundsCompleted        increments 0→1→2→3 as each round is scored
+H[05] ClockPrecision         0=thousandths (.001), 1=hundredths (.01), 2=whole seconds
+                             CONFIRMED 2026-04-08 by toggling precision setting
+H[06] ImmediateJumpoff       1=immediate (2b/2c/2d), 0=clears return (2a)
 H[07] R1_FaultsPerInterval   fault points per time interval
-                             1.0 = standard (1 fault/second)
-                             0.25 = quarter fault per second (seen class 221)
-                             0.1 = FEI style (0.1 fault/second)
-H[08] R1_TimeAllowed         TA in seconds e.g. 78
+                             1.0 = standard, 0.25 = quarter, 0 = no time faults (top score)
+H[08] R1_TimeAllowed         TA in seconds (0 for faults converted / top score)
 H[09] R1_TimeInterval        seconds per interval e.g. 1, 2, 4
 H[10] R2_FaultsPerInterval   same pattern as R1
 H[11] R2_TimeAllowed         TA for R2/JO in seconds
@@ -109,42 +106,67 @@ H[12] R2_TimeInterval        seconds per interval for R2
 H[13] R3_FaultsPerInterval   stale/ignored if class has <3 rounds
 H[14] R3_TimeAllowed         stale/ignored if class has <3 rounds
 H[15] R3_TimeInterval        stale/ignored if class has <3 rounds
-H[16] CaliforniaSplit        True/False
-H[17] IsFEI                  True/False (0=False, 1=True)
-H[18] ?                      always False — legacy unused
+H[16] ?                      always 1 in all tests — purpose unknown
+H[17] CaliforniaSplit        0=off, 1=on — CORRECTED 2026-04-08 (was mislabeled IsFEI)
+H[18] IsFEI                  True/False — CORRECTED 2026-04-08 (was "always False")
+                             FEI classes use same H[02] codes as USEF + H[18]=True
 H[19] Sponsor                text field
 H[20] ?                      always empty — legacy unused
 H[21] CaliSplitSections      numeric, default 2
 H[22] PenaltySeconds         seconds added per time fault e.g. 6
-H[23] NoRank                 True/False
+H[23] NoRank                 True/False — hides rank on scoreboard
 H[24] ?                      always False — legacy unused
 H[25] ShowStandingsTime      True/False
 H[26] ShowFlags              True/False
-H[27] ?                      always True — legacy unused
+H[27] FEI_WD_TiedWithEL      True=WD tied with EL (same placing), False=separate
+                             CORRECTED 2026-04-08 (was "always True — legacy unused")
 H[28] ShowFaultsAsDecimals   True/False
 ```
 
-### Class 221 actual header (1.15m Jumper, TIMY, ScoringMethod=3, after all 3 rounds):
+### Scoring Method Codes (H[02]):
+### FULLY CONFIRMED 2026-04-08 by cycling ALL Ryegate options (USEF + FEI)
 ```
-H[00]=T  H[01]=1.15m Jumper  H[02]=3  H[03]=0  H[04]=3(RoundsCompleted=3)
-H[05]=0  H[06]=1(ImmediateJO)
-H[07]=0.25(R1 FaultsPerInterval)  H[08]=34(R1 TA)  H[09]=1(R1 Interval)
-H[10]=1(R2 FaultsPerInterval)  H[11]=31(R2 TA)  H[12]=4(R2 Interval)
-H[13]=1(R3 FaultsPerInterval)  H[14]=15(R3 TA)  H[15]=2(R3 Interval)
-H[16]=1(CaliSplit)  H[17]=0  H[18]=False
-H[21]=2(CaliSplitSections)  H[22]=6(PenaltySec)  H[23]=False
-H[25]=False  H[26]=False  H[27]=True  H[28]=False
+ 0  = Table III / FEI Table C — Faults Converted (faults → seconds added to time, placed by time only)
+ 1  = Round + JO, R1 ties UNBROKEN (faults only in R1, fewest return for JO)
+ 2  = II.2a — Round + JO, tied for fewest faults return (time breaks ties in R1)
+ 3  = 2 Rounds + JO (R1+R2 faults cumulative, fewest return for JO)
+       H[03]=0: ties broken by R1 time, H[03]=1: ties remain tied
+ 4  = II.1 — Speed (1 round, faults then fastest time)
+ 5  = Top Score (highest score wins, no time faults)
+       H[03]=0: Gamblers Choice, H[03]=1: Accumulator
+ 6  = IV.1 — Optimum Time (closest to TA-4, faults first then distance)
+       H[03]=0: 1-round, H[03]=1: 2-round (JO has optimum)
+ 7  = Timed Equitation (uses jumper UDP, rider-first display rules)
+       H[03]=0: Forced (operator enters placements), H[03]=1: Scored (from scores)
+ 8  = Table II — Faults only, ties NOT broken by time (time recorded but unused for ranking)
+ 9  = II.2d — Two-phase, ALL entries advance to PH2, EL in PH2 = EL from ALL phases
+10  = II.2f — Stratified JO, pre-determined # return, compete within fault tier only
+11  = II.2c — Two-phase, only clears advance to PH2, EL in PH2 keeps PH1 result
+       FEI Art 4.2: H[03]=1, H[18]=True — PH1 NOT against clock
+       FEI Art 4.3: H[03]=2, H[18]=True — PH1 against clock
+13  = II.2b — Immediate JO, only clears advance, no clears = broken by R1 time
+14  = Team competition (2 rounds + JO)
+       H[03]=0: individual times, H[03]=1: combined times (all riders added)
+15  = Winning Round — pre-determined # return, R1 faults WIPED, JO is fresh start
 ```
 
-### Scoring Method Codes (H[02]):
+### H[03] Scoring Modifier — context depends on H[02]:
 ```
-2  = Round + JO, clears return at end (2a)
-3  = Two rounds + JO
-4  = Single round, against the clock (speed)
-6  = Speed II (Farmtek only)
-9  = Two-phase
-13 = Round + immediate JO (2b)
+H[02]=3  (2rnd+JO):   0=break ties by R1 time, 1=remain tied
+H[02]=5  (Top Score):  0=Gamblers Choice, 1=Accumulator
+H[02]=6  (Optimum):    0=1-round, 1=2-round (JO optimum)
+H[02]=7  (Timed EQ):   0=Forced, 1=Scored
+H[02]=11 (II.2c/FEI):  1=FEI Art 4.2 (PH1 no clock), 2=FEI Art 4.3 (PH1 clock)
+H[02]=14 (Team):       0=individual times, 1=combined times
+Others:                0 (default, no modifier)
 ```
+
+### FEI Classes:
+FEI classes use the SAME H[02] scoring method codes as USEF.
+The ONLY header difference is H[18]=True (FEI flag).
+FEI defaults to H[05]=1 (hundredths precision).
+FEI Art 4.2 vs 4.3 distinguished by H[03] modifier on H[02]=11.
+
 NOTE: Two-phase (9) uses TIMY blocks 2 and 3 instead of 1 and 2.
 
 ### Optimum Time Classes (Method 6 / Table IV.1) — CONFIRMED 2026-04-03:
