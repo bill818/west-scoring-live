@@ -438,6 +438,26 @@ function renderResults() {
   });
 
   if (!grouped.length) {
+    // No competed entries — check for Order of Go
+    const oog = c && c.orderOfGo;
+    if (oog && oog.length) {
+      let oogHtml = '<div class="results-wrap">';
+      oogHtml += '<div style="padding:14px 16px 8px;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--black);">Order of Go</div>';
+      oog.forEach(function(e) {
+        const flag = classInfo.show_flags ? countryFlag(e.country) : '';
+        oogHtml += '<div class="result-entry"><div class="result-main">'
+          + '<div class="r-ribbon"><div class="r-place-txt">' + e.order + '</div></div>'
+          + '<div class="r-info"><div class="r-horse-rider">'
+          + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
+          + '<span class="r-horse">' + esc(e.horse) + '</span>'
+          + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
+          + '</div></div>'
+          + '</div></div>';
+      });
+      oogHtml += '</div>';
+      document.getElementById('content').innerHTML = oogHtml;
+      return;
+    }
     document.getElementById('content').innerHTML = '<div class="no-results">No entries found for this class.</div>';
     return;
   }

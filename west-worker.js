@@ -1592,12 +1592,24 @@ function computeClassResults(body) {
   const h = parseClsHeader(clsRaw);
   const classType = h[0] || body.classType || 'U';
 
+  // Build Order of Go from ALL entries (regardless of hasGone), sorted by ride order
+  const oog = (body.entries || [])
+    .filter(e => parseInt(e.rideOrder) > 0)
+    .map(e => ({
+      order: parseInt(e.rideOrder) || 0,
+      entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
+      owner: e.owner || '', country: e.country || '',
+      city: e.city || '', state: e.state || '',
+    }))
+    .sort((a, b) => a.order - b.order);
+
   const base = {
     classNum: (body.filename || '').replace('.cls', ''),
     className: body.className || h[1] || '',
     classType,
     sponsor: body.sponsor || '',
     trophy: body.trophy || '',
+    orderOfGo: oog.length ? oog : null,
   };
 
   if (classType === 'H') return computeHunterResults(body, h, base);
