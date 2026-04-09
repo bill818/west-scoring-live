@@ -10,6 +10,20 @@
 const fs   = require('fs');
 const path = require('path');
 
+// ── CRASH PROTECTION ─────────────────────────────────────────────────────────
+// Catch any unhandled exceptions/rejections so the watcher never silently dies.
+// Log the error and keep running. At a live show, a crashed watcher = no data.
+process.on('uncaughtException', (err) => {
+  const msg = `[CRASH CAUGHT] uncaughtException: ${err.message}\n${err.stack}`;
+  console.error(msg);
+  try { fs.appendFileSync(path.join(__dirname, 'west_log.txt'), '[' + new Date().toLocaleTimeString('en-US', { hour12: false }) + '] ' + msg + '\r\n'); } catch(e) {}
+});
+process.on('unhandledRejection', (reason) => {
+  const msg = `[CRASH CAUGHT] unhandledRejection: ${reason}`;
+  console.error(msg);
+  try { fs.appendFileSync(path.join(__dirname, 'west_log.txt'), '[' + new Date().toLocaleTimeString('en-US', { hour12: false }) + '] ' + msg + '\r\n'); } catch(e) {}
+});
+
 const CLASSES_DIR   = 'C:\\Ryegate\\Jumper\\Classes';
 const TSKED_PATH    = 'C:\\Ryegate\\Jumper\\tsked.csv';
 const CONFIG_PATH   = 'C:\\Ryegate\\Jumper\\config.dat';

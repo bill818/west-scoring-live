@@ -647,7 +647,7 @@ function renderLiveStrip() {
   // Set up clock tick state
   clockBase = elapsed;
   clockPaused = oc.paused || (phase === 'finished') || (phase === 'inGate');
-  clockTs = parseFloat(oc.ts) || Date.now();
+  clockTs = new Date(oc.ts).getTime() || Date.now();
 }
 
 function tickClock() {
@@ -657,6 +657,12 @@ function tickClock() {
   var diff = (now - clockTs) / 1000;
   var display = Math.floor(clockBase + diff);
   if (display < 0) display = 0;
+  // Stale guard — if clock exceeds 300s, something is wrong (dropped connection)
+  if (display > 300) {
+    el.textContent = '--';
+    el.style.color = 'var(--text-muted)';
+    return;
+  }
   el.textContent = display;
 }
 
