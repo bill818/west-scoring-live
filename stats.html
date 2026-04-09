@@ -789,8 +789,9 @@ function renderPreShowStats(ps) {
         + '</span>';
       if (e.classCount > 0) {
         html += '<span class="rider-name" style="text-align:right;">'
-          + '<span style="font-size:13px;font-weight:600;">' + e.classCount + ' cl' + (e.classCount !== 1 ? 's' : '') + '</span>'
-          + (e.totalRounds > 0 ? '<br><span style="font-size:11px;color:' + (e.clearPct >= 50 ? 'var(--green)' : 'var(--text-muted)') + ';">' + e.clearPct + '% clear</span>' : '')
+          + (e.totalPrize ? '<span style="font-size:13px;font-weight:700;color:var(--green);">$' + e.totalPrize.toLocaleString() + '</span><br>' : '')
+          + '<span style="font-size:11px;color:var(--text-muted);">' + e.classCount + ' cl' + (e.classCount !== 1 ? 's' : '') + '</span>'
+          + (e.totalRounds > 0 ? ' <span style="font-size:11px;color:' + (e.clearPct >= 50 ? 'var(--green)' : 'var(--text-muted)') + ';">' + e.clearPct + '%</span>' : '')
           + '</span>';
       } else {
         html += '<span class="rider-name" style="text-align:right;color:#ccc;">First class</span>';
@@ -805,11 +806,13 @@ function renderPreShowStats(ps) {
           else if (cr.place) placeLabel = WEST.ordinal(parseInt(cr.place));
           else placeLabel = '\u2014';
           var faultsLabel = (!cr.status && cr.faults !== null && cr.faults !== undefined) ? cr.faults + ' flt' : '';
+          var prizeLabel = cr.prize ? '$' + cr.prize.toLocaleString() : '';
           html += '<div style="display:flex;gap:6px;padding:2px 0 2px 42px;font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);">'
             + '<span style="color:#bbb;">Cl ' + esc(cr.class_num) + '</span>'
             + '<span style="color:var(--black);font-weight:600;min-width:28px;">' + placeLabel + '</span>'
             + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(cr.class_name || '') + '</span>'
             + (faultsLabel ? '<span style="flex-shrink:0;">' + faultsLabel + '</span>' : '')
+            + (prizeLabel ? '<span style="flex-shrink:0;color:var(--green);font-weight:600;">' + prizeLabel + '</span>' : '')
             + '</div>';
         });
       }

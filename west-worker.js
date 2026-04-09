@@ -1400,6 +1400,23 @@ async function buildPreShowStats(env, slug, orderOfGo) {
     ORDER BY e.horse, c.class_num, r.round
   `).bind(show.id, ...horses).all();
 
+  // Get prize money per class — parse @money from cls_raw
+  const allClassNums = [...new Set((results.results || []).map(r => r.class_num))];
+  const classPrizes = {};
+  if (allClassNums.length) {
+    const cp = allClassNums.map(() => '?').join(',');
+    const clsRows = await env.WEST_DB.prepare(
+      `SELECT class_num, cls_raw FROM classes WHERE show_id = ? AND class_num IN (${cp})`
+    ).bind(show.id, ...allClassNums).all();
+    (clsRows.results || []).forEach(row => {
+      if (!row.cls_raw) return;
+      const moneyLine = row.cls_raw.split(/\r?\n/).find(l => l.startsWith('@money'));
+      if (moneyLine) {
+        classPrizes[row.class_num] = moneyLine.split(',').slice(1).map(Number);
+      }
+    });
+  }
+
   // Group by horse
   const byHorse = {};
   (results.results || []).forEach(row => {
@@ -1441,12 +1458,16 @@ async function buildPreShowStats(env, slug, orderOfGo) {
         totalRounds++;
         if (parseFloat(r1.total) === 0) clearRounds++;
       }
+      const p = r1 && r1.place ? parseInt(r1.place) : 0;
+      const cPrizes = classPrizes[cl.class_num] || [];
+      const prize = (p > 0 && p <= cPrizes.length) ? cPrizes[p - 1] : 0;
       return {
         class_num: cl.class_num, class_name: cl.class_name, class_type: cl.class_type,
         place: r1 ? r1.place : null,
         faults: r1 ? r1.total : null,
         time: r1 ? r1.time : null,
         status: r1 ? r1.status_code : null,
+        prize: prize,
       };
     });
 
@@ -1455,6 +1476,9 @@ async function buildPreShowStats(env, slug, orderOfGo) {
       .filter(cr => !cr.status && cr.place)
       .sort((a, b) => (parseInt(a.place) || 999) - (parseInt(b.place) || 999))
       .slice(0, 3);
+
+    // Total prize money won at the show
+    const totalPrize = classResults.reduce((sum, cr) => sum + (cr.prize || 0), 0);
 
     const breeding = [h.sire, h.dam].filter(Boolean).join(' x ');
     return {
@@ -1465,6 +1489,7 @@ async function buildPreShowStats(env, slug, orderOfGo) {
       clearRounds: clearRounds,
       totalRounds: totalRounds,
       clearPct: totalRounds > 0 ? Math.round(clearRounds / totalRounds * 1000) / 10 : 0,
+      totalPrize: totalPrize,
       results: bestResults,
     };
   });
