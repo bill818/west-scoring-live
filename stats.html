@@ -615,7 +615,8 @@ function renderLiveStrip() {
   if (phase === 'INTRO') {
     clockDisplay = '-45';
   } else if (phase === 'CD') {
-    var cdVal = parseInt(oc.countdown) || 45;
+    // Ryegate sends countdown as negative (e.g. -43). Use absolute value + tick down.
+    var cdVal = Math.abs(parseInt(oc.countdown) || 45);
     var cdElapsed = Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
     var cdRemaining = Math.max(0, cdVal - cdElapsed);
     clockDisplay = '-' + cdRemaining;
@@ -661,7 +662,7 @@ function renderLiveStrip() {
   // Set up clock tick state
   clockBase = elapsed;
   clockPhase = phase;
-  clockCountdown = parseInt(oc.countdown) || 45;
+  clockCountdown = Math.abs(parseInt(oc.countdown) || 45);
   clockPaused = oc.paused || (phase === 'FINISH') || (phase === 'INTRO');
   clockTs = new Date(oc.ts).getTime() || Date.now();
 }
