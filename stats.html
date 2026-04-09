@@ -620,6 +620,10 @@ function renderLiveStrip() {
     var cdElapsed = Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
     var cdRemaining = Math.max(0, cdVal - cdElapsed);
     clockDisplay = '-' + cdRemaining;
+  } else if (phase === 'ONCOURSE') {
+    // Calculate current elapsed at render time (same as tick function)
+    var ocElapsed = oc.paused ? elapsed : elapsed + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
+    clockDisplay = Math.max(0, Math.floor(ocElapsed));
   } else {
     clockDisplay = Math.floor(elapsed);
   }
