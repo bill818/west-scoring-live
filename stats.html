@@ -605,9 +605,9 @@ function renderLiveStrip() {
   var phaseLabel = phase === 'INTRO' ? 'In Gate' : phase === 'CD' ? 'Countdown' : phase === 'FINISH' ? 'Finished' : 'On Course';
   var phaseCls = phase === 'INTRO' ? 'in-gate' : phase === 'CD' ? 'countdown' : phase === 'FINISH' ? 'finished' : 'on-course';
 
-  // Clock value
+  // Clock value — INTRO shows 45 frozen, ONCOURSE ticks, FINISH shows final time
   var elapsed = parseFloat(oc.elapsed) || 0;
-  var clockDisplay = Math.floor(elapsed);
+  var clockDisplay = phase === 'INTRO' ? 45 : Math.floor(elapsed);
 
   // Time faults calculated from clock vs TA
   var ta = parseFloat(oc.ta) || 0;
