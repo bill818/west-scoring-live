@@ -245,7 +245,8 @@ function renderTitle() {
   const sel = liveData.selected;
   const isLive = sel && String(sel.classNum) === String(CLASS_NUM);
   const liveBadge = isLive ? ' <span class="live-pill"><span class="live-blink"></span>Live</span>' : '';
-  const statsBtn = isJumper
+  const hasResults = entries && entries.length && entries.some(function(e) { return e.hasGone || e.place || e.r1TotalTime || e.score; });
+  const statsBtn = (isJumper && hasResults)
     ? '<a class="stats-btn visible" href="stats.html?slug=' + esc(SLUG) + '&classNum=' + esc(CLASS_NUM) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">Stats &amp; Analysis</a>'
     : '';
 
