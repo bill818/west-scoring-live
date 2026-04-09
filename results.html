@@ -467,7 +467,8 @@ function renderResults() {
     if (sd && !sd.showPlace) {
       html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
-      const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
+      const isChamp = c ? !!c.isChampionship : !!(classInfo.isChampionship);
+      const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name, isChamp) : '';
       if (ribbonSvg) {
         html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
       } else {

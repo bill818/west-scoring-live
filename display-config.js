@@ -212,13 +212,13 @@ WEST.ribbon.champSvg = function(isRC) {
     + '</svg>';
 };
 
-// Returns ribbon SVG for a given place + class name. Champion classes get
-// CH/RC for 1st/2nd. Returns empty string if no ribbon applies (place out of
-// range or unparseable).
-WEST.ribbon.placeRibbon = function(place, className) {
+// Returns ribbon SVG for a given place. Championship classes (H[11]=True)
+// get CH/RC ribbons for 1st/2nd. isChampionship flag from header takes
+// priority; falls back to class name string match for backward compat.
+WEST.ribbon.placeRibbon = function(place, className, isChampionship) {
   var n = parseInt(place);
   if (!n) return '';
-  var isChamp = className && /champion/i.test(className);
+  var isChamp = isChampionship || (className && /champion/i.test(className));
   if (isChamp && n === 1) return WEST.ribbon.champSvg(false);
   if (isChamp && n === 2) return WEST.ribbon.champSvg(true);
   return WEST.ribbon.svg(n) || '';
@@ -1338,7 +1338,8 @@ WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount, opts) {
 
   // Ribbon / place — SVG ribbon when not live AND placed, otherwise numeric
   var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (place || '—');
-  var ribbonSvg = (!opts.isLive && !r1Failed && place) ? WEST.ribbon.placeRibbon(place, className) : '';
+  var isChampFlag = classInfo._computed ? !!classInfo._computed.isChampionship : false;
+  var ribbonSvg = (!opts.isLive && !r1Failed && place) ? WEST.ribbon.placeRibbon(place, className, isChampFlag) : '';
   if (ribbonSvg) {
     html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
   } else {
