@@ -1218,7 +1218,21 @@ init();
 
 // Polling intervals
 setInterval(loadLiveClass, 3000);   // Live strip: 3s
-setInterval(loadResults, 15000);    // Results/stats: 15s
+
+// Results poll — 5s when class is live (watcher active), 15s otherwise
+var resultsPollInterval = null;
+var lastPollRate = 0;
+function adjustResultsPoll() {
+  var isLive = liveData && liveData.watcherAlive && liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
+  var rate = isLive ? 5000 : 15000;
+  if (rate !== lastPollRate) {
+    if (resultsPollInterval) clearInterval(resultsPollInterval);
+    resultsPollInterval = setInterval(loadResults, rate);
+    lastPollRate = rate;
+  }
+}
+setInterval(adjustResultsPoll, 3000);
+resultsPollInterval = setInterval(loadResults, 5000); // start fast, adjusts after first live check
 
 // Clock tick: 1s
 clockInterval = setInterval(tickClock, 1000);
