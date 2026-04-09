@@ -810,9 +810,9 @@ function renderPreShowStats(ps) {
           html += '<div style="display:flex;gap:6px;padding:2px 0 2px 42px;font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);">'
             + '<span style="color:#bbb;">Cl ' + esc(cr.class_num) + '</span>'
             + '<span style="color:var(--black);font-weight:600;min-width:28px;">' + placeLabel + '</span>'
+            + (prizeLabel ? '<span style="color:var(--green);font-weight:600;">' + prizeLabel + '</span>' : '')
             + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(cr.class_name || '') + '</span>'
             + (faultsLabel ? '<span style="flex-shrink:0;">' + faultsLabel + '</span>' : '')
-            + (prizeLabel ? '<span style="flex-shrink:0;color:var(--green);font-weight:600;">' + prizeLabel + '</span>' : '')
             + '</div>';
         });
       }
