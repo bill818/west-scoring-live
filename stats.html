@@ -280,18 +280,11 @@ let clockPaused = false;
 let clockTs = 0;
 
 /* ── TIME FORMATTING ─────────────────────────────────────────────────── */
-function fmtTime(val, precision) {
-  var n = parseFloat(val);
-  if (isNaN(n)) return '';
-  var p = parseInt(precision);
-  if (p === 2) return n.toFixed(3);
-  if (p === 1) return n.toFixed(2);
-  return n.toFixed(0);
-}
-
+// Use WEST.formatTime from display-config.js — consistent across all pages
 function fmtTimePrecision(val) {
   if (!classInfo) return String(val);
-  return fmtTime(val, classInfo.clock_precision);
+  var prec = classInfo._computed ? classInfo._computed.clockPrecision : classInfo.clock_precision;
+  return WEST.formatTime(val, prec);
 }
 
 /* ── CSV PARSER ──────────────────────────────────────────────────────── */
@@ -444,7 +437,13 @@ function computeStats(grouped) {
   }
 
   // Avg vs TA (all entries + clears only)
-  var taInfo = parseClsRaw(classInfo.cls_raw);
+  // Use pre-computed TA when available, fall back to cls_raw parsing
+  var taInfo;
+  if (classInfo._computed && classInfo._computed.ta) {
+    taInfo = { r1TA: classInfo._computed.ta.r1 || 0, r2TA: classInfo._computed.ta.r2 || 0, r3TA: classInfo._computed.ta.r3 || 0, clockPrecision: classInfo._computed.clockPrecision || 0, oog: [], totalEntries: 0 };
+  } else {
+    taInfo = parseClsRaw(classInfo.cls_raw);
+  }
   var avgVsTA = null, avgVsTAClears = null;
   if (hasJO && taInfo.r1TA > 0) {
     var allTimes = r1Entries.map(function(g) { return parseFloat(g.rounds[1].time) || 0; }).filter(function(t) { return t > 0; });
@@ -676,12 +675,18 @@ function renderClassInfoBar() {
     : sm === '3' ? 'Jumper (3 rounds)'
     : (ct === 'J' || ct === 'T') ? 'Jumper'
     : ct === 'H' ? 'Hunter' : ct;
-  var taInfo = parseClsRaw(classInfo.cls_raw);
+  var ciTa;
+  if (classInfo._computed && classInfo._computed.ta) {
+    ciTa = classInfo._computed.ta;
+  } else {
+    var pr = parseClsRaw(classInfo.cls_raw);
+    ciTa = { r1: pr.r1TA, r2: pr.r2TA, r3: pr.r3TA };
+  }
   var taStr = '';
-  if (taInfo.r1TA > 0) taStr += 'R1=' + taInfo.r1TA + 's';
-  if (taInfo.r2TA > 0) taStr += (taStr ? ', JO=' : 'JO=') + taInfo.r2TA + 's';
+  if (ciTa.r1 > 0) taStr += 'R1=' + ciTa.r1 + 's';
+  if (ciTa.r2 > 0) taStr += (taStr ? ', JO=' : 'JO=') + ciTa.r2 + 's';
 
-  var totalEntries = taInfo.totalEntries || rawEntries.length || 0;
+  var totalEntries = (classInfo._computed ? (classInfo._computed.entries || []).length : 0) || rawEntries.length || 0;
   var watcherAlive = liveData && liveData.watcherAlive;
 
   bar.innerHTML = '<span class="ci-num">Class ' + esc(CLASS_NUM) + '</span>'
