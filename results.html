@@ -452,19 +452,17 @@ function renderResults() {
     // Skip entries with no results and no place — they're pending, not competed
     if (!hasResult && !place) return;
 
-    // Detect eliminated/status entries — uses centralized config from display-config.js
-    const statusCode = (g.statusCode || g.r1StatusCode || '').toUpperCase()
-      || (g.rounds.length && g.rounds[0].status_code ? g.rounds[0].status_code.toUpperCase() : '');
-    const isElim = WEST.isElimStatus(statusCode);
-    const r1Elim = WEST.isElimStatus(g.r1StatusCode);
-    const r2Elim = WEST.isElimStatus(g.r2StatusCode);
-    // Full elimination: R1 elim, no data, or R2 elim on a carry-back scoring method
-    const fullElim = isElim && (r1Elim || !hasResult || (r2Elim && WEST.isR2CarryBack(sm)));
+    // Status display — centralized rules from display-config.js
+    const sd = isJumper
+      ? WEST.jumper.getStatusDisplay(sm, g.r1StatusCode || '', g.r2StatusCode || '', g.r3StatusCode || '')
+      : isHunter
+        ? WEST.hunter.getStatusDisplay(g.r1StatusCode || g.statusCode || '', g.r2StatusCode || '', g.r3StatusCode || '')
+        : null;
 
     html += '<div class="result-entry"><div class="result-main">';
 
-    // Placement
-    if (fullElim) {
+    // Placement — sd.showPlace=false means dash, otherwise show place/ribbon
+    if (sd && !sd.showPlace) {
       html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
       const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name) : '';
@@ -501,26 +499,20 @@ function renderResults() {
         + '</div>';
     }
 
-    // Scores — full elimination = status only. Otherwise per-round check.
-    if (fullElim) {
-      html += '<div class="r-scores"><span class="r-status">' + esc(WEST.statusDisplayLabel(statusCode)) + '</span></div>';
+    // Scores — use sd (status display) to determine what to show per round
+    if (sd && !sd.showR1 && !sd.showR2 && !sd.showR3) {
+      // No rounds visible — show just the status label
+      html += '<div class="r-scores"><span class="r-status">' + esc(sd.label) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
-      // Per-round status: check r1StatusCode, r2StatusCode, r3StatusCode on the grouped entry
-      const roundStatus = {
-        1: (g.r1StatusCode || '').toUpperCase(),
-        2: (g.r2StatusCode || '').toUpperCase(),
-        3: (g.r3StatusCode || '').toUpperCase(),
-      };
+      const roundShow = { 1: !sd || sd.showR1, 2: !sd || sd.showR2, 3: !sd || sd.showR3 };
       g.rounds.sort((a, b) => b.round - a.round);
       g.rounds.forEach(r => {
         const lbl = roundLabel(r.round);
-        const rsc = roundStatus[r.round] || (r.status_code || '').toUpperCase();
-        const rscIsElim = WEST.isElimStatus(rsc);
-        if (rscIsElim) {
-          // This round had an elimination — show label + status, hide faults/time
+        if (!roundShow[r.round]) {
+          // This round hidden by status rules — show label + status code
           html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-            + '<span class="r-status">' + esc(WEST.statusDisplayLabel(rsc)) + '</span></div>';
+            + '<span class="r-status">' + esc(sd ? sd.label : '') + '</span></div>';
         } else {
           const total = parseFloat(r.total) || 0;
           const isClean = total === 0;

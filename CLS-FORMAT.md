@@ -1,6 +1,7 @@
 # Ryegate Scoring Software — .cls File Format Documentation
 # WEST Scoring Live Project
-# Last updated: 2026-03-22 (Session 14 — complete TIMY entry layout confirmed from live class 221)
+# Last updated: 2026-04-08 (Session 18 — complete jumper scoring methods, FEI cross-reference,
+#   hunter header corrections, non-derby multi-judge column map, elimination display rules)
 
 ---
 
@@ -195,6 +196,59 @@ Gamblers Choice, Optimum Time, and II.2b have no FEI equivalent.
 Timed Equitation is USEF-only (uses jumper UDP, rider-first display).
 
 NOTE: Two-phase (9) uses TIMY blocks 2 and 3 instead of 1 and 2.
+
+---
+
+## ELIMINATION / STATUS DISPLAY RULES — CONFIRMED 2026-04-08
+
+### Status Code Categories:
+```
+ELIMINATIONS (display as "EL"):  EL, RO, RF, OC, HF, EX, DQ
+  - Dash for place, hide round data for that round
+  - Specific codes not shown to viewers (RF=rider fall, HF=horse fall etc.)
+
+PARTIAL (display code as-is):    WD, RT, HC
+  - WD = Withdrawn (before entering ring, no round data)
+  - RT = Retired (mid-round, may have partial data)
+  - HC = Hors Concours (exhibition, not scored for placement)
+
+HIDE ENTIRELY:                   DNS
+  - Did Not Start — entry hidden from results
+
+NOTE: Ryegate does NOT send DNF or SC. RT covers "did not finish."
+      Ryegate sends HC not SC for Hors Concours.
+```
+
+### Jumper Elimination Rules — per scoring method:
+```
+Three patterns:
+
+SINGLE ROUND (H[2]=0,4,5,6,7,8):
+  Any status in R1 = no place, no data, show code. One round, one chance.
+
+CARRY-BACK (H[2]=3,9,14):
+  R1 status = no place, hide all
+  R2 status = no place, carry-back wipes all (show R1 data for context, R2 shows code)
+  JO status = place valid (on R1+R2), show R1+R2, JO shows code
+
+R1-HOLDS (H[2]=1,2,10,11,13,15):
+  R1 status = no place, hide all
+  R2/PH2 status = place valid (on R1), show R1, R2 shows code
+  JO status = place valid (on R1), show R1, JO shows code
+  EXCEPTION: H[2]=15 (Winning Round) — JO status = no place (R1 wiped for JO)
+```
+
+### Hunter Elimination Rules — ALL scoring methods:
+```
+ONE rule for ALL hunter classes (H[2]=0,1,2,3):
+Earlier rounds ALWAYS hold. No carry-back. No exceptions.
+
+  R1 status = no place, no score, show code
+  R2 status = place on R1, show R1 score, R2 shows code
+  R3 status = place on R1+R2, show R1+R2 scores, R3 shows code
+```
+
+---
 
 ### Optimum Time Classes (Method 6 / Table IV.1) — CONFIRMED 2026-04-03:
 ```
