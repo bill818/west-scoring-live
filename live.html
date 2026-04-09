@@ -841,13 +841,21 @@ function render() {
       }
       html += '</div>';
     } else if (cd && cd.entries) {
-      const gone = cd.entries.filter(e => e.hasGone);
+      // Use computed entries when available (has corrected times for Table III etc.)
+      const compMap3 = liveData.computed || {};
+      const comp3 = compMap3[ac.classNum];
+      const useComputed = comp3 && comp3.entries && comp3.entries.length;
+      const rawGone = cd.entries.filter(e => e.hasGone);
+      const compGone = useComputed ? comp3.entries : [];
+      const gone = useComputed ? compGone : rawGone;
+      const isFaultsConverted = useComputed && comp3.isFaultsConverted;
+
       if (gone.length) {
         const standSorted = [...gone].sort((a, b) => {
           const pa = parseInt(a.overallPlace || a.place || 999);
           const pb = parseInt(b.overallPlace || b.place || 999);
           if (pa !== pb) return pa - pb;
-          return (a.entryNum || '').localeCompare(b.entryNum || '');
+          return (a.entryNum || a.entry_num || '').localeCompare(b.entryNum || b.entry_num || '');
         });
 
         html += '<div class="standings-section">';
@@ -855,7 +863,8 @@ function render() {
         if (isJumper) {
           html += '<div class="standings-hdr">'
             + '<span class="col-place">Plc</span><span class="col-entry">Horse / Rider</span>'
-            + '<span class="col-faults">Faults</span><span class="col-time">Time</span></div>';
+            + (isFaultsConverted ? '' : '<span class="col-faults">Faults</span>')
+            + '<span class="col-time">Time</span></div>';
           // Round labels from display config
           const sm = cd.scoringMethod || '';
           const prec = cd.clockPrecision || 2;
@@ -863,36 +872,43 @@ function render() {
           function liveFmtTime(val) { return WEST.formatTime(val, prec); }
 
           standSorted.forEach(e => {
+            const entryNum = e.entryNum || e.entry_num || '';
             const place = e.overallPlace || e.place || '';
             const hasR2 = e.r2TotalTime;
             const hasR3 = e.r3TotalTime;
 
             // Build round rows top-down: highest round first
             let roundsHtml = '';
-            if (hasR3) {
-              const tot3 = parseFloat(e.r3TotalFaults||0);
-              const cls3 = tot3 === 0 ? ' clean' : '';
-              roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(3) + '</span>'
-                + '<span class="s-round-faults' + cls3 + '">' + tot3 + ' flt</span>'
-                + '<span class="s-round-time">' + liveFmtTime(e.r3TotalTime) + '</span></div>';
+            if (isFaultsConverted) {
+              // Table III: show final time only (faults already converted into time)
+              roundsHtml = '<div class="s-round-row">'
+                + '<span class="s-round-time" style="font-weight:600;">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
+            } else {
+              if (hasR3) {
+                const tot3 = parseFloat(e.r3TotalFaults||0);
+                const cls3 = tot3 === 0 ? ' clean' : '';
+                roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(3) + '</span>'
+                  + '<span class="s-round-faults' + cls3 + '">' + tot3 + ' flt</span>'
+                  + '<span class="s-round-time">' + liveFmtTime(e.r3TotalTime) + '</span></div>';
+              }
+              if (hasR2) {
+                const tot2 = parseFloat(e.r2TotalFaults||0);
+                const cls2 = tot2 === 0 ? ' clean' : '';
+                roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(2) + '</span>'
+                  + '<span class="s-round-faults' + cls2 + '">' + tot2 + ' flt</span>'
+                  + '<span class="s-round-time">' + liveFmtTime(e.r2TotalTime) + '</span></div>';
+              }
+              // R1/PH1 always shown
+              const tot1 = parseFloat(e.r1TotalFaults||0);
+              const r1Cls = tot1 === 0 ? ' clean' : '';
+              roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(1) + '</span>'
+                + '<span class="s-round-faults' + r1Cls + '">' + tot1 + ' flt</span>'
+                + '<span class="s-round-time">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
             }
-            if (hasR2) {
-              const tot2 = parseFloat(e.r2TotalFaults||0);
-              const cls2 = tot2 === 0 ? ' clean' : '';
-              roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(2) + '</span>'
-                + '<span class="s-round-faults' + cls2 + '">' + tot2 + ' flt</span>'
-                + '<span class="s-round-time">' + liveFmtTime(e.r2TotalTime) + '</span></div>';
-            }
-            // R1/PH1 always shown
-            const tot1 = parseFloat(e.r1TotalFaults||0);
-            const r1Cls = tot1 === 0 ? ' clean' : '';
-            roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(1) + '</span>'
-              + '<span class="s-round-faults' + r1Cls + '">' + tot1 + ' flt</span>'
-              + '<span class="s-round-time">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
 
             html += '<div class="standing-row standing-row-stacked">'
               + '<span class="s-place">' + esc(place) + '</span>'
-              + '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(e.entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>'
+              + '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>'
               + '<div class="s-rounds">' + roundsHtml + '</div>'
               + '</div>';
           });
