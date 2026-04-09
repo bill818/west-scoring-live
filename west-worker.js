@@ -118,6 +118,20 @@ export default {
       const resultsKey = `results:${slug}:${ring}:${classNum}`;
       await env.WEST_LIVE.put(resultsKey, JSON.stringify(computed), { expirationTtl: 7200 });
 
+      // If OOG exists, persist to D1 so it survives KV expiry (watcher offline overnight)
+      if (computed.orderOfGo && computed.orderOfGo.length) {
+        ctx.waitUntil((async () => {
+          try {
+            const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+            if (show) {
+              await env.WEST_DB.prepare(
+                'UPDATE classes SET final_results = ? WHERE show_id = ? AND ring = ? AND class_num = ? AND (final_results IS NULL OR status != ?)'
+              ).bind(JSON.stringify(computed), show.id, ring, classNum, 'complete').run();
+            }
+          } catch(e) { console.error('[OOG persist]', e.message); }
+        })());
+      }
+
       // Active array managed by CLASS_SELECTED (Ctrl+A) and INTRO/ON_COURSE (UDP events)
       // .cls changes update data only — deliberate operator action puts a class live
 
