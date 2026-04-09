@@ -442,18 +442,62 @@ function renderResults() {
     // No competed entries — check for Order of Go
     const oog = c && c.orderOfGo;
     if (oog && oog.length) {
-      let oogHtml = '<div class="results-wrap">';
+      const ps = c.preShowStats;
+      const oogEntries = ps ? ps.entries : oog;
+      let oogHtml = '';
+
+      // Class-level summary
+      if (ps) {
+        oogHtml += '<div style="background:#fff;border-bottom:1px solid var(--border);padding:14px 16px;">'
+          + '<div style="display:flex;gap:20px;flex-wrap:wrap;font-family:DM Mono,monospace;font-size:12px;">'
+          + '<div><span style="font-size:24px;font-weight:700;color:var(--red);">' + ps.entryCount + '</span> <span style="color:var(--text-muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;">Entries</span></div>'
+          + '<div><span style="font-size:24px;font-weight:700;color:var(--black);">' + ps.uniqueRiders + '</span> <span style="color:var(--text-muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;">Riders</span></div>'
+          + '<div><span style="font-size:24px;font-weight:700;color:var(--black);">' + ps.countryCount + '</span> <span style="color:var(--text-muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;">Countries</span></div>'
+          + '</div>';
+        if (ps.countries && ps.countries.length > 1) {
+          oogHtml += '<div style="margin-top:8px;font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);">'
+            + ps.countries.map(function(cn) { return WEST.countryFlag(cn.code, true) + ' ' + cn.count; }).join('&nbsp;&nbsp;')
+            + '</div>';
+        }
+        oogHtml += '</div>';
+      }
+
+      // OOG list
+      oogHtml += '<div class="results-wrap">';
       oogHtml += '<div style="padding:14px 16px 8px;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--black);">Order of Go</div>';
-      oog.forEach(function(e) {
+      oogEntries.forEach(function(e) {
         const flag = classInfo.show_flags ? countryFlag(e.country) : '';
+        const breeding = e.breeding || '';
         oogHtml += '<div class="result-entry"><div class="result-main">'
           + '<div class="r-ribbon"><div class="r-place-txt">' + e.order + '</div></div>'
           + '<div class="r-info"><div class="r-horse-rider">'
           + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
           + '<span class="r-horse">' + esc(e.horse) + '</span>'
           + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
-          + '</div></div>'
-          + '</div></div>';
+          + '</div>'
+          + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '');
+
+        // Cross-class results for this horse
+        if (e.results && e.results.length) {
+          oogHtml += '<div style="padding-left:38px;margin-top:4px;">';
+          oogHtml += '<div style="font-family:DM Mono,monospace;font-size:9px;color:#bbb;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;">'
+            + e.classCount + ' class' + (e.classCount !== 1 ? 'es' : '') + ' at show'
+            + (e.totalRounds > 0 ? ' &middot; ' + e.clearPct + '% clear' : '')
+            + '</div>';
+          e.results.forEach(function(cr) {
+            var resultText = '';
+            if (cr.status) resultText = WEST.statusDisplayLabel(cr.status);
+            else if (cr.place) resultText = cr.place + (cr.faults !== null ? ' &middot; ' + cr.faults + ' flt' : '');
+            else resultText = '—';
+            oogHtml += '<div style="font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);padding:1px 0;">'
+              + '<span style="color:#bbb;min-width:40px;display:inline-block;">Cl ' + esc(cr.class_num) + '</span> '
+              + resultText
+              + '</div>';
+          });
+          oogHtml += '</div>';
+        }
+
+        oogHtml += '</div></div></div>';
       });
       oogHtml += '</div>';
       document.getElementById('content').innerHTML = oogHtml;

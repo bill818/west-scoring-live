@@ -537,7 +537,14 @@ export default {
         const resultsKey = `results:${slug}:${ring}:${classNum}`;
         const kvResults = await env.WEST_LIVE.get(resultsKey);
         if (kvResults) {
-          return jsonWithEtag(request, { ok: true, source: 'live', computed: JSON.parse(kvResults) });
+          const computed = JSON.parse(kvResults);
+          // For OOG classes with no results, attach pre-show stats from D1
+          if (computed.orderOfGo && computed.orderOfGo.length && (!computed.entries || !computed.entries.length)) {
+            try {
+              computed.preShowStats = await buildPreShowStats(env, slug, computed.orderOfGo);
+            } catch(e) { console.error('[preShowStats]', e.message); }
+          }
+          return jsonWithEtag(request, { ok: true, source: 'live', computed });
         }
 
         // Fallback: D1 (historical/completed classes)
@@ -1346,6 +1353,108 @@ async function writeSchedule(env, slug, ring, schedClasses) {
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
+// ── PRE-SHOW STATS — cross-class data for OOG entries ────────────────────────
+// For each horse in the order of go, query D1 for their results across all
+// other classes at this show. Returns per-entry stats + class-level summary.
+async function buildPreShowStats(env, slug, orderOfGo) {
+  const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+  if (!show) return null;
+
+  // Get all horses from the OOG
+  const horses = orderOfGo.map(e => e.horse).filter(Boolean);
+  if (!horses.length) return null;
+
+  // Query all results for these horses at this show
+  // Using LIKE matching since horse names should be exact in the same show
+  const placeholders = horses.map(() => '?').join(',');
+  const results = await env.WEST_DB.prepare(`
+    SELECT e.horse, e.rider, e.entry_num, e.country, e.sire, e.dam, e.city, e.state,
+           c.class_num, c.class_name, c.class_type, c.scoring_method,
+           r.round, r.time, r.jump_faults, r.time_faults, r.total, r.place, r.status_code
+    FROM entries e
+    JOIN classes c ON c.id = e.class_id
+    LEFT JOIN results r ON r.entry_id = e.id
+    WHERE c.show_id = ? AND e.horse IN (${placeholders})
+    ORDER BY e.horse, c.class_num, r.round
+  `).bind(show.id, ...horses).all();
+
+  // Group by horse
+  const byHorse = {};
+  (results.results || []).forEach(row => {
+    if (!byHorse[row.horse]) {
+      byHorse[row.horse] = {
+        horse: row.horse, rider: row.rider, entry_num: row.entry_num,
+        country: row.country, sire: row.sire, dam: row.dam,
+        city: row.city, state: row.state,
+        classes: {},
+      };
+    }
+    const h = byHorse[row.horse];
+    if (!h.classes[row.class_num]) {
+      h.classes[row.class_num] = {
+        class_num: row.class_num, class_name: row.class_name,
+        class_type: row.class_type, scoring_method: row.scoring_method,
+        rounds: [],
+      };
+    }
+    if (row.round) {
+      h.classes[row.class_num].rounds.push({
+        round: row.round, time: row.time, jump_faults: row.jump_faults,
+        time_faults: row.time_faults, total: row.total,
+        place: row.place, status_code: row.status_code,
+      });
+    }
+  });
+
+  // Build per-horse summary
+  const entryStats = orderOfGo.map(oogEntry => {
+    const h = byHorse[oogEntry.horse];
+    if (!h) return { ...oogEntry, classCount: 0, clearRounds: 0, totalRounds: 0, clearPct: 0, results: [], breeding: '' };
+
+    const classList = Object.values(h.classes);
+    let clearRounds = 0, totalRounds = 0;
+    const classResults = classList.map(cl => {
+      const r1 = cl.rounds.find(r => r.round === 1);
+      if (r1 && r1.total !== null) {
+        totalRounds++;
+        if (parseFloat(r1.total) === 0) clearRounds++;
+      }
+      return {
+        class_num: cl.class_num, class_name: cl.class_name,
+        place: r1 ? r1.place : null,
+        faults: r1 ? r1.total : null,
+        time: r1 ? r1.time : null,
+        status: r1 ? r1.status_code : null,
+      };
+    });
+
+    const breeding = [h.sire, h.dam].filter(Boolean).join(' x ');
+    return {
+      ...oogEntry,
+      breeding: breeding,
+      city: h.city || oogEntry.city, state: h.state || oogEntry.state,
+      classCount: classList.length,
+      clearRounds: clearRounds,
+      totalRounds: totalRounds,
+      clearPct: totalRounds > 0 ? Math.round(clearRounds / totalRounds * 1000) / 10 : 0,
+      results: classResults,
+    };
+  });
+
+  // Class-level summary
+  const countries = {};
+  orderOfGo.forEach(e => { if (e.country) countries[e.country] = (countries[e.country] || 0) + 1; });
+  const uniqueRiders = new Set(orderOfGo.map(e => e.rider)).size;
+
+  return {
+    entryCount: orderOfGo.length,
+    uniqueRiders: uniqueRiders,
+    countries: Object.entries(countries).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count),
+    countryCount: Object.keys(countries).length,
+    entries: entryStats,
+  };
+}
+
 function extractSlugRing(body, url) {
   let slug = url.searchParams.get('slug');
   let ring = url.searchParams.get('ring');
