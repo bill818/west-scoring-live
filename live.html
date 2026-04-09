@@ -936,6 +936,30 @@ function render() {
         html += '</div>';
       }
     }
+
+    // OOG — show remaining entries below standings
+    const compMap2 = liveData.computed || {};
+    const comp2 = compMap2[ac.classNum];
+    if (comp2 && comp2.orderOfGo && comp2.orderOfGo.length) {
+      // Build set of entries that have results
+      const goneSet = {};
+      if (cd && cd.entries) {
+        cd.entries.forEach(function(e) { if (e.hasGone) goneSet[e.entryNum] = true; });
+      }
+      const remaining = comp2.orderOfGo.filter(function(e) { return !goneSet[e.entry_num]; });
+      if (remaining.length) {
+        html += '<div style="padding:10px 16px 6px;font-family:DM Mono,monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;border-top:1px solid var(--border);">Remaining (' + remaining.length + ')</div>';
+        remaining.forEach(function(e) {
+          html += '<div style="display:flex;align-items:baseline;gap:8px;padding:4px 16px;border-bottom:1px solid var(--border);background:#fff;">'
+            + '<span style="font-family:DM Mono,monospace;font-size:10px;color:#bbb;min-width:20px;">' + (e.order || '') + '</span>'
+            + '<span class="s-bib">' + esc(e.entry_num) + '</span>'
+            + '<span style="font-size:13px;color:var(--text-muted);">' + esc(e.horse) + '</span>'
+            + '<span style="font-size:11px;color:#bbb;">' + esc(e.rider) + '</span>'
+            + '</div>';
+        });
+      }
+    }
+
     html += '</div>'; // close standings-section
   });
 
