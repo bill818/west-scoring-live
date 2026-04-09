@@ -986,16 +986,19 @@ function renderStandingsTable(entries, roundNum) {
   entries.forEach(function(g, i) {
     var rd = g.rounds[roundNum];
     var faultVal = rd ? parseFloat(rd.total) : NaN;
-    var fCls = isNaN(faultVal) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
-    var fDisplay = isNaN(faultVal) ? (rd && rd.status_code ? rd.status_code.toUpperCase() : 'ELIM') : String(faultVal);
-    var timeStr = rd && rd.time ? fmtTimePrecision(rd.time) : '\u2014';
+    var hasStatus = rd && rd.status_code && WEST.isElimStatus(rd.status_code);
+    var fCls = (isNaN(faultVal) || hasStatus) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
+    var fDisplay = hasStatus ? WEST.statusDisplayLabel(rd.status_code) : (isNaN(faultVal) ? 'ELIM' : String(faultVal));
+    var timeStr = hasStatus ? '\u2014' : (rd && rd.time ? fmtTimePrecision(rd.time) : '\u2014');
+    var gapStr = hasStatus ? WEST.statusDisplayLabel(rd.status_code) : g.gap;
+    var gapCls = hasStatus ? 'fault-gap' : g.gapClass;
 
     html += '<div class="standing-row">'
       + '<span class="s-place">' + (i + 1) + '</span>'
       + '<div class="s-entry"><div class="s-horse">' + esc(g.horse) + '</div><div class="s-rider">' + esc(g.rider) + '</div></div>'
       + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
       + '<span class="s-time">' + esc(timeStr) + '</span>'
-      + '<span class="s-gap ' + esc(g.gapClass) + '">' + esc(g.gap) + '</span></div>';
+      + '<span class="s-gap ' + esc(gapCls) + '">' + esc(gapStr) + '</span></div>';
   });
   html += '</div>';
   return html;
