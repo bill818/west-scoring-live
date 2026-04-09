@@ -605,9 +605,23 @@ function renderLiveStrip() {
   var phaseLabel = phase === 'INTRO' ? 'In Gate' : phase === 'CD' ? 'Countdown' : phase === 'FINISH' ? 'Finished' : 'On Course';
   var phaseCls = phase === 'INTRO' ? 'in-gate' : phase === 'CD' ? 'countdown' : phase === 'FINISH' ? 'finished' : 'on-course';
 
-  // Clock value — INTRO shows 45 frozen, ONCOURSE ticks, FINISH shows final time
+  // Clock value per phase:
+  // INTRO: -45 frozen
+  // CD: negative countdown ticking down from countdown value
+  // ONCOURSE: elapsed ticking up
+  // FINISH: final elapsed frozen
   var elapsed = parseFloat(oc.elapsed) || 0;
-  var clockDisplay = phase === 'INTRO' ? '-45' : Math.floor(elapsed);
+  var clockDisplay;
+  if (phase === 'INTRO') {
+    clockDisplay = '-45';
+  } else if (phase === 'CD') {
+    var cdVal = parseInt(oc.countdown) || 45;
+    var cdElapsed = Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
+    var cdRemaining = Math.max(0, cdVal - cdElapsed);
+    clockDisplay = '-' + cdRemaining;
+  } else {
+    clockDisplay = Math.floor(elapsed);
+  }
 
   // Time faults calculated from clock vs TA
   var ta = parseFloat(oc.ta) || 0;
@@ -646,18 +660,31 @@ function renderLiveStrip() {
 
   // Set up clock tick state
   clockBase = elapsed;
-  clockPaused = oc.paused || (phase === 'finished') || (phase === 'inGate') || (phase === 'FINISH') || (phase === 'INTRO');
+  clockPhase = phase;
+  clockCountdown = parseInt(oc.countdown) || 45;
+  clockPaused = oc.paused || (phase === 'FINISH') || (phase === 'INTRO');
   clockTs = new Date(oc.ts).getTime() || Date.now();
 }
+
+var clockPhase = 'ONCOURSE';
+var clockCountdown = 0;
 
 function tickClock() {
   var el = document.getElementById('liveClock');
   if (!el || clockPaused) return;
   var now = Date.now();
   var diff = (now - clockTs) / 1000;
+
+  if (clockPhase === 'CD') {
+    // Countdown — tick down, show negative
+    var remaining = Math.max(0, clockCountdown - Math.floor(diff));
+    el.textContent = '-' + remaining;
+    return;
+  }
+
+  // ONCOURSE — tick up
   var display = Math.floor(clockBase + diff);
   if (display < 0) display = 0;
-  // Stale guard — if clock exceeds 300s, something is wrong (dropped connection)
   if (display > 300) {
     el.textContent = '--';
     el.style.color = 'var(--text-muted)';
