@@ -696,6 +696,17 @@ function renderClassInfoBar() {
 function renderOrderOfGo() {
   if (!orderOfGo.length) return '';
 
+  // Normalize field names — pre-computed uses entry_num/order, parseClsRaw uses entryNum/rideOrder
+  var normalized = orderOfGo.map(function(e) {
+    return {
+      entryNum: e.entryNum || e.entry_num || '',
+      horse: e.horse || '',
+      rider: e.rider || '',
+      country: e.country || '',
+      rideOrder: e.rideOrder || e.order || 0,
+    };
+  });
+
   // Build set of entries that have already gone (from D1 results)
   var goneSet = {};
   rawEntries.forEach(function(e) { if (e.round) goneSet[e.entry_num] = true; });
@@ -703,7 +714,7 @@ function renderOrderOfGo() {
   var onCourseEntry = liveData && liveData.onCourse ? String(liveData.onCourse.entry) : '';
 
   // Filter: only show entries that haven't gone yet + the one currently on course
-  var remaining = orderOfGo.filter(function(e) {
+  var remaining = normalized.filter(function(e) {
     return !goneSet[e.entryNum] || String(e.entryNum) === onCourseEntry;
   });
 
@@ -740,6 +751,70 @@ function renderOrderOfGo() {
       + '</div>';
   });
   html += '</div>';
+  return html;
+}
+
+/* ── RENDER: PRE-SHOW STATS (OOG classes with no results yet) ────────── */
+function renderPreShowStats(ps) {
+  if (!ps) return '';
+  var html = '';
+
+  // Summary cards
+  html += '<div class="section-label">Class Preview</div>';
+  html += '<div class="summary-grid">';
+  html += '<div class="sum-card"><div class="sum-val">' + ps.entryCount + '</div><div class="sum-label">Entries</div></div>';
+  html += '<div class="sum-card"><div class="sum-val">' + ps.uniqueRiders + '</div><div class="sum-label">Riders</div></div>';
+  html += '<div class="sum-card"><div class="sum-val">' + ps.countryCount + '</div><div class="sum-label">Countries</div></div>';
+  if (ps.countries && ps.countries.length > 1) {
+    html += '<div class="sum-card" style="grid-column:span 2;">'
+      + '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">';
+    ps.countries.forEach(function(cn) {
+      html += '<span style="font-family:DM Mono,monospace;font-size:11px;">' + countryFlag(cn.code) + ' ' + cn.count + '</span>';
+    });
+    html += '</div><div class="sum-label">By Country</div></div>';
+  }
+  html += '</div>';
+
+  // Per-entry cross-class results
+  if (ps.entries && ps.entries.some(function(e) { return e.classCount > 0; })) {
+    html += '<div class="section-label">Entry Preview — Show History</div>';
+    html += '<div class="oog-wrap">';
+    html += '<div class="oog-hdr"><span class="oog-go">#</span><span class="oog-horse">Horse / Rider</span><span class="oog-rider">Show Record</span></div>';
+    ps.entries.forEach(function(e) {
+      var breeding = e.breeding || '';
+      html += '<div class="oog-row">';
+      html += '<span class="ent-num">' + esc(e.entry_num) + '</span>';
+      html += '<span class="horse-name">' + esc(e.horse) + '<br><span style="font-size:11px;color:var(--text-muted);font-weight:400;">' + esc(e.rider) + '</span>'
+        + (breeding ? '<br><span style="font-size:10px;color:#bbb;font-style:italic;">' + esc(breeding) + '</span>' : '')
+        + '</span>';
+      if (e.classCount > 0) {
+        html += '<span class="rider-name" style="text-align:right;">'
+          + '<span style="font-size:13px;font-weight:600;">' + e.classCount + ' cl' + (e.classCount !== 1 ? 's' : '') + '</span>'
+          + (e.totalRounds > 0 ? '<br><span style="font-size:11px;color:' + (e.clearPct >= 50 ? 'var(--green)' : 'var(--text-muted)') + ';">' + e.clearPct + '% clear</span>' : '')
+          + '</span>';
+      } else {
+        html += '<span class="rider-name" style="text-align:right;color:#ccc;">First class</span>';
+      }
+      html += '</div>';
+
+      // Individual class results
+      if (e.results && e.results.length) {
+        e.results.forEach(function(cr) {
+          var resultText = '';
+          if (cr.status) resultText = WEST.statusDisplayLabel(cr.status);
+          else if (cr.place) resultText = cr.place + (cr.faults !== null ? ' \u00B7 ' + cr.faults + ' flt' : '');
+          else resultText = '\u2014';
+          html += '<div style="display:flex;gap:8px;padding:2px 0 2px 42px;font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);">'
+            + '<span style="color:#bbb;min-width:36px;">Cl ' + esc(cr.class_num) + '</span>'
+            + '<span style="flex:1;">' + esc(cr.class_name || '').substring(0, 30) + '</span>'
+            + '<span>' + resultText + '</span>'
+            + '</div>';
+        });
+      }
+    });
+    html += '</div>';
+  }
+
   return html;
 }
 
@@ -914,17 +989,26 @@ function renderAll() {
     return;
   }
 
-  // Parse order of go
-  var parsedRaw = parseClsRaw(classInfo.cls_raw);
-  orderOfGo = parsedRaw.oog;
+  // Parse order of go — use pre-computed when available, fall back to cls_raw
+  var comp = classInfo._computed;
+  if (comp && comp.orderOfGo && comp.orderOfGo.length) {
+    orderOfGo = comp.orderOfGo;
+  } else {
+    var parsedRaw = parseClsRaw(classInfo.cls_raw);
+    orderOfGo = parsedRaw.oog;
+  }
 
   renderClassInfoBar();
 
   var grouped = processData();
   if (grouped.length === 0) {
-    // Still show OOG even with no results
+    // No results yet — show OOG + pre-show stats
     var html = renderOrderOfGo();
-    html += '<div class="state-box"><div class="state-lbl">No results yet. Waiting for entries&hellip;</div></div>';
+    if (comp && comp.preShowStats) {
+      html += renderPreShowStats(comp.preShowStats);
+    } else {
+      html += '<div class="state-box"><div class="state-lbl">No results yet. Waiting for entries&hellip;</div></div>';
+    }
     document.getElementById('content').innerHTML = html;
     return;
   }

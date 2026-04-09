@@ -246,8 +246,9 @@ function renderTitle() {
   const isLive = sel && String(sel.classNum) === String(CLASS_NUM);
   const liveBadge = isLive ? ' <span class="live-pill"><span class="live-blink"></span>Live</span>' : '';
   const hasResults = entries && entries.length && entries.some(function(e) { return e.hasGone || e.place || e.r1TotalTime || e.score; });
-  const statsBtn = (isJumper && hasResults)
-    ? '<a class="stats-btn visible" href="stats.html?slug=' + esc(SLUG) + '&classNum=' + esc(CLASS_NUM) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">Stats &amp; Analysis</a>'
+  const hasOOG = c && c.orderOfGo && c.orderOfGo.length;
+  const statsBtn = (isJumper && (hasResults || hasOOG))
+    ? '<a class="stats-btn visible" href="stats.html?slug=' + esc(SLUG) + '&classNum=' + esc(CLASS_NUM) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">' + (hasOOG && !hasResults ? 'Preview &amp; Stats' : 'Stats &amp; Analysis') + '</a>'
     : '';
 
   // View Judges Scores toggle — multi-judge hunter classes (derbies + scored non-derby)
