@@ -624,6 +624,9 @@ function renderLiveStrip() {
     // Calculate current elapsed at render time (same as tick function)
     var ocElapsed = oc.paused ? elapsed : elapsed + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
     clockDisplay = Math.max(0, Math.floor(ocElapsed));
+  } else if (phase === 'FINISH') {
+    // Show final time with precision
+    clockDisplay = oc.elapsed ? fmtTimePrecision(oc.elapsed) : Math.floor(elapsed);
   } else {
     clockDisplay = Math.floor(elapsed);
   }
