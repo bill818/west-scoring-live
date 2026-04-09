@@ -285,7 +285,6 @@ async function loadData() {
 
   document.getElementById('statNumber').textContent = activeCount;
   document.getElementById('livePill').style.display = activeCount > 0 ? 'flex' : 'none';
-  document.getElementById('showsLbl').textContent = SHOWS.length + ' show' + (SHOWS.length !== 1 ? 's' : '');
 
   if (!cards.length) {
     content.innerHTML = '<div class="error-box"><h2>No Shows Found</h2><p>WEST show results will appear here as they become available.</p></div>';
