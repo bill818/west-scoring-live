@@ -77,6 +77,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);}
 .result-entry:nth-child(even){background:#fafafa;}
 .result-main{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;}
 .r-ribbon{flex-shrink:0;width:32px;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.r-prize{font-family:'DM Mono',monospace;font-size:10px;color:var(--green);font-weight:600;margin-top:3px;text-align:center;line-height:1.2;}
 .r-place-txt{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);line-height:1;}
 .r-bib{display:inline-flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;margin-right:5px;background:#fafafa;vertical-align:middle;flex-shrink:0;}
 .r-info{flex:1;min-width:0;}
@@ -379,7 +380,7 @@ function renderResults() {
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
         statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
         r2StatusCode: e.r2StatusCode || '', r3StatusCode: e.r3StatusCode || '',
-        rounds: rounds, bestPlace: parseInt(e.place) || null
+        prize: e.prize || 0, rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
   } else if (isPrecomputed && isHunter) {
@@ -393,7 +394,7 @@ function renderResults() {
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
         statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
         r2StatusCode: e.r2StatusCode || '', r3StatusCode: e.r3StatusCode || '',
-        rounds: rounds, bestPlace: parseInt(e.place) || null
+        prize: e.prize || 0, rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
   } else {
@@ -404,7 +405,7 @@ function renderResults() {
           country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
           horse_fei: e.horse_fei, rider_fei: e.rider_fei,
           statusCode: '', r1StatusCode: '',
-          rounds: [], bestPlace: null };
+          prize: 0, rounds: [], bestPlace: null };
       }
       if (e.round) {
         byEntry[e.entry_num].rounds.push(e);
@@ -487,15 +488,19 @@ function renderResults() {
     html += '<div class="result-entry"><div class="result-main">';
 
     // Placement — sd.showPlace=false means dash, otherwise show place/ribbon
+    // Prize money from pre-computed entry — only show on completed classes (not live)
+    const entryPrize = (!isLive && g.prize) ? g.prize : 0;
+    const prizeHtml = entryPrize ? '<div class="r-prize">$' + entryPrize.toLocaleString() + '</div>' : '';
+
     if (sd && !sd.showPlace) {
       html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
     } else {
       const isChamp = c ? !!c.isChampionship : !!(classInfo.isChampionship);
       const ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, classInfo.class_name, isChamp) : '';
       if (ribbonSvg) {
-        html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+        html += '<div class="r-ribbon">' + ribbonSvg + prizeHtml + '</div>';
       } else {
-        html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+        html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div>' + prizeHtml + '</div>';
       }
     }
 

@@ -1740,6 +1740,9 @@ function computeClassResults(body) {
     }))
     .sort((a, b) => a.order - b.order);
 
+  // Prize money: array indexed by place (0=1st, 1=2nd, etc.)
+  const prizes = (body.prizes && body.prizes.length) ? body.prizes : null;
+
   const base = {
     classNum: (body.filename || '').replace('.cls', ''),
     className: body.className || h[1] || '',
@@ -1747,16 +1750,28 @@ function computeClassResults(body) {
     sponsor: body.sponsor || '',
     trophy: body.trophy || '',
     orderOfGo: oog.length ? oog : null,
+    prizes: prizes,
   };
 
-  if (classType === 'H') return computeHunterResults(body, h, base);
-  if (classType === 'J' || classType === 'T') return computeJumperResults(body, h, base);
-
-  // Unformatted — just pass entries with place
-  return { ...base, label: 'Unformatted', entries: (body.entries || []).map(e => ({
+  let result;
+  if (classType === 'H') result = computeHunterResults(body, h, base);
+  else if (classType === 'J' || classType === 'T') result = computeJumperResults(body, h, base);
+  else result = { ...base, label: 'Unformatted', entries: (body.entries || []).map(e => ({
     entry_num: e.entryNum, horse: e.horse, rider: e.rider, owner: e.owner,
     place: e.place || '', hasGone: e.hasGone,
   })) };
+
+  // Assign prize money per entry based on place
+  if (prizes && result.entries) {
+    result.entries.forEach(e => {
+      const p = parseInt(e.place);
+      if (p > 0 && p <= prizes.length) {
+        e.prize = prizes[p - 1]; // prizes[0] = 1st place
+      }
+    });
+  }
+
+  return result;
 }
 
 // ── HUNTER RESULTS ──────────────────────────────────────────────────────────
