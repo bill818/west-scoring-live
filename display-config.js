@@ -63,7 +63,13 @@
  * Ribbons: SVG for places 1-12, CH/RC for championships, only on non-live
  * Equitation: rider-first layout (rider bold, city/state, horse muted below)
  * Movement arrows: R1 rank vs final place, only when both rounds complete
- * Status codes: R1 failed → suppress place; R2 failed → place on R1 alone
+ * Status codes: centralized elimination/status display rules:
+ *   - WEST.elimStatuses (EL,RO,RF,OC,HF,EX,DQ) → display as "EL"
+ *   - WEST.partialStatuses (WD,RT,HC) → display code as-is
+ *   - WEST.hideStatuses (DNS) → hide entry entirely
+ *   - WEST.statusDisplayLabel(code) → viewer-friendly label
+ *   - WEST.jumper.getStatusDisplay(sm, r1, r2, r3) → per-method rules
+ *   - WEST.hunter.getStatusDisplay(r1, r2, r3) → universal rule
  *
  * Last updated: 2026-04-08
  */
