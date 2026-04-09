@@ -341,6 +341,7 @@ function renderDerby() {
 
 function renderResults() {
   if (!classInfo) return;
+  try {
   const ct = classInfo.class_type || (classInfo._computed ? classInfo._computed.classType : '');
   const isJumper = ct === 'J' || ct === 'T';
   const isHunter = ct === 'H';
@@ -374,7 +375,7 @@ function renderResults() {
         entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
         statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
-        r2StatusCode: e.r2StatusCode || '', r3StatusCode: '',
+        r2StatusCode: e.r2StatusCode || '', r3StatusCode: e.r3StatusCode || '',
         rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
@@ -388,6 +389,7 @@ function renderResults() {
         entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
         statusCode: e.statusCode || '', r1StatusCode: e.r1StatusCode || '',
+        r2StatusCode: e.r2StatusCode || '', r3StatusCode: e.r3StatusCode || '',
         rounds: rounds, bestPlace: parseInt(e.place) || null
       };
     });
@@ -555,6 +557,10 @@ function renderResults() {
 
   html += '</div>';
   document.getElementById('content').innerHTML = html;
+  } catch(err) {
+    document.getElementById('content').innerHTML = '<div class="no-results">Render error: ' + err.message + '</div>';
+    console.error('renderResults error:', err);
+  }
 }
 
 async function loadResults() {
