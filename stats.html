@@ -601,9 +601,9 @@ function renderLiveStrip() {
   }
 
   // Determine phase
-  var phase = oc.phase || 'on-course';
-  var phaseLabel = phase === 'inGate' ? 'In Gate' : phase === 'countdown' ? 'Countdown' : phase === 'finished' ? 'Finished' : 'On Course';
-  var phaseCls = phase === 'inGate' ? 'in-gate' : phase === 'countdown' ? 'countdown' : phase === 'finished' ? 'finished' : 'on-course';
+  var phase = (oc.phase || 'ONCOURSE').toUpperCase();
+  var phaseLabel = phase === 'INTRO' ? 'In Gate' : phase === 'CD' ? 'Countdown' : phase === 'FINISH' ? 'Finished' : 'On Course';
+  var phaseCls = phase === 'INTRO' ? 'in-gate' : phase === 'CD' ? 'countdown' : phase === 'FINISH' ? 'finished' : 'on-course';
 
   // Clock value
   var elapsed = parseFloat(oc.elapsed) || 0;
@@ -646,7 +646,7 @@ function renderLiveStrip() {
 
   // Set up clock tick state
   clockBase = elapsed;
-  clockPaused = oc.paused || (phase === 'finished') || (phase === 'inGate');
+  clockPaused = oc.paused || (phase === 'finished') || (phase === 'inGate') || (phase === 'FINISH') || (phase === 'INTRO');
   clockTs = new Date(oc.ts).getTime() || Date.now();
 }
 
