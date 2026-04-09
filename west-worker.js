@@ -2003,6 +2003,7 @@ function computeJumperResults(body, h, base) {
     showFlags: body.showFlags || false,
     ta,
     isOptimum,
+    isFaultsConverted: sm === '0',
     optimumTime,
     entries: structured,
     stats: {

@@ -71,7 +71,14 @@
  *   - WEST.jumper.getStatusDisplay(sm, r1, r2, r3) → per-method rules
  *   - WEST.hunter.getStatusDisplay(r1, r2, r3) → universal rule
  *
- * Last updated: 2026-04-08
+ * Table III / Faults Converted (H[2]=0 jumper):
+ *   - Ranked by TOTAL TIME only (clock time + converted fault seconds)
+ *   - r1TotalTime has the final time (Ryegate converts faults to seconds)
+ *   - Jump faults shown muted (informational, not used for ranking)
+ *   - No "flt" suffix on the display — it's a time class
+ *   - Detect via scoringMethod === '0' or _computed.isFaultsConverted
+ *
+ * Last updated: 2026-04-09
  */
 
 var WEST = WEST || {};
