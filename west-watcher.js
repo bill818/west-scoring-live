@@ -324,7 +324,6 @@ function parseCls(content, filename) {
       entry.r1Total    = cols[42] && cols[42] !== '0' ? cols[42] : '';
       entry.r2Total    = cols[43] && cols[43] !== '0' ? cols[43] : '';
       entry.combined   = cols[45] && cols[45] !== '0' ? cols[45] : '';
-      entry.hasGone    = cols[49] === '1' || cols[50] === '1';
       entry.hasGoneR1  = cols[49] === '1';
       entry.hasGoneR2  = cols[50] === '1';
       entry.statusCode = cols[52] || '';
@@ -364,8 +363,13 @@ function parseCls(content, filename) {
       entry.score = cols[15] && cols[15] !== '0' ? cols[15] : '';
       entry.r2Score = cols[24] && cols[24] !== '0' ? cols[24] : '';
 
-      // Edge case: manually entered scores bypass hasGone flag — treat as gone if has score or place
-      if (!entry.hasGone && (entry.score || entry.place)) entry.hasGone = true;
+      // hasGone = evidence-based, same logic as jumper.
+      // Don't trust col[49]/col[50] — they can get stuck.
+      // Score or real status code = competed. DNS = not competed.
+      const hSc = (entry.statusCode || '').toUpperCase();
+      const hasScore = !!(entry.score || entry.r1Total);
+      const hasHunterStatus = !!(hSc && hSc !== 'DNS');
+      entry.hasGone = hasScore || hasHunterStatus;
     }
 
     if (isJumper) {
