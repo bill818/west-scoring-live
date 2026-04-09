@@ -885,7 +885,7 @@ function render() {
               // Table III: show jump faults (muted) + final time (bold)
               const jf = parseFloat(e.r1JumpFaults || 0);
               roundsHtml = '<div class="s-round-row">'
-                + '<span class="s-round-faults" style="color:#bbb;">' + jf + '</span>'
+                + '<span class="s-round-faults" style="color:#bbb;text-align:center;min-width:56px;">' + jf + '</span>'
                 + '<span class="s-round-time" style="font-weight:600;">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
             } else {
               if (hasR3) {
