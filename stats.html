@@ -1170,7 +1170,7 @@ async function loadResults() {
         // Pre-computed jumper entries have round data at top level — convert.
         rawEntries = [];
         (c.entries || []).forEach(function(e) {
-          if (e.r1TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state, round: 1, time: e.r1TotalTime, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, total: e.r1TotalFaults, place: e.place, status_code: e.r1StatusCode || e.statusCode || '' });
+          if (e.r1TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state, round: 1, time: e.r1TotalTime, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, total: e.r1TotalFaults, place: e.place, status_code: e.r1StatusCode || '' });
           if (e.r2TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 2, time: e.r2TotalTime, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, total: e.r2TotalFaults, place: e.place, status_code: e.r2StatusCode || '' });
           if (e.r3TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 3, time: e.r3TotalTime, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, total: e.r3TotalFaults, place: e.place, status_code: '' });
           // If no rounds but has entry data, still include for OOG
