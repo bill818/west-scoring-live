@@ -1910,17 +1910,28 @@ function computeJumperResults(body, h, base) {
   const clockPrecision = parseInt(h[5]) || 0;
   const ta = { r1: parseFloat(h[8]) || 0, r2: parseFloat(h[11]) || 0, r3: parseFloat(h[14]) || 0 };
   const isOptimum = sm === '6';
+  const isFaultsConverted = sm === '0';
   const optimumTime = isOptimum && ta.r1 > 0 ? ta.r1 - 4 : 0;
 
   // Build structured entries with all round data — only entries that competed
-  const structured = entries.filter(e => e.hasGone).map(e => ({
+  const structured = entries.filter(e => e.hasGone).map(e => {
+    // Table III: compute final time = clockTime + jumpFaults + penaltySeconds
+    // Ryegate doesn't write the converted time to .cls, only sends it via UDP
+    let r1FinalTime = e.r1TotalTime || e.r1Time || '';
+    if (isFaultsConverted && r1FinalTime) {
+      const clock = parseFloat(e.r1Time) || 0;
+      const jf = parseFloat(e.r1JumpFaults) || 0;
+      const ps = parseFloat(e.r1PenaltySec) || 0;
+      r1FinalTime = (clock + jf + ps).toFixed(3);
+    }
+    return {
     entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
     owner: e.owner || '', country: e.country || '',
     sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
     place: e.overallPlace || e.place || '',
     hasGone: e.hasGone, statusCode: e.statusCode || '',
     r1StatusCode: e.r1StatusCode || '', r2StatusCode: e.r2StatusCode || '',
-    r1Time: e.r1Time || '', r1TotalTime: e.r1TotalTime || '',
+    r1Time: e.r1Time || '', r1TotalTime: r1FinalTime,
     r1JumpFaults: e.r1JumpFaults || '0', r1TimeFaults: e.r1TimeFaults || '0',
     r1TotalFaults: e.r1TotalFaults || '0',
     r2Time: e.r2Time || '', r2TotalTime: e.r2TotalTime || '',
@@ -1929,7 +1940,7 @@ function computeJumperResults(body, h, base) {
     r3Time: e.r3Time || '', r3TotalTime: e.r3TotalTime || '',
     r3JumpFaults: e.r3JumpFaults || '0', r3TimeFaults: e.r3TimeFaults || '0',
     r3TotalFaults: e.r3TotalFaults || '0',
-  }));
+  }; });
 
   // ── Stats computation ──────────────────────────────────────────────────────
   const elimStatuses = ['EL','RF','HF','OC','WD','DNS','DNF','SC','RT'];
