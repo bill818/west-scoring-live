@@ -1654,7 +1654,7 @@ function computeHunterResults(body, h, base) {
     // Build per-judge phase cards and compute rankings (same engine as derby).
     // Column map confirmed 2026-04-08: R1=col[15+j], R2=col[24+j], sequential.
     const jc = info.judgeCount;
-    let entries = (body.entries || []).map(e => {
+    let entries = (body.entries || []).filter(e => e.hasGone).map(e => {
       // Non-derby: phase cards are just { score, phaseTotal } — no hiopt/bonus fields.
       // The ABSENCE of hiopt/bonus tells the renderer to show score only.
       const r1 = (e.r1Judges || []).map(v => {
@@ -1698,8 +1698,8 @@ function computeHunterResults(body, h, base) {
 
     result.entries = entries;
   } else {
-    // Forced/flat hunter (no scores) — just pass entries with place
-    result.entries = (body.entries || []).map(e => ({
+    // Forced/flat hunter (no scores) — only entries that competed
+    result.entries = (body.entries || []).filter(e => e.hasGone).map(e => ({
       entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
       owner: e.owner || '', country: e.country || '',
       sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
