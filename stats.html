@@ -782,7 +782,7 @@ function renderPreShowStats(ps) {
     html += '<div class="oog-hdr"><span class="oog-go">#</span><span class="oog-horse">Horse / Rider</span><span class="oog-rider">Show Record</span></div>';
     ps.entries.forEach(function(e) {
       var breeding = e.breeding || '';
-      html += '<div class="oog-row">';
+      html += '<div class="oog-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:6px;">';
       html += '<span class="ent-num">' + esc(e.entry_num) + '</span>';
       html += '<span class="horse-name">' + esc(e.horse) + '<br><span style="font-size:11px;color:var(--text-muted);font-weight:400;">' + esc(e.rider) + '</span>'
         + (breeding ? '<br><span style="font-size:10px;color:#bbb;font-style:italic;">' + esc(breeding) + '</span>' : '')
