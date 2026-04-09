@@ -863,8 +863,10 @@ function render() {
         if (isJumper) {
           html += '<div class="standings-hdr">'
             + '<span class="col-place">Plc</span><span class="col-entry">Horse / Rider</span>'
-            + (isFaultsConverted ? '' : '<span class="col-faults">Faults</span>')
-            + '<span class="col-time">Time</span></div>';
+            + (isFaultsConverted
+              ? '<span class="col-faults">Jump Faults</span><span class="col-time">Final Time</span>'
+              : '<span class="col-faults">Faults</span><span class="col-time">Time</span>')
+            + '</div>';
           // Round labels from display config
           const sm = cd.scoringMethod || '';
           const prec = cd.clockPrecision || 2;
@@ -880,8 +882,10 @@ function render() {
             // Build round rows top-down: highest round first
             let roundsHtml = '';
             if (isFaultsConverted) {
-              // Table III: show final time only (faults already converted into time)
+              // Table III: show jump faults (muted) + final time (bold)
+              const jf = parseFloat(e.r1JumpFaults || 0);
               roundsHtml = '<div class="s-round-row">'
+                + '<span class="s-round-faults" style="color:#bbb;">' + jf + '</span>'
                 + '<span class="s-round-time" style="font-weight:600;">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
             } else {
               if (hasR3) {
