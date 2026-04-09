@@ -363,13 +363,14 @@ function parseCls(content, filename) {
       entry.score = cols[15] && cols[15] !== '0' ? cols[15] : '';
       entry.r2Score = cols[24] && cols[24] !== '0' ? cols[24] : '';
 
-      // hasGone = evidence-based, same logic as jumper.
-      // Don't trust col[49]/col[50] — they can get stuck.
-      // Score or real status code = competed. DNS = not competed.
+      // hasGone = evidence-based. Don't trust col[49]/col[50] — they can get stuck.
+      // Score, place, or real status code = competed. DNS = not competed.
+      // Hunter forced classes have place but no score — place IS the evidence.
       const hSc = (entry.statusCode || '').toUpperCase();
       const hasScore = !!(entry.score || entry.r1Total);
+      const hasPlace = !!(entry.place);
       const hasHunterStatus = !!(hSc && hSc !== 'DNS');
-      entry.hasGone = hasScore || hasHunterStatus;
+      entry.hasGone = hasScore || hasPlace || hasHunterStatus;
     }
 
     if (isJumper) {
