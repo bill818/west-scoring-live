@@ -249,7 +249,7 @@ async function loadData() {
         activeNums.forEach(function(num) {
           const c = classes.find(function(x) { return String(x.class_num) === num; });
           if (!c) return;
-          rows += '<div class="cls-row-link" onclick="event.stopPropagation();location.href=\'' + esc(liveUrl) + '\'">'
+          rows += '<div class="cls-row-link" onclick="event.preventDefault();event.stopPropagation();location.href=\'' + esc(liveUrl) + '\'">'
             + '<span class="cls-num">' + esc(c.class_num) + '</span>'
             + '<span class="cls-name">' + esc(c.class_name) + '<span class="live-dot-inline"></span></span></div>';
         });
@@ -259,7 +259,7 @@ async function loadData() {
       recent3.forEach(function(c) {
         if (activeNums.indexOf(String(c.class_num)) >= 0) return;
         var resultUrl = 'results.html?slug=' + esc(show.slug) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(show.ring) + '&name=' + encodeURIComponent(show.name);
-        rows += '<div class="cls-row-link" onclick="event.stopPropagation();location.href=\'' + esc(resultUrl) + '\'">'
+        rows += '<div class="cls-row-link" onclick="event.preventDefault();event.stopPropagation();location.href=\'' + esc(resultUrl) + '\'">'
           + '<span class="cls-num">' + esc(c.class_num) + '</span>'
           + '<span class="cls-name">' + esc(c.class_name) + '</span></div>';
       });
