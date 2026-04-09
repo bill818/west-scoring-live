@@ -1396,7 +1396,7 @@ async function buildPreShowStats(env, slug, orderOfGo) {
     FROM entries e
     JOIN classes c ON c.id = e.class_id
     LEFT JOIN results r ON r.entry_id = e.id
-    WHERE c.show_id = ? AND e.horse IN (${placeholders})
+    WHERE c.show_id = ? AND e.horse IN (${placeholders}) AND c.class_type IN ('J','T')
     ORDER BY e.horse, c.class_num, r.round
   `).bind(show.id, ...horses).all();
 
@@ -1442,13 +1442,19 @@ async function buildPreShowStats(env, slug, orderOfGo) {
         if (parseFloat(r1.total) === 0) clearRounds++;
       }
       return {
-        class_num: cl.class_num, class_name: cl.class_name,
+        class_num: cl.class_num, class_name: cl.class_name, class_type: cl.class_type,
         place: r1 ? r1.place : null,
         faults: r1 ? r1.total : null,
         time: r1 ? r1.time : null,
         status: r1 ? r1.status_code : null,
       };
     });
+
+    // Sort by best place (lowest first), take top 3
+    const bestResults = classResults
+      .filter(cr => !cr.status && cr.place)
+      .sort((a, b) => (parseInt(a.place) || 999) - (parseInt(b.place) || 999))
+      .slice(0, 3);
 
     const breeding = [h.sire, h.dam].filter(Boolean).join(' x ');
     return {
@@ -1459,7 +1465,7 @@ async function buildPreShowStats(env, slug, orderOfGo) {
       clearRounds: clearRounds,
       totalRounds: totalRounds,
       clearPct: totalRounds > 0 ? Math.round(clearRounds / totalRounds * 1000) / 10 : 0,
-      results: classResults,
+      results: bestResults,
     };
   });
 
