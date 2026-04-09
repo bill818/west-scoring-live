@@ -585,6 +585,32 @@ function renderResults() {
   });
 
   html += '</div>';
+
+  // Append remaining OOG entries below results (entries that haven't competed yet)
+  const oog = c && c.orderOfGo;
+  if (oog && oog.length) {
+    // Build set of entries already in results
+    const resultSet = {};
+    grouped.forEach(function(g) { resultSet[g.entry_num] = true; });
+    const remaining = oog.filter(function(e) { return !resultSet[e.entry_num]; });
+    if (remaining.length) {
+      html += '<div style="padding:14px 16px 8px;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);margin-top:8px;">Remaining (' + remaining.length + ')</div>';
+      html += '<div class="results-wrap" style="padding-bottom:20px;">';
+      remaining.forEach(function(e) {
+        const flag = classInfo.show_flags ? countryFlag(e.country) : '';
+        html += '<div class="result-entry"><div class="result-main">'
+          + '<div class="r-ribbon"><div class="r-place-txt" style="color:#bbb;">' + e.order + '</div></div>'
+          + '<div class="r-info"><div class="r-horse-rider">'
+          + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
+          + '<span class="r-horse" style="color:var(--text-muted);">' + esc(e.horse) + '</span>'
+          + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
+          + '</div></div>'
+          + '</div></div>';
+      });
+      html += '</div>';
+    }
+  }
+
   document.getElementById('content').innerHTML = html;
   } catch(err) {
     document.getElementById('content').innerHTML = '<div class="no-results">Render error: ' + err.message + '</div>';
