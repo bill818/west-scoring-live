@@ -514,7 +514,7 @@ WEST.hunter.getStatusDisplay = function(r1Status, r2Status, r3Status) {
    HUNTER — class_type H
    ═══════════════════════════════════════════════════════════════════════════ */
 
-WEST.hunter = {};
+WEST.hunter = WEST.hunter || {};
 
 // ── DERBY TYPES ──────────────────────────────────────────────────────────────
 // H[37] — confirmed 2026-04-03
