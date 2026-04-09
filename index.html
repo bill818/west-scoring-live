@@ -249,18 +249,19 @@ async function loadData() {
         activeNums.forEach(function(num) {
           const c = classes.find(function(x) { return String(x.class_num) === num; });
           if (!c) return;
-          rows += '<a class="cls-row-link" href="' + esc(liveUrl) + '" onclick="event.stopPropagation()">'
+          rows += '<div class="cls-row-link" onclick="event.stopPropagation();location.href=\'' + esc(liveUrl) + '\'">'
             + '<span class="cls-num">' + esc(c.class_num) + '</span>'
-            + '<span class="cls-name">' + esc(c.class_name) + '<span class="live-dot-inline"></span></span></a>';
+            + '<span class="cls-name">' + esc(c.class_name) + '<span class="live-dot-inline"></span></span></div>';
         });
       }
 
       // Recent 3 (skip if already shown as live)
       recent3.forEach(function(c) {
         if (activeNums.indexOf(String(c.class_num)) >= 0) return;
-        rows += '<a class="cls-row-link" href="results.html?slug=' + esc(show.slug) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(show.ring) + '&name=' + encodeURIComponent(show.name) + '" onclick="event.stopPropagation()">'
+        var resultUrl = 'results.html?slug=' + esc(show.slug) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(show.ring) + '&name=' + encodeURIComponent(show.name);
+        rows += '<div class="cls-row-link" onclick="event.stopPropagation();location.href=\'' + esc(resultUrl) + '\'">'
           + '<span class="cls-num">' + esc(c.class_num) + '</span>'
-          + '<span class="cls-name">' + esc(c.class_name) + '</span></a>';
+          + '<span class="cls-name">' + esc(c.class_name) + '</span></div>';
       });
 
       const total = scheduled.length;
