@@ -247,7 +247,7 @@ function renderClasses() {
     return;
   }
   // Filter: hide unscheduled and zero-entry classes
-  const visible = allClasses.filter(c => c.scheduled_date && c.entry_count > 0);
+  const visible = allClasses.filter(c => c.scheduled_date && (c.entry_count > 0 || c.schedule_flag === 'JO'));
   if (!visible.length) {
     document.getElementById('content').innerHTML = '<div class="state-box"><div class="state-lbl">No scheduled classes with entries yet.</div></div>';
     return;
