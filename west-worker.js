@@ -552,11 +552,19 @@ export default {
         const kvResults = await env.WEST_LIVE.get(resultsKey);
         if (kvResults) {
           const computed = JSON.parse(kvResults);
-          // For OOG classes with no results, attach pre-show stats from D1
+          // For OOG classes with no results, attach pre-show stats (cached in KV)
           if (computed.orderOfGo && computed.orderOfGo.length && (!computed.entries || !computed.entries.length)) {
-            try {
-              computed.preShowStats = await buildPreShowStats(env, slug, computed.orderOfGo);
-            } catch(e) { console.error('[preShowStats]', e.message); }
+            const psKey = `prestats:${slug}:${ring}:${classNum}`;
+            const cached = await env.WEST_LIVE.get(psKey);
+            if (cached) {
+              computed.preShowStats = JSON.parse(cached);
+            } else {
+              try {
+                const ps = await buildPreShowStats(env, slug, computed.orderOfGo);
+                computed.preShowStats = ps;
+                if (ps) await env.WEST_LIVE.put(psKey, JSON.stringify(ps), { expirationTtl: 300 }); // 5 min cache
+              } catch(e) { console.error('[preShowStats]', e.message); }
+            }
           }
           return jsonWithEtag(request, { ok: true, source: 'live', computed });
         }
