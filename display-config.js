@@ -472,6 +472,38 @@ WEST.jumper.sortEntries = function(entries, method) {
 };
 
 
+// ── HUNTER ELIMINATION DISPLAY TABLE ─────────────────────────────────────────
+// Simpler than jumper — ONE rule for ALL hunter scoring methods (0,1,2,3):
+// Earlier rounds ALWAYS hold. No carry-back. No exceptions.
+//
+//   R1 status → no place, no score, show code
+//   R2 status → place on R1, show R1, hide R2, show code
+//   R3 status → place on R1+R2, show R1+R2, hide R3, show code
+
+WEST.hunter = WEST.hunter || {};
+
+WEST.hunter.getStatusDisplay = function(r1Status, r2Status, r3Status) {
+  var r1 = (r1Status || '').toUpperCase();
+  var r2 = (r2Status || '').toUpperCase();
+  var r3 = (r3Status || '').toUpperCase();
+  var has1 = WEST.isAnyStatus(r1);
+  var has2 = WEST.isAnyStatus(r2);
+  var has3 = WEST.isAnyStatus(r3);
+  if (!has1 && !has2 && !has3) return null;
+
+  if (has1) {
+    return { showPlace: false, showR1: false, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r1) };
+  }
+  if (has2) {
+    return { showPlace: true, showR1: true, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r2) };
+  }
+  if (has3) {
+    return { showPlace: true, showR1: true, showR2: true, showR3: false, label: WEST.statusDisplayLabel(r3) };
+  }
+  return null;
+};
+
+
 /* ═══════════════════════════════════════════════════════════════════════════
    HUNTER — class_type H
    ═══════════════════════════════════════════════════════════════════════════ */
