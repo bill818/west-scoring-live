@@ -797,17 +797,19 @@ function renderPreShowStats(ps) {
       }
       html += '</div>';
 
-      // Individual class results
+      // Individual class results — Cl #-Place-Class Name  faults
       if (e.results && e.results.length) {
         e.results.forEach(function(cr) {
-          var resultText = '';
-          if (cr.status) resultText = WEST.statusDisplayLabel(cr.status);
-          else if (cr.place) resultText = cr.place + (cr.faults !== null ? ' \u00B7 ' + cr.faults + ' flt' : '');
-          else resultText = '\u2014';
-          html += '<div style="display:flex;gap:8px;padding:2px 0 2px 42px;font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);">'
-            + '<span style="color:#bbb;min-width:36px;">Cl ' + esc(cr.class_num) + '</span>'
-            + '<span style="flex:1;">' + esc(cr.class_name || '').substring(0, 30) + '</span>'
-            + '<span>' + resultText + '</span>'
+          var placeLabel = '';
+          if (cr.status) placeLabel = WEST.statusDisplayLabel(cr.status);
+          else if (cr.place) placeLabel = WEST.ordinal(parseInt(cr.place));
+          else placeLabel = '\u2014';
+          var faultsLabel = (!cr.status && cr.faults !== null && cr.faults !== undefined) ? cr.faults + ' flt' : '';
+          html += '<div style="display:flex;gap:6px;padding:2px 0 2px 42px;font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);">'
+            + '<span style="color:#bbb;">Cl ' + esc(cr.class_num) + '</span>'
+            + '<span style="color:var(--black);font-weight:600;min-width:28px;">' + placeLabel + '</span>'
+            + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(cr.class_name || '') + '</span>'
+            + (faultsLabel ? '<span style="flex-shrink:0;">' + faultsLabel + '</span>' : '')
             + '</div>';
         });
       }
