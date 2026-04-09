@@ -625,8 +625,13 @@ function renderLiveStrip() {
     var ocElapsed = oc.paused ? elapsed : elapsed + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
     clockDisplay = Math.max(0, Math.floor(ocElapsed));
   } else if (phase === 'FINISH') {
-    // Show final time with precision
-    clockDisplay = oc.elapsed ? fmtTimePrecision(oc.elapsed) : Math.floor(elapsed);
+    // Show final time with precision — or status code if eliminated
+    var elVal = oc.elapsed || '';
+    if (elVal && isNaN(parseFloat(elVal))) {
+      clockDisplay = WEST.statusDisplayLabel(elVal); // EL, RT, etc.
+    } else {
+      clockDisplay = elVal ? fmtTimePrecision(elVal) : Math.floor(elapsed);
+    }
   } else {
     clockDisplay = Math.floor(elapsed);
   }
