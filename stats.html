@@ -1224,7 +1224,8 @@ var resultsPollInterval = null;
 var lastPollRate = 0;
 function adjustResultsPoll() {
   var isLive = liveData && liveData.watcherAlive && liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
-  var rate = isLive ? 5000 : 15000;
+  var isActive = liveData && liveData.activeClasses && liveData.activeClasses.some(function(a) { return String(a.classNum) === String(CLASS_NUM); });
+  var rate = isLive ? 5000 : isActive ? 15000 : 120000; // 5s live, 15s active, 2min idle
   if (rate !== lastPollRate) {
     if (resultsPollInterval) clearInterval(resultsPollInterval);
     resultsPollInterval = setInterval(loadResults, rate);
