@@ -578,7 +578,7 @@ function renderLiveStrip() {
   if (!liveData) { strip.classList.remove('active'); return; }
 
   var sel = liveData.selected;
-  if (String(sel) !== String(CLASS_NUM)) { strip.classList.remove('active'); return; }
+  if (!sel || String(sel.classNum) !== String(CLASS_NUM)) { strip.classList.remove('active'); return; }
 
   var oc = liveData.onCourse;
   strip.classList.add('active');
