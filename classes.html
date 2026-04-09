@@ -307,7 +307,7 @@ function buildClassRow(c, activeNums) {
   const meta = [type, entryInfo].filter(Boolean).join(' &middot; ');
   const dot = isLive ? '<span class="live-dot-inline"></span>' : '';
   const completeBadge = isComplete ? '<span class="badge-complete">Complete</span>' : '';
-  const scoredBadge = c.schedule_flag === 'S' ? '<span class="badge-complete">Scored</span>' : '';
+  const scoredBadge = ''; // Removed — "Scored" label not needed on class list
   const joBadge = c.schedule_flag === 'JO' ? '<span class="badge-jo">Jump Order</span>' : '';
 
   return '<a class="class-row" href="results.html?slug=' + esc(SLUG) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">'
