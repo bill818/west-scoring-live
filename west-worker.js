@@ -1964,6 +1964,12 @@ function getHunterClassInfo(h) {
   if (numRounds < 1) numRounds = 1;
   if (numRounds > 3) numRounds = 3;
 
+  // H[4] = CurrentRound — which round tab the operator currently has selected
+  // in Ryegate. 1/2/3 map to R1/R2/R3. Values > numRounds (e.g. 4 in a 3-round
+  // class) mean the operator is on the "Overall" view; emit null in that case.
+  let currentRound = parseInt(h[4]) || 0;
+  if (currentRound < 1 || currentRound > numRounds) currentRound = null;
+
   // H[25]/H[26]/H[27] = phase labels. Custom labels are ONLY available on
   // Special classes in Ryegate — all other class types force "Phase 1"/"Phase 2"/
   // "Phase 3" defaults which we render as "R1"/"R2"/"R3". So we only emit
@@ -1973,7 +1979,8 @@ function getHunterClassInfo(h) {
     : null;
 
   return { classMode, isDerby, isFlat, isSpecial, isEquitation, isChampionship,
-           scoringType, scoreMethod, judgeCount, numRounds, roundLabels, label };
+           scoringType, scoreMethod, judgeCount, numRounds, currentRound,
+           roundLabels, label };
 }
 
 // ── HUNTER DERBY: PARSE PER-JUDGE FROM CLS ROW ──────────────────────────────
@@ -2219,6 +2226,7 @@ function computeHunterResults(body, h, base) {
     isChampionship: info.isChampionship,
     judgeCount: info.judgeCount,
     numRounds: info.numRounds,
+    currentRound: info.currentRound,
     roundLabels: info.roundLabels,
     scoringType: info.scoringType,
     scoreMethod: info.scoreMethod,

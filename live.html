@@ -140,6 +140,10 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .oc-finish-score{color:var(--red);}
 .oc-finish-rank{color:var(--black);}
 
+/* FINISHED on-course banner — make the renderJudgeGrid combined score red.
+   The combined cell is a <span> with inline font-size:17px set in renderJudgeGrid. */
+.finished-card span[style*="font-size:17px"]{color:var(--red) !important;}
+
 /* HUNTER ON-COURSE BREAKDOWN — compact per-judge per-round math under finish score */
 .oc-breakdown{margin-top:8px;width:100%;display:flex;flex-direction:column;gap:2px;}
 .oc-breakdown-row{display:flex;align-items:baseline;justify-content:center;gap:6px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);}
@@ -176,9 +180,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .r-score-row{display:flex;align-items:baseline;justify-content:flex-end;gap:5px;margin-top:2px;}
 .r-score-lbl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#bbb;}
 .r-score-val{font-size:13px;color:var(--text-muted);}
-.r-score-val.primary{font-size:14px;font-weight:600;color:var(--red);}
+.r-score-val.primary{font-size:14px;font-weight:600;color:var(--black);}
 .r-score-val.clean{color:var(--green);font-weight:600;}
-.r-total{font-size:14px;font-weight:700;color:var(--black);margin-top:3px;border-top:1px solid var(--border);padding-top:3px;text-align:right;}
+.r-total{font-size:14px;font-weight:700;color:var(--red);margin-top:3px;border-top:1px solid var(--border);padding-top:3px;text-align:right;}
 .r-status{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:uppercase;}
 .no-results{text-align:center;padding:50px 20px;color:var(--text-muted);font-size:14px;}
 
@@ -627,18 +631,32 @@ function render() {
         if (entryRow && entryRow.place) rank = entryRow.place;
       }
 
-      rightCardHtml = '<div class="oc-card oc-clock-wrap">'
-        + '<div class="oc-phase-label">Finished</div>'
+      // Header row: "Finished" on the left, "Rank N" on the right
+      const finishHeader = '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">'
+        + '<div class="oc-phase-label" style="margin:0;">Finished</div>'
+        + (rank ? '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--text-muted);">Rank <span style="color:var(--red);font-weight:700;font-size:18px;">' + esc(rank) + '</span></div>' : '')
+        + '</div>';
+      rightCardHtml = '<div class="oc-card oc-clock-wrap finished-card">'
+        + finishHeader
         + gridHtml
-        + (rank ? '<div style="text-align:right;margin-top:6px;font-family:DM Mono,monospace;font-size:13px;color:var(--text-muted);">Rank <span style="color:var(--red);font-weight:700;font-size:16px;">' + esc(rank) + '</span></div>' : '')
         + '</div>';
     } else {
       // ONCOURSE / INTRO phase — hunter UDP fr=11 fires when the horse is in
       // the ring being judged. Intro info only; no scores. Scores are shown
-      // only after fr=16 (Display Scores) moves the card to the FINISH branch.
-      // NOTE: hunter round label suppressed — no reliable signal yet for the
-      // current round. Re-enable when UDP exposes one.
+      // only after fr=12/16 (Display Scores) moves the card to the FINISH branch.
+      //
+      // Round label: header H[4] = currentRound (which round tab the operator
+      // has selected in Ryegate). Worker exposes it as comp.currentRound, with
+      // null when the operator is on the "Overall" view (h[4] > numRounds).
+      const ocComp = (liveData.computed || {})[sel && sel.classNum];
+      const currentRound = ocComp && ocComp.currentRound;
+      let roundLabel = '';
+      if (currentRound) {
+        const labels = (ocComp && ocComp.roundLabels) || ['R1', 'R2', 'R3'];
+        roundLabel = labels[currentRound - 1] || ('R' + currentRound);
+      }
       rightCardHtml = '<div class="oc-card oc-clock-wrap">'
+        + (roundLabel ? '<div class="oc-round-label">' + esc(roundLabel) + '</div>' : '')
         + '<div style="font-family:DM Mono,monospace;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);font-weight:600;margin-top:8px;">In The Ring</div>'
         + '<div class="oc-phase-label">' + esc(phaseLabel) + '</div>'
         + '</div>';

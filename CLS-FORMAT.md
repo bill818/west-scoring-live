@@ -509,10 +509,23 @@ H[02] ClassMode              CONFIRMED 2026-04-06 by cycling all 4 Ryegate class
                              2=Derby (auto-set when Derby selected)
                              3=Special (custom multi-round, Normal or Team)
 
-H[03] NumRounds              1=single round, 2=two rounds, 3=three rounds ✓
+H[03] NumRounds              CONFIRMED 2026-04-10 on class 925 Special (h[3]
+                             cycled 1 → 3 with class round count). Values: 1, 2, or 3.
 
-H[04] Ribbons                ribbon count — 8=standard, 12=derbies ✓
-                             NOTE: was mislabeled HardwareType — corrected 2026-04-06
+H[04] CurrentRound           CONFIRMED 2026-04-10 by snapshot diff on class 925 Special:
+                             1 = R1 view active in Ryegate
+                             2 = R2 view active in Ryegate
+                             3 = R3 view active in Ryegate
+                             N+1 (e.g. 4 in a 3-round class) = "Overall" view
+                             Tracks which round tab the operator currently has
+                             selected. NOT a measure of "rounds scored" — it
+                             reflects what the operator is looking at right now.
+                             Useful as a signal for live on-course display: when
+                             a horse is in the ring, the round-tab usually matches
+                             what they're about to ride.
+                             Pipeline: live.html uses this to label the on-course
+                             banner round (R1/R2/R3); falls back to inferred or
+                             suppressed when h[4] > numRounds (Overall view).
 
 H[05] ScoringType            CONFIRMED 2026-04-06 by cycling scoring type settings:
                              0=Forced (operator manually enters placements, no computed scores)
@@ -530,9 +543,11 @@ H[07] NumJudges              number of judges / score inputs — 1 to 5+ ✓
                              Auto-adjusts per derby sub-type for derbies
                              NOTE: was labeled NumScores — clarified to NumJudges 2026-04-06
 
-H[08] RibbonCount            ribbon count passed to scoreboard ✓
-                             NOTE: H[04] is the class-level ribbon count, H[08] is the
-                             scoreboard ribbon count — may differ
+H[08] RibbonCount            CONFIRMED 2026-04-10 — TRUE ribbon count (matches the
+                             "12 ribbons" setting in Ryegate). Set to 12 for derbies
+                             and Specials, 8 for standard hunter classes.
+                             Earlier doc claimed H[04] was the ribbon count — that
+                             was wrong. H[08] is the only ribbon count field.
 
 H[09] SBDelay                numeric scoreboard delay (tested at value 4)
 
