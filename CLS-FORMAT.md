@@ -1,5 +1,6 @@
 # Ryegate Scoring Software — .cls File Format Documentation
 # WEST Scoring Live Project
+# Last updated: 2026-04-10 (Session 20 — fr=12/16 active in pipeline, fr=14 ribbons,
 # Last updated: 2026-04-09 (Session 19 — equitation UDP tags, auto-close 15min,
 #   per-round worker stats, display page, show stats/search/weather endpoints)
 
@@ -930,24 +931,41 @@ Format: `{RYESCR}{fr}[11-16]{tag}value{tag}value...`
 Hunter uses MULTIPLE frames. Each frame = a distinct display page/mode.
 Frame number is the primary discriminator — not field presence.
 
-#### CRITICAL ARCHITECTURE DECISION — 2026-03-29:
-Hunter UDP is used for ONE PURPOSE ONLY: detecting that a horse is ON COURSE.
+#### CRITICAL ARCHITECTURE DECISION — 2026-03-29 (refined 2026-04-10):
+Hunter UDP serves TWO purposes:
+  1. Detecting that a horse is ON COURSE (fr=11 → ON_COURSE event)
+  2. Detecting "Display Scores" button press (fr=12/16 → FINISH event)
 Everything else comes from the .cls file.
 
 The .cls file DOES NOT update when a horse goes on course.
-The .cls file DOES update immediately when a score is posted (FINISH).
-Therefore:
-  - {fr}=11 INTRO fires → horse is ON COURSE → store in KV
-  - .cls file changes → horse is DONE, score posted → clear KV, write D1
-  - No other hunter UDP tags are needed for the pipeline
+The .cls file DOES update when a score is posted, BUT fs.watch can lag the
+UDP frame by hundreds of ms — so on Display Scores we force a fresh read of
+the selected .cls file and post that immediately, before the FINISH event.
+This avoids the live page briefly showing stale (R1-only) data right after
+the operator presses Display Scores.
+
+The fr=12/16 handler in west-watcher.js:
+  1. Reads {1} entry, {2} horse, {3} rider, {8} "RANK: N" from the UDP frame
+  2. Force-reads the selected class .cls file off disk
+  3. Posts /postClassData with the fresh content (so worker recomputes)
+  4. Posts /postClassEvent { event: 'FINISH', entry, horse, rider, rank }
+
+The live page gates score rendering on phase: ONCOURSE shows intro only,
+FINISH shows the full judge grid. This matches operator expectation that
+"Display Scores" is the deliberate trigger for showing scores publicly.
 
 #### Frame map — confirmed:
 ```
+{fr}=0    → CLEAR — scoreboard wiped, post CLEAR_ONCOURSE
 {fr}=1    → Jumper packet (completely separate schema)
 {fr}=11   → Hunter INTRO — horse goes on course (all hunter class types)
-{fr}=12   → Hunter FINISH — standard O/F result
-{fr}=16   → Hunter FINISH — derby result
-{fr}=13-15 → Final/standings pages (not needed for pipeline)
+{fr}=12   → Hunter DISPLAY SCORES — REGULAR HUNTER (small fields, per-judge scores)
+            → Watcher: force fresh .cls re-read + post FINISH event
+{fr}=14   → RESULTS DISPLAY — forced/flat ribbon announcement (one entry per frame)
+            → Watcher: post HUNTER_RESULT event (accumulating list)
+{fr}=16   → Hunter DISPLAY SCORES — DERBY (large fields for hi-opt + bonus)
+            → Watcher: force fresh .cls re-read + post FINISH event
+{fr}=13/15 → Final/standings pages (not needed for pipeline, ignored)
 ```
 
 #### Hunter INTRO packet ({fr}=11) — THE ONLY HUNTER UDP WE ACT ON:
@@ -1001,19 +1019,28 @@ No horse name available from UDP — only rider + city/state.
 Action on {fr}=11: store { entry, horse, rider, owner } in KV as onCourse.
 That's it. No other processing needed.
 
-#### Hunter FINISH packets — FOR REFERENCE ONLY (not used in pipeline):
-.cls file is authoritative. These are logged but not acted on.
+#### Hunter DISPLAY SCORES packets — ACTIVE in pipeline (2026-04-10):
+Operator-triggered "Display Scores" button. Watcher uses these as a hint
+to force-refresh the .cls file and emit a FINISH event so the live page
+flips out of ONCOURSE display. The packet's score tags are read for
+logging only — actual scoring data still comes from .cls file (which we
+force-read in the same handler).
 
-{fr}=12 — standard O/F finish:
+{fr}=12 — REGULAR hunter Display Scores (standard O/F, non-derby scored):
 ```
 {1}   entry number
 {2}   horse name
 {3}   rider name
 {8}   RANK: [place]
-{21}  [place]: [score]  e.g. "1: 89.00"
+{14}  T: [total]                         e.g. "T:   79.00"
+{21}  1: [J1 score]                      e.g. "1: 78.00"
+{22}  2: [J2 score]                      e.g. "2: 80.00"
+{23+} 3+: [J3+ score]  (when N judges)
 ```
+Sample (class 925, entry 194, 2-judge non-derby):
+`{RYESCR}{fr}12{1}194{2}SIR WALLACE{3}WILLIAM SLATER{8}RANK: 3{14}T:   79.00{21}1: 78.00{22}2: 80.00`
 
-{fr}=16 — derby finish:
+{fr}=16 — DERBY Display Scores (larger fields for hi-opt + bonus):
 ```
 {1}   entry number
 {2}   horse name
@@ -1023,13 +1050,33 @@ That's it. No other processing needed.
       Judge 1 score + bonus points
 ```
 
-#### Hunter phase detection — SIMPLE:
+{fr}=14 — RESULTS DISPLAY (forced/flat ribbon announcement):
+Operator announces ribbons one at a time, one entry per frame. Watcher
+accumulates them in `hunterResults` and posts a HUNTER_RESULT event for
+each new entry so the live page can render ribbons in real time.
 ```
-{fr}=11 fires  → ON COURSE  → write to KV: { onCourse: entry, horse, rider, owner }
-.cls changes   → DONE       → clear KV onCourse, write score to D1
+{1}   entry number
+{2}   horse name
+{3}   rider name
+{4}   owner
+{8}   place text  e.g. "1st", "2nd"
+{14}  score (empty for forced/flat classes)
 ```
 
-No FINISH UDP parsing required. No score extraction from UDP. .cls is truth.
+#### Hunter phase detection (refined 2026-04-10):
+```
+{fr}=11 fires       → ON COURSE  → post ON_COURSE event (intro info only)
+{fr}=12 fires       → DISPLAY SCORES (regular hunter) → force .cls re-read + post FINISH
+{fr}=16 fires       → DISPLAY SCORES (derby)          → force .cls re-read + post FINISH
+{fr}=14 fires       → RESULTS DISPLAY (forced/flat)   → post HUNTER_RESULT (accumulating)
+{fr}=0  fires       → CLEAR scoreboard                → post CLEAR_ONCOURSE
+.cls changes        → score posted                    → recompute results
+```
+
+The .cls file is still truth for scoring data. UDP frames are triggers
+for state transitions on the live/display pages — they tell us "what
+the operator wants the audience to see right now" (intro vs. scores
+vs. ribbons).
 
 #### Port 31000 — Video Wall / Class Complete Detection:
 Always-on checkbox in Ryegate settings. Fires on every On Course click AND Ctrl+A.
