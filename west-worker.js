@@ -1964,15 +1964,12 @@ function getHunterClassInfo(h) {
   if (numRounds < 1) numRounds = 1;
   if (numRounds > 3) numRounds = 3;
 
-  // H[25]/H[26]/H[27] = phase labels. Defaults are "Phase 1"/"Phase 2"/"Phase 3"
-  // — if the operator left them default, fall back to "R1"/"R2"/"R3" for display.
-  // Only emit roundLabels if the operator customized at least one.
-  const p1 = h[25] || '';
-  const p2 = h[26] || '';
-  const p3 = h[27] || '';
-  const anyCustom = (p1 && p1 !== 'Phase 1') || (p2 && p2 !== 'Phase 2') || (p3 && p3 !== 'Phase 3');
-  const roundLabels = anyCustom
-    ? [p1 || 'R1', p2 || 'R2', p3 || 'R3']
+  // H[25]/H[26]/H[27] = phase labels. Custom labels are ONLY available on
+  // Special classes in Ryegate — all other class types force "Phase 1"/"Phase 2"/
+  // "Phase 3" defaults which we render as "R1"/"R2"/"R3". So we only emit
+  // roundLabels when isSpecial is true; renderers fall back to R1/R2/R3 otherwise.
+  const roundLabels = isSpecial
+    ? [h[25] || 'R1', h[26] || 'R2', h[27] || 'R3']
     : null;
 
   return { classMode, isDerby, isFlat, isSpecial, isEquitation, isChampionship,
@@ -2038,12 +2035,16 @@ function hasR2(e) {
   if (e.r2TextStatus) return false;
   return e.r2 && e.r2.some(p => p.phaseTotal > 0);
 }
+function hasR3(e) {
+  if (e.r3TextStatus) return false;
+  return e.r3 && e.r3.some(p => p.phaseTotal > 0);
+}
 
 function computeDerbyRankings(entries, judgeCount) {
   entries.forEach(e => {
-    e.r1Ranks = []; e.r2Ranks = [];
+    e.r1Ranks = []; e.r2Ranks = []; e.r3Ranks = [];
     e.judgeCardTotals = []; e.judgeCardRanks = [];
-    e.r1OverallRank = null; e.r2OverallRank = null;
+    e.r1OverallRank = null; e.r2OverallRank = null; e.r3OverallRank = null;
     e.movement = null; e.combinedRank = null;
   });
 
@@ -2056,13 +2057,24 @@ function computeDerbyRankings(entries, judgeCount) {
     items = entries.filter(hasR2).map(e => ({ key: e.entry_num, val: e.r2[j].phaseTotal }));
     ranks = assignRanks(items);
     entries.forEach(e => { e.r2Ranks[j] = ranks[e.entry_num] || null; });
+
+    items = entries.filter(hasR3).map(e => ({ key: e.entry_num, val: e.r3[j].phaseTotal }));
+    ranks = assignRanks(items);
+    entries.forEach(e => { e.r3Ranks[j] = ranks[e.entry_num] || null; });
   }
 
-  // Judge card totals + ranks
+  // Judge card totals + ranks.
+  // Per hunter rule "earlier rounds always hold" — if a later round is EL/RT/WD
+  // the entry still keeps prior-round scores and competes for ribbons. So sum
+  // whichever rounds are actually done. Null only when R1 never happened
+  // (R1 elimination kills the entire card — earlier rounds don't exist).
   for (let j = 0; j < judgeCount; j++) {
     entries.forEach(e => {
-      e.judgeCardTotals[j] = (hasR1(e) && hasR2(e))
-        ? e.r1[j].phaseTotal + e.r2[j].phaseTotal : null;
+      if (!hasR1(e)) { e.judgeCardTotals[j] = null; return; }
+      let t = e.r1[j].phaseTotal;
+      if (hasR2(e)) t += e.r2[j].phaseTotal;
+      if (hasR3(e)) t += e.r3[j].phaseTotal;
+      e.judgeCardTotals[j] = t;
     });
     const items = entries.filter(e => e.judgeCardTotals[j] !== null)
       .map(e => ({ key: e.entry_num, val: e.judgeCardTotals[j] }));
@@ -2070,7 +2082,7 @@ function computeDerbyRankings(entries, judgeCount) {
     entries.forEach(e => { e.judgeCardRanks[j] = ranks[e.entry_num] || null; });
   }
 
-  // R1/R2 overall ranks (aggregate across judges)
+  // R1/R2/R3 overall ranks (aggregate across judges)
   let r1Items = entries.filter(hasR1).map(e => {
     let sum = 0; for (let j = 0; j < judgeCount; j++) sum += e.r1[j].phaseTotal;
     return { key: e.entry_num, val: sum };
@@ -2083,9 +2095,16 @@ function computeDerbyRankings(entries, judgeCount) {
   });
   const r2Ranks = assignRanks(r2Items);
 
+  let r3Items = entries.filter(hasR3).map(e => {
+    let sum = 0; for (let j = 0; j < judgeCount; j++) sum += e.r3[j].phaseTotal;
+    return { key: e.entry_num, val: sum };
+  });
+  const r3Ranks = assignRanks(r3Items);
+
   entries.forEach(e => {
     e.r1OverallRank = r1Ranks[e.entry_num] || null;
     e.r2OverallRank = r2Ranks[e.entry_num] || null;
+    e.r3OverallRank = r3Ranks[e.entry_num] || null;
     e.combinedRank = parseInt(e.place) || null;
     if (e.r1OverallRank && e.combinedRank && hasR2(e)) {
       e.movement = e.r1OverallRank - e.combinedRank;

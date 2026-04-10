@@ -784,7 +784,7 @@ WEST.hunter.derby.parseEntry = function(cols, judgeCount) {
   };
 };
 
-// Did this entry compete R1 / R2?
+// Did this entry compete R1 / R2 / R3?
 WEST.hunter.derby.hasR1 = function(e) {
   if (e.r1TextStatus) return false;
   return !!(e.r1 && e.r1.some(function(p) { return p.phaseTotal > 0; }));
@@ -792,6 +792,27 @@ WEST.hunter.derby.hasR1 = function(e) {
 WEST.hunter.derby.hasR2 = function(e) {
   if (e.r2TextStatus) return false;
   return !!(e.r2 && e.r2.some(function(p) { return p.phaseTotal > 0; }));
+};
+WEST.hunter.derby.hasR3 = function(e) {
+  if (e.r3TextStatus) return false;
+  return !!(e.r3 && e.r3.some(function(p) { return p.phaseTotal > 0; }));
+};
+
+// Evidence check for "did this entry actually compete?" — Ryegate sometimes
+// leaves the hasGone flag stuck even when no data was ever entered. An entry
+// really competed if it has at least one real score OR a real status code
+// (EL / RT / RF / etc.). Otherwise hide it from results entirely.
+WEST.hunter.derby.hasEvidence = function(e) {
+  if (!e) return false;
+  if (WEST.hunter.derby.hasR1(e) || WEST.hunter.derby.hasR2(e) || WEST.hunter.derby.hasR3(e)) return true;
+  // Any normalized or raw status code counts as evidence of a real outcome.
+  if (e.r1StatusCode || e.r2StatusCode || e.r3StatusCode) return true;
+  if (e.r1TextStatus || e.r2TextStatus || e.r3TextStatus) return true;
+  if (e.statusCode) return true;
+  // Numeric status > 0 also counts (RT sets numeric=3 with no text code).
+  var rn = function(v) { var n = parseInt(v); return isNaN(n) ? 0 : n; };
+  if (rn(e.r1NumericStatus) > 0 || rn(e.r2NumericStatus) > 0 || rn(e.r3NumericStatus) > 0) return true;
+  return false;
 };
 
 // Assign standard-competition ranks (ties share rank, next skipped)
@@ -1088,6 +1109,9 @@ WEST.hunter.derby._shimJt = function(entries, judgeCount) {
 WEST.hunter.derby.renderPrecomputed = function(computed, opts) {
   opts = opts || {};
   var entries = WEST.hunter.derby._shimJt(computed.entries || [], computed.judgeCount || 1);
+  // Filter stuck-hasGone entries (no score, no status) — they haven't really
+  // competed even though Ryegate marked them as gone.
+  entries = entries.filter(WEST.hunter.derby.hasEvidence);
   var fakeClassInfo = {
     class_name: computed.className, className: computed.className,
     class_type: 'H', classType: 'H',
@@ -1115,19 +1139,18 @@ WEST.hunter.derby.renderPrecomputed = function(computed, opts) {
 WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
   opts = opts || {};
   var entries = WEST.hunter.derby._shimJt(computed.entries || [], computed.judgeCount || 1);
-  var fakeClassInfo = {
-    class_name: computed.className, className: computed.className,
-    class_type: 'H', classType: 'H',
-    cls_raw: '', clsRaw: '',
-    show_flags: computed.showFlags, showFlags: computed.showFlags,
-    _computed: computed,
-  };
-  // Reuse the existing renderByJudgeList but with pre-shimmed entries
-  // by temporarily setting cls_raw so buildEntries falls through
-  // Actually — easier to just inline the by-judge render with pre-computed data
+  // Filter stuck-hasGone entries (no score, no status) — hide from by-judge view too.
+  entries = entries.filter(WEST.hunter.derby.hasEvidence);
   var esc = WEST.esc;
   var judgeCount = computed.judgeCount || 1;
   if (!entries.length || judgeCount < 2) return '<div class="results-wrap"><div class="no-results">No entries found for this class.</div></div>';
+
+  // Round metadata from the computed class object (worker emits these from
+  // H[3] and H[25-27]). Fall back to 2-round / R1,R2 for legacy cache entries.
+  var numRounds = computed.numRounds || 2;
+  if (numRounds < 1) numRounds = 1;
+  if (numRounds > 3) numRounds = 3;
+  var roundLabels = computed.roundLabels || ['R1', 'R2', 'R3'];
 
   var isEq = computed.isEquitation;
   var showFlags = computed.showFlags;
@@ -1167,11 +1190,20 @@ WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
         if (r1Failed) {
           html += '<span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span>';
         } else {
-          if (gHasR1 && g.r1[jj]) {
-            html += '<div class="r-score-row"><span class="r-score-lbl">R1</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r1[jj], 1) + '</span></div>';
-          }
-          if (WEST.hunter.derby.hasR2(g) && g.r2[jj]) {
-            html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(g.r2[jj], 2) + '</span></div>';
+          // Loop rounds 1..numRounds, pull this judge's phase for each.
+          var hasByRound = [
+            gHasR1,
+            WEST.hunter.derby.hasR2(g),
+            WEST.hunter.derby.hasR3(g),
+          ];
+          var phasesByRound = [g.r1, g.r2, g.r3];
+          for (var r = 1; r <= numRounds; r++) {
+            var idx = r - 1;
+            var phases = phasesByRound[idx];
+            if (hasByRound[idx] && phases && phases[jj]) {
+              var lbl = roundLabels[idx] || ('R' + r);
+              html += '<div class="r-score-row"><span class="r-score-lbl">' + esc(lbl) + '</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(phases[jj], r) + '</span></div>';
+            }
           }
           var cardTotal = g._jt && g._jt.judgeCardTotals[jj];
           if (cardTotal != null) html += '<div class="r-total">' + cardTotal.toFixed(2) + '</div>';
@@ -1522,7 +1554,14 @@ WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount, opts) {
       + '</div>';
   }
 
-  html += WEST.hunter.derby.renderScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand);
+  // Pull round metadata from the computed class object (worker emits these).
+  // Falls back to 2-round/default labels for legacy KV entries without them.
+  var comp = classInfo && classInfo._computed;
+  var scoresOpts = {
+    numRounds: (comp && comp.numRounds) || 2,
+    roundLabels: (comp && comp.roundLabels) || null,
+  };
+  html += WEST.hunter.derby.renderScoresCol(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand, scoresOpts);
   html += '</div>'; // result-main
 
   if (canExpand) {
@@ -1533,56 +1572,85 @@ WEST.hunter.derby.renderEntry = function(g, classInfo, judgeCount, opts) {
   return html;
 };
 
-WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand) {
+// Round-driven scores column. opts.numRounds + opts.roundLabels come from the
+// computed class object (header H[3] and H[25-27]). Defaults to 2-round/R1-R2.
+WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Status, r2Status, r1Failed, canExpand, opts) {
+  opts = opts || {};
+  var numRounds = opts.numRounds || 2;
+  if (numRounds < 1) numRounds = 1;
+  if (numRounds > 3) numRounds = 3;
+  var roundLabels = opts.roundLabels || ['R1', 'R2', 'R3'];
+
   if (r1Failed) {
     return '<div class="r-scores"><span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span></div>';
   }
+
+  // Build per-round metadata arrays so we can loop generically.
+  var hasR3 = WEST.hunter.derby.hasR3(g);
+  var r3Status = WEST.hunter.getStatus(g.r3TextStatus, g.r3NumericStatus);
+  var hasArr = [hasR1, hasR2, hasR3];
+  var statusArr = [r1Status, r2Status, r3Status];
+  var totalArr = [g.r1Total, g.r2Total, g.r3Total];
+  var phasesArr = [g.r1, g.r2, g.r3];
+  var judgeRanksArr = g._jt
+    ? [g._jt.r1Ranks, g._jt.r2Ranks, g._jt.r3Ranks]
+    : [null, null, null];
+  var overallRankArr = g._jt
+    ? [g._jt.r1OverallRank, g._jt.r2OverallRank, g._jt.r3OverallRank]
+    : [null, null, null];
+
   var html = '<div class="r-scores">';
 
-  if (judgeCount === 1) {
-    if (hasR1) {
-      var p1 = g.r1[0];
-      var r1k = g._jt ? g._jt.r1Ranks[0] : null;
-      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p1, 1) + '</span>'
-        + (r1k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r1k) + ')</span>' : '')
-        + '</div>';
-    }
-    if (hasR2) {
-      var p2 = g.r2[0];
-      var r2k = g._jt ? g._jt.r2Ranks[0] : null;
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-        + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + '</span>'
-        + (r2k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r2k) + ')</span>' : '')
-        + '</div>';
-    } else if (r2Status) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
-    }
-  } else {
-    if (hasR1) {
-      var r1Rank = g._jt ? g._jt.r1OverallRank : null;
-      html += '<div class="r-score-row"><span class="r-score-lbl">R1</span>'
-        + '<span class="r-score-val primary">' + g.r1Total + '</span>'
-        + (r1Rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r1Rank) + ')</span>' : '')
-        + '</div>';
-    }
-    if (hasR2) {
-      var r2Rank = g._jt ? g._jt.r2OverallRank : null;
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span>'
-        + '<span class="r-score-val primary">' + g.r2Total + '</span>'
-        + (r2Rank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(r2Rank) + ')</span>' : '')
-        + '</div>';
-    } else if (r2Status) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-status">' + r2Status.label + '</span></div>';
+  for (var r = 1; r <= numRounds; r++) {
+    var idx = r - 1;
+    var has = hasArr[idx];
+    var status = statusArr[idx];
+    var total = totalArr[idx];
+    var phases = phasesArr[idx];
+    var judgeRanks = judgeRanksArr[idx];
+    var overallRank = overallRankArr[idx];
+    var lbl = roundLabels[idx] || ('R' + r);
+
+    if (has) {
+      if (judgeCount === 1) {
+        var p = phases && phases[0];
+        var k = judgeRanks && judgeRanks[0];
+        html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+          + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, r) + '</span>'
+          + (k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(k) + ')</span>' : '')
+          + '</div>';
+      } else {
+        html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+          + '<span class="r-score-val primary">' + total + '</span>'
+          + (overallRank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(overallRank) + ')</span>' : '')
+          + '</div>';
+      }
+    } else if (status) {
+      html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span><span class="r-status">' + status.label + '</span></div>';
     }
   }
 
-  if (hasR1 && hasR2) {
-    html += '<div class="r-total">' + g.combined.toFixed(2) + '</div>';
-  } else if (hasR1 && !hasR2 && !r2Status) {
-    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
-  } else if (hasR1 && r2Status) {
-    html += '<div class="r-total">' + g.r1Total.toFixed(2) + '</div>';
+  // Total row — show `combined` if every round in numRounds is done,
+  // otherwise fall back to a partial sum of the rounds that are done.
+  var allDone = true;
+  var anyDone = false;
+  for (var rd = 0; rd < numRounds; rd++) {
+    if (hasArr[rd]) anyDone = true;
+    else allDone = false;
+  }
+  if (allDone && g.combined !== undefined && g.combined !== null) {
+    var combinedStr = typeof g.combined === 'number' ? g.combined.toFixed(2) : String(g.combined);
+    html += '<div class="r-total">' + combinedStr + '</div>';
+  } else if (anyDone) {
+    var partial = 0;
+    for (var rt = 0; rt < numRounds; rt++) {
+      if (hasArr[rt]) {
+        var t = totalArr[rt];
+        var n = typeof t === 'number' ? t : parseFloat(t) || 0;
+        partial += n;
+      }
+    }
+    html += '<div class="r-total">' + partial.toFixed(2) + '</div>';
   }
 
   if (canExpand) {
