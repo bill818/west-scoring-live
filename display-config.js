@@ -1251,9 +1251,33 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
   if (numRounds < 1) numRounds = 1;
   if (numRounds > 3) numRounds = 3;
   var roundLabels = opts.roundLabels || ['R1', 'R2', 'R3'];
-  var colW = isDerby ? 140 : 55;
-  var totalW = 90;
-  var rndW = 28;
+  // Column width. Compact mode (for narrow containers like the display.html
+  // on-course sidebar card, ~312px available) shrinks everything. Otherwise:
+  // derby = 140 (room for "base+hiopt+bonus"), non-derby = 95 at 1-4 judges,
+  // 55 at 5+ so the grid still fits the results/standings column.
+  var compact = opts.compact || false;
+  var colW, totalW, rndW;
+  if (compact) {
+    colW = isDerby ? 85 : (judgeCount >= 4 ? 40 : 60);
+    totalW = 70;
+    rndW = 22;
+  } else {
+    colW = isDerby ? 140 : (judgeCount >= 5 ? 55 : 95);
+    totalW = 90;
+    rndW = 28;
+  }
+  // Round label column must fit the longest label — "Gymnastics" is way wider
+  // than "R1". Grow rndW for custom Special labels; default R1/R2/R3 stays small.
+  if (opts.roundLabels) {
+    var maxLabelChars = 2;
+    for (var li = 0; li < opts.roundLabels.length; li++) {
+      var lbl = opts.roundLabels[li];
+      if (lbl && lbl.length > maxLabelChars) maxLabelChars = lbl.length;
+    }
+    var charW = compact ? 7 : 8; // approx px per char at row font size
+    var needed = maxLabelChars * charW + 10;
+    if (needed > rndW) rndW = needed;
+  }
 
   // Build grid columns: round label + per-judge + total
   var gridCols = rndW + 'px';

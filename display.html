@@ -655,14 +655,19 @@ function render() {
       }
     }
     if (!isJumper) {
-      // Find this entry in standings for full data
+      // Find this entry in standings for full data. Only show the judge grid
+      // once the operator has pressed Display Scores (FINISH phase). During
+      // ONCOURSE (fr=11) the horse is still in the ring — we only show the
+      // intro info above. Scores belong on FINISH (fr=12/16) only.
       var standEntry = gone.find(function(g) { return String(g.entryNum || g.entry_num) === String(data.entry); });
-      if (standEntry && hasMultiJudge) {
-        // Derby: show judge grid
+      if (isFin && standEntry && hasMultiJudge) {
+        // Derby/multi-judge: show judge grid (compact — narrow sidebar card)
         var entrySd = WEST.hunter.getStatusDisplay
           ? WEST.hunter.getStatusDisplay(standEntry.r1StatusCode || '', standEntry.r2StatusCode || '', '')
           : null;
-        var jg = WEST.hunter.renderJudgeGrid(standEntry, judgeCount, entrySd, jgOpts);
+        // Clone jgOpts + force compact so the grid fits the ~312px sidebar card
+        var sideJgOpts = { isDerby: isDerby, dark: true, numRounds: numRounds, roundLabels: roundLabels, compact: true };
+        var jg = WEST.hunter.renderJudgeGrid(standEntry, judgeCount, entrySd, sideJgOpts);
         h += '<div style="margin-top:8px;" class="live-judge-grid">' + jg.row.replace(/color:#999/g, 'color:#ddd') + '</div>';
         var seR1 = standEntry.r1Total || '';
         var seR2 = standEntry.r2Total || '';
@@ -674,7 +679,8 @@ function render() {
           h += '<div style="font-family:DM Mono,monospace;font-size:14px;text-align:right;margin-top:6px;">'
             + '<span style="color:var(--muted);">R1 Total: </span><span style="color:var(--gold);font-weight:700;font-size:16px;">' + esc(seR1) + '</span></div>';
         }
-      } else {
+      } else if (isFin) {
+        // Single-judge hunter: big score only, still only on FINISH phase.
         var hScore = data.hunterScore || '';
         if (!hScore && standEntry) hScore = standEntry.combined || standEntry.score || standEntry.r1Total || '';
         if (hScore) {

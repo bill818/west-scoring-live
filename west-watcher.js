@@ -334,6 +334,7 @@ function parseCls(content, filename) {
       // col[42]=R1Total, col[43]=R2Total, col[45]=CombinedTotal
       // col[49]=HasGone_R1, col[50]=HasGone_R2, col[52]=R1StatusText, col[53]=R2StatusText
       // col[46]=R1StatusNumeric, col[47]=R2StatusNumeric
+      entry.rideOrder  = cols[13] && cols[13] !== '0' ? cols[13] : '';
       entry.place      = cols[14] && cols[14] !== '0' ? cols[14] : '';
       entry.r1Total    = cols[42] && cols[42] !== '0' ? cols[42] : '';
       entry.r2Total    = cols[43] && cols[43] !== '0' ? cols[43] : '';
@@ -1243,21 +1244,21 @@ function startUdpListener(scoreboardPort) {
       return;
     }
 
-    // ── Hunter {fr}=16 — DISPLAY SCORES signal ────────────────────────────────
+    // ── Hunter {fr}=12 / {fr}=16 — DISPLAY SCORES signal ─────────────────────
     // Operator pressed "Display Scores" in Ryegate.
-    // tags: {1}=entry {2}=horse {3}=rider {8}="RANK: N" {21}=display text
-    //
-    // Force a fresh read of the selected class file and post it FIRST so the
-    // Worker has the latest standings by the time the FINISH phase hits the
-    // live page. Otherwise there's a race where fs.watch lags the fr=16 UDP
-    // frame and the live page briefly shows stale (R1-only) data before the
-    // combined total appears on the next poll.
-    if (fr === '16') {
+    //   fr=12 = regular hunter (per-judge scores in {21}/{22}/...)
+    //   fr=16 = derby (larger fields for hi-opt + bonus)
+    // Both do the same thing: force a fresh read of the selected class file
+    // and post it FIRST so the Worker has the latest standings by the time
+    // the FINISH event hits the live page. Otherwise there's a race where
+    // fs.watch lags the UDP frame and the live page briefly shows stale data.
+    // tags: {1}=entry {2}=horse {3}=rider {8}="RANK: N" {14}=total {21}+=judge scores
+    if (fr === '12' || fr === '16') {
       const dEntry = (tags['1'] || '').trim();
       const dHorse = (tags['2'] || '').trim();
       const dRider = (tags['3'] || '').trim();
       const dRank  = (tags['8'] || '').replace(/^RANK:\s*/i, '').trim();
-      udpLog(`[HUNTER DISPLAY SCORES] #${dEntry} ${dHorse} / ${dRider} rank=${dRank}`);
+      udpLog(`[HUNTER DISPLAY SCORES fr=${fr}] #${dEntry} ${dHorse} / ${dRider} rank=${dRank}`);
 
       // Fresh read + post class data BEFORE the FINISH event
       if (selectedClassNum) {
@@ -1269,8 +1270,8 @@ function startUdpListener(scoreboardPort) {
           fileStates[filename] = content;
           const parsed = parseCls(content, filename);
           if (parsed) {
-            postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (fr=16 forced)`);
-            udpLog(`[HUNTER fr=16] Forced re-post of ${filename}`);
+            postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (fr=${fr} forced)`);
+            udpLog(`[HUNTER fr=${fr}] Forced re-post of ${filename}`);
           }
         }
       }

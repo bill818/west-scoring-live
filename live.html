@@ -591,67 +591,54 @@ function render() {
 
     let rightCardHtml = '';
     if (phase === 'FINISH') {
-      // Score + label: show combined as "Overall" once R2 is done, otherwise
-      // show the round-specific total. If R1 failed with a status code, show
-      // just the status code (EL/RF/HF/DNS/OC/EX) — no rank.
-      const hasR1Score = !!(entryRow && (entryRow.r1Total || entryRow.score));
-      const hasR2Score = !!(entryRow && (entryRow.r2Total || entryRow.r2Score));
-      // Watcher emits hunter status in `statusCode` (col[52]=R1 text); display-config
-      // derby parser uses r1TextStatus/r1NumericStatus from clsRaw. Check both.
-      const r1Status = entryRow
-        ? WEST.hunter.getStatus(entryRow.r1TextStatus || entryRow.statusCode, entryRow.r1NumericStatus)
-        : null;
-      const r1Failed = !!r1Status && !hasR1Score;
-
-      let displayScore = '';
-      let displayLabel = 'Score';
-      let suppressRank = false;
-      if (r1Failed) {
-        displayScore = r1Status.label;
-        displayLabel = 'Status';
-        suppressRank = true;
-      } else if (hasR1Score && hasR2Score && entryRow.combined) {
-        displayScore = entryRow.combined;
-        displayLabel = 'Overall';
-      } else if (hasR2Score) {
-        displayScore = entryRow.r2Total || entryRow.r2Score;
-        displayLabel = 'R2';
-      } else if (hasR1Score) {
-        displayScore = entryRow.r1Total || entryRow.score;
-        displayLabel = 'R1';
-      } else {
-        displayScore = oc.hunterScore || '';
-      }
-      const rank = (!suppressRank && entryRow && entryRow.place) ? entryRow.place : null;
-
-      // Per-judge per-round breakdown — derby only, and only when we actually
-      // have round data to show. Eliminated entries (no scores) skip the breakdown.
-      let breakdownHtml = '';
-      if (!r1Failed && WEST.hunter.isDerby(ocCd)) {
-        const built = WEST.hunter.derby.buildEntries(ocCd);
-        const derbyEntry = built.entries.find(e => String(e.entry_num) === String(oc.entry));
-        if (derbyEntry) {
-          breakdownHtml = WEST.hunter.derby.renderCompactBreakdown(derbyEntry, built.judgeCount);
+      // Use the full centralized judge grid (same as display.html sidebar and
+      // results.html). Covers derby, non-derby scored, Special (1-3 rounds),
+      // single- or multi-judge. Status rules (EL/RT/WD etc.) handled inside.
+      const ocComp = (liveData.computed || {})[sel && sel.classNum];
+      let gridHtml = '';
+      let rank = null;
+      if (ocComp && ocComp.entries && ocComp.entries.length) {
+        const compEntry = ocComp.entries.find(e => String(e.entry_num) === String(oc.entry));
+        if (compEntry) {
+          const entrySd = WEST.hunter.getStatusDisplay
+            ? WEST.hunter.getStatusDisplay(compEntry.r1StatusCode || '', compEntry.r2StatusCode || '', compEntry.r3StatusCode || '')
+            : null;
+          const jgOpts = {
+            isDerby: !!ocComp.isDerby,
+            numRounds: ocComp.numRounds || 2,
+            roundLabels: ocComp.roundLabels || null,
+            compact: true,
+          };
+          const jg = WEST.hunter.renderJudgeGrid(compEntry, ocComp.judgeCount || 1, entrySd, jgOpts);
+          gridHtml = '<div style="margin-top:10px;">' + jg.header + jg.row + '</div>';
+          // Place/rank from the computed entry, suppressed by status rules when applicable
+          if (entrySd) {
+            if (entrySd.showPlace && compEntry.place) rank = compEntry.place;
+          } else if (compEntry.place) {
+            rank = compEntry.place;
+          }
         }
       }
+      // Fallback: if we couldn't get a computed entry (no r1Ranks yet), fall
+      // back to the legacy single-number score + UDP rank from oc.hunterScore.
+      if (!gridHtml) {
+        const hScore = oc.hunterScore || (entryRow && (entryRow.combined || entryRow.r1Total || entryRow.score)) || '';
+        gridHtml = '<div style="font-family:DM Mono,monospace;font-size:32px;font-weight:700;color:var(--black);text-align:center;margin:14px 0;">' + esc(hScore || '—') + '</div>';
+        if (entryRow && entryRow.place) rank = entryRow.place;
+      }
 
       rightCardHtml = '<div class="oc-card oc-clock-wrap">'
-        + '<div class="oc-finish-header">'
-        +   '<div class="oc-finish-col">'
-        +     '<div class="oc-finish-lbl">' + esc(displayLabel) + '</div>'
-        +     '<div class="oc-finish-val oc-finish-score">' + esc(displayScore || '—') + '</div>'
-        +   '</div>'
-        +   (rank ? '<div class="oc-finish-col">'
-        +     '<div class="oc-finish-lbl">Rank</div>'
-        +     '<div class="oc-finish-val oc-finish-rank">' + esc(rank) + '</div>'
-        +   '</div>' : '')
-        + '</div>'
         + '<div class="oc-phase-label">Finished</div>'
-        + breakdownHtml
+        + gridHtml
+        + (rank ? '<div style="text-align:right;margin-top:6px;font-family:DM Mono,monospace;font-size:13px;color:var(--text-muted);">Rank <span style="color:var(--red);font-weight:700;font-size:16px;">' + esc(rank) + '</span></div>' : '')
         + '</div>';
     } else {
+      // ONCOURSE / INTRO phase — hunter UDP fr=11 fires when the horse is in
+      // the ring being judged. Intro info only; no scores. Scores are shown
+      // only after fr=16 (Display Scores) moves the card to the FINISH branch.
+      // NOTE: hunter round label suppressed — no reliable signal yet for the
+      // current round. Re-enable when UDP exposes one.
       rightCardHtml = '<div class="oc-card oc-clock-wrap">'
-        + (hunterRound ? '<div class="oc-round-label">' + hunterRound + '</div>' : '')
         + '<div style="font-family:DM Mono,monospace;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);font-weight:600;margin-top:8px;">In The Ring</div>'
         + '<div class="oc-phase-label">' + esc(phaseLabel) + '</div>'
         + '</div>';
@@ -842,18 +829,22 @@ function render() {
     }
 
     // Standings
-    // Hunter derby path: use shared renderList for pixel-identical output to results.html
+    // Hunter path: route ANY hunter with pre-computed multi-judge/multi-round
+    // data (derby, non-derby scored, Special) through the shared renderPrecomputed
+    // so live.html shows identical output to results.html — all judges, round rows,
+    // earlier-rounds-hold rule, stuck-hasGone filter, etc.
+    const _compMap = liveData.computed || {};
+    const _comp = _compMap[ac.classNum];
+    const useHunterPrecomputed = isHunter && _comp && _comp.entries && _comp.entries.length && _comp.entries[0].r1Ranks;
     const isHunterDerby = isHunter && cd && WEST.hunter.isDerby(cd);
-    if (isHunterDerby) {
+    if (useHunterPrecomputed) {
       html += '<div class="standings-section">';
-      // Use pre-computed results from Worker when available (no cls_raw parsing)
-      const compMap = liveData.computed || {};
-      const comp = compMap[ac.classNum];
-      if (comp && comp.entries && comp.entries.length && comp.entries[0].r1Ranks) {
-        html += WEST.hunter.derby.renderPrecomputed(comp, { isLive: true });
-      } else {
-        html += WEST.hunter.derby.renderList(cd, { isLive: true });
-      }
+      html += WEST.hunter.derby.renderPrecomputed(_comp, { isLive: true });
+      html += '</div>';
+    } else if (isHunterDerby) {
+      // Legacy derby fallback when pre-computed isn't available (e.g. historical cls_raw only)
+      html += '<div class="standings-section">';
+      html += WEST.hunter.derby.renderList(cd, { isLive: true });
       html += '</div>';
     } else if (cd && cd.entries) {
       // Use computed entries when available (has corrected times for Table III etc.)
