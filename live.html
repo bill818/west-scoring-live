@@ -34,6 +34,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
 .logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
 .logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+@media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
 
 /* CLASS INFO BAR */
 .class-bar{background:#fff;border-bottom:1px solid var(--border);padding:14px 16px 12px;}
@@ -657,10 +658,13 @@ function render() {
     }
 
     // Equitation: rider primary, horse muted below. Pull city/state from class entry row.
-    const isHunterEq = ocCd && WEST.hunter.isEquitation(ocCd);
+    // Detect eq from .cls header OR from UDP (no horse + has rider = eq)
+    const isHunterEq = (ocCd && WEST.hunter.isEquitation(ocCd)) || (!oc.horse && oc.rider);
     let leftCardHtml;
     if (isHunterEq) {
-      const locale = entryRow ? [entryRow.city, entryRow.state].filter(Boolean).join(', ') : '';
+      // Try class entry row first, fall back to oncourse flatEntries for locale
+      const seenEntry = oc.flatEntries && oc.flatEntries.find(e => String(e.entry) === String(oc.entry));
+      const locale = entryRow ? [entryRow.city, entryRow.state].filter(Boolean).join(', ') : (seenEntry && seenEntry.locale ? seenEntry.locale : '');
       leftCardHtml = '<div class="oc-card">'
         + '<div class="oc-card-label">Entry</div>'
         + '<div class="oc-entry-num">#' + esc(oc.entry) + '</div>'
@@ -796,9 +800,11 @@ function render() {
   sorted.forEach(ac => {
     const cd = cdMap[ac.classNum];
     const isCurrent = sel && String(sel.classNum) === String(ac.classNum);
+    const seenMap = (liveData.hunterSeen || {})[ac.classNum];
+    const seenList = seenMap || [];
     const isJumper = cd && (cd.classType === 'J' || cd.classType === 'T');
-    const isHunter = cd && cd.classType === 'H';
-    const type = cd ? typeLabel(cd.classType) : '';
+    const isHunter = (cd && cd.classType === 'H') || seenList.length > 0;
+    const type = cd ? typeLabel(cd.classType) : (seenList.length ? 'Hunter' : '');
     const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
 
     // Class header
@@ -816,14 +822,23 @@ function render() {
       + '</div></div>';
 
     // Progress bar
-    if (cd && cd.entries) {
-      const gone = cd.entries.filter(e => e.hasGone).length;
-      const total = cd.entries.length;
-      const pct = total > 0 ? Math.round(gone / total * 100) : 0;
-      html += '<div class="progress-wrap">'
-        + '<div class="progress-label"><span>' + gone + ' of ' + total + ' competed</span><span>' + pct + '%</span></div>'
-        + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>'
-        + '</div>';
+    const clsEntries = cd && cd.entries ? cd.entries : [];
+    const clsGone = clsEntries.filter(e => e.hasGone).length;
+    const gone = seenList.length > clsGone ? seenList.length : clsGone;
+    const total = clsEntries.length > gone ? clsEntries.length : gone;
+    if (total > 0) {
+      if (clsEntries.length > 0) {
+        const pct = Math.round(gone / total * 100);
+        html += '<div class="progress-wrap">'
+          + '<div class="progress-label"><span>' + gone + ' of ' + total + ' competed</span><span>' + pct + '%</span></div>'
+          + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>'
+          + '</div>';
+      } else {
+        // No .cls data yet — just show count from UDP
+        html += '<div class="progress-wrap">'
+          + '<div class="progress-label"><span>' + gone + ' competed</span></div>'
+          + '</div>';
+      }
     }
 
     // Standings
@@ -955,6 +970,26 @@ function render() {
         }
         html += '</div>';
       }
+    }
+
+    // Hunter fallback: show entries seen via UDP when no .cls data yet
+    if (isHunter && seenList.length && !(cd && cd.entries && cd.entries.some(e => e.hasGone))) {
+      const seenIsEq = seenList.some(e => e.isEq || (!e.horse && e.rider));
+      html += '<div class="standings-section"><div class="standings-wrap">';
+      html += '<div class="standings-hdr">'
+        + '<span class="col-entry">' + (seenIsEq ? 'Rider' : 'Horse / Rider') + '</span></div>';
+      seenList.forEach(e => {
+        let entryHtml;
+        if (seenIsEq || (!e.horse && e.rider)) {
+          entryHtml = '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(e.entry) + '</span>' + esc(e.rider) + '</div>'
+            + (e.locale ? '<div class="s-rider">' + esc(e.locale) + '</div>' : '')
+            + '</div>';
+        } else {
+          entryHtml = '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(e.entry) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>';
+        }
+        html += '<div class="standing-row">' + entryHtml + '</div>';
+      });
+      html += '</div></div>';
     }
 
     // OOG — show remaining entries below standings

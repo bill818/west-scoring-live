@@ -1168,18 +1168,13 @@ function startUdpListener(scoreboardPort) {
   socket.on('message', (msg) => {
     const raw  = msg.toString('ascii').trim();
     const tags = parseUdpPacket(msg);
+    const fr = tags['fr'] || '';
 
     // ── Raw packet log — always log every unique packet for research ──────────
     // Hunter and jumper have different tag sets — log everything so we can map them
     const allTags = Object.entries(tags).map(([k,v]) => `{${k}}=${v}`).join(' ');
-    const rawKey  = raw;
-    if (udpLastLogged['__raw__'] !== rawKey) {
-      udpLastLogged['__raw__'] = rawKey;
-      udpLog(`[RAW] ${raw}`);
-      udpLog(`[TAGS] ${allTags}`);
-    }
-
-    const fr = tags['fr'] || '';
+    udpLog(`[UDP] fr=${fr} ${allTags}`);
+    udpLog(`[RAW] ${raw.substring(0, 200)}`);
 
     // ── Hunter {fr}=11 — ON COURSE signal ─────────────────────────────────────
     // {17} in hunter packets is scoreboard message text, NOT elapsed time.
@@ -1191,15 +1186,21 @@ function startUdpListener(scoreboardPort) {
     // so the live page can show "entries in the ring" instead of flickering
     // between individual on-course cards.
     if (fr === '11') {
-      if (tags['3']) {
+      const allFr11Tags = Object.entries(tags).map(([k,v]) => `{${k}}=${v}`).join(' ');
+      udpLog(`[FR11 FULL] ${allFr11Tags}`);
+      // Equitation uses {7}=rider, {6}=city/state, {2}=empty (no horse)
+      // Normal hunter uses {3}=rider, {2}=horse, {4}=owner
+      const isEqFrame = !tags['3'] && !!tags['7'];
+      if (tags['3'] || isEqFrame) {
         const hEntry = (tags['1'] || '').trim();
-        const hHorse = (tags['2'] || '').trim();
-        const hRider = (tags['3'] || '').trim();
-        const hOwner = (tags['4'] || '').trim();
+        const hHorse = isEqFrame ? '' : (tags['2'] || '').trim();
+        const hRider = isEqFrame ? (tags['7'] || '').trim() : (tags['3'] || '').trim();
+        const hOwner = isEqFrame ? '' : (tags['4'] || '').trim();
+        const hLocale = isEqFrame ? (tags['6'] || '').trim() : '';
 
         // Track this entry in the flat rotation set
         const isNew = !flatEntriesSeen[hEntry];
-        flatEntriesSeen[hEntry] = { entry: hEntry, horse: hHorse, rider: hRider, owner: hOwner };
+        flatEntriesSeen[hEntry] = { entry: hEntry, horse: hHorse, rider: hRider, owner: hOwner, locale: hLocale, isEq: isEqFrame };
 
         if (isNew) {
           udpLog(`[HUNTER ON_COURSE] #${hEntry} ${hHorse} / ${hRider}`);

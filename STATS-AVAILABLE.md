@@ -1,5 +1,6 @@
 # WEST Scoring Live — Available Data & Stats Inventory
-# Last updated: 2026-04-08
+# Last updated: 2026-04-09 (Session 19 — per-round stats, show stats/search/weather endpoints,
+#   hunterSeen tracking, equitation UDP, display page, show_weather D1 table)
 
 Everything we currently collect, store, and can compute from.
 This is what we HAVE — not aspirational. Reference this before building stats features.
@@ -69,7 +70,13 @@ This is what we HAVE — not aspirational. Reference this before building stats 
     ranks, judge card totals/ranks, movement, split decision flag
   - Hunter non-derby scored: per-judge scores {score, phaseTotal}, per-judge ranks
   - Jumper: structured round data + stats (clear count, fault buckets, leaderboard)
+  - Table III / Faults Converted: isFaultsConverted flag, r1FinalTime (clock+jf+ps)
   - Frozen into D1 final_results on CLASS_COMPLETE
+- orderOfGo (persisted to D1 when JO flag set in tsked, also in KV for live access)
+
+### Pre-show stats (cached):
+- prestats:slug:ring:classNum — cross-class horse data (5 min TTL)
+  - Per horse: prior results at this show, total prize money, top 3 placings
 
 ### Recent completions:
 - recent:slug:ring — classes completed within last 30 min (30 min TTL)
@@ -96,6 +103,8 @@ This is what we HAVE — not aspirational. Reference this before building stats 
 - TA values per round (from header)
 - Optimum time + distance (method 6 / IV.1)
 - Leaderboard with gap from leader (faults asc, time asc)
+- Table III / Faults Converted: final time (clock + jump faults + penalty seconds), isFaultsConverted flag
+- Per-round elimination status display (per scoring method rules)
 
 ### Hunter Class Stats (pre-computed by Worker)
 - Per-judge per-round rankings (1-7+ judges confirmed)
@@ -215,11 +224,14 @@ The full .cls file is stored per class. This contains:
 
 ### Public (no auth):
 - /getShows — show list (respects hideUpcoming setting)
-- /getShow — show info + rings
+- /getShow — show info + rings + start_date/end_date
 - /getClasses — class list (hidden classes filtered)
 - /getResults — pre-computed results (cls_raw NEVER sent to client)
   Priority: KV pre-computed → D1 final_results → D1 computed-fallback → D1 raw entries
-- /getLiveClass — live state + pre-computed results per active class
+- /getLiveClass — live state + pre-computed results + hunterSeen per active class
+- /getShowStats — top riders, top horses, champions (from cls_raw), prize money leaders, entries per day
+- /searchShow — search rider or horse across all classes at a show
+- /getShowWeather — per-day weather for show dates (historical from Open-Meteo, cached in D1 show_weather table)
 - /admin/settings — global settings (read only)
 
 ### Auth required:

@@ -29,6 +29,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);}
 .logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
 .logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
 .logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+@media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
 
 /* BREADCRUMBS */
 .breadcrumbs{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:0;min-height:40px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
@@ -88,6 +89,14 @@ header{background:var(--black);border-bottom:3px solid var(--red);}
 .state-lbl{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
 
 .content-wrap{padding-bottom:60px;}
+.class-search-wrap{padding:8px 16px;background:#fff;border-bottom:1px solid var(--border);position:relative;}
+.class-search{width:100%;padding:8px 12px 8px 34px;font-family:'Source Sans 3',sans-serif;font-size:14px;border:1px solid var(--border);border-radius:6px;background:#fff;outline:none;transition:border-color .15s;}
+.class-search:focus{border-color:var(--red);}
+.class-search::placeholder{color:#bbb;}
+.class-search-icon{position:absolute;left:26px;top:50%;transform:translateY(-50%);color:#bbb;pointer-events:none;}
+.class-search-clear{position:absolute;right:26px;top:50%;transform:translateY(-50%);background:none;border:none;color:#bbb;cursor:pointer;font-size:18px;display:none;}
+.class-search-clear.visible{display:block;}
+@media(min-width:768px){.class-search-wrap{padding:8px clamp(16px,4vw,48px);}}
 
 /* FOOTER */
 footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
@@ -137,6 +146,11 @@ footer a:hover{color:var(--red);}
 
 <div id="titleArea"></div>
 <div id="liveBtn"></div>
+<div class="class-search-wrap">
+  <span class="class-search-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+  <input class="class-search" id="classSearch" type="text" placeholder="Search classes..." autocomplete="off">
+  <button class="class-search-clear" id="classSearchClear" type="button">&times;</button>
+</div>
 <div id="sortArea"></div>
 <div id="content">
   <div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Classes&hellip;</div></div>
@@ -247,7 +261,16 @@ function renderClasses() {
     return;
   }
   // Filter: hide unscheduled and zero-entry classes
-  const visible = allClasses.filter(c => c.scheduled_date && (c.entry_count > 0 || c.schedule_flag === 'JO'));
+  const searchQ = (document.getElementById('classSearch') ? document.getElementById('classSearch').value : '').trim().toLowerCase();
+  const visible = allClasses.filter(c => {
+    if (!c.scheduled_date && c.entry_count <= 0 && c.schedule_flag !== 'JO') return false;
+    if (!(c.scheduled_date && (c.entry_count > 0 || c.schedule_flag === 'JO'))) return false;
+    if (searchQ && !(
+      (c.class_name || '').toLowerCase().includes(searchQ) ||
+      (c.class_num || '').toLowerCase().includes(searchQ)
+    )) return false;
+    return true;
+  });
   if (!visible.length) {
     document.getElementById('content').innerHTML = '<div class="state-box"><div class="state-lbl">No scheduled classes with entries yet.</div></div>';
     return;
@@ -308,7 +331,7 @@ function buildClassRow(c, activeNums) {
   const dot = isLive ? '<span class="live-dot-inline"></span>' : '';
   const completeBadge = isComplete ? '<span class="badge-complete">Complete</span>' : '';
   const scoredBadge = ''; // Removed — "Scored" label not needed on class list
-  const joBadge = c.schedule_flag === 'JO' ? '<span class="badge-jo">Order of Go Posted</span>' : '';
+  const joBadge = c.schedule_flag === 'JO' && !isComplete ? '<span class="badge-jo">Order of Go Posted</span>' : '';
 
   return '<a class="class-row" href="results.html?slug=' + esc(SLUG) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">'
     + '<span class="class-num">' + esc(c.class_num) + '</span>'
@@ -344,6 +367,24 @@ async function loadAll() {
 loadAll();
 setInterval(async () => { await pollLive(); renderTitle(); renderLiveBtn(); }, 3000);
 setInterval(async () => { await loadClasses(); renderClasses(); }, 30000);
+
+// Class search
+(function() {
+  var input = document.getElementById('classSearch');
+  var clearBtn = document.getElementById('classSearchClear');
+  var timer = null;
+  input.addEventListener('input', function() {
+    clearTimeout(timer);
+    clearBtn.classList.toggle('visible', input.value.length > 0);
+    timer = setTimeout(function() { renderClasses(); }, 200);
+  });
+  clearBtn.addEventListener('click', function() {
+    input.value = '';
+    clearBtn.classList.remove('visible');
+    renderClasses();
+    input.focus();
+  });
+})();
 </script>
 </body>
 </html>

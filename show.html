@@ -31,6 +31,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
 .logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
 .logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+@media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
 
 /* BREADCRUMBS */
 .breadcrumbs{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:0;min-height:40px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
@@ -54,19 +55,11 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 /* WEATHER */
 .weather-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin:16px 16px 0;overflow:hidden;display:none;}
 .weather-card.loaded{display:block;opacity:0;animation:fadeUp .3s ease forwards;}
-.weather-current{display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid var(--border);}
+.weather-current{display:flex;align-items:center;gap:14px;padding:16px;}
 .weather-icon{font-size:36px;line-height:1;flex-shrink:0;}
 .weather-temp{font-family:'Playfair Display',serif;font-size:32px;font-weight:900;color:var(--black);line-height:1;}
 .weather-desc{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-top:2px;}
 .weather-loc{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;letter-spacing:.04em;margin-top:2px;}
-.forecast-strip{display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
-.forecast-strip::-webkit-scrollbar{display:none;}
-.forecast-day{flex:1;min-width:0;text-align:center;padding:12px 8px;border-right:1px solid var(--border);}
-.forecast-day:last-child{border-right:none;}
-.forecast-name{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;}
-.forecast-icon{font-size:20px;line-height:1;margin-bottom:4px;}
-.forecast-temps{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-body);}
-.forecast-temps span{color:var(--text-muted);}
 
 /* SECTION HEADER */
 .section-header{padding:20px 16px 8px;display:flex;align-items:baseline;gap:8px;}
@@ -97,6 +90,51 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .stat-value{font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:var(--black);line-height:1;}
 .stat-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
 .stat-placeholder{color:#ccc;}
+
+/* LEADERBOARDS */
+.leaders-section{padding:0 16px 16px;}
+.leaders-grid{display:grid;grid-template-columns:1fr;gap:14px;}
+@media(min-width:768px){.leaders-section{padding:0 clamp(16px,4vw,48px) 16px;}}
+.leader-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;opacity:0;animation:fadeUp .3s ease forwards;}
+.leader-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+.leader-header:hover{background:#fafafa;}
+.leader-header-left{display:flex;flex-direction:column;gap:2px;}
+.leader-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);font-weight:600;}
+.leader-preview{font-size:12px;color:var(--text-body);font-weight:500;}
+.leader-chevron{font-size:16px;color:#ccc;transition:transform .2s;flex-shrink:0;}
+.leader-chevron.open{transform:rotate(180deg);}
+.leader-body{display:none;border-top:1px solid var(--border);}
+.leader-body.open{display:block;}
+.leader-row{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);}
+.leader-row:last-child{border-bottom:none;}
+.leader-rank{font-family:'DM Mono',monospace;font-size:11px;color:#bbb;min-width:20px;text-align:center;}
+.leader-name{flex:1;min-width:0;}
+.leader-primary{font-size:14px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.leader-secondary{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.leader-stat{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--black);text-align:right;white-space:nowrap;}
+.leader-stat-sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);text-align:right;}
+
+/* SEARCH */
+.search-section{padding:0 16px 12px;}
+@media(min-width:768px){.search-section{padding:0 clamp(16px,4vw,48px) 12px;}}
+.search-wrap{position:relative;max-width:480px;}
+.search-input{width:100%;padding:12px 16px 12px 40px;font-family:'Source Sans 3',sans-serif;font-size:15px;border:1px solid var(--border);border-radius:var(--card-radius);background:#fff;color:var(--text-body);outline:none;transition:border-color .15s;}
+.search-input:focus{border-color:var(--red);}
+.search-input::placeholder{color:#bbb;}
+.search-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#bbb;pointer-events:none;}
+.search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#bbb;cursor:pointer;padding:4px;display:none;font-size:18px;line-height:1;}
+.search-clear:hover{color:var(--text-body);}
+.search-clear.visible{display:block;}
+.search-results{margin-top:10px;}
+.search-match{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;margin-bottom:10px;opacity:0;animation:fadeUp .3s ease forwards;}
+.search-match-header{padding:14px 16px 10px;}
+.search-match-horse{font-size:16px;font-weight:600;color:var(--black);}
+.search-match-rider{font-size:12px;color:var(--text-muted);}
+.search-match-meta{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;margin-top:2px;}
+.search-class-row{display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--border);}
+.search-class-place{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;min-width:28px;text-align:center;color:var(--black);}
+.search-class-name{flex:1;font-size:13px;color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.search-class-detail{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);text-align:right;}
 
 /* STATES */
 .state-box{text-align:center;padding:60px 20px;}
@@ -155,7 +193,7 @@ footer a:hover{color:var(--red);}
   <div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Show&hellip;</div></div>
 </div>
 
-<div id="weatherArea"></div>
+<div id="searchArea"></div>
 <div id="ringsArea"></div>
 <div id="statsArea"></div>
 
@@ -222,6 +260,7 @@ async function loadShow() {
     renderHero();
     renderRings();
     renderStats();
+    renderSearch();
     startLivePolling();
     loadWeather();
   } catch(e) {
@@ -245,6 +284,7 @@ function renderHero() {
   if (s.dates) html += '<div class="hero-dates">' + esc(s.dates) + '</div>';
   if (s.venue) html += '<div class="hero-venue">' + esc(s.venue) + '</div>';
   if (s.location) html += '<div class="hero-location">' + esc(s.location) + '</div>';
+  html += '<div id="heroWeather" style="margin-top:6px;"></div>';
   html += '<div class="status-badge ' + statusClass + '">' + statusText + '</div>';
   html += '</div>';
   document.getElementById('heroArea').innerHTML = html;
@@ -301,11 +341,157 @@ function renderStats() {
 
   var html = '<div class="section-header"><span class="section-title">Show Statistics</span></div>';
   html += '<div class="stats-grid">';
+  html += '<div class="stat-card" id="statEntries"><div class="stat-value stat-placeholder">&mdash;</div><div class="stat-label">Total Show Entries</div></div>';
   html += '<div class="stat-card"><div class="stat-value">' + totalClasses + '</div><div class="stat-label">Total Classes</div></div>';
   html += '<div class="stat-card"><div class="stat-value">' + totalComplete + '</div><div class="stat-label">Classes Complete</div></div>';
-  html += '<div class="stat-card"><div class="stat-value stat-placeholder">&mdash;</div><div class="stat-label">Coming Soon</div></div>';
   html += '</div>';
+  html += '<div id="epdArea"></div>';
+  html += '<div id="showWeatherArea"></div>';
   document.getElementById('statsArea').innerHTML = html;
+
+  // Fetch show weather (only if within 3 days of show start) + detailed stats
+  var s2 = showData.show || {};
+  if (s2.start_date) {
+    var daysUntil = (new Date(s2.start_date + 'T12:00:00') - Date.now()) / 86400000;
+    if (daysUntil <= 3) loadShowWeather();
+  }
+  loadShowStats();
+}
+
+async function loadShowStats() {
+  try {
+    var r = await fetch(WORKER + '/getShowStats?slug=' + encodeURIComponent(SLUG));
+    if (!r.ok) return;
+    var d = await r.json();
+    if (!d.ok || !d.stats) return;
+    var s = d.stats;
+
+    // Update totals cards
+    var el = document.getElementById('statEntries');
+    if (el) el.innerHTML = '<div class="stat-value">' + s.totalEntries + '</div><div class="stat-label">Total Show Entries</div>';
+
+    // Entries per day — add below stats grid
+    if (s.entriesPerDay && s.entriesPerDay.length) {
+      var epdHtml = '<div style="display:flex;gap:8px;padding:4px 16px 12px;flex-wrap:wrap;">';
+      s.entriesPerDay.forEach(function(d) {
+        var dayLabel = d.date;
+        try {
+          var dt = new Date(d.date + 'T12:00:00');
+          dayLabel = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch(e) {}
+        epdHtml += '<div style="background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 12px;text-align:center;flex:1;min-width:80px;">'
+          + '<div style="font-family:Playfair Display,serif;font-size:20px;font-weight:900;color:var(--black);">' + d.entries + ' <span style="font-family:DM Mono,monospace;font-size:10px;font-weight:600;color:var(--text-muted);">Entries</span></div>'
+          + '<div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-top:2px;">' + esc(dayLabel) + '</div>'
+          + '</div>';
+      });
+      epdHtml += '</div>';
+      var epdTarget = document.getElementById('epdArea');
+      if (epdTarget) epdTarget.innerHTML = epdHtml;
+    }
+
+    // Build leaderboards
+    var html = '';
+
+    if (s.champions && s.champions.length) {
+      var champByClass = {};
+      s.champions.forEach(function(ch) {
+        if (!champByClass[ch.class_name]) champByClass[ch.class_name] = [];
+        champByClass[ch.class_name].push(ch);
+      });
+      var champCount = Object.keys(champByClass).length;
+      html += '<div class="leader-card">';
+      html += '<div class="leader-header" onclick="toggleLeader(\'champs\')">'
+        + '<div class="leader-header-left"><div class="leader-title">Champions &amp; Reserve</div>'
+        + '<div class="leader-preview">' + champCount + ' championship' + (champCount !== 1 ? 's' : '') + '</div></div>'
+        + '<span class="leader-chevron" id="lc-champs">&#9662;</span></div>';
+      html += '<div class="leader-body" id="lb-champs">';
+      Object.keys(champByClass).forEach(function(className) {
+        var entries = champByClass[className];
+        var chRibbon = WEST.ribbon.placeRibbon(1, className, true);
+        var rcRibbon = WEST.ribbon.placeRibbon(2, className, true);
+        html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);">'
+          + '<div style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">' + esc(className) + '</div>'
+          + '<div style="display:flex;gap:16px;flex-wrap:wrap;">';
+        entries.forEach(function(ch) {
+          var ribbon = ch.place === '1' ? chRibbon : rcRibbon;
+          html += '<div style="display:flex;align-items:center;gap:8px;">'
+            + '<div style="width:32px;flex-shrink:0;">' + ribbon + '</div>'
+            + '<div><div style="font-size:14px;font-weight:600;color:var(--black);">' + esc(ch.horse) + '</div>'
+            + '<div style="font-size:11px;color:var(--text-muted);">' + esc(ch.rider) + '</div></div>'
+            + '</div>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div></div>';
+    }
+
+    if (s.topRiders && s.topRiders.length) {
+      var topR = s.topRiders[0];
+      html += '<div class="leader-card">';
+      html += '<div class="leader-header" onclick="toggleLeader(\'riders\')">'
+        + '<div class="leader-header-left"><div class="leader-title">Top Riders</div>'
+        + '<div class="leader-preview">' + esc(topR.rider) + ' &mdash; ' + topR.blues + ' blue' + (topR.blues !== 1 ? 's' : '') + '</div></div>'
+        + '<span class="leader-chevron" id="lc-riders">&#9662;</span></div>';
+      html += '<div class="leader-body" id="lb-riders">';
+      s.topRiders.forEach(function(r, i) {
+        html += '<div class="leader-row">'
+          + '<span class="leader-rank">' + (i + 1) + '</span>'
+          + '<div class="leader-name"><div class="leader-primary">' + esc(r.rider) + '</div>'
+          + '<div class="leader-secondary">' + r.classes + ' class' + (r.classes !== 1 ? 'es' : '') + '</div></div>'
+          + '<div><div class="leader-stat">' + r.blues + ' blue' + (r.blues !== 1 ? 's' : '') + '</div>'
+          + '<div class="leader-stat-sub">' + r.podiums + ' podium</div></div>'
+          + '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    if (s.topHorses && s.topHorses.length) {
+      var topH = s.topHorses[0];
+      html += '<div class="leader-card">';
+      html += '<div class="leader-header" onclick="toggleLeader(\'horses\')">'
+        + '<div class="leader-header-left"><div class="leader-title">Top Horses</div>'
+        + '<div class="leader-preview">' + esc(topH.horse) + ' &mdash; ' + topH.blues + ' blue' + (topH.blues !== 1 ? 's' : '') + '</div></div>'
+        + '<span class="leader-chevron" id="lc-horses">&#9662;</span></div>';
+      html += '<div class="leader-body" id="lb-horses">';
+      s.topHorses.forEach(function(h, i) {
+        html += '<div class="leader-row">'
+          + '<span class="leader-rank">' + (i + 1) + '</span>'
+          + '<div class="leader-name"><div class="leader-primary">' + esc(h.horse) + '</div>'
+          + '<div class="leader-secondary">' + esc(h.rider) + '</div></div>'
+          + '<div><div class="leader-stat">' + h.blues + ' blue' + (h.blues !== 1 ? 's' : '') + '</div>'
+          + '<div class="leader-stat-sub">' + h.podiums + ' podium</div></div>'
+          + '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    if (s.moneyLeaders && s.moneyLeaders.length) {
+      var topM = s.moneyLeaders[0];
+      html += '<div class="leader-card">';
+      html += '<div class="leader-header" onclick="toggleLeader(\'money\')">'
+        + '<div class="leader-header-left"><div class="leader-title">Prize Money Leaders</div>'
+        + '<div class="leader-preview">' + esc(topM.horse) + ' &mdash; $' + topM.total.toLocaleString() + '</div></div>'
+        + '<span class="leader-chevron" id="lc-money">&#9662;</span></div>';
+      html += '<div class="leader-body" id="lb-money">';
+      s.moneyLeaders.forEach(function(m, i) {
+        html += '<div class="leader-row">'
+          + '<span class="leader-rank">' + (i + 1) + '</span>'
+          + '<div class="leader-name"><div class="leader-primary">' + esc(m.horse) + '</div>'
+          + '<div class="leader-secondary">' + esc(m.rider) + '</div></div>'
+          + '<div><div class="leader-stat">$' + m.total.toLocaleString() + '</div>'
+          + '<div class="leader-stat-sub">' + m.classes + ' class' + (m.classes !== 1 ? 'es' : '') + '</div></div>'
+          + '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    if (html) {
+      document.getElementById('statsArea').innerHTML += '<div class="section-header"><span class="section-title">Leaderboards</span></div>'
+        + '<div class="leaders-section"><div class="leaders-grid">' + html + '</div></div>';
+    }
+  } catch(e) {
+    // Stats are optional — fail silently
+  }
 }
 
 /* ── Live polling per ring ───────────────────────── */
@@ -400,37 +586,127 @@ async function loadWeather() {
 
 function renderWeather(wx, loc) {
   if (!wx || !wx.current) return;
-
   var cur = wx.current;
-  var daily = wx.daily || {};
+  var el = document.getElementById('heroWeather');
+  if (!el) return;
+  el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="font-size:20px;">' + weatherIcon(cur.weathercode) + '</span>'
+    + '<span style="font-family:Playfair Display,serif;font-size:18px;font-weight:900;color:var(--black);">' + Math.round(cur.temperature_2m) + '\u00B0F</span>'
+    + '<span style="font-family:DM Mono,monospace;font-size:10px;color:var(--text-muted);letter-spacing:.04em;">' + esc(weatherDesc(cur.weathercode)) + '</span>'
+    + '</div>';
+}
 
-  var html = '<div class="weather-card loaded">';
+/* ── Show-dates weather ──────────────────────────── */
+async function loadShowWeather() {
+  try {
+    var r = await fetch(WORKER + '/getShowWeather?slug=' + encodeURIComponent(SLUG));
+    if (!r.ok) return;
+    var d = await r.json();
+    if (!d.ok || !d.days || !d.days.length) return;
 
-  // Current conditions
-  html += '<div class="weather-current">';
-  html += '<div class="weather-icon">' + weatherIcon(cur.weathercode) + '</div>';
-  html += '<div>';
-  html += '<div class="weather-temp">' + Math.round(cur.temperature_2m) + '\u00B0F</div>';
-  html += '<div class="weather-desc">' + esc(weatherDesc(cur.weathercode)) + '</div>';
-  html += '<div class="weather-loc">' + esc(loc) + '</div>';
-  html += '</div>';
-  html += '</div>';
-
-  // 5-day forecast strip
-  if (daily.time && daily.time.length) {
-    html += '<div class="forecast-strip">';
-    for (var i = 0; i < daily.time.length; i++) {
-      html += '<div class="forecast-day">';
-      html += '<div class="forecast-name">' + dayName(daily.time[i]) + '</div>';
-      html += '<div class="forecast-icon">' + weatherIcon(daily.weathercode[i]) + '</div>';
-      html += '<div class="forecast-temps">' + Math.round(daily.temperature_2m_max[i]) + '\u00B0 <span>' + Math.round(daily.temperature_2m_min[i]) + '\u00B0</span></div>';
-      html += '</div>';
-    }
+    var today = new Date().toISOString().split('T')[0];
+    var html = '<div class="section-header"><span class="section-title">Show Weather</span></div>';
+    html += '<div style="display:flex;gap:8px;padding:4px 16px 12px;flex-wrap:wrap;overflow-x:auto;">';
+    d.days.forEach(function(day) {
+      var dayLabel = day.date;
+      try {
+        var dt = new Date(day.date + 'T12:00:00');
+        dayLabel = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      } catch(e) {}
+      var isToday = day.date === today;
+      var icon = weatherIcon(day.weather_code || 0);
+      var precip = day.precip_mm ? (day.precip_mm / 25.4).toFixed(2) + 'in' : '';
+      var wind = day.wind_max ? Math.round(day.wind_max) + 'mph' : '';
+      html += '<div style="background:#fff;border:1px solid ' + (isToday ? 'var(--red)' : 'var(--border)') + ';border-radius:6px;padding:10px 12px;text-align:center;flex:1;min-width:90px;'
+        + (isToday ? 'box-shadow:0 0 0 1px var(--red);' : '') + '">'
+        + '<div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:' + (isToday ? 'var(--red)' : 'var(--text-muted)') + ';margin-bottom:4px;">' + esc(dayLabel) + '</div>'
+        + '<div style="font-size:24px;line-height:1;margin-bottom:4px;">' + icon + '</div>'
+        + '<div style="font-family:Playfair Display,serif;font-size:16px;font-weight:900;color:var(--black);">' + Math.round(day.temp_high) + '&deg;</div>'
+        + '<div style="font-family:DM Mono,monospace;font-size:11px;color:var(--text-muted);">' + Math.round(day.temp_low) + '&deg;</div>'
+        + (precip ? '<div style="font-family:DM Mono,monospace;font-size:9px;color:#64b5f6;margin-top:2px;">' + precip + '</div>' : '')
+        + (wind ? '<div style="font-family:DM Mono,monospace;font-size:9px;color:#bbb;margin-top:1px;">' + wind + '</div>' : '')
+        + '</div>';
+    });
     html += '</div>';
-  }
+    var target = document.getElementById('showWeatherArea');
+    if (target) target.innerHTML = html;
+  } catch(e) {}
+}
 
-  html += '</div>';
-  document.getElementById('weatherArea').innerHTML = html;
+/* ── Search ──────────────────────────────────────── */
+function renderSearch() {
+  var html = '<div class="section-header"><span class="section-title">Lookup</span></div>';
+  html += '<div class="search-section"><div class="search-wrap">'
+    + '<span class="search-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>'
+    + '<input class="search-input" id="showSearch" type="text" placeholder="Search rider or horse..." autocomplete="off">'
+    + '<button class="search-clear" id="searchClear" type="button">&times;</button>'
+    + '</div><div class="search-results" id="searchResults"></div></div>';
+  document.getElementById('searchArea').innerHTML = html;
+
+  var timer = null;
+  var input = document.getElementById('showSearch');
+  var clearBtn = document.getElementById('searchClear');
+  input.addEventListener('input', function() {
+    clearTimeout(timer);
+    var q = this.value.trim();
+    clearBtn.classList.toggle('visible', q.length > 0);
+    if (q.length < 2) { document.getElementById('searchResults').innerHTML = ''; return; }
+    timer = setTimeout(function() { doSearch(q); }, 300);
+  });
+  clearBtn.addEventListener('click', function() {
+    input.value = '';
+    clearBtn.classList.remove('visible');
+    document.getElementById('searchResults').innerHTML = '';
+    input.focus();
+  });
+}
+
+async function doSearch(q) {
+  var el = document.getElementById('searchResults');
+  try {
+    var r = await fetch(WORKER + '/searchShow?slug=' + encodeURIComponent(SLUG) + '&q=' + encodeURIComponent(q));
+    if (!r.ok) return;
+    var d = await r.json();
+    if (!d.ok || !d.results || !d.results.length) {
+      el.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:11px;color:var(--text-muted);padding:8px 0;">No results for "' + esc(q) + '"</div>';
+      return;
+    }
+    var html = '';
+    d.results.forEach(function(m) {
+      var breeding = [m.sire, m.dam].filter(Boolean).join(' x ');
+      var locale = [m.city, m.state].filter(Boolean).join(', ');
+      html += '<div class="search-match">';
+      html += '<div class="search-match-header">';
+      html += '<div class="search-match-horse">' + esc(m.horse || m.rider) + '</div>';
+      if (m.horse && m.rider) html += '<div class="search-match-rider">' + esc(m.rider) + (locale ? ' &mdash; ' + esc(locale) : '') + '</div>';
+      if (breeding) html += '<div class="search-match-meta">' + esc(breeding) + '</div>';
+      if (m.owner && m.owner !== m.rider) html += '<div class="search-match-meta">Owner: ' + esc(m.owner) + '</div>';
+      html += '</div>';
+      m.classes.forEach(function(cl) {
+        var bestRound = cl.rounds.sort(function(a, b) { return (parseInt(a.place) || 999) - (parseInt(b.place) || 999); })[0];
+        var place = bestRound ? bestRound.place : '';
+        var status = bestRound ? bestRound.status_code : '';
+        var placeDisplay = place ? place : (status || '--');
+        var resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(cl.class_num) + '&ring=' + encodeURIComponent(cl.ring) + '&name=' + encodeURIComponent(showData && showData.show ? showData.show.name : SLUG);
+        html += '<a class="search-class-row" href="' + esc(resultsUrl) + '" style="text-decoration:none;color:inherit;">'
+          + '<span class="search-class-place">' + esc(placeDisplay) + '</span>'
+          + '<span class="search-class-name">' + esc(cl.class_name) + '</span>'
+          + '</a>';
+      });
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '';
+  }
+}
+
+function toggleLeader(id) {
+  var body = document.getElementById('lb-' + id);
+  var chev = document.getElementById('lc-' + id);
+  if (!body) return;
+  body.classList.toggle('open');
+  if (chev) chev.classList.toggle('open');
 }
 
 /* ── Init ────────────────────────────────────────── */

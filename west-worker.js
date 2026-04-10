@@ -259,6 +259,22 @@ export default {
           paused: false,
           ts: new Date().toISOString()
         }), { expirationTtl: 300 });
+        // Hunter: persist entries-seen list per class so live page can show
+        // who has gone even before the .cls writes (forced placement classes)
+        if (body.isHunter && body.flatEntries && body.flatEntries.length) {
+          const selRaw = await env.WEST_LIVE.get(`selected:${slug}:${ring}`);
+          if (selRaw) {
+            const sel = JSON.parse(selRaw);
+            const seenKey = `hunterseen:${slug}:${ring}:${sel.classNum}`;
+            // Merge with existing — watcher resets flatEntriesSeen on class re-select
+            const existingRaw = await env.WEST_LIVE.get(seenKey);
+            const existing = existingRaw ? JSON.parse(existingRaw) : [];
+            const merged = {};
+            existing.forEach(e => { merged[e.entry] = e; });
+            body.flatEntries.forEach(e => { merged[e.entry] = e; });
+            await env.WEST_LIVE.put(seenKey, JSON.stringify(Object.values(merged)), { expirationTtl: 7200 });
+          }
+        }
         console.log(`[ON_COURSE] ${slug}:${ring} — #${body.entry} ${body.horse}${body.isHunter ? ' [hunter]' : ''}${body.flatEntries ? ' [flat:' + body.flatEntries.length + ']' : ''}`);
         return json({ ok: true, event: 'ON_COURSE', entry: body.entry });
       }
@@ -446,14 +462,17 @@ export default {
       // Fetch per-class live data for all active classes
       const classDataMap = {};
       const computedMap = {};
+      const hunterSeenMap = {};
       if (active.length) {
-        const [classReads, resultsReads] = await Promise.all([
+        const [classReads, resultsReads, seenReads] = await Promise.all([
           Promise.all(active.map(a => env.WEST_LIVE.get(`live:${slug}:${ring}:${a.classNum}`))),
           Promise.all(active.map(a => env.WEST_LIVE.get(`results:${slug}:${ring}:${a.classNum}`))),
+          Promise.all(active.map(a => env.WEST_LIVE.get(`hunterseen:${slug}:${ring}:${a.classNum}`))),
         ]);
         active.forEach((a, i) => {
           if (classReads[i]) classDataMap[a.classNum] = JSON.parse(classReads[i]);
           if (resultsReads[i]) computedMap[a.classNum] = JSON.parse(resultsReads[i]);
+          if (seenReads[i]) hunterSeenMap[a.classNum] = JSON.parse(seenReads[i]);
         });
       }
 
@@ -469,6 +488,7 @@ export default {
         selected:       selected,
         classData:      classDataMap,
         computed:       computedMap,
+        hunterSeen:     hunterSeenMap,
         latestEvent:    eventRaw     ? JSON.parse(eventRaw)     : null,
         onCourse:       oncourseRaw  ? JSON.parse(oncourseRaw)  : null,
         watcherAlive:   !!heartbeatRaw,
@@ -485,7 +505,7 @@ export default {
       ctx.waitUntil(autoCompleteStaleClasses(env, slug));
       try {
         const show = await env.WEST_DB.prepare(
-          'SELECT id, slug, name, venue, dates, location, year, status, rings_count FROM shows WHERE slug = ?'
+          'SELECT id, slug, name, venue, dates, location, year, status, rings_count, start_date, end_date FROM shows WHERE slug = ?'
         ).bind(slug).first();
         if (!show) return json({ ok: true, show: null, rings: [] });
         const rings = await env.WEST_DB.prepare(
@@ -502,6 +522,332 @@ export default {
           complete_count: countMap[r.ring_num] ? countMap[r.ring_num].complete : 0,
         }));
         return json({ ok: true, show, rings: ringsData });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── GET /getShowStats ─────────────────────────────────────────────────────
+    // Aggregated show-level stats: top riders, top horses, prize money leaders
+    if (method === 'GET' && path === '/getShowStats') {
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return json({ ok: true, stats: null });
+
+        // Total entries, unique riders, unique horses
+        const totals = await env.WEST_DB.prepare(`
+          SELECT COUNT(*) as totalEntries,
+                 COUNT(DISTINCT e.rider) as uniqueRiders,
+                 COUNT(DISTINCT e.horse) as uniqueHorses
+          FROM entries e
+          JOIN classes c ON e.class_id = c.id
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+        `).bind(show.id).first();
+
+        // Entries per day
+        const perDay = await env.WEST_DB.prepare(`
+          SELECT c.scheduled_date as date, COUNT(*) as entries
+          FROM entries e
+          JOIN classes c ON e.class_id = c.id
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+            AND c.scheduled_date IS NOT NULL AND c.scheduled_date != ''
+          GROUP BY c.scheduled_date
+          ORDER BY c.scheduled_date
+        `).bind(show.id).all();
+
+        // Top riders by 1st places (blues) — excludes championship classes
+        const topRiders = await env.WEST_DB.prepare(`
+          SELECT e.rider,
+                 COUNT(CASE WHEN r.place = '1' THEN 1 END) as blues,
+                 COUNT(CASE WHEN CAST(r.place AS INTEGER) BETWEEN 1 AND 3 THEN 1 END) as podiums,
+                 COUNT(CASE WHEN CAST(r.place AS INTEGER) BETWEEN 1 AND 6 THEN 1 END) as ribbons,
+                 COUNT(DISTINCT c.id) as classes
+          FROM entries e
+          JOIN results r ON r.entry_id = e.id AND r.round = 1
+          JOIN classes c ON e.class_id = c.id
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+            AND COALESCE(json_extract(c.final_results, '$.isChampionship'), 0) != 1
+            AND r.place IS NOT NULL AND r.place != '' AND CAST(r.place AS INTEGER) > 0
+          GROUP BY UPPER(e.rider)
+          HAVING blues > 0
+          ORDER BY blues DESC, podiums DESC, ribbons DESC
+          LIMIT 10
+        `).bind(show.id).all();
+
+        // Top horses by 1st places — excludes championship classes
+        const topHorses = await env.WEST_DB.prepare(`
+          SELECT e.horse, e.rider,
+                 COUNT(CASE WHEN r.place = '1' THEN 1 END) as blues,
+                 COUNT(CASE WHEN CAST(r.place AS INTEGER) BETWEEN 1 AND 3 THEN 1 END) as podiums,
+                 COUNT(CASE WHEN CAST(r.place AS INTEGER) BETWEEN 1 AND 6 THEN 1 END) as ribbons,
+                 COUNT(DISTINCT c.id) as classes
+          FROM entries e
+          JOIN results r ON r.entry_id = e.id AND r.round = 1
+          JOIN classes c ON e.class_id = c.id
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+            AND e.horse IS NOT NULL AND e.horse != ''
+            AND COALESCE(json_extract(c.final_results, '$.isChampionship'), 0) != 1
+            AND r.place IS NOT NULL AND r.place != '' AND CAST(r.place AS INTEGER) > 0
+          GROUP BY UPPER(e.horse)
+          HAVING blues > 0
+          ORDER BY blues DESC, podiums DESC, ribbons DESC
+          LIMIT 10
+        `).bind(show.id).all();
+
+        // Champions & Reserve Champions — parse H[11] from cls_raw header
+        const champClasses = await env.WEST_DB.prepare(`
+          SELECT c.id, c.class_name, c.cls_raw, c.class_type
+          FROM classes c
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+            AND c.class_type = 'H' AND c.cls_raw IS NOT NULL AND c.cls_raw != ''
+        `).bind(show.id).all();
+        const champClassIds = [];
+        for (const cc of (champClasses.results || [])) {
+          const header = cc.cls_raw.split(/\r?\n/)[0].split(',');
+          if (header[11] === 'True') champClassIds.push(cc);
+        }
+        let champResults = [];
+        for (const cc of champClassIds) {
+          const rows = await env.WEST_DB.prepare(`
+            SELECT e.horse, e.rider, r.place
+            FROM entries e
+            JOIN results r ON r.entry_id = e.id AND r.round = 1
+            WHERE e.class_id = ? AND r.place IS NOT NULL AND r.place != ''
+              AND CAST(r.place AS INTEGER) BETWEEN 1 AND 2
+            ORDER BY CAST(r.place AS INTEGER)
+          `).bind(cc.id).all();
+          for (const row of (rows.results || [])) {
+            champResults.push({ horse: row.horse, rider: row.rider, class_name: cc.class_name, place: row.place });
+          }
+        }
+        champResults.sort((a, b) => a.class_name.localeCompare(b.class_name) || parseInt(a.place) - parseInt(b.place));
+
+        // Prize money leaders (by horse)
+        const prizeLeaders = await env.WEST_DB.prepare(`
+          SELECT e.horse, e.rider, c.class_num, c.class_name,
+                 r.place, c.cls_raw
+          FROM entries e
+          JOIN results r ON r.entry_id = e.id AND r.round = 1
+          JOIN classes c ON e.class_id = c.id
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+            AND r.place IS NOT NULL AND r.place != '' AND CAST(r.place AS INTEGER) > 0
+            AND e.horse IS NOT NULL AND e.horse != ''
+        `).bind(show.id).all();
+
+        // Compute prize money from cls_raw @money rows
+        const prizeTotals = {};
+        const classMoneyCache = {};
+        for (const row of (prizeLeaders.results || [])) {
+          if (!row.cls_raw) continue;
+          if (!classMoneyCache[row.class_num]) {
+            const moneyLine = row.cls_raw.split(/\r?\n/).find(l => l.startsWith('@money'));
+            classMoneyCache[row.class_num] = moneyLine ? moneyLine.split(',').slice(1).map(Number) : [];
+          }
+          const prizes = classMoneyCache[row.class_num];
+          const p = parseInt(row.place);
+          if (p > 0 && p <= prizes.length && prizes[p - 1] > 0) {
+            const key = row.horse.toUpperCase();
+            if (!prizeTotals[key]) prizeTotals[key] = { horse: row.horse, rider: row.rider, total: 0, classes: 0 };
+            prizeTotals[key].total += prizes[p - 1];
+            prizeTotals[key].classes++;
+          }
+        }
+        const moneyLeaders = Object.values(prizeTotals)
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10);
+
+        return jsonWithEtag(request, {
+          ok: true,
+          stats: {
+            totalEntries: totals.totalEntries || 0,
+            uniqueRiders: totals.uniqueRiders || 0,
+            uniqueHorses: totals.uniqueHorses || 0,
+            entriesPerDay: perDay.results || [],
+            topRiders: topRiders.results || [],
+            topHorses: topHorses.results || [],
+            champions: champResults,
+            moneyLeaders: moneyLeaders,
+          }
+        });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── GET /getShowWeather ──────────────────────────────────────────────────
+    // Per-day weather for show dates. Checks D1 cache first, fetches from
+    // Open-Meteo (historical or forecast) for missing days, stores permanently.
+    if (method === 'GET' && path === '/getShowWeather') {
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB.prepare(
+          'SELECT id, location, start_date, end_date FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show || !show.start_date || !show.location) return json({ ok: true, days: [] });
+
+        const startDate = show.start_date;
+        const endDate = show.end_date || show.start_date;
+
+        // Get cached days from D1
+        const cached = await env.WEST_DB.prepare(
+          'SELECT date, temp_high, temp_low, weather_code, precip_mm, wind_max, humidity_mean FROM show_weather WHERE show_id = ? ORDER BY date'
+        ).bind(show.id).all();
+        const cachedMap = {};
+        (cached.results || []).forEach(r => { cachedMap[r.date] = r; });
+
+        // Build list of all show dates
+        const allDates = [];
+        let cur = new Date(startDate + 'T12:00:00Z');
+        const end = new Date(endDate + 'T12:00:00Z');
+        while (cur <= end) {
+          allDates.push(cur.toISOString().split('T')[0]);
+          cur.setDate(cur.getDate() + 1);
+        }
+
+        // Find missing dates
+        const today = new Date().toISOString().split('T')[0];
+        const missingPast = allDates.filter(d => d <= today && !cachedMap[d]);
+        const missingFuture = allDates.filter(d => d > today && !cachedMap[d]);
+
+        // Geocode location
+        let lat = null, lon = null;
+        if (missingPast.length || missingFuture.length) {
+          const city = show.location.split(',')[0].trim();
+          const geoR = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=1');
+          if (geoR.ok) {
+            const geo = await geoR.json();
+            if (geo.results && geo.results.length) {
+              lat = geo.results[0].latitude;
+              lon = geo.results[0].longitude;
+            }
+          }
+        }
+
+        // Fetch historical for past missing dates
+        if (lat && missingPast.length) {
+          const histStart = missingPast[0];
+          const histEnd = missingPast[missingPast.length - 1];
+          try {
+            const hr = await fetch('https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon
+              + '&start_date=' + histStart + '&end_date=' + histEnd
+              + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,relative_humidity_2m_mean'
+              + '&timezone=America/New_York&temperature_unit=fahrenheit');
+            if (hr.ok) {
+              const hd = await hr.json();
+              if (hd.daily && hd.daily.time) {
+                const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+                for (let i = 0; i < hd.daily.time.length; i++) {
+                  const date = hd.daily.time[i];
+                  if (!cachedMap[date]) {
+                    const row = {
+                      date, temp_high: hd.daily.temperature_2m_max[i],
+                      temp_low: hd.daily.temperature_2m_min[i],
+                      weather_code: hd.daily.weathercode[i],
+                      precip_mm: hd.daily.precipitation_sum ? hd.daily.precipitation_sum[i] : null,
+                      wind_max: hd.daily.windspeed_10m_max ? hd.daily.windspeed_10m_max[i] : null,
+                      humidity_mean: hd.daily.relative_humidity_2m_mean ? hd.daily.relative_humidity_2m_mean[i] : null,
+                    };
+                    cachedMap[date] = row;
+                    await env.WEST_DB.prepare(
+                      'INSERT INTO show_weather (show_id, date, temp_high, temp_low, weather_code, precip_mm, wind_max, humidity_mean, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(show_id, date) DO UPDATE SET temp_high=excluded.temp_high, temp_low=excluded.temp_low, weather_code=excluded.weather_code, precip_mm=excluded.precip_mm, wind_max=excluded.wind_max, humidity_mean=excluded.humidity_mean, updated_at=excluded.updated_at'
+                    ).bind(show.id, date, row.temp_high, row.temp_low, row.weather_code, row.precip_mm, row.wind_max, row.humidity_mean, now).run();
+                  }
+                }
+              }
+            }
+          } catch(e) { console.error('[weather hist]', e.message); }
+        }
+
+        // Fetch forecast for future missing dates
+        if (lat && missingFuture.length) {
+          try {
+            const fr = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon
+              + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,relative_humidity_2m_mean'
+              + '&timezone=America/New_York&temperature_unit=fahrenheit&forecast_days=14');
+            if (fr.ok) {
+              const fd = await fr.json();
+              if (fd.daily && fd.daily.time) {
+                for (let i = 0; i < fd.daily.time.length; i++) {
+                  const date = fd.daily.time[i];
+                  if (missingFuture.includes(date) && !cachedMap[date]) {
+                    cachedMap[date] = {
+                      date, temp_high: fd.daily.temperature_2m_max[i],
+                      temp_low: fd.daily.temperature_2m_min[i],
+                      weather_code: fd.daily.weathercode[i],
+                      precip_mm: fd.daily.precipitation_sum ? fd.daily.precipitation_sum[i] : null,
+                      wind_max: fd.daily.windspeed_10m_max ? fd.daily.windspeed_10m_max[i] : null,
+                      humidity_mean: fd.daily.relative_humidity_2m_mean ? fd.daily.relative_humidity_2m_mean[i] : null,
+                    };
+                    // Don't persist forecasts — they change daily
+                  }
+                }
+              }
+            }
+          } catch(e) { console.error('[weather forecast]', e.message); }
+        }
+
+        // Build response — only show dates
+        const days = allDates.map(d => cachedMap[d] || { date: d }).filter(d => d.temp_high != null);
+
+        return jsonWithEtag(request, { ok: true, days });
+      } catch(e) { return err('Weather error: ' + e.message); }
+    }
+
+    // ── GET /searchShow ────────────────────────────────────────────────────────
+    // Search for rider or horse across all classes at a show
+    if (method === 'GET' && path === '/searchShow') {
+      const slug = url.searchParams.get('slug');
+      const q = (url.searchParams.get('q') || '').trim();
+      if (!slug) return err('Missing slug');
+      if (!q || q.length < 2) return json({ ok: true, results: [] });
+      try {
+        const show = await env.WEST_DB.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return json({ ok: true, results: [] });
+        const pattern = '%' + q + '%';
+        const rows = await env.WEST_DB.prepare(`
+          SELECT e.entry_num, e.horse, e.rider, e.owner, e.sire, e.dam, e.city, e.state,
+                 c.class_num, c.class_name, c.class_type, c.ring,
+                 r.round, r.time, r.jump_faults, r.time_faults, r.total, r.place, r.status_code
+          FROM entries e
+          JOIN classes c ON e.class_id = c.id
+          LEFT JOIN results r ON r.entry_id = e.id
+          WHERE c.show_id = ? AND (c.hidden = 0 OR c.hidden IS NULL)
+            AND (e.horse LIKE ? OR e.rider LIKE ?)
+          ORDER BY e.horse, e.rider, c.class_num, r.round
+        `).bind(show.id, pattern, pattern).all();
+
+        // Group by unique horse+rider combo
+        const grouped = {};
+        for (const row of (rows.results || [])) {
+          const key = (row.horse || '').toUpperCase() + '|' + (row.rider || '').toUpperCase();
+          if (!grouped[key]) {
+            grouped[key] = {
+              entry_num: row.entry_num, horse: row.horse, rider: row.rider,
+              owner: row.owner, sire: row.sire, dam: row.dam,
+              city: row.city, state: row.state, classes: {}
+            };
+          }
+          const cn = row.class_num;
+          if (!grouped[key].classes[cn]) {
+            grouped[key].classes[cn] = {
+              class_num: cn, class_name: row.class_name,
+              class_type: row.class_type, ring: row.ring, rounds: []
+            };
+          }
+          if (row.round) {
+            grouped[key].classes[cn].rounds.push({
+              round: row.round, time: row.time, jump_faults: row.jump_faults,
+              time_faults: row.time_faults, total: row.total,
+              place: row.place, status_code: row.status_code
+            });
+          }
+        }
+
+        // Convert to array, classes as array
+        const results = Object.values(grouped).map(g => ({
+          ...g, classes: Object.values(g.classes)
+        }));
+
+        return jsonWithEtag(request, { ok: true, results });
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
@@ -810,6 +1156,7 @@ export default {
         "ALTER TABLE shows ADD COLUMN start_date TEXT",
         "ALTER TABLE shows ADD COLUMN end_date TEXT",
         "ALTER TABLE classes ADD COLUMN final_results TEXT",
+        "CREATE TABLE IF NOT EXISTS show_weather (id INTEGER PRIMARY KEY AUTOINCREMENT, show_id INTEGER NOT NULL, date TEXT NOT NULL, temp_high REAL, temp_low REAL, weather_code INTEGER, precip_mm REAL, wind_max REAL, humidity_mean REAL, source TEXT DEFAULT 'open-meteo', updated_at TEXT, UNIQUE(show_id, date))",
       ];
       for (const sql of migrations) {
         try { await env.WEST_DB.prepare(sql).run(); results.push({ sql, ok: true }); }
@@ -1091,14 +1438,15 @@ async function autoCompleteShow(env, slug) {
 }
 
 // ── AUTO-COMPLETE STALE CLASSES ──────────────────────────────────────────────
-// Classes not updated in 3+ hours get marked complete (unless show is locked)
+// Classes not updated in 15 min get marked complete (unless show is locked).
+// Safe because any .cls write or Ctrl+A reopens the class immediately.
 async function autoCompleteStaleClasses(env, slug) {
   try {
     const result = await env.WEST_DB.prepare(`
       UPDATE classes SET status = 'complete', updated_at = datetime('now')
       WHERE show_id = (SELECT id FROM shows WHERE slug = ? AND status != 'complete')
         AND status = 'active'
-        AND updated_at < datetime('now', '-30 minutes')
+        AND updated_at < datetime('now', '-15 minutes')
     `).bind(slug).run();
     if (result.meta.changes > 0) {
       console.log(`[autoComplete] ${slug} — ${result.meta.changes} class(es) auto-completed`);
@@ -1226,8 +1574,8 @@ async function writeToD1(env, body, slug, ring) {
         clock_precision = excluded.clock_precision,
         cls_raw         = excluded.cls_raw,
         sponsor         = excluded.sponsor,
-        status          = 'active',
-        updated_at      = excluded.updated_at
+        status          = CASE WHEN classes.cls_raw = excluded.cls_raw THEN classes.status ELSE 'active' END,
+        updated_at      = CASE WHEN classes.cls_raw = excluded.cls_raw THEN classes.updated_at ELSE excluded.updated_at END
     `).bind(
       show.id, ring, classNum,
       body.className      || '',
@@ -1611,8 +1959,24 @@ function getHunterClassInfo(h) {
   else if (isEquitation) label = 'Equitation';
   else if (isChampionship) label = 'Hunter Championship';
 
+  // H[3] = NumRounds (1, 2, or 3). Ryegate max is 3.
+  let numRounds = parseInt(h[3]) || 1;
+  if (numRounds < 1) numRounds = 1;
+  if (numRounds > 3) numRounds = 3;
+
+  // H[25]/H[26]/H[27] = phase labels. Defaults are "Phase 1"/"Phase 2"/"Phase 3"
+  // — if the operator left them default, fall back to "R1"/"R2"/"R3" for display.
+  // Only emit roundLabels if the operator customized at least one.
+  const p1 = h[25] || '';
+  const p2 = h[26] || '';
+  const p3 = h[27] || '';
+  const anyCustom = (p1 && p1 !== 'Phase 1') || (p2 && p2 !== 'Phase 2') || (p3 && p3 !== 'Phase 3');
+  const roundLabels = anyCustom
+    ? [p1 || 'R1', p2 || 'R2', p3 || 'R3']
+    : null;
+
   return { classMode, isDerby, isFlat, isSpecial, isEquitation, isChampionship,
-           scoringType, scoreMethod, judgeCount, label };
+           scoringType, scoreMethod, judgeCount, numRounds, roundLabels, label };
 }
 
 // ── HUNTER DERBY: PARSE PER-JUDGE FROM CLS ROW ──────────────────────────────
@@ -1734,13 +2098,29 @@ function computeDerbyRankings(entries, judgeCount) {
 // Split decision check — judges disagree on any of positions 1/2/3
 function isSplitDecision(entries, judgeCount) {
   if (judgeCount < 2) return false;
-  for (let pos = 1; pos <= 3; pos++) {
-    const atPos = [];
-    for (let j = 0; j < judgeCount; j++) {
-      const found = entries.find(e => e.judgeCardRanks && e.judgeCardRanks[j] === pos);
-      if (found) atPos.push(found.entry_num);
-    }
-    if (atPos.length >= 2 && atPos.some(n => n !== atPos[0])) return true;
+  // Use the COMBINED placing top 3 per judge — sort by combined score
+  // Only flag if the final combined result top 3 would differ when viewed per judge
+  // Simple: compare overall place top 3 vs each judge's top 3 by card total
+  const overallTop3 = entries
+    .filter(e => parseInt(e.place) > 0)
+    .sort((a, b) => parseInt(a.place) - parseInt(b.place))
+    .slice(0, 3)
+    .map(e => e.entry_num)
+    .sort()
+    .join(',');
+  if (!overallTop3) return false;
+  for (let j = 0; j < judgeCount; j++) {
+    const sorted = entries
+      .filter(e => e.judgeCardTotals && e.judgeCardTotals[j] != null && e.judgeCardTotals[j] > 0)
+      .slice()
+      .sort((a, b) => {
+        const diff = (b.judgeCardTotals[j] || 0) - (a.judgeCardTotals[j] || 0);
+        if (diff !== 0) return diff;
+        // Tie-break by overall place to match final standings
+        return (parseInt(a.place) || 999) - (parseInt(b.place) || 999);
+      });
+    const judgeTop3 = sorted.slice(0, 3).map(e => e.entry_num).sort().join(',');
+    if (judgeTop3 !== overallTop3) return true;
   }
   return false;
 }
@@ -1814,6 +2194,8 @@ function computeHunterResults(body, h, base) {
     isEquitation: info.isEquitation,
     isChampionship: info.isChampionship,
     judgeCount: info.judgeCount,
+    numRounds: info.numRounds,
+    roundLabels: info.roundLabels,
     scoringType: info.scoringType,
     scoreMethod: info.scoreMethod,
     classMode: info.classMode,
@@ -1826,7 +2208,15 @@ function computeHunterResults(body, h, base) {
   if (info.isDerby) {
     // Parse per-judge data from cls rows
     const rows = parseClsRows(clsRaw);
+    // Numeric status map: 0=none, 1=DNS, 2=EL, 3=RT, 4=WD, 5=RF, 6=OC, 7=MR, 8=HC
+    const numStatusMap = {'1':'DNS','2':'EL','3':'RT','4':'WD','5':'RF','6':'OC','7':'MR','8':'HC'};
     let entries = rows.map(r => parseDerbyEntry(r, info.judgeCount));
+    // Normalize status codes
+    entries.forEach(e => {
+      e.r1StatusCode = e.r1TextStatus || numStatusMap[e.r1NumericStatus] || '';
+      e.r2StatusCode = e.r2TextStatus || numStatusMap[e.r2NumericStatus] || '';
+      e.statusCode = e.r2StatusCode || e.r1StatusCode || '';
+    });
     entries = computeDerbyRankings(entries, info.judgeCount);
     result.isSplitDecision = isSplitDecision(entries, info.judgeCount);
 
@@ -1945,66 +2335,84 @@ function computeJumperResults(body, h, base) {
   // ── Stats computation ──────────────────────────────────────────────────────
   const elimStatuses = ['EL','RF','HF','OC','WD','DNS','DNF','SC','RT'];
   const isElim = sc => elimStatuses.includes((sc || '').toUpperCase());
-
   const competed = structured.filter(e => e.hasGone);
-  const r1Valid = competed.filter(e => !isElim(e.statusCode) && !isElim(e.r1StatusCode) && e.r1TotalTime);
-  const r1Elim = competed.filter(e => isElim(e.statusCode) || isElim(e.r1StatusCode));
-  const r1Faults = r1Valid.map(e => parseFloat(e.r1TotalFaults) || 0);
-  const r1Times = r1Valid.map(e => parseFloat(e.r1TotalTime) || 0).filter(t => t > 0);
 
-  const clearCount = r1Faults.filter(f => f === 0).length;
-  const avgFaults = r1Faults.length ? r1Faults.reduce((a, b) => a + b, 0) / r1Faults.length : 0;
-  const timeFaultCount = r1Valid.filter(e => parseFloat(e.r1TimeFaults) > 0).length;
-  const avgTime = r1Times.length ? r1Times.reduce((a, b) => a + b, 0) / r1Times.length : 0;
+  // Per-round stats builder
+  function buildRoundStats(entries, rnd) {
+    const fKey = `r${rnd}TotalFaults`, tKey = `r${rnd}TotalTime`, tfKey = `r${rnd}TimeFaults`, scKey = `r${rnd}StatusCode`;
+    const valid = entries.filter(e => e[tKey] && !isElim(e[scKey]) && !isElim(e.statusCode));
+    if (!valid.length) return null;
+    const elim = entries.filter(e => e[tKey] && (isElim(e[scKey]) || isElim(e.statusCode)));
+    const faults = valid.map(e => parseFloat(e[fKey]) || 0);
+    const times = valid.map(e => parseFloat(e[tKey]) || 0).filter(t => t > 0);
+    const clearCount = faults.filter(f => f === 0).length;
+    const avgFaults = faults.length ? faults.reduce((a, b) => a + b, 0) / faults.length : 0;
+    const timeFaultCount = valid.filter(e => parseFloat(e[tfKey]) > 0).length;
+    const avgTime = times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0;
+    const clearTimes = valid.filter(e => parseFloat(e[fKey]) === 0).map(e => parseFloat(e[tKey]) || 0).filter(t => t > 0);
+    const avgClearTime = clearTimes.length ? clearTimes.reduce((a, b) => a + b, 0) / clearTimes.length : 0;
 
-  const clearTimes = r1Valid.filter(e => parseFloat(e.r1TotalFaults) === 0)
-    .map(e => parseFloat(e.r1TotalTime) || 0).filter(t => t > 0);
-  const avgClearTime = clearTimes.length ? clearTimes.reduce((a, b) => a + b, 0) / clearTimes.length : 0;
-
-  // Fault buckets: 0-8 individual, 9-11 grouped, 12+ grouped
-  const faultBuckets = [];
-  const faultSet = {};
-  r1Faults.forEach(f => { faultSet[f] = true; });
-  Object.keys(faultSet).map(Number).sort((a, b) => a - b)
-    .filter(f => f <= 8)
-    .forEach(f => {
-      faultBuckets.push({ label: f + ' faults', value: f, count: r1Faults.filter(x => x === f).length });
+    // Fault buckets
+    const faultBuckets = [];
+    const faultSet = {};
+    faults.forEach(f => { faultSet[f] = true; });
+    Object.keys(faultSet).map(Number).sort((a, b) => a - b).filter(f => f <= 8).forEach(f => {
+      faultBuckets.push({ label: f + ' faults', value: f, count: faults.filter(x => x === f).length });
     });
-  const mid = r1Faults.filter(f => f >= 9 && f <= 11);
-  if (mid.length) faultBuckets.push({ label: '9-11 faults', value: 'mid', count: mid.length });
-  const high = r1Faults.filter(f => f >= 12);
-  if (high.length) faultBuckets.push({ label: '12+ faults', value: 'high', count: high.length });
-  if (r1Elim.length) faultBuckets.push({ label: 'Eliminated', value: 'elim', count: r1Elim.length });
+    const mid = faults.filter(f => f >= 9 && f <= 11);
+    if (mid.length) faultBuckets.push({ label: '9-11 faults', value: 'mid', count: mid.length });
+    const high = faults.filter(f => f >= 12);
+    if (high.length) faultBuckets.push({ label: '12+ faults', value: 'high', count: high.length });
+    if (elim.length) faultBuckets.push({ label: 'Eliminated', value: 'elim', count: elim.length });
 
-  // Fastest 4-fault
-  const f4 = r1Valid.filter(e => parseFloat(e.r1TotalFaults) === 4);
-  let fastest4Fault = null;
-  if (f4.length) {
-    const best = f4.reduce((b, e) => {
-      const t = parseFloat(e.r1TotalTime) || 999;
-      return t < (b.time || 999) ? { entry_num: e.entry_num, horse: e.horse, rider: e.rider, time: t } : b;
-    }, { time: 999 });
-    if (best.entry_num) fastest4Fault = best;
+    // Fastest 4-fault
+    const f4 = valid.filter(e => parseFloat(e[fKey]) === 4);
+    let fastest4Fault = null;
+    if (f4.length) {
+      const best = f4.reduce((b, e) => {
+        const t = parseFloat(e[tKey]) || 999;
+        return t < (b.time || 999) ? { entry_num: e.entry_num, horse: e.horse, rider: e.rider, time: t } : b;
+      }, { time: 999 });
+      if (best.entry_num) fastest4Fault = best;
+    }
+
+    // Leaderboard
+    const leaderboard = valid.slice().sort((a, b) => {
+      const fa = parseFloat(a[fKey]) || 0, fb = parseFloat(b[fKey]) || 0;
+      if (fa !== fb) return fa - fb;
+      return (parseFloat(a[tKey]) || 0) - (parseFloat(b[tKey]) || 0);
+    });
+    const leaderTime = leaderboard.length ? (parseFloat(leaderboard[0][tKey]) || 0) : 0;
+    const leaderFaults = leaderboard.length ? (parseFloat(leaderboard[0][fKey]) || 0) : 0;
+    const leaderboardWithGap = leaderboard.map((e, i) => {
+      const f = parseFloat(e[fKey]) || 0;
+      const t = parseFloat(e[tKey]) || 0;
+      let gap = '';
+      if (i > 0) {
+        if (f > leaderFaults) gap = '+' + (f - leaderFaults) + ' flt';
+        else if (t > leaderTime) gap = '+' + (t - leaderTime).toFixed(3) + 's';
+      }
+      return { ...e, rank: i + 1, gap };
+    });
+
+    return {
+      total: valid.length,
+      eliminated: elim.length,
+      clearRounds: clearCount,
+      clearPct: faults.length ? Math.round(clearCount / faults.length * 1000) / 10 : 0,
+      avgFaults: Math.round(avgFaults * 100) / 100,
+      timeFaultCount,
+      avgTime: Math.round(avgTime * 1000) / 1000,
+      avgClearTime: Math.round(avgClearTime * 1000) / 1000,
+      faultBuckets,
+      fastest4Fault,
+      leaderboard: leaderboardWithGap,
+    };
   }
 
-  // Leaderboard: sorted by faults asc, then time asc, with gap from leader
-  const leaderboard = r1Valid.slice().sort((a, b) => {
-    const fa = parseFloat(a.r1TotalFaults) || 0, fb = parseFloat(b.r1TotalFaults) || 0;
-    if (fa !== fb) return fa - fb;
-    return (parseFloat(a.r1TotalTime) || 0) - (parseFloat(b.r1TotalTime) || 0);
-  });
-  const leaderTime = leaderboard.length ? (parseFloat(leaderboard[0].r1TotalTime) || 0) : 0;
-  const leaderFaults = leaderboard.length ? (parseFloat(leaderboard[0].r1TotalFaults) || 0) : 0;
-  const leaderboardWithGap = leaderboard.map((e, i) => {
-    const f = parseFloat(e.r1TotalFaults) || 0;
-    const t = parseFloat(e.r1TotalTime) || 0;
-    let gap = '';
-    if (i > 0) {
-      if (f > leaderFaults) gap = '+' + (f - leaderFaults) + ' flt';
-      else if (t > leaderTime) gap = '+' + (t - leaderTime).toFixed(3) + 's';
-    }
-    return { ...e, rank: i + 1, gap };
-  });
+  const r1Stats = buildRoundStats(competed, 1);
+  const r2Stats = buildRoundStats(competed, 2);
+  const r3Stats = buildRoundStats(competed, 3);
 
   return {
     ...base,
@@ -2020,16 +2428,21 @@ function computeJumperResults(body, h, base) {
     stats: {
       totalEntries: structured.length,
       competed: competed.length,
-      eliminated: r1Elim.length,
-      clearRounds: clearCount,
-      clearPct: r1Faults.length ? Math.round(clearCount / r1Faults.length * 1000) / 10 : 0,
-      avgFaults: Math.round(avgFaults * 100) / 100,
-      timeFaultCount,
-      avgTime: Math.round(avgTime * 1000) / 1000,
-      avgClearTime: Math.round(avgClearTime * 1000) / 1000,
-      faultBuckets,
-      fastest4Fault,
-      leaderboard: leaderboardWithGap,
+      eliminated: r1Stats ? r1Stats.eliminated : 0,
+      // Legacy R1 fields for backward compat
+      clearRounds: r1Stats ? r1Stats.clearRounds : 0,
+      clearPct: r1Stats ? r1Stats.clearPct : 0,
+      avgFaults: r1Stats ? r1Stats.avgFaults : 0,
+      timeFaultCount: r1Stats ? r1Stats.timeFaultCount : 0,
+      avgTime: r1Stats ? r1Stats.avgTime : 0,
+      avgClearTime: r1Stats ? r1Stats.avgClearTime : 0,
+      faultBuckets: r1Stats ? r1Stats.faultBuckets : [],
+      fastest4Fault: r1Stats ? r1Stats.fastest4Fault : null,
+      leaderboard: r1Stats ? r1Stats.leaderboard : [],
+      // Per-round stats
+      r1: r1Stats,
+      r2: r2Stats,
+      r3: r3Stats,
     },
   };
 }

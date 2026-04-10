@@ -30,6 +30,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);}
 .logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:#fff;}
 .logo-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);margin:0 3px;}
 .logo-scoring{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);letter-spacing:.04em;}
+@media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
 
 /* BREADCRUMBS */
 .breadcrumbs{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:0;min-height:40px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
@@ -232,6 +233,71 @@ function fmtTime(val) {
 }
 
 let _judgeView = false;
+
+function renderJudgeGridView(computed, opts) {
+  var entries = computed.entries || [];
+  var judgeCount = computed.judgeCount || 1;
+  var isDerby = computed.isDerby || false;
+  var isEq = computed.isEquitation || false;
+  var showFlags = computed.showFlags || false;
+  var numRounds = computed.numRounds || 2;
+  var roundLabels = computed.roundLabels || null;
+  var jgOpts = { isDerby: isDerby, numRounds: numRounds, roundLabels: roundLabels };
+  var isLive = opts && opts.isLive;
+  if (!entries.length || judgeCount < 2) return '<div class="results-wrap"><div class="no-results">No multi-judge data.</div></div>';
+
+  // Get header from first entry
+  var sample = WEST.hunter.renderJudgeGrid(entries[0], judgeCount, null, jgOpts);
+
+  var html = '<div class="results-wrap">';
+  // Column headers
+  html += '<div style="padding:10px 16px 6px;">' + sample.header + '</div>';
+
+  entries.forEach(function(e) {
+    var place = e.place || '';
+    var sd = WEST.hunter.getStatusDisplay
+      ? WEST.hunter.getStatusDisplay(e.r1StatusCode || '', e.r2StatusCode || '', e.r3StatusCode || '')
+      : null;
+    var isElimRow = sd && !sd.showPlace;
+
+    html += '<div class="result-entry"><div class="result-main">';
+
+    // Ribbon / place
+    var ribbonSvg = '';
+    if (isElimRow) {
+      html += '<div class="r-ribbon"><div class="r-place-txt">&mdash;</div></div>';
+    } else {
+      var isChamp = computed.isChampionship || false;
+      ribbonSvg = (!isLive && place) ? WEST.ribbon.placeRibbon(place, computed.className, isChamp) : '';
+      if (ribbonSvg) {
+        html += '<div class="r-ribbon">' + ribbonSvg + '</div>';
+      } else {
+        html += '<div class="r-ribbon"><div class="r-place-txt">' + (place || '&mdash;') + '</div></div>';
+      }
+    }
+
+    // Entry info
+    var flag = showFlags ? WEST.countryFlag(e.country, true) : '';
+    if (isEq) {
+      var locale = [e.city, e.state].filter(Boolean).join(', ');
+      html += '<div class="r-info"><div class="r-horse-rider"><span class="r-bib">' + esc(e.entry_num) + '</span><span class="r-horse">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>' + (locale ? '<span class="r-rider-inline">' + esc(locale) + '</span>' : '') + '</div>' + (e.horse ? '<div class="r-owner">' + esc(e.horse) + '</div>' : '') + '</div>';
+    } else {
+      var breeding = [e.sire, e.dam].filter(Boolean).join(' x ');
+      html += '<div class="r-info"><div class="r-horse-rider"><span class="r-bib">' + esc(e.entry_num) + '</span><span class="r-horse">' + esc(e.horse) + '</span><span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span></div>'
+        + (breeding ? '<div class="r-breeding">' + esc(breeding) + '</div>' : '')
+        + (e.owner && e.owner !== e.rider ? '<div class="r-owner">' + esc(e.owner) + '</div>' : '')
+        + '</div>';
+    }
+
+    // Judge grid
+    var jg = WEST.hunter.renderJudgeGrid(e, judgeCount, sd, jgOpts);
+    html += '<div class="r-scores">' + jg.row + '</div>';
+
+    html += '</div></div>';
+  });
+  html += '</div>';
+  return html;
+}
 function toggleJudgeView() {
   _judgeView = !_judgeView;
   renderTitle();
@@ -262,7 +328,7 @@ function renderTitle() {
     const c = _c;
     const judgeCount = c ? (c.judgeCount || 1) : WEST.hunter.derby.getJudgeCount(classInfo);
     if (judgeCount >= 2) {
-      const btnLabel = _judgeView ? 'View Combined' : 'View Judges Scores';
+      const btnLabel = _judgeView ? 'View Combined' : '<u>View Judges Cards</u>';
       judgesBtn = '<button class="judges-btn' + (_judgeView ? ' active' : '') + '" onclick="toggleJudgeView()">' + btnLabel + '</button>';
       if (c ? c.isSplitDecision : false) {
         splitPill = '<span class="split-pill">Split Decision</span>';
@@ -331,9 +397,11 @@ function renderDerby() {
   const c = classInfo._computed;
   let html;
   if (c && c.entries && c.entries.length && c.entries[0].r1Ranks) {
-    html = _judgeView
-      ? WEST.hunter.derby.renderPrecomputedByJudge(c, opts)
-      : WEST.hunter.derby.renderPrecomputed(c, opts);
+    if (_judgeView) {
+      html = WEST.hunter.derby.renderPrecomputedByJudge(c, opts);
+    } else {
+      html = WEST.hunter.derby.renderPrecomputed(c, opts);
+    }
   } else {
     html = _judgeView
       ? WEST.hunter.derby.renderByJudgeList(classInfo, opts)
@@ -423,6 +491,7 @@ function renderResults() {
   const sm = c ? (c.scoringMethod || '') : (classInfo.scoring_method || '');
   const method = WEST.jumper.getMethod(sm);
   const isOptimum = c ? !!c.isOptimum : method.isOptimum;
+  const isFaultsConverted = c ? !!c.isFaultsConverted : false;
   let optimumTime = 0;
   if (c && c.optimumTime) {
     optimumTime = c.optimumTime;
@@ -536,34 +605,45 @@ function renderResults() {
       html += '<div class="r-scores"><span class="r-status">' + esc(sd.label) + '</span></div>';
     } else if (hasResult && isJumper) {
       html += '<div class="r-scores">';
-      const roundShow = { 1: !sd || sd.showR1, 2: !sd || sd.showR2, 3: !sd || sd.showR3 };
-      g.rounds.sort((a, b) => b.round - a.round);
-      g.rounds.forEach(r => {
-        const lbl = roundLabel(r.round);
-        if (!roundShow[r.round]) {
-          // This round hidden by status rules — show label + status code
-          html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-            + '<span class="r-status">' + esc(sd ? sd.label : '') + '</span></div>';
-        } else {
-          const total = parseFloat(r.total) || 0;
-          const isClean = total === 0;
-          html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-            + '<span class="r-score-val' + (isClean ? ' clean' : '') + '">' + (isClean ? '0' : total) + ' flt</span>'
-            + (r.time ? '<span class="r-score-val">' + fmtTime(r.time) + '</span>' : '')
-            + '</div>';
+      if (isFaultsConverted) {
+        // Table III: show jump faults (muted, centered) + final time (bold)
+        const r = g.rounds.find(r => r.round === 1) || g.rounds[0];
+        if (r) {
+          const jf = parseFloat(r.jump_faults || 0);
+          html += '<div class="r-score-row">'
+            + '<span class="r-score-val" style="color:#bbb;text-align:center;min-width:56px;">' + jf + '</span>'
+            + '<span class="r-score-val" style="font-weight:600;">' + fmtTime(r.time) + '</span></div>';
         }
-        // Optimum time distance for IV.1 classes
-        if (isOptimum && optimumTime > 0 && r.time && r.round === 1) {
-          const t = parseFloat(r.time);
-          if (!isNaN(t)) {
-            const dist = t - optimumTime;
-            const sign = dist >= 0 ? '+' : '';
-            html += '<div class="r-score-row"><span class="r-score-lbl">OPT</span>'
-              + '<span class="r-score-val" style="font-size:11px;color:' + (Math.abs(dist) < 1 ? 'var(--green)' : 'var(--text-muted)') + ';">'
-              + sign + dist.toFixed(3) + 's</span></div>';
+      } else {
+        const roundShow = { 1: !sd || sd.showR1, 2: !sd || sd.showR2, 3: !sd || sd.showR3 };
+        g.rounds.sort((a, b) => b.round - a.round);
+        g.rounds.forEach(r => {
+          const lbl = roundLabel(r.round);
+          if (!roundShow[r.round]) {
+            // This round hidden by status rules — show label + status code
+            html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+              + '<span class="r-status">' + esc(sd ? sd.label : '') + '</span></div>';
+          } else {
+            const total = parseFloat(r.total) || 0;
+            const isClean = total === 0;
+            html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
+              + '<span class="r-score-val' + (isClean ? ' clean' : '') + '">' + (isClean ? '0' : total) + ' flt</span>'
+              + (r.time ? '<span class="r-score-val">' + fmtTime(r.time) + '</span>' : '')
+              + '</div>';
           }
-        }
-      });
+          // Optimum time distance for IV.1 classes
+          if (isOptimum && optimumTime > 0 && r.time && r.round === 1) {
+            const t = parseFloat(r.time);
+            if (!isNaN(t)) {
+              const dist = t - optimumTime;
+              const sign = dist >= 0 ? '+' : '';
+              html += '<div class="r-score-row"><span class="r-score-lbl">OPT</span>'
+                + '<span class="r-score-val" style="font-size:11px;color:' + (Math.abs(dist) < 1 ? 'var(--green)' : 'var(--text-muted)') + ';">'
+                + sign + dist.toFixed(3) + 's</span></div>';
+            }
+          }
+        });
+      }
       html += '</div>';
     } else if (hasResult && isHunter) {
       html += '<div class="r-scores">';

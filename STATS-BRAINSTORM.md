@@ -250,6 +250,16 @@ Hunter forced/flat: place only (no scores to compute).
 stats.html consumes pre-computed stats object from `/getResults`. Falls back
 to client-side computation for historical classes without pre-computed data.
 
+### Phase A.5 — Show-level stats ✅ COMPLETE (2026-04-09)
+`/getShowStats` endpoint: top riders (blues, podiums), top horses, champions &
+reserve (parsed from cls_raw H[11]), prize money leaders, entries per day.
+`/searchShow` endpoint: search rider or horse across all classes at a show.
+`/getShowWeather` endpoint: per-day weather for show dates (Open-Meteo historical
++ forecast), cached in D1 show_weather table. Weather hidden until 3 days before show.
+show.html: leaderboard cards (collapsible), search bar, entries per day, weather strip,
+current conditions in hero. display.html: per-round stats (from worker stats.r1/r2/r3).
+Per-round worker stats: stats.r1, stats.r2, stats.r3 computed for all jumper classes.
+
 ### Phase B — Cross-class / cross-show stats (Devon / post-season)
 New `/getStats` Worker endpoints with D1 queries that aggregate across classes,
 shows, and seasons. Enables the big-picture stats from this brainstorm:
@@ -268,4 +278,4 @@ every show scored through the watcher feeds the future stats engine.
 
 ---
 
-Last updated: Session 18 — 2026-04-08
+Last updated: Session 19 — 2026-04-09

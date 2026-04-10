@@ -1,7 +1,7 @@
 # Ryegate Scoring Software — .cls File Format Documentation
 # WEST Scoring Live Project
-# Last updated: 2026-04-08 (Session 18 — complete jumper scoring methods, FEI cross-reference,
-#   hunter header corrections, non-derby multi-judge column map, elimination display rules)
+# Last updated: 2026-04-09 (Session 19 — equitation UDP tags, auto-close 15min,
+#   per-round worker stats, display page, show stats/search/weather endpoints)
 
 ---
 
@@ -763,8 +763,15 @@ Classic score:   col[50]=='1' AND col[15] AND col[24] non-zero
 ```
 col[46]: R1 numeric status code
          0 = Normal completion
-         2 = Abnormal exit (RF, HF, EL, OC, DNS — all map to 2)
-         3 = Voluntary withdrawal (RT/Retired)
+         1 = DNS (Did Not Start)
+         2 = EL (Eliminated — covers RF, HF, EL, OC generically)
+         3 = RT (Retired/Voluntary withdrawal)
+         4 = WD (Withdrawn)
+         5 = RF (Rider Fall — specific)
+         6 = OC (Off Course — specific)
+         7 = MR (?)
+         8 = HC (Hors Concour)
+         Worker maps: {'1':'DNS','2':'EL','3':'RT','4':'WD','5':'RF','6':'OC','7':'MR','8':'HC'}
 
 col[47]: R2 numeric status code (same values as col[46])
          0 = Normal, 2 = Abnormal, 3 = RT
@@ -971,6 +978,25 @@ Page B — pedigree (same {fr}=11, different tags):
 
 Example Page A: `{RYESCR}{fr}11{1}3448{2}BALLPARK{3}TATUM BOOS{4}MARY EUFEMIA{5}{14}{15}{17}SB message`
 Example Page B: `{RYESCR}{fr}11{1}3448{2}BALLPARK{18}ULYSS MORINDA{19}X{20}GHANA VAN'T ZONNEVELD`
+
+Page C — EQUITATION (discovered 2026-04-09 — completely different tag layout):
+```
+{1}   entry number   ← same
+{2}   (empty)        ← NO horse name
+{7}   rider name     ← NOT in {3} — different tag!
+{6}   city, state    ← full locale e.g. "MADISON, NJ"
+{4}   (empty)
+{5}   (empty)
+{14}  (empty)
+{15}  (empty)
+{17}  (empty)
+```
+
+Example Page C: `{RYESCR}{fr}11{1}146{2}{7}WENDY CHAPOT NUNN{4}{5}{6}MADISON, NJ{14}{15}{17}`
+
+Detection: if {3} is absent but {7} is present → equitation frame.
+Watcher sets isEq=true + locale field on the flatEntriesSeen entry.
+No horse name available from UDP — only rider + city/state.
 
 Action on {fr}=11: store { entry, horse, rider, owner } in KV as onCourse.
 That's it. No other processing needed.

@@ -511,6 +511,7 @@ function renderShows(shows) {
           <div class="watcher-status" id="watcher-status-${s.slug}-${i+1}" style="display:flex;align-items:center;gap:10px;">
             <div class="watcher-dot" id="watcher-dot-${s.slug}-${i+1}"></div>
             <div class="watcher-text" id="watcher-text-${s.slug}-${i+1}" style="flex:1;">Ring ${i+1} — checking...</div>
+            <button class="btn-ghost btn-sm" onclick="window.open('display.html?slug=${s.slug}&ring=${i+1}', '_blank')">Open Display</button>
             <button class="btn-ghost btn-sm" onclick="exportWatcherConfig('${s.slug}', '${i+1}')">Export Config</button>
           </div>`).join('')}
         </div>

@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — Ring Display</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e1a;
+  --card: #111827;
+  --border: #1e2940;
+  --red: #b82025;
+  --gold: #fbbf24;
+  --green: #34d399;
+  --white: #f0f0f0;
+  --muted: #6b7280;
+  --highlight: rgba(251,191,36,0.12);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{background:var(--bg);color:var(--white);font-family:'Source Sans 3',sans-serif;}
+
+/* TOP BAR — two rows */
+.top-bar{background:var(--card);}
+.top-row1{display:flex;align-items:center;gap:20px;padding:10px 24px 6px;}
+.top-brand{display:flex;align-items:center;gap:10px;}
+.top-logo{height:26px;filter:invert(1);}
+.top-brand-text{font-family:'Playfair Display',serif;font-weight:900;font-size:18px;color:var(--white);}
+.top-brand-sep{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);margin:0 3px;}
+.top-brand-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);letter-spacing:.04em;}
+.top-class{display:flex;align-items:baseline;gap:12px;}
+.top-class-num{font-family:'Playfair Display',serif;font-size:32px;font-weight:900;color:var(--white);line-height:1;}
+.top-class-name{font-size:18px;color:var(--muted);max-width:600px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.top-row2{display:flex;align-items:center;justify-content:space-between;padding:4px 24px 8px;border-bottom:3px solid var(--red);}
+.top-specs{display:flex;align-items:center;gap:20px;font-family:'DM Mono',monospace;font-size:14px;color:var(--muted);letter-spacing:.04em;}
+.top-spec{display:flex;align-items:center;gap:5px;}
+.top-spec-val{color:var(--white);font-weight:600;font-size:15px;}
+.top-progress{display:flex;align-items:center;gap:16px;}
+.top-competed{font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--white);}
+.top-competed-lbl{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-left:6px;}
+.top-progress-bar{width:120px;height:6px;background:#1e2940;border-radius:3px;overflow:hidden;}
+.top-progress-fill{height:100%;background:var(--green);border-radius:3px;transition:width .4s;}
+
+/* MAIN GRID */
+.main{display:grid;grid-template-columns:200px 1fr 380px;height:calc(100vh - 90px);overflow:hidden;}
+
+/* LEFT PANEL — ORDER OF GO */
+.oog-panel{background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.oog-header{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--border);}
+.oog-list{flex:1;overflow-y:auto;scrollbar-width:none;}
+.oog-list::-webkit-scrollbar{display:none;}
+.oog-row{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);transition:background .2s;}
+.oog-row.done{opacity:.35;}
+.oog-row.on-course{background:var(--highlight);border-left:3px solid var(--gold);}
+.oog-order{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);min-width:18px;text-align:center;}
+.oog-info{flex:1;min-width:0;}
+.oog-horse{font-size:12px;font-weight:600;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.oog-rider{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* STANDINGS */
+.standings{overflow-y:auto;padding:0;scrollbar-width:none;}
+.standings::-webkit-scrollbar{display:none;}
+.stand-hdr{display:grid;gap:12px;padding:10px 16px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:2;}
+.stand-row{display:grid;gap:12px;padding:8px 16px;border-bottom:1px solid var(--border);align-items:start;transition:background .2s;}
+.grid-jumper{grid-template-columns:42px 48px 1fr 170px;}
+.grid-hunter{grid-template-columns:42px 48px 1fr 120px;}
+.grid-derby{grid-template-columns:42px 48px minmax(120px,200px) 1fr;}
+.s-rounds{display:flex;flex-direction:column;gap:2px;}
+.stand-row.on-course{background:var(--highlight);border-left:3px solid var(--gold);}
+.stand-row.elim{opacity:.5;}
+.s-place{font-family:'Playfair Display',serif;font-size:24px;font-weight:900;text-align:center;}
+.s-place.first{color:var(--gold);}
+.s-place.second{color:#c0c0c0;}
+.s-place.third{color:#cd7f32;}
+.s-entry{min-width:0;}
+.s-entry-num{font-family:'DM Mono',monospace;font-size:13px;color:var(--red);font-weight:600;}
+.s-horse-rider{font-size:16px;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-horse-rider .s-hr-horse{font-weight:600;}
+.s-horse-rider .s-hr-rider{color:var(--muted);margin-left:6px;}
+.s-breeding{font-family:'DM Mono',monospace;font-size:11px;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-owner{font-size:12px;color:var(--muted);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-faults{font-family:'DM Mono',monospace;font-size:14px;text-align:right;}
+.s-faults.clean{color:var(--green);}
+.s-time{font-family:'DM Mono',monospace;font-size:14px;text-align:right;color:var(--white);}
+.s-status{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);text-align:right;}
+.s-score{font-family:'DM Mono',monospace;font-size:16px;font-weight:600;text-align:right;color:var(--white);}
+.s-round-line{display:flex;align-items:baseline;justify-content:flex-end;gap:8px;}
+.s-round-lbl{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);min-width:28px;text-align:right;letter-spacing:.04em;}
+.s-round-flt{font-family:'DM Mono',monospace;font-size:15px;min-width:56px;text-align:right;}
+.s-round-flt.clean{color:var(--green);}
+.s-round-time{font-family:'DM Mono',monospace;font-size:15px;min-width:76px;text-align:right;color:var(--white);}
+
+/* SIDEBAR */
+.sidebar{background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.sb-section{padding:16px 18px;border-bottom:1px solid var(--border);}
+.sb-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+.sb-entry{margin-bottom:4px;}
+.sb-entry-num{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);}
+.sb-horse{font-size:15px;font-weight:600;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sb-rider{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sb-highlight{background:var(--highlight);border-radius:6px;padding:12px;border:1px solid rgba(251,191,36,0.25);}
+.sb-stat-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;}
+.sb-stat-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
+.sb-stat-val{font-family:'DM Mono',monospace;font-size:16px;font-weight:600;color:var(--white);}
+.sb-faults-live{font-family:'Playfair Display',serif;font-size:28px;font-weight:900;text-align:center;margin-top:6px;}
+.sb-faults-live.clean{color:var(--green);}
+.sb-time-live{font-family:'DM Mono',monospace;font-size:22px;font-weight:600;text-align:center;color:var(--gold);margin-top:4px;}
+
+/* OOG REMAINING */
+.sb-remaining{flex:1;overflow-y:auto;padding:12px 18px;scrollbar-width:none;}
+.sb-remaining::-webkit-scrollbar{display:none;}
+.sb-remaining-row{display:flex;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);}
+.sb-remaining-order{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);min-width:18px;}
+.sb-remaining-name{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* NO CLASS */
+.no-class{display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;}
+.no-class-logo{height:60px;filter:invert(1);opacity:.3;}
+.no-class-text{font-family:'DM Mono',monospace;font-size:14px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;}
+
+/* HUNTER: rider-first */
+.s-entry.eq .s-horse{font-size:12px;color:var(--muted);font-weight:400;}
+.s-entry.eq .s-rider{font-size:15px;font-weight:600;color:var(--white);}
+</style>
+<script src="display-config.js"></script>
+</head>
+<body>
+
+<div id="app">
+  <div class="no-class">
+    <img class="no-class-logo" src="assets/logo.png" alt="WEST">
+    <div class="no-class-text">Waiting for class&hellip;</div>
+  </div>
+</div>
+
+<script>
+const WORKER = 'https://west-worker.bill-acb.workers.dev';
+const params = new URLSearchParams(location.search);
+const SLUG   = params.get('slug') || '';
+const RING   = params.get('ring') || '1';
+
+var esc = WEST.esc;
+var fmtTime = WEST.formatTime;
+var liveData = {};
+var clockInterval = null;
+var entryHistory = []; // ordered list of entry nums we've seen on course
+
+async function poll() {
+  try {
+    var r = await fetch(WORKER + '/getLiveClass?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING);
+    if (!r.ok) return;
+    liveData = await r.json();
+    render();
+  } catch(e) {}
+}
+
+function render() {
+  var active = liveData.activeClasses || [];
+  var sel = liveData.selected;
+  var oc = liveData.onCourse;
+  var cdMap = liveData.classData || {};
+  var compMap = liveData.computed || {};
+
+  // Pick the selected class, or first active
+  var classNum = sel ? sel.classNum : (active.length ? active[0].classNum : null);
+  if (!classNum) {
+    // No active class — show last cached render or hold current
+    var cached = sessionStorage.getItem('display_last');
+    if (cached) document.getElementById('app').innerHTML = cached;
+    return;
+  }
+
+  var cd = cdMap[classNum] || {};
+  var comp = compMap[classNum] || {};
+  var className = cd.className || comp.className || sel.className || '';
+  var isJumper = cd.classType === 'J' || cd.classType === 'T';
+  var isHunter = cd.classType === 'H';
+  var isEq = isHunter && cd && WEST.hunter && WEST.hunter.isEquitation && WEST.hunter.isEquitation(cd);
+  var entries = comp.entries || [];
+  var allEntries = cd.entries || [];
+  var totalCount = allEntries.length || entries.length;
+  var goneCount = 0; // set after gone filter
+
+  // Hunter seen fallback
+  var seenMap = (liveData.hunterSeen || {})[classNum];
+  var seenList = seenMap || [];
+  if (!isJumper && !isHunter && seenList.length) { isHunter = true; isEq = seenList.some(function(e) { return e.isEq; }); }
+  if (isHunter && seenList.length > goneCount && totalCount === 0) { goneCount = seenList.length; totalCount = seenList.length; }
+
+  // TA
+  var ta = '';
+  if (isJumper && cd.timeAllowed1) ta = cd.timeAllowed1;
+  else if (oc && oc.ta) ta = oc.ta;
+
+  document.title = classNum + ' — ' + className;
+
+  // Build standings
+  var gone = entries.filter(function(e) {
+    if (e.hasGone === false) return false;
+    // Filter out entries with no place AND no scores (on course but not scored)
+    if (!e.place && !e.score && !e.combined && !e.r1Total && !e.r1TotalTime && !e.r1TotalFaults) {
+      // Check derby: r1 phase totals
+      if (e.r1 && e.r1.length && e.r1[0].phaseTotal) return true;
+      return false;
+    }
+    return true;
+  });
+  goneCount = gone.length;
+  gone.sort(function(a, b) {
+    var pa = parseInt(a.overallPlace || a.place || 999);
+    var pb = parseInt(b.overallPlace || b.place || 999);
+    if (pa !== pb) return pa - pb;
+    return 0;
+  });
+
+  var isFaultsConverted = comp.isFaultsConverted;
+
+  var html = '';
+
+  // Class type label
+  var smEarly = cd.scoringMethod || comp.scoringMethod || '';
+  var typeLabel = '';
+  if (isJumper) {
+    var method = WEST.jumper && WEST.jumper.getMethod ? WEST.jumper.getMethod(smEarly) : {};
+    typeLabel = method.label || 'Jumper';
+  } else if (isHunter) {
+    typeLabel = comp.label || (isEq ? 'Equitation' : 'Hunter');
+  }
+
+  // TA per round — from watcher header fields
+  var ta1 = cd.r1TimeAllowed || '';
+  var ta2 = cd.r2TimeAllowed || '';
+  var ta3 = cd.r3TimeAllowed || '';
+  // Filter out 0 (means no TA for that round)
+  if (ta1 === '0') ta1 = '';
+  if (ta2 === '0') ta2 = '';
+  if (ta3 === '0') ta3 = '';
+
+  // Competed percentage
+  var pct = totalCount > 0 ? Math.round(goneCount / totalCount * 100) : 0;
+
+  // TOP BAR — Row 1: brand + class
+  html += '<div class="top-bar">';
+  html += '<div class="top-row1">';
+  html += '<div class="top-brand">'
+    + '<img class="top-logo" src="assets/logo.png" alt="WEST">'
+    + '<span class="top-brand-text">WEST</span>'
+    + '<span class="top-brand-sep">|</span>'
+    + '<span class="top-brand-sub">Scoring.Live</span>'
+    + '</div>';
+  html += '<div class="top-class">'
+    + '<div class="top-class-num">' + esc(classNum) + '</div>'
+    + '<div class="top-class-name">' + esc(className) + '</div>'
+    + '</div>';
+  html += '</div>';
+
+  // Row 2: specs + progress
+  html += '<div class="top-row2">';
+  html += '<div class="top-specs">';
+  if (typeLabel) html += '<span class="top-spec"><span class="top-spec-val">' + esc(typeLabel) + '</span></span>';
+  if (cd.sponsor) html += '<span class="top-spec" style="color:var(--gold);">' + esc(cd.sponsor) + '</span>';
+  if (cd.trophy) html += '<span class="top-spec" style="color:var(--gold);">' + esc(cd.trophy) + '</span>';
+  var rLbl = WEST.jumper && WEST.jumper.roundLabel ? WEST.jumper.roundLabel : function(m, r) { return 'R' + r; };
+  var methodInfo = WEST.jumper && WEST.jumper.getMethod ? WEST.jumper.getMethod(smEarly) : { rounds: 1 };
+  var maxRounds = methodInfo.rounds || 1;
+  if (ta1 && maxRounds >= 1) html += '<span class="top-spec">' + esc(rLbl(smEarly, 1)) + ': <span class="top-spec-val">' + esc(ta1) + 's</span></span>';
+  if (ta2 && maxRounds >= 2) html += '<span class="top-spec">' + esc(rLbl(smEarly, 2)) + ': <span class="top-spec-val">' + esc(ta2) + 's</span></span>';
+  if (ta3 && maxRounds >= 3) html += '<span class="top-spec">' + esc(rLbl(smEarly, 3)) + ': <span class="top-spec-val">' + esc(ta3) + 's</span></span>';
+  html += '</div>';
+  html += '<div class="top-progress">';
+  html += '<span class="top-competed">' + goneCount + '/' + totalCount + '<span class="top-competed-lbl">Competed</span></span>';
+  html += '<div class="top-progress-bar"><div class="top-progress-fill" style="width:' + pct + '%"></div></div>';
+  html += '</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // OOG data
+  var oog = comp.orderOfGo;
+  var hasOog = oog && oog.length;
+  var goneSet = {};
+  gone.forEach(function(e) { goneSet[e.entryNum || e.entry_num] = true; });
+  if (seenList.length) seenList.forEach(function(e) { goneSet[e.entry] = true; });
+
+  // MAIN GRID — always 3 cols
+  html += '<div class="main">';
+
+  // LEFT PANEL
+  if (hasOog) {
+    var remaining = oog.filter(function(e) { return !goneSet[e.entry_num]; });
+    var hasGoneList = oog.filter(function(e) { return !!goneSet[e.entry_num]; });
+
+    html += '<div class="oog-panel">';
+
+    if (remaining.length && !hasGoneList.length) {
+      // All remaining — OOG fills the whole panel
+      html += '<div class="oog-header">Up Next (' + remaining.length + ')</div>';
+      html += '<div class="oog-list" style="flex:1;">';
+      remaining.forEach(function(e) {
+        var isCurrent = oc && oc.phase !== 'FINISH' && String(oc.entry) === String(e.entry_num);
+        html += '<div class="oog-row' + (isCurrent ? ' on-course' : '') + '">';
+        html += '<span class="oog-order">' + (e.order || '') + '</span>';
+        html += '<div class="oog-info">';
+        if (isEq || (!e.horse && e.rider)) {
+          html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+        } else {
+          html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
+          html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
+        }
+        html += '</div></div>';
+      });
+      html += '</div>';
+    } else if (!remaining.length && hasGoneList.length) {
+      // All competed — fills the whole panel
+      html += '<div class="oog-header" style="color:#444;">Competed (' + hasGoneList.length + ')</div>';
+      html += '<div class="oog-list" style="flex:1;">';
+      hasGoneList.forEach(function(e) {
+        html += '<div class="oog-row done">';
+        html += '<span class="oog-order">' + (e.order || '') + '</span>';
+        html += '<div class="oog-info">';
+        if (isEq || (!e.horse && e.rider)) {
+          html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+        } else {
+          html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
+          html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
+        }
+        html += '</div></div>';
+      });
+      html += '</div>';
+    } else {
+      // Both — OOG takes only what it needs, competed fills the rest
+      html += '<div class="oog-header">Up Next (' + remaining.length + ')</div>';
+      html += '<div class="oog-list" style="flex:0 0 auto;overflow-y:auto;">';
+      remaining.forEach(function(e) {
+        var isCurrent = oc && oc.phase !== 'FINISH' && String(oc.entry) === String(e.entry_num);
+        html += '<div class="oog-row' + (isCurrent ? ' on-course' : '') + '">';
+        html += '<span class="oog-order">' + (e.order || '') + '</span>';
+        html += '<div class="oog-info">';
+        if (isEq || (!e.horse && e.rider)) {
+          html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+        } else {
+          html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
+          html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
+        }
+        html += '</div></div>';
+      });
+      html += '</div>';
+      html += '<div style="height:8px;border-bottom:1px solid var(--border);"></div>';
+      html += '<div class="oog-header" style="color:#444;">Competed (' + hasGoneList.length + ')</div>';
+      html += '<div class="oog-list" style="flex:1;overflow-y:auto;">';
+      hasGoneList.forEach(function(e) {
+        html += '<div class="oog-row done">';
+        html += '<span class="oog-order">' + (e.order || '') + '</span>';
+        html += '<div class="oog-info">';
+        if (isEq || (!e.horse && e.rider)) {
+          html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+        } else {
+          html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
+          html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
+        }
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+  } else {
+    // No OOG — show competed list as entries finish
+    html += '<div class="oog-panel">';
+    html += '<div class="oog-header">Competed (' + goneCount + ')</div>';
+    html += '<div class="oog-list">';
+    gone.forEach(function(e) {
+      var isCurrent = oc && oc.phase !== 'FINISH' && String(oc.entry) === String(e.entryNum || e.entry_num);
+      html += '<div class="oog-row' + (isCurrent ? ' on-course' : '') + '">';
+      html += '<span class="oog-order">' + esc(e.overallPlace || e.place || '') + '</span>';
+      html += '<div class="oog-info">';
+      if (isEq) {
+        html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+      } else {
+        html += '<div class="oog-horse">' + esc(e.horse || e.rider) + '</div>';
+        html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
+      }
+      html += '</div></div>';
+    });
+    // Also show UDP-seen entries if no computed entries yet
+    if (!gone.length && seenList.length) {
+      seenList.forEach(function(e) {
+        html += '<div class="oog-row">';
+        html += '<span class="oog-order"></span>';
+        html += '<div class="oog-info">';
+        if (isEq || (!e.horse && e.rider)) {
+          html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+        } else {
+          html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
+          html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
+        }
+        html += '</div></div>';
+      });
+    }
+    html += '</div></div>';
+  }
+
+  // STANDINGS — same rendering logic as results.html, dark-themed
+  var sm = cd.scoringMethod || comp.scoringMethod || '';
+  var isOptimum = comp.isOptimum || false;
+  var optimumTime = comp.optimumTime || 0;
+  function rndLbl(r) { return WEST.jumper && WEST.jumper.roundLabel ? WEST.jumper.roundLabel(sm, r) : ('R' + r); }
+
+  var isDerby = comp.isDerby || false;
+  var judgeCount = comp.judgeCount || 1;
+  var numRounds = comp.numRounds || 2;
+  var roundLabels = comp.roundLabels || null;
+  var jgOpts = { isDerby: isDerby, dark: true, numRounds: numRounds, roundLabels: roundLabels };
+  var hasMultiJudge = isHunter && judgeCount > 1;
+  var gridClass = isJumper ? 'grid-jumper' : (hasMultiJudge ? 'grid-derby' : 'grid-hunter');
+
+  html += '<div class="standings">';
+
+  if (hasMultiJudge) {
+    var jgSample = WEST.hunter.renderJudgeGrid(gone[0] || {}, judgeCount, null, jgOpts);
+    html += '<div class="stand-hdr ' + gridClass + '"><span>Plc</span><span>#</span><span>Entry</span>'
+      + '<div>' + jgSample.header + '</div></div>';
+  } else {
+    html += '<div class="stand-hdr ' + gridClass + '"><span>Plc</span><span>#</span><span>Entry</span><span style="text-align:right">Results</span></div>';
+  }
+
+  // Render competed entries
+  gone.forEach(function(e) {
+    var place = e.overallPlace || e.place || '';
+    var pn = parseInt(place);
+    var placeClass = pn === 1 ? ' first' : pn === 2 ? ' second' : pn === 3 ? ' third' : '';
+    var isCurrent = oc && oc.phase !== 'FINISH' && String(oc.entry) === String(e.entryNum || e.entry_num);
+
+    // Status display — same centralized rules as results.html
+    var sd = isJumper
+      ? (WEST.jumper.getStatusDisplay ? WEST.jumper.getStatusDisplay(sm, e.r1StatusCode || '', e.r2StatusCode || '', e.r3StatusCode || '') : null)
+      : isHunter
+        ? (WEST.hunter.getStatusDisplay ? WEST.hunter.getStatusDisplay(e.r1StatusCode || '', e.r2StatusCode || '', e.r3StatusCode || '') : null)
+        : null;
+
+    var isElimRow = sd && !sd.showPlace;
+
+    html += '<div class="stand-row ' + gridClass + (isCurrent ? ' on-course' : '') + (isElimRow ? ' elim' : '') + '">';
+
+    // Place
+    if (isElimRow) {
+      html += '<div class="s-place">&mdash;</div>';
+    } else {
+      html += '<div class="s-place' + placeClass + '">' + esc(place) + '</div>';
+    }
+
+    // Entry number (own column)
+    html += '<div class="s-entry-num">' + esc(e.entryNum || e.entry_num) + '</div>';
+
+    // Entry info — horse, rider, breeding, owner
+    var flag = (cd.showFlags && e.country) ? (WEST.countryFlag ? WEST.countryFlag(e.country, true) : '') : '';
+    var breeding = [e.sire, e.dam].filter(Boolean).join(' x ');
+    var owner = e.owner && e.owner !== e.rider ? e.owner : '';
+    html += '<div class="s-entry">';
+    if (isEq) {
+      html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.rider) + '</span>' + (flag ? ' ' + flag : '') + '</div>';
+      if (e.horse) html += '<div class="s-breeding">' + esc(e.horse) + '</div>';
+    } else {
+      html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.horse) + '</span><span class="s-hr-rider">' + esc(e.rider) + '</span>' + (flag ? ' ' + flag : '') + '</div>';
+      if (breeding) html += '<div class="s-breeding">' + esc(breeding) + '</div>';
+      if (owner) html += '<div class="s-owner">' + esc(owner) + '</div>';
+    }
+    html += '</div>'; // close entry info s-entry
+
+    // Multi-judge hunter: judge grid in column 4, same row
+    if (hasMultiJudge && isHunter) {
+      var hCombined2 = e.combined || '';
+      if (hCombined2 || (sd && (!sd.showR1 || !sd.showR2))) {
+        var jg = WEST.hunter.renderJudgeGrid(e, judgeCount, sd, jgOpts);
+        html += '<div>' + jg.row + '</div>';
+      } else {
+        html += '<div></div>';
+      }
+      html += '</div>'; // close stand-row
+      return;
+    }
+
+    if (sd && !sd.showR1 && !sd.showR2 && !sd.showR3) {
+      // All rounds hidden — just show status
+      html += '<div class="s-status">' + esc(sd.label) + '</div>';
+    } else if (isJumper) {
+      html += '<div class="s-rounds">';
+      var roundShow = { 1: !sd || sd.showR1, 2: !sd || sd.showR2, 3: !sd || sd.showR3 };
+      // Build rounds array, highest first
+      var rounds = [];
+      if (e.r3TotalTime) rounds.push({ r: 3, flt: e.r3TotalFaults, time: e.r3TotalTime, jf: e.r3JumpFaults });
+      if (e.r2TotalTime) rounds.push({ r: 2, flt: e.r2TotalFaults, time: e.r2TotalTime, jf: e.r2JumpFaults });
+      if (e.r1TotalTime) rounds.push({ r: 1, flt: e.r1TotalFaults, time: e.r1TotalTime, jf: e.r1JumpFaults });
+
+      rounds.forEach(function(rd) {
+        var lbl = rndLbl(rd.r);
+        if (!roundShow[rd.r]) {
+          // Round hidden by status rules
+          html += '<div class="s-round-line"><span class="s-round-lbl">' + esc(lbl) + '</span>'
+            + '<span class="s-round-flt" style="color:var(--red)">' + esc(sd ? sd.label : '') + '</span></div>';
+        } else if (isFaultsConverted) {
+          var jf = parseFloat(rd.jf || 0);
+          html += '<div class="s-round-line"><span class="s-round-lbl">' + esc(lbl) + '</span>'
+            + '<span class="s-round-flt" style="color:var(--muted)">' + jf + '</span>'
+            + '<span class="s-round-time">' + fmtTime(rd.time) + '</span></div>';
+        } else {
+          var faults = parseFloat(rd.flt || 0);
+          var isClean = faults === 0;
+          html += '<div class="s-round-line"><span class="s-round-lbl">' + esc(lbl) + '</span>'
+            + '<span class="s-round-flt' + (isClean ? ' clean' : '') + '">' + faults + ' flt</span>'
+            + '<span class="s-round-time">' + fmtTime(rd.time) + '</span></div>';
+        }
+        // Optimum time
+        if (isOptimum && optimumTime > 0 && rd.time && rd.r === 1) {
+          var t = parseFloat(rd.time);
+          if (!isNaN(t)) {
+            var dist = t - optimumTime;
+            var sign = dist >= 0 ? '+' : '';
+            html += '<div class="s-round-line"><span class="s-round-lbl">OPT</span>'
+              + '<span class="s-round-flt" style="font-size:11px;color:' + (Math.abs(dist) < 1 ? 'var(--green)' : 'var(--muted)') + ';">'
+              + sign + dist.toFixed(3) + 's</span></div>';
+          }
+        }
+      });
+      html += '</div>';
+    } else if (isHunter) {
+      var hCombined = e.combined || '';
+      var hR1 = e.r1Total || '';
+      var hR2 = e.r2Total || '';
+      var hScore = e.score || '';
+      var r1Rank = e.r1OverallRank || '';
+      var r2Rank = e.r2OverallRank || '';
+      if (hCombined) {
+        // Single-judge multi-round
+        html += '<div class="s-rounds">';
+        if (sd && !sd.showR1) {
+          html += '<div class="s-round-line"><span class="s-round-lbl">R1</span><span class="s-round-flt" style="color:var(--red);">' + esc(sd.label) + '</span></div>';
+        } else if (hR1) {
+          html += '<div class="s-round-line"><span class="s-round-lbl">R1</span><span class="s-round-flt" style="color:var(--muted);">' + esc(hR1) + '</span>' + (r1Rank ? '<span class="s-round-lbl" style="color:#555;">(' + r1Rank + ')</span>' : '') + '</div>';
+        }
+        if (sd && !sd.showR2) {
+          html += '<div class="s-round-line"><span class="s-round-lbl">R2</span><span class="s-round-flt" style="color:var(--red);">' + esc(sd.label) + '</span></div>';
+        } else if (hR2) {
+          html += '<div class="s-round-line"><span class="s-round-lbl">R2</span><span class="s-round-flt" style="color:var(--muted);">' + esc(hR2) + '</span>' + (r2Rank ? '<span class="s-round-lbl" style="color:#555;">(' + r2Rank + ')</span>' : '') + '</div>';
+        }
+        html += '<div style="border-top:1px solid var(--border);margin:3px 0;"></div>';
+        html += '<div class="s-round-line"><span class="s-round-flt" style="color:var(--white);font-weight:700;font-size:15px;">' + esc(hCombined) + '</span></div>';
+        html += '</div>';
+      } else if (hScore || hR1) {
+        // Single score (forced/flat/scored non-derby)
+        html += '<div class="s-rounds"><div class="s-round-line"><span class="s-round-flt" style="color:var(--white);font-weight:700;font-size:15px;">' + esc(hScore || hR1) + '</span></div></div>';
+      } else {
+        html += '<div></div>';
+      }
+    } else {
+      html += '<div></div>';
+    }
+
+    html += '</div>';
+  });
+
+  // UDP-seen fallback (forced hunter before .cls writes)
+  if (!gone.length && seenList.length) {
+    seenList.forEach(function(e) {
+      var isCurrent = oc && String(oc.entry) === String(e.entry);
+      html += '<div class="stand-row' + (isCurrent ? ' on-course' : '') + '">';
+      html += '<div class="s-place"></div>';
+      html += '<div class="s-entry-num">' + esc(e.entry) + '</div>';
+      html += '<div class="s-entry">';
+      if (isEq || (!e.horse && e.rider)) {
+        html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.rider) + '</span></div>';
+        if (e.locale) html += '<div class="s-breeding">' + esc(e.locale) + '</div>';
+      } else {
+        html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.horse) + '</span><span class="s-hr-rider">' + esc(e.rider) + '</span></div>';
+      }
+      html += '</div>';
+      html += '<div></div>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  // Track entry history — add new entries as they appear on course
+  if (oc && oc.entry) {
+    var lastInHistory = entryHistory.length ? entryHistory[entryHistory.length - 1] : null;
+    if (String(oc.entry) !== String(lastInHistory)) {
+      entryHistory.push(String(oc.entry));
+    }
+  }
+  var previousEntryNum = entryHistory.length >= 2 ? entryHistory[entryHistory.length - 2] : null;
+
+  // SIDEBAR
+  html += '<div class="sidebar">';
+
+  // Helper: render a sidebar entry card (on-course, finished, or previous)
+  function renderSideCard(label, data, opts) {
+    var isCurrent = opts.isCurrent;
+    var isFin = opts.isFinished;
+    var isPrev = opts.isPrevious;
+    var scale = isPrev ? 0.75 : 1;
+    var entrySize = Math.round(22 * scale);
+    var nameSize = Math.round(24 * scale);
+    var riderSize = Math.round(16 * scale);
+    var clockSize = Math.round(42 * scale);
+    var faultSize = Math.round(24 * scale);
+    var faultLblSize = Math.round(11 * scale);
+    var rankSize = Math.round(28 * scale);
+    var borderColor = isCurrent ? 'rgba(251,191,36,0.25)' : isPrev ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.15)';
+    var bgColor = isCurrent ? 'var(--highlight)' : 'rgba(255,255,255,0.03)';
+    var opacity = isPrev ? 'opacity:0.55;' : '';
+    var entryColor = isCurrent ? 'var(--gold)' : 'var(--muted)';
+
+    var h = '<div class="sb-section">';
+    h += '<div class="sb-label">' + label + '</div>';
+    h += '<div style="background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:8px;padding:' + (isPrev ? '12px' : '16px') + ';' + opacity + '">';
+    // Round label from watcher's inferRound
+    var roundFullName = data.label || '';
+    var entryLine = '#' + esc(data.entry) + (roundFullName ? ' — ' + roundFullName : '');
+    h += '<div style="font-family:Source Sans 3,sans-serif;font-size:' + entrySize + 'px;font-weight:600;color:' + entryColor + ';margin-bottom:6px;">' + entryLine + '</div>';
+    h += '<div style="font-size:' + nameSize + 'px;font-weight:700;color:var(--white);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? data.rider : data.horse) + '</div>';
+    h += '<div style="font-size:' + riderSize + 'px;color:var(--muted);margin-bottom:12px;">' + esc(isEq ? (data.horse || '') : data.rider) + '</div>';
+
+    if (isJumper) {
+      // Clock / final time
+      var timeVal = data.elapsed || '';
+      var sc = '';
+      if (isFin && isNaN(parseFloat(timeVal))) { sc = timeVal; timeVal = ''; }
+      if (isCurrent) {
+        h += '<div id="livePhase" style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px;">ON COURSE</div>';
+        h += '<div id="liveClock" style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--gold);text-align:center;line-height:1;margin:10px 0;">--</div>';
+      } else if (sc) {
+        h += '<div style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--red);text-align:center;line-height:1;margin:10px 0;">' + esc(WEST.statusDisplayLabel ? WEST.statusDisplayLabel(sc) : sc) + '</div>';
+      } else {
+        h += '<div style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--white);text-align:center;line-height:1;margin:10px 0;">' + fmtTime(timeVal) + '</div>';
+      }
+
+      // Faults grid
+      var dJf = parseFloat(data.jumpFaults || 0);
+      var dTf = parseFloat(data.timeFaults || 0);
+      var dTotal = dJf + dTf;
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px;text-align:center;">';
+      h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Jump</div><div' + (isCurrent ? ' id="liveJF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;' + (dJf === 0 ? 'color:var(--green);' : 'color:var(--white);') + '">' + dJf + '</div></div>';
+      h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Time</div><div' + (isCurrent ? ' id="liveTF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;color:var(--white);">' + dTf + '</div></div>';
+      h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Total</div><div' + (isCurrent ? ' id="liveTotal"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;' + (dTotal === 0 ? 'color:var(--green);' : 'color:var(--white);') + '">' + dTotal + '</div></div>';
+      h += '</div>';
+
+      if (data.rank) {
+        var rankDisplay = String(data.rank).replace(/^RANK\s*/i, '').trim();
+        if (!rankDisplay) rankDisplay = 'JO';
+        rankDisplay = 'RANK ' + rankDisplay;
+        h += '<div style="text-align:center;margin-top:10px;">'
+          + '<div style="font-family:DM Mono,monospace;font-size:' + rankSize + 'px;font-weight:600;color:var(--gold);">' + esc(rankDisplay) + '</div>'
+          + '</div>';
+      }
+    }
+    if (!isJumper) {
+      // Find this entry in standings for full data
+      var standEntry = gone.find(function(g) { return String(g.entryNum || g.entry_num) === String(data.entry); });
+      if (standEntry && hasMultiJudge) {
+        // Derby: show judge grid
+        var entrySd = WEST.hunter.getStatusDisplay
+          ? WEST.hunter.getStatusDisplay(standEntry.r1StatusCode || '', standEntry.r2StatusCode || '', '')
+          : null;
+        var jg = WEST.hunter.renderJudgeGrid(standEntry, judgeCount, entrySd, jgOpts);
+        h += '<div style="margin-top:8px;" class="live-judge-grid">' + jg.row.replace(/color:#999/g, 'color:#ddd') + '</div>';
+        var seR1 = standEntry.r1Total || '';
+        var seR2 = standEntry.r2Total || '';
+        var seComb = standEntry.combined || '';
+        if (seR1 && seR2 && seComb) {
+          h += '<div style="font-family:DM Mono,monospace;font-size:14px;text-align:right;color:var(--muted);margin-top:6px;">'
+            + esc(seR1) + ' + ' + esc(seR2) + ' = <span style="color:var(--gold);font-weight:700;font-size:16px;">' + esc(seComb) + '</span></div>';
+        } else if (seR1) {
+          h += '<div style="font-family:DM Mono,monospace;font-size:14px;text-align:right;margin-top:6px;">'
+            + '<span style="color:var(--muted);">R1 Total: </span><span style="color:var(--gold);font-weight:700;font-size:16px;">' + esc(seR1) + '</span></div>';
+        }
+      } else {
+        var hScore = data.hunterScore || '';
+        if (!hScore && standEntry) hScore = standEntry.combined || standEntry.score || standEntry.r1Total || '';
+        if (hScore) {
+          h += '<div style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--white);text-align:center;margin:10px 0;">' + esc(hScore) + '</div>';
+        }
+      }
+    }
+    h += '</div></div>';
+    return h;
+  }
+
+  // CURRENT — on course
+  if (oc && oc.phase !== 'FINISH') {
+    html += renderSideCard('On Course', oc, { isCurrent: true });
+  }
+
+  // FINISHED — just finished, full card
+  if (oc && oc.phase === 'FINISH') {
+    html += renderSideCard('Finished', oc, { isFinished: true });
+  }
+
+  // PREVIOUS
+  if (previousEntryNum) {
+    var pe = { entry: previousEntryNum };
+    var peStanding = gone.find(function(e) { return String(e.entryNum || e.entry_num) === String(previousEntryNum); });
+    html += '<div class="sb-section" style="opacity:0.9;">';
+    html += '<div class="sb-label">Previous</div>';
+    // Entry info — from standings data
+    var peHorse = peStanding ? peStanding.horse : '';
+    var peRider = peStanding ? peStanding.rider : '';
+    html += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">';
+    html += '<span style="font-family:Source Sans 3,sans-serif;font-size:16px;font-weight:600;color:var(--muted);">#' + esc(pe.entry) + '</span>';
+    html += '<span style="font-size:16px;font-weight:700;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? peRider : peHorse) + '</span>';
+    html += '<span style="font-size:13px;color:var(--muted);">' + esc(isEq ? peHorse : peRider) + '</span>';
+    html += '</div>';
+    // Rounds — stacked, JO on top (same as standings)
+    if (isJumper && peStanding) {
+      var peRounds = [];
+      if (peStanding.r3TotalTime) peRounds.push({ r: 3, flt: peStanding.r3TotalFaults, time: peStanding.r3TotalTime });
+      if (peStanding.r2TotalTime) peRounds.push({ r: 2, flt: peStanding.r2TotalFaults, time: peStanding.r2TotalTime });
+      if (peStanding.r1TotalTime) peRounds.push({ r: 1, flt: peStanding.r1TotalFaults, time: peStanding.r1TotalTime });
+      peRounds.forEach(function(rd) {
+        var lbl = rndLbl(rd.r);
+        var faults = parseFloat(rd.flt || 0);
+        var isClean = faults === 0;
+        html += '<div style="display:flex;align-items:baseline;justify-content:flex-end;gap:8px;margin-bottom:2px;">'
+          + '<span style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);min-width:24px;text-align:right;">' + esc(lbl) + '</span>'
+          + '<span style="font-family:DM Mono,monospace;font-size:14px;min-width:50px;text-align:right;' + (isClean ? 'color:var(--green);' : 'color:var(--white);') + '">' + faults + ' flt</span>'
+          + '<span style="font-family:DM Mono,monospace;font-size:14px;min-width:70px;text-align:right;color:var(--white);">' + fmtTime(rd.time) + '</span>'
+          + '</div>';
+      });
+      // Rank/place
+      var pePlace = peStanding.overallPlace || peStanding.place || '';
+      if (pePlace) {
+        html += '<div style="font-family:DM Mono,monospace;font-size:14px;font-weight:600;color:var(--gold);text-align:right;margin-top:4px;">RANK ' + esc(pePlace) + '</div>';
+      }
+    }
+    if (!isJumper && peStanding) {
+      var peScore = peStanding.score || peStanding.combined || peStanding.r1Total || '';
+      if (peScore) html += '<div style="font-family:DM Mono,monospace;font-size:16px;font-weight:600;color:var(--white);text-align:right;">' + esc(peScore) + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // CLASS STATS — from worker pre-computed per-round stats
+  if (isJumper && comp.stats) {
+    var st = comp.stats;
+
+    function renderRoundStats(label, rs) {
+      if (!rs) return '';
+      var clears = rs.clearRounds || 0;
+      var total = rs.total || 0;
+      var f4count = 0, f1to3count = 0;
+      (rs.faultBuckets || []).forEach(function(b) {
+        if (b.value === 4) f4count = b.count;
+        if (b.value >= 1 && b.value <= 3) f1to3count += b.count;
+      });
+      var h = '<div style="margin-bottom:10px;">';
+      h += '<div style="font-family:DM Mono,monospace;font-size:16px;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">' + label + '</div>';
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;text-align:center;">';
+      h += '<div><div style="font-family:DM Mono,monospace;font-size:30px;font-weight:600;color:var(--green);">' + clears + '</div><div style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);letter-spacing:.06em;">CLEAR</div>'
+        + '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--muted);">' + (rs.clearPct || 0) + '%</div></div>';
+      h += '<div><div style="font-family:DM Mono,monospace;font-size:30px;font-weight:600;color:var(--white);">' + f1to3count + '</div><div style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);letter-spacing:.06em;">1-3 FLT</div>'
+        + '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--muted);">' + (total > 0 ? Math.round(f1to3count/total*100) : 0) + '%</div></div>';
+      h += '<div><div style="font-family:DM Mono,monospace;font-size:30px;font-weight:600;color:var(--white);">' + f4count + '</div><div style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);letter-spacing:.06em;">4 FLT</div>'
+        + '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--muted);">' + (total > 0 ? Math.round(f4count/total*100) : 0) + '%</div></div>';
+      h += '<div><div style="font-family:DM Mono,monospace;font-size:30px;font-weight:600;color:var(--white);">' + (rs.avgFaults || 0) + '</div><div style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);letter-spacing:.06em;">AVG FLT</div></div>';
+      h += '</div>';
+      if (rs.fastest4Fault) {
+        h += '<div style="font-family:DM Mono,monospace;font-size:13px;color:var(--muted);margin-top:8px;">Fastest 4: ' + esc(rs.fastest4Fault.horse) + ' ' + fmtTime(rs.fastest4Fault.time) + '</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    html += '<div class="sb-section" style="margin-top:auto;">';
+    html += '<div class="sb-label" style="font-size:12px;">Class Stats</div>';
+    if (st.r1) html += renderRoundStats(rndLbl(1), st.r1);
+    if (st.r2) html += renderRoundStats(rndLbl(2), st.r2);
+    if (st.r3) html += renderRoundStats(rndLbl(3), st.r3);
+    html += '</div>';
+  }
+
+  // HUNTER JUDGE CARDS — per-judge leaderboards (single-judge view, NOT renderJudgeGrid)
+  if (isHunter && hasMultiJudge && gone.length) {
+    html += '<div class="judge-cards-scroll" style="flex:1;overflow-y:auto;scrollbar-width:none;min-height:0;">';
+    for (var jc = 0; jc < judgeCount; jc++) {
+      (function(jj) {
+        var sorted = gone.slice().sort(function(a, b) {
+          var aTotal = (a.judgeCardTotals && a.judgeCardTotals[jj]) || 0;
+          var bTotal = (b.judgeCardTotals && b.judgeCardTotals[jj]) || 0;
+          return bTotal - aTotal;
+        }).slice(0, 10);
+
+        html += '<div class="sb-section">';
+        html += '<div class="sb-label" style="font-size:12px;color:var(--gold);">Judge ' + (jj + 1) + ' Card</div>';
+        html += '<div style="display:grid;grid-template-columns:20px 1fr 70px 80px 44px;gap:3px;font-family:DM Mono,monospace;font-size:9px;color:var(--muted);letter-spacing:.06em;padding:0 0 4px;border-bottom:1px solid var(--border);">';
+        html += '<span>#</span><span>Entry</span><span style="text-align:right">R1</span><span style="text-align:right">R2</span><span style="text-align:right">Total</span></div>';
+
+        sorted.forEach(function(e, idx) {
+          var eSd = WEST.hunter.getStatusDisplay
+            ? WEST.hunter.getStatusDisplay(e.r1StatusCode || '', e.r2StatusCode || '', e.r3StatusCode || '')
+            : null;
+          var r1IsStatus = eSd && !eSd.showR1;
+          var r2IsStatus = eSd && !eSd.showR2 && !r1IsStatus;
+          var isElimFull = r1IsStatus;
+
+          var jR1ph = e.r1 && e.r1[jj] ? e.r1[jj] : {};
+          var jR2ph = e.r2 && e.r2[jj] ? e.r2[jj] : {};
+          var jR1 = '', jR2 = '';
+          // Auto-detect shape: derby has base/hiopt/bonus, non-derby scored has score.
+          if (!r1IsStatus) {
+            if (jR1ph.base != null || jR1ph.hiopt != null || jR1ph.bonus != null) {
+              var jR1parts = [];
+              if (jR1ph.base) jR1parts.push(jR1ph.base);
+              if (jR1ph.hiopt) jR1parts.push('+' + jR1ph.hiopt);
+              if (jR1ph.bonus) jR1parts.push('+' + jR1ph.bonus);
+              jR1 = jR1parts.join('');
+            } else if (jR1ph.score != null) {
+              jR1 = String(jR1ph.score);
+            }
+          }
+          if (!r2IsStatus && !isElimFull) {
+            if (jR2ph.base != null || jR2ph.hiopt != null || jR2ph.bonus != null) {
+              var jR2parts = [];
+              if (jR2ph.base) jR2parts.push(jR2ph.base);
+              if (jR2ph.hiopt) jR2parts.push('+' + jR2ph.hiopt);
+              if (jR2ph.bonus) jR2parts.push('+' + jR2ph.bonus);
+              jR2 = jR2parts.join('');
+            } else if (jR2ph.score != null) {
+              jR2 = String(jR2ph.score);
+            }
+          }
+          var jTotal = (e.judgeCardTotals && e.judgeCardTotals[jj]) ? e.judgeCardTotals[jj] : '';
+          if (r2IsStatus && !jTotal && jR1ph.phaseTotal) jTotal = jR1ph.phaseTotal;
+
+          var isFirst = idx === 0;
+          html += '<div style="display:grid;grid-template-columns:20px 1fr 70px 80px 44px;gap:3px;font-family:DM Mono,monospace;font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;' + (isElimFull ? 'opacity:0.4;' : '') + '">';
+          html += '<span style="color:' + (isFirst ? 'var(--gold)' : 'var(--muted)') + ';font-size:11px;">' + (isElimFull ? '—' : (idx + 1)) + '</span>';
+          html += '<div style="min-width:0;"><div style="color:var(--white);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? e.rider : e.horse) + '</div>'
+            + '<div style="color:var(--muted);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? (e.horse || '') : e.rider) + '</div></div>';
+          if (isElimFull) {
+            html += '<span></span><span></span>';
+            html += '<span style="text-align:right;color:var(--red);font-weight:600;">' + esc(eSd.label) + '</span>';
+          } else {
+            html += '<span style="text-align:right;color:var(--muted);">' + esc(jR1) + '</span>';
+            html += '<span style="text-align:right;color:' + (r2IsStatus ? 'var(--red)' : 'var(--muted)') + ';">' + (r2IsStatus ? esc(eSd.label) : esc(jR2)) + '</span>';
+            html += '<span style="text-align:right;color:var(--white);font-weight:600;">' + esc(jTotal) + '</span>';
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      })(jc);
+    }
+    html += '</div>';
+  }
+
+  html += '</div>'; // sidebar
+  html += '</div>'; // main
+
+  // Preserve scroll positions across re-renders
+  var oldStand = document.querySelector('.standings');
+  var savedScroll = oldStand ? oldStand.scrollTop : 0;
+  var oldJc = document.querySelector('.judge-cards-scroll');
+  var savedJcScroll = oldJc ? oldJc.scrollTop : 0;
+
+  document.getElementById('app').innerHTML = html;
+  sessionStorage.setItem('display_last', html);
+
+  // Restore scroll positions
+  var newStand = document.querySelector('.standings');
+  if (newStand) newStand.scrollTop = savedScroll;
+  var newJc = document.querySelector('.judge-cards-scroll');
+  if (newJc) newJc.scrollTop = savedJcScroll;
+
+  // Start live clock
+  startClock();
+}
+
+function startClock() {
+  if (clockInterval) clearInterval(clockInterval);
+  var el = document.getElementById('liveClock');
+  if (!el) return;
+  var oc = liveData.onCourse;
+  if (!oc || oc.phase === 'FINISH' || !oc.ts) return;
+
+  function tick() {
+    var el2 = document.getElementById('liveClock');
+    if (!el2) { clearInterval(clockInterval); return; }
+    var phaseEl = document.getElementById('livePhase');
+    var taVal = parseFloat(oc.ta) || 0;
+    var fpiVal = parseFloat(oc.fpi) || 1;
+    var tiVal = parseFloat(oc.ti) || 1;
+
+    // Paused
+    if (oc.paused) {
+      el2.textContent = oc.elapsed ? parseFloat(oc.elapsed).toFixed(1) : '--';
+      el2.style.color = 'var(--red)';
+      if (phaseEl) phaseEl.textContent = 'PAUSED';
+      return;
+    }
+
+    if (oc.phase === 'INTRO') {
+      el2.textContent = '-45';
+      el2.style.color = 'var(--gold)';
+      if (phaseEl) phaseEl.textContent = 'IN GATE';
+    } else if (oc.phase === 'CD') {
+      var cd = parseFloat(oc.countdown) || 0;
+      var elapsed = (Date.now() - new Date(oc.ts).getTime()) / 1000;
+      var remaining = Math.abs(cd) - elapsed;
+      el2.textContent = remaining > 0 ? '-' + remaining.toFixed(0) : '0';
+      el2.style.color = 'var(--gold)';
+      if (phaseEl) phaseEl.textContent = 'COUNTDOWN';
+    } else if (oc.phase === 'ONCOURSE' || oc.phase === 'RIDE_START') {
+      var elapsed2 = (Date.now() - new Date(oc.ts).getTime()) / 1000;
+      if (elapsed2 > 300) { el2.textContent = '--'; el2.style.color = 'var(--red)'; return; }
+      el2.textContent = Math.floor(elapsed2);
+      // Overtime = red
+      el2.style.color = (taVal > 0 && elapsed2 > taVal) ? 'var(--red)' : 'var(--gold)';
+      if (phaseEl) phaseEl.textContent = 'ON COURSE';
+      // Live time fault calculation
+      var tfEl = document.getElementById('liveTF');
+      var totalEl = document.getElementById('liveTotal');
+      if (tfEl && taVal > 0 && elapsed2 > taVal) {
+        var liveTF = Math.ceil((elapsed2 - taVal) / tiVal) * fpiVal;
+        tfEl.textContent = liveTF;
+        var liveJF = parseFloat(oc.jumpFaults || 0);
+        if (totalEl) {
+          var liveT = liveJF + liveTF;
+          totalEl.textContent = liveT;
+          totalEl.style.color = liveT === 0 ? 'var(--green)' : 'var(--white)';
+        }
+      } else if (tfEl) {
+        tfEl.textContent = '0';
+      }
+    }
+  }
+  tick();
+  clockInterval = setInterval(tick, 100);
+}
+
+// Auto-scroll standings — hold top, scroll down, hold bottom, jump top, repeat
+var scrollState = 'hold-top';
+var scrollTimer = 0;
+setInterval(function() {
+  var el = document.querySelector('.standings');
+  if (!el) return;
+  if (el.scrollHeight <= el.clientHeight) return;
+
+  if (scrollState === 'hold-top') {
+    scrollTimer++;
+    if (scrollTimer >= 80) { scrollState = 'scrolling'; scrollTimer = 0; }
+  } else if (scrollState === 'scrolling') {
+    el.scrollTop += 2;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
+      scrollState = 'hold-bottom';
+      scrollTimer = 0;
+    }
+  } else if (scrollState === 'hold-bottom') {
+    scrollTimer++;
+    if (scrollTimer >= 100) {
+      el.scrollTop = 0;
+      scrollState = 'hold-top';
+      scrollTimer = 0;
+    }
+  }
+}, 50);
+
+// Auto-scroll judge cards sidebar — slower cadence than standings
+var jcScrollState = 'hold-top';
+var jcScrollTimer = 0;
+setInterval(function() {
+  var els = document.querySelectorAll('.judge-cards-scroll');
+  if (!els.length) return;
+  var el = els[0];
+  if (el.scrollHeight <= el.clientHeight) return;
+
+  if (jcScrollState === 'hold-top') {
+    jcScrollTimer++;
+    if (jcScrollTimer >= 120) { jcScrollState = 'scrolling'; jcScrollTimer = 0; }
+  } else if (jcScrollState === 'scrolling') {
+    el.scrollTop += 1;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
+      jcScrollState = 'hold-bottom';
+      jcScrollTimer = 0;
+    }
+  } else if (jcScrollState === 'hold-bottom') {
+    jcScrollTimer++;
+    if (jcScrollTimer >= 140) {
+      el.scrollTop = 0;
+      jcScrollState = 'hold-top';
+      jcScrollTimer = 0;
+    }
+  }
+}, 50);
+
+// Poll
+poll();
+setInterval(poll, 4000);
+</script>
+</body>
+</html>

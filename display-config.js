@@ -1185,6 +1185,151 @@ WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
   return html;
 };
 
+// ── JUDGES TABLE — universal multi-judge results renderer ────────────────────
+// Returns HTML for the per-judge score grid for one entry.
+// Works for derbies (base+hiopt+bonus) and non-derby scored (score only).
+// All pages should use this for consistent multi-judge display.
+//
+// Grid shape (driven by class header — H[3]=numRounds, H[7]=numJudges):
+//
+//              J1      J2     ...    Jn      Round Total
+//   R1         …       …             …       [r1Total]
+//   R2         …       …             …       [r2Total]
+//   R3         …       …             …       [r3Total]   (only if numRounds===3)
+//              ───     ───           ───     ───
+//   Tot        jc1     jc2           jcn     OVERALL
+//
+// entry: computed entry object with rN[], rNTotal, rNRanks, rNOverallRank,
+//        combined, judgeCardTotals[], judgeCardRanks[]
+// judgeCount: number of judges (from H[7])
+// sd: result of WEST.hunter.getStatusDisplay() for this entry
+// opts.isDerby: show hiopt+bonus columns in the column header
+// opts.dark: dark theme (for display.html)
+// opts.numRounds: 1, 2, or 3 — defaults to 2 for backward compat
+// opts.roundLabels: ['R1','R2','R3'] override (from H[25]/H[26]/H[27] phase labels)
+//
+// Returns: { header: '...', row: '...', gridCols: '...' }
+
+WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
+  opts = opts || {};
+  var esc = WEST.esc;
+  var isDerby = opts.isDerby || false;
+  var dark = opts.dark || false;
+  var numRounds = opts.numRounds || 2;
+  if (numRounds < 1) numRounds = 1;
+  if (numRounds > 3) numRounds = 3;
+  var roundLabels = opts.roundLabels || ['R1', 'R2', 'R3'];
+  var colW = isDerby ? 140 : 55;
+  var totalW = 90;
+  var rndW = 28;
+
+  // Build grid columns: round label + per-judge + total
+  var gridCols = rndW + 'px';
+  for (var i = 0; i < judgeCount; i++) gridCols += ' ' + colW + 'px';
+  gridCols += ' ' + totalW + 'px';
+
+  var muted = dark ? '#999' : 'var(--text-muted)';
+  var dimmed = dark ? '#666' : '#999';
+  var bright = dark ? 'var(--white,#f0f0f0)' : 'var(--black,#111)';
+  var red = 'var(--red,#b82025)';
+  var accent = dark ? 'var(--gold,#fbbf24)' : 'var(--black,#111)';
+
+  // Column header
+  var header = '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;text-align:right;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.08em;color:' + muted + ';margin-left:auto;width:fit-content;">';
+  header += '<span></span>';
+  for (var jh = 0; jh < judgeCount; jh++) {
+    header += '<span style="color:' + bright + ';text-decoration:underline;">J' + (jh + 1) + (isDerby ? ' + HiOpt + Bonus' : '') + '</span>';
+  }
+  header += '<span style="color:' + bright + ';text-decoration:underline;">Round Total</span>';
+  header += '</div>';
+
+  // Round renderer
+  function renderRound(lbl, rndData, rndRanks, rndTotal, rndRank, showRound) {
+    var h = '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:baseline;margin-bottom:4px;font-family:DM Mono,monospace;font-size:14px;margin-left:auto;width:fit-content;">';
+    h += '<span style="color:' + muted + ';font-size:12px;">' + lbl + '</span>';
+    if (sd && !showRound) {
+      for (var jx = 0; jx < judgeCount; jx++) h += '<span></span>';
+      h += '<span style="text-align:right;color:' + red + ';font-weight:600;">' + esc(sd.label) + '</span>';
+    } else {
+      for (var jj = 0; jj < judgeCount; jj++) {
+        var ph = rndData && rndData[jj] ? rndData[jj] : {};
+        var scoreStr = '';
+        if (isDerby) {
+          var parts = [];
+          if (ph.base) parts.push(ph.base);
+          if (ph.hiopt) parts.push('+' + ph.hiopt);
+          if (ph.bonus) parts.push('+' + ph.bonus);
+          scoreStr = parts.join('');
+        } else {
+          scoreStr = ph.score ? String(ph.score) : (ph.phaseTotal ? String(ph.phaseTotal) : '');
+        }
+        var jRk = rndRanks && rndRanks[jj] ? rndRanks[jj] : '';
+        h += '<span style="text-align:right;color:' + muted + ';">' + esc(scoreStr) + (jRk ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + jRk + ')</span>' : '') + '</span>';
+      }
+      h += '<span style="text-align:right;color:' + bright + ';font-weight:600;">' + esc(rndTotal) + (rndRank ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + rndRank + ')</span>' : '') + '</span>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  // Build row HTML
+  var e = entry;
+  var row = '';
+  var hCombined = e.combined || '';
+
+  // "All hidden" = sd says hide every round in numRounds
+  var allHidden = !!sd;
+  if (sd) {
+    for (var rh = 1; rh <= numRounds; rh++) {
+      if (sd['showR' + rh]) { allHidden = false; break; }
+    }
+  } else {
+    allHidden = false;
+  }
+
+  if (allHidden) {
+    // Fully eliminated — just show status in the totals position
+    row += '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:baseline;font-family:DM Mono,monospace;margin-left:auto;width:fit-content;">';
+    row += '<span></span>';
+    for (var je = 0; je < judgeCount; je++) row += '<span></span>';
+    row += '<span style="text-align:right;color:' + red + ';font-weight:700;font-size:17px;">' + esc(sd.label) + '</span>';
+    row += '</div>';
+  } else {
+    // Loop rounds 1..numRounds — header is the truth, render every row that exists
+    for (var r = 1; r <= numRounds; r++) {
+      var rTotal = e['r' + r + 'Total'] || '';
+      var rData  = e['r' + r];
+      var rRanks = e['r' + r + 'Ranks'];
+      var rRank  = e['r' + r + 'OverallRank'] || '';
+      var rShow  = sd ? !!sd['showR' + r] : true;
+      var rLbl   = roundLabels[r - 1] || ('R' + r);
+      // Render if entry has a total for this round OR status rules want to show the status here
+      if (rTotal || (sd && !rShow)) {
+        row += renderRound(rLbl, rData, rRanks, rTotal, rRank, rShow);
+      }
+    }
+
+    // Divider + per-judge totals row (ending with OVERALL combined in the corner)
+    var borderColor = dark ? 'var(--border,#1e2940)' : 'var(--border,#e2e2e2)';
+    row += '<div style="border-top:1px solid ' + borderColor + ';margin:5px 0;"></div>';
+    row += '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:baseline;font-family:DM Mono,monospace;margin-left:auto;width:fit-content;">';
+    row += '<span></span>';
+    for (var jt = 0; jt < judgeCount; jt++) {
+      var jCard = e.judgeCardTotals && e.judgeCardTotals[jt] ? e.judgeCardTotals[jt] : '';
+      var jCardRank = e.judgeCardRanks && e.judgeCardRanks[jt] ? e.judgeCardRanks[jt] : '';
+      if (jCard) {
+        row += '<span style="text-align:right;color:' + bright + ';font-size:14px;font-weight:600;">J' + (jt + 1) + ' ' + esc(jCard) + (jCardRank ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + jCardRank + ')</span>' : '') + '</span>';
+      } else {
+        row += '<span></span>';
+      }
+    }
+    row += '<span style="text-align:right;color:' + accent + ';font-weight:700;font-size:17px;">' + esc(hCombined) + '</span>';
+    row += '</div>';
+  }
+
+  return { header: header, row: row, gridCols: gridCols };
+};
+
 // Full list — returns complete '<div class="results-wrap">…</div>' HTML string
 // Pages insert this via innerHTML and then bind their own toggleEntry handler.
 // opts.isLive = true when class is currently being scored (suppresses ribbon graphics).
@@ -1456,60 +1601,29 @@ WEST.hunter.derby.renderMovement = function(m) {
 
 WEST.hunter.derby.renderExpand = function(e, judgeCount) {
   if (!e._jt) return '';
-  var hasR1 = WEST.hunter.derby.hasR1(e);
-  var hasR2 = WEST.hunter.derby.hasR2(e);
   var html = '<div class="derby-expand"><div class="de-inner">';
 
-  if (hasR1) {
-    html += '<div class="de-section"><div class="de-section-lbl">Round 1</div>';
-    for (var j = 0; j < judgeCount; j++) {
-      var p = e.r1[j];
-      var rk = e._jt.r1Ranks[j];
-      var solo = rk === 1 && judgeCount > 1;
-      html += '<div class="de-judge-row">'
-        + '<span class="de-judge-lbl">J' + (j + 1) + ' R1</span>'
-        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p, 1) + '</span>'
-        + '<span class="de-judge-rank' + (solo ? ' solo-winner' : '') + '">'
-        + (rk ? '(' + WEST.ordinal(rk) + ')' : '') + '</span>'
-        + '</div>';
-    }
-    html += '</div>';
-  }
-
-  if (hasR2) {
-    html += '<div class="de-section"><div class="de-section-lbl">Round 2</div>';
-    for (var j2 = 0; j2 < judgeCount; j2++) {
-      var p2 = e.r2[j2];
-      var rk2 = e._jt.r2Ranks[j2];
-      var solo2 = rk2 === 1 && judgeCount > 1;
-      html += '<div class="de-judge-row">'
-        + '<span class="de-judge-lbl">J' + (j2 + 1) + ' R2</span>'
-        + '<span class="de-judge-math">' + WEST.hunter.derby.renderPhaseMath(p2, 2) + '</span>'
-        + '<span class="de-judge-rank' + (solo2 ? ' solo-winner' : '') + '">'
-        + (rk2 ? '(' + WEST.ordinal(rk2) + ')' : '') + '</span>'
-        + '</div>';
-    }
-    html += '</div>';
-  }
-
-  if (judgeCount > 1 && hasR1 && hasR2 && e._jt.judgeCardTotals.some(function(t) { return t !== null; })) {
-    var allSame = e._jt.judgeCardRanks.every(function(r) { return r === e._jt.judgeCardRanks[0]; });
-    if (!allSame) {
-      html += '<div class="de-section"><div class="de-section-lbl">Judge Cards</div>';
-      e._jt.judgeCardTotals.forEach(function(t, idx) {
-        if (t === null) return;
-        var rank = e._jt.judgeCardRanks[idx];
-        var wouldWin = rank === 1;
-        html += '<div class="de-judge-card-row">'
-          + '<span class="de-judge-card-lbl">J' + (idx + 1) + ' card</span>'
-          + '<span class="de-judge-card-val">' + t.toFixed(2) + '</span>'
-          + '<span class="de-judge-card-rank' + (wouldWin ? ' would-win' : '') + '">'
-          + (rank ? '(' + WEST.ordinal(rank) + ' overall)' : '') + '</span>'
-          + '</div>';
-      });
-      html += '</div>';
-    }
-  }
+  // Use centralized judge grid
+  var isDerby = !!(e.r1 && e.r1[0] && e.r1[0].base !== undefined);
+  var sd = WEST.hunter.getStatusDisplay
+    ? WEST.hunter.getStatusDisplay(e.r1StatusCode || e.r1TextStatus || '', e.r2StatusCode || e.r2TextStatus || '', '')
+    : null;
+  // Map _jt fields to renderJudgeGrid expected fields
+  var gridEntry = {
+    r1: e.r1, r2: e.r2,
+    r1Total: e._jt.r1Total || e.r1Total,
+    r2Total: e._jt.r2Total || e.r2Total,
+    combined: e._jt.combined || e.combined,
+    r1Ranks: e._jt.r1Ranks,
+    r2Ranks: e._jt.r2Ranks,
+    r1OverallRank: e._jt.r1OverallRank,
+    r2OverallRank: e._jt.r2OverallRank,
+    judgeCardTotals: e._jt.judgeCardTotals,
+    judgeCardRanks: e._jt.judgeCardRanks,
+  };
+  var jg = WEST.hunter.renderJudgeGrid(gridEntry, judgeCount, sd, { isDerby: isDerby });
+  html += jg.header;
+  html += jg.row;
 
   html += '</div></div>';
   return html;
