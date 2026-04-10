@@ -963,9 +963,16 @@ FINISH shows the full judge grid. This matches operator expectation that
             → Watcher: force fresh .cls re-read + post FINISH event
 {fr}=14   → RESULTS DISPLAY — forced/flat ribbon announcement (one entry per frame)
             → Watcher: post HUNTER_RESULT event (accumulating list)
+{fr}=15   → Hunter STANDINGS — between-rounds scoreboard view of current
+            placings. Operator shows this to the audience to display the
+            current standings (e.g., between R1 and R2 of a derby).
+            Currently IGNORED by the pipeline — .cls is already authoritative
+            for standings and the website always shows them. No trigger
+            currently needed; revisit if we ever want a "hide standings until
+            operator shows them" mode.
 {fr}=16   → Hunter DISPLAY SCORES — DERBY (large fields for hi-opt + bonus)
             → Watcher: force fresh .cls re-read + post FINISH event
-{fr}=13/15 → Final/standings pages (not needed for pipeline, ignored)
+{fr}=13   → Other final/standings page (not needed for pipeline, ignored)
 ```
 
 #### Hunter INTRO packet ({fr}=11) — THE ONLY HUNTER UDP WE ACT ON:
