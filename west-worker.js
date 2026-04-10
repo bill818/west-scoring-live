@@ -2114,20 +2114,25 @@ function computeDerbyRankings(entries, judgeCount) {
   return entries;
 }
 
-// Split decision check — judges disagree on any of positions 1/2/3
+// Split decision check — judges disagree on the placed top 3 entries.
+// Compare each judge's top-N (by card total) against the overall placed
+// top-N where N = min(3, number of entries the operator has actually placed).
+// This avoids false positives mid-class when only some entries have been placed.
 function isSplitDecision(entries, judgeCount) {
   if (judgeCount < 2) return false;
-  // Use the COMBINED placing top 3 per judge — sort by combined score
-  // Only flag if the final combined result top 3 would differ when viewed per judge
-  // Simple: compare overall place top 3 vs each judge's top 3 by card total
-  const overallTop3 = entries
+
+  // Overall placed entries, in place order
+  const placed = entries
     .filter(e => parseInt(e.place) > 0)
-    .sort((a, b) => parseInt(a.place) - parseInt(b.place))
-    .slice(0, 3)
-    .map(e => e.entry_num)
-    .sort()
-    .join(',');
-  if (!overallTop3) return false;
+    .sort((a, b) => parseInt(a.place) - parseInt(b.place));
+  if (placed.length < 2) return false; // Need at least 2 placings to compare
+
+  // Compare against top-N where N = min(3, placed.length). If the operator
+  // has only placed 2, we compare top-2 — splits over the 3rd spot can't
+  // be flagged until that 3rd ribbon exists.
+  const N = Math.min(3, placed.length);
+  const overallTopN = placed.slice(0, N).map(e => e.entry_num).sort().join(',');
+
   for (let j = 0; j < judgeCount; j++) {
     const sorted = entries
       .filter(e => e.judgeCardTotals && e.judgeCardTotals[j] != null && e.judgeCardTotals[j] > 0)
@@ -2138,8 +2143,8 @@ function isSplitDecision(entries, judgeCount) {
         // Tie-break by overall place to match final standings
         return (parseInt(a.place) || 999) - (parseInt(b.place) || 999);
       });
-    const judgeTop3 = sorted.slice(0, 3).map(e => e.entry_num).sort().join(',');
-    if (judgeTop3 !== overallTop3) return true;
+    const judgeTopN = sorted.slice(0, N).map(e => e.entry_num).sort().join(',');
+    if (judgeTopN !== overallTopN) return true;
   }
   return false;
 }
