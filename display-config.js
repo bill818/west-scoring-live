@@ -1170,15 +1170,19 @@ WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
 
       html += '<div class="judge-section"><div class="judge-section-hdr">Judge ' + (jj + 1) + '</div>';
       sorted.forEach(function(g) {
-        var r1Status = WEST.hunter.getStatus(g.r1TextStatus, g.r1NumericStatus);
-        var gHasR1 = WEST.hunter.derby.hasR1(g);
-        var r1Failed = !!r1Status && !gHasR1;
+        // Centralized status rules — same as display.html sidebar judge cards
+        // and the renderJudgeGrid path. R1 status = full elim (place hidden,
+        // all rounds hidden). R2/R3 status = "earlier rounds always hold."
+        var sd = WEST.hunter.getStatusDisplay
+          ? WEST.hunter.getStatusDisplay(g.r1StatusCode || g.r1TextStatus || '', g.r2StatusCode || g.r2TextStatus || '', g.r3StatusCode || g.r3TextStatus || '')
+          : null;
+        var isElimFull = sd && !sd.showR1;
         var rank = g._jt ? g._jt.judgeCardRanks[jj] : null;
         var flag = showFlags ? WEST.countryFlag(g.country, true) : '';
-        var placeText = r1Failed ? (r1Status ? r1Status.label : '—') : (rank ? rank : '—');
-        var ribbonSvg = (!opts.isLive && !r1Failed && rank) ? WEST.ribbon.placeRibbon(rank, className) : '';
+        var placeText = isElimFull ? sd.label : (rank ? rank : '—');
+        var ribbonSvg = (!opts.isLive && !isElimFull && rank) ? WEST.ribbon.placeRibbon(rank, className) : '';
 
-        html += '<div class="result-entry"><div class="result-main">';
+        html += '<div class="result-entry"' + (isElimFull ? ' style="opacity:0.5;"' : '') + '><div class="result-main">';
         html += ribbonSvg ? '<div class="r-ribbon">' + ribbonSvg + '</div>' : '<div class="r-ribbon"><div class="r-place-txt">' + placeText + '</div></div>';
         if (isEq) {
           var locale = [g.city, g.state].filter(Boolean).join(', ');
@@ -1187,22 +1191,23 @@ WEST.hunter.derby.renderPrecomputedByJudge = function(computed, opts) {
           html += '<div class="r-info"><div class="r-horse-rider"><span class="r-bib">' + esc(g.entry_num) + '</span><span class="r-horse">' + esc(g.horse) + '</span><span class="r-rider-inline">' + esc(g.rider) + (flag ? ' ' + flag : '') + '</span></div></div>';
         }
         html += '<div class="r-scores">';
-        if (r1Failed) {
-          html += '<span class="r-status">' + (r1Status ? r1Status.label : 'DNS') + '</span>';
+        if (isElimFull) {
+          html += '<span class="r-status">' + esc(sd.label) + '</span>';
         } else {
-          // Loop rounds 1..numRounds, pull this judge's phase for each.
-          var hasByRound = [
-            gHasR1,
-            WEST.hunter.derby.hasR2(g),
-            WEST.hunter.derby.hasR3(g),
-          ];
+          // Loop rounds 1..numRounds. For each round: if status rules say
+          // hide it (e.g. R2 RT), show the status label in the round row.
+          // Otherwise show this judge's phase score.
           var phasesByRound = [g.r1, g.r2, g.r3];
           for (var r = 1; r <= numRounds; r++) {
             var idx = r - 1;
             var phases = phasesByRound[idx];
-            if (hasByRound[idx] && phases && phases[jj]) {
-              var lbl = roundLabels[idx] || ('R' + r);
-              html += '<div class="r-score-row"><span class="r-score-lbl">' + esc(lbl) + '</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(phases[jj], r) + '</span></div>';
+            var ph = phases && phases[jj];
+            var roundShown = !sd || sd['showR' + r];
+            var lbl = roundLabels[idx] || ('R' + r);
+            if (!roundShown) {
+              html += '<div class="r-score-row"><span class="r-score-lbl">' + esc(lbl) + '</span><span class="r-status">' + esc(sd.label) + '</span></div>';
+            } else if (ph && (ph.score != null || ph.base != null || (ph.phaseTotal && ph.phaseTotal > 0))) {
+              html += '<div class="r-score-row"><span class="r-score-lbl">' + esc(lbl) + '</span><span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(ph, r) + '</span></div>';
             }
           }
           var cardTotal = g._jt && g._jt.judgeCardTotals[jj];

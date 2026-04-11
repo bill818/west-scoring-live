@@ -656,27 +656,39 @@ col[49] HasGone_R1           1=competed
 col[52] StatusCode           EX=Excused, RF=RiderFall, OC=OffCourse
 ```
 
-### Non-derby scored (H[2]=0, H[5]=1 or 2) — 1 to 7+ judges, 1-2 rounds:
-### CONFIRMED 2026-04-08 from class 1002 (7 judges, 2 rounds, scores 1-7)
+### Non-derby scored (H[2]=0 or 3, H[5]=1 or 2) — 1 to 7+ judges, 1-3 rounds:
+### CONFIRMED 2026-04-08 (7 judges, 2 rounds, class 1002)
+### CONFIRMED 2026-04-10 — R3 column map from class 925 Special, 2 judges
 ```
 Per-judge scores are SEQUENTIAL — no hiopt, no bonus, no mirrors.
 R1: col[15 + j] where j = 0..numJudges-1   (J1=col[15], J2=col[16], ... J7=col[21])
 R2: col[24 + j] where j = 0..numJudges-1   (J1=col[24], J2=col[25], ... J7=col[30])
+R3: col[33 + j] where j = 0..numJudges-1   (J1=col[33], J2=col[34], ... J7=col[39])
 col[42] R1Total              sum of all judge R1 scores
 col[43] R2Total              sum of all judge R2 scores
-col[45] CombinedTotal        R1Total + R2Total
+col[44] R3Total              sum of all judge R3 scores ★ NEW
+col[45] CombinedTotal        R1Total + R2Total (+ R3Total when 3 rounds)
+                             SAME caveat as derbies: only correct when operator
+                             views Overall in Ryegate. Compute it ourselves
+                             rather than trust col[45] mid-class.
 col[46] R1_NumericStatus
 col[47] R2_NumericStatus
+col[48] R3_NumericStatus     ★ NEW
 col[49] HasGone_R1
 col[50] HasGone_R2
+col[51] HasGone_R3           ★ NEW
 col[52] StatusCode_R1
 col[53] StatusCode_R2
+col[54] StatusCode_R3        ★ NEW
 
 NOTE: This layout is COMPLETELY DIFFERENT from derby layout.
       Derby interleaves hiopt/base/bonus/mirrors.
-      Non-derby is straight sequential scores.
-      H[2] determines which layout to use (0=non-derby, 2=derby).
-      Maximum 7 judges confirmed. cols 22-23 unused (padding between R1 and R2 blocks).
+      Non-derby is straight sequential scores — clean +9 stride per round.
+      H[2] determines which layout to use (0=non-derby OF, 2=derby, 3=Special).
+      Special classes use this same non-derby layout but support 1-3 rounds.
+      Maximum 7 judges confirmed. cols 22-23 unused (padding between R1 and R2);
+      cols 31-32 unused (padding between R2 and R3); cols 40-41 unused (padding
+      between R3 block and totals at col[42-45]).
 ```
 
 ### Two-round classic (1 judge, 2 rounds — legacy reference):

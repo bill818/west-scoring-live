@@ -2237,18 +2237,22 @@ function computeHunterResults(body, h, base) {
     entries: [],
   };
 
+  // Numeric status map: 0=none, 1=DNS, 2=EL, 3=RT, 4=WD, 5=RF, 6=OC, 7=MR, 8=HC
+  const numStatusMap = {'1':'DNS','2':'EL','3':'RT','4':'WD','5':'RF','6':'OC','7':'MR','8':'HC'};
+  // Normalize text + numeric status into one canonical statusCode per round.
+  // Used by both derby and non-derby paths (and the renderers downstream).
+  const normalizeHunterStatus = (e) => {
+    e.r1StatusCode = e.r1TextStatus || numStatusMap[e.r1NumericStatus] || '';
+    e.r2StatusCode = e.r2TextStatus || numStatusMap[e.r2NumericStatus] || '';
+    e.r3StatusCode = e.r3TextStatus || numStatusMap[e.r3NumericStatus] || '';
+    e.statusCode = e.r3StatusCode || e.r2StatusCode || e.r1StatusCode || '';
+  };
+
   if (info.isDerby) {
     // Parse per-judge data from cls rows
     const rows = parseClsRows(clsRaw);
-    // Numeric status map: 0=none, 1=DNS, 2=EL, 3=RT, 4=WD, 5=RF, 6=OC, 7=MR, 8=HC
-    const numStatusMap = {'1':'DNS','2':'EL','3':'RT','4':'WD','5':'RF','6':'OC','7':'MR','8':'HC'};
     let entries = rows.map(r => parseDerbyEntry(r, info.judgeCount));
-    // Normalize status codes
-    entries.forEach(e => {
-      e.r1StatusCode = e.r1TextStatus || numStatusMap[e.r1NumericStatus] || '';
-      e.r2StatusCode = e.r2TextStatus || numStatusMap[e.r2NumericStatus] || '';
-      e.statusCode = e.r2StatusCode || e.r1StatusCode || '';
-    });
+    entries.forEach(normalizeHunterStatus);
     entries = computeDerbyRankings(entries, info.judgeCount);
     result.isSplitDecision = isSplitDecision(entries, info.judgeCount);
 
@@ -2261,40 +2265,58 @@ function computeHunterResults(body, h, base) {
 
     result.entries = entries;
   } else if (info.scoringType === '1' || info.scoringType === '2') {
-    // Non-derby scored hunter (scored or hi-lo) — watcher sends r1Judges/r2Judges arrays.
+    // Non-derby scored hunter (scored or hi-lo) — watcher sends rN Judges arrays.
     // Build per-judge phase cards and compute rankings (same engine as derby).
-    // Column map confirmed 2026-04-08: R1=col[15+j], R2=col[24+j], sequential.
+    // Column map: R1=col[15+j], R2=col[24+j], R3=col[33+j] (confirmed 2026-04-08
+    // for R1+R2 from class 1002, R3 confirmed 2026-04-10 from class 925 Special).
+    // Special classes (H[2]=3) reuse this exact layout but support 1-3 rounds.
     const jc = info.judgeCount;
+    const numRounds = info.numRounds || 2;
     let entries = (body.entries || []).filter(e => e.hasGone).map(e => {
       // Non-derby: phase cards are just { score, phaseTotal } — no hiopt/bonus fields.
       // The ABSENCE of hiopt/bonus tells the renderer to show score only.
-      const r1 = (e.r1Judges || []).map(v => {
-        const s = parseFloat(v) || 0;
-        return { score: s, phaseTotal: s };
-      });
-      const r2 = (e.r2Judges || []).map(v => {
-        const s = parseFloat(v) || 0;
-        return { score: s, phaseTotal: s };
-      });
-      while (r1.length < jc) r1.push({ score: 0, phaseTotal: 0 });
-      while (r2.length < jc) r2.push({ score: 0, phaseTotal: 0 });
+      const buildPhases = (judgesArr) => {
+        const arr = (judgesArr || []).map(v => {
+          const s = parseFloat(v) || 0;
+          return { score: s, phaseTotal: s };
+        });
+        while (arr.length < jc) arr.push({ score: 0, phaseTotal: 0 });
+        return arr;
+      };
+      const r1 = buildPhases(e.r1Judges);
+      const r2 = buildPhases(e.r2Judges);
+      const r3 = buildPhases(e.r3Judges);
+
+      const r1Total = parseFloat(e.r1Total) || 0;
+      const r2Total = parseFloat(e.r2Total) || 0;
+      const r3Total = parseFloat(e.r3Total) || 0;
+      // Compute combined ourselves — col[45] is unreliable mid-class (only
+      // accurate when operator views Overall in Ryegate). Sum the rounds we
+      // actually have data for, capped by numRounds.
+      let combined = r1Total;
+      if (numRounds >= 2) combined += r2Total;
+      if (numRounds >= 3) combined += r3Total;
 
       return {
         entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
         owner: e.owner || '', country: e.country || '',
         sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
         place: e.place || '',
-        r1, r2,
-        r1Total: parseFloat(e.r1Total) || 0,
-        r2Total: parseFloat(e.r2Total) || 0,
-        combined: (parseFloat(e.r1Total) || 0) + (parseFloat(e.r2Total) || 0),
+        r1, r2, r3,
+        r1Total, r2Total, r3Total,
+        combined,
         r1NumericStatus: e.r1NumericStatus || '',
         r2NumericStatus: e.r2NumericStatus || '',
+        r3NumericStatus: e.r3NumericStatus || '',
         r1TextStatus: e.r1TextStatus || '',
         r2TextStatus: e.r2TextStatus || '',
+        r3TextStatus: e.r3TextStatus || '',
         hasGone: e.hasGone, statusCode: e.statusCode || '',
       };
     });
+
+    // Normalize status codes (text + numeric → r1/r2/r3 StatusCode)
+    entries.forEach(normalizeHunterStatus);
 
     // Compute per-judge rankings using the same engine as derby
     entries = computeDerbyRankings(entries, jc);

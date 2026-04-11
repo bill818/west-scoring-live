@@ -786,6 +786,32 @@ function render() {
 
   // HUNTER JUDGE CARDS — per-judge leaderboards (single-judge view, NOT renderJudgeGrid)
   if (isHunter && hasMultiJudge && gone.length) {
+    // Build dynamic grid template: # + Entry + (one per round) + Total
+    var rndColW = 56;                    // px per round score column
+    var rndColsTpl = '';
+    for (var rci = 0; rci < numRounds; rci++) rndColsTpl += rndColW + 'px ';
+    var jcGridCols = '20px 1fr ' + rndColsTpl + '44px';
+
+    // Round labels for the column header — fall back to R1/R2/R3 when worker
+    // didn't emit custom labels (i.e. non-Special hunter classes).
+    var rndLabels = roundLabels || ['R1', 'R2', 'R3'];
+
+    // Phase shape auto-detect — same logic as renderJudgeGrid. Renders one
+    // judge's score for one round whether the data is derby (base/hiopt/bonus)
+    // or non-derby scored (just score).
+    function jcRenderPhaseScore(ph) {
+      if (!ph) return '';
+      if (ph.base != null || ph.hiopt != null || ph.bonus != null) {
+        var parts = [];
+        if (ph.base) parts.push(ph.base);
+        if (ph.hiopt) parts.push('+' + ph.hiopt);
+        if (ph.bonus) parts.push('+' + ph.bonus);
+        return parts.join('');
+      }
+      if (ph.score != null) return String(ph.score);
+      return '';
+    }
+
     html += '<div class="judge-cards-scroll" style="flex:1;overflow-y:auto;scrollbar-width:none;min-height:0;">';
     for (var jc = 0; jc < judgeCount; jc++) {
       (function(jj) {
@@ -797,57 +823,49 @@ function render() {
 
         html += '<div class="sb-section">';
         html += '<div class="sb-label" style="font-size:12px;color:var(--gold);">Judge ' + (jj + 1) + ' Card</div>';
-        html += '<div style="display:grid;grid-template-columns:20px 1fr 70px 80px 44px;gap:3px;font-family:DM Mono,monospace;font-size:9px;color:var(--muted);letter-spacing:.06em;padding:0 0 4px;border-bottom:1px solid var(--border);">';
-        html += '<span>#</span><span>Entry</span><span style="text-align:right">R1</span><span style="text-align:right">R2</span><span style="text-align:right">Total</span></div>';
+        // Header row — # + Entry + one column per round + Total
+        html += '<div style="display:grid;grid-template-columns:' + jcGridCols + ';gap:3px;font-family:DM Mono,monospace;font-size:9px;color:var(--muted);letter-spacing:.06em;padding:0 0 4px;border-bottom:1px solid var(--border);">';
+        html += '<span>#</span><span>Entry</span>';
+        for (var hr = 0; hr < numRounds; hr++) {
+          html += '<span style="text-align:right">' + esc(rndLabels[hr] || ('R' + (hr + 1))) + '</span>';
+        }
+        html += '<span style="text-align:right">Total</span></div>';
 
         sorted.forEach(function(e, idx) {
           var eSd = WEST.hunter.getStatusDisplay
             ? WEST.hunter.getStatusDisplay(e.r1StatusCode || '', e.r2StatusCode || '', e.r3StatusCode || '')
             : null;
+          // R1 status = full elimination (whole row dimmed). Otherwise, per-round
+          // status replaces just that round's cell with the status label.
           var r1IsStatus = eSd && !eSd.showR1;
-          var r2IsStatus = eSd && !eSd.showR2 && !r1IsStatus;
           var isElimFull = r1IsStatus;
 
-          var jR1ph = e.r1 && e.r1[jj] ? e.r1[jj] : {};
-          var jR2ph = e.r2 && e.r2[jj] ? e.r2[jj] : {};
-          var jR1 = '', jR2 = '';
-          // Auto-detect shape: derby has base/hiopt/bonus, non-derby scored has score.
-          if (!r1IsStatus) {
-            if (jR1ph.base != null || jR1ph.hiopt != null || jR1ph.bonus != null) {
-              var jR1parts = [];
-              if (jR1ph.base) jR1parts.push(jR1ph.base);
-              if (jR1ph.hiopt) jR1parts.push('+' + jR1ph.hiopt);
-              if (jR1ph.bonus) jR1parts.push('+' + jR1ph.bonus);
-              jR1 = jR1parts.join('');
-            } else if (jR1ph.score != null) {
-              jR1 = String(jR1ph.score);
-            }
-          }
-          if (!r2IsStatus && !isElimFull) {
-            if (jR2ph.base != null || jR2ph.hiopt != null || jR2ph.bonus != null) {
-              var jR2parts = [];
-              if (jR2ph.base) jR2parts.push(jR2ph.base);
-              if (jR2ph.hiopt) jR2parts.push('+' + jR2ph.hiopt);
-              if (jR2ph.bonus) jR2parts.push('+' + jR2ph.bonus);
-              jR2 = jR2parts.join('');
-            } else if (jR2ph.score != null) {
-              jR2 = String(jR2ph.score);
-            }
-          }
           var jTotal = (e.judgeCardTotals && e.judgeCardTotals[jj]) ? e.judgeCardTotals[jj] : '';
-          if (r2IsStatus && !jTotal && jR1ph.phaseTotal) jTotal = jR1ph.phaseTotal;
 
           var isFirst = idx === 0;
-          html += '<div style="display:grid;grid-template-columns:20px 1fr 70px 80px 44px;gap:3px;font-family:DM Mono,monospace;font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;' + (isElimFull ? 'opacity:0.4;' : '') + '">';
+          html += '<div style="display:grid;grid-template-columns:' + jcGridCols + ';gap:3px;font-family:DM Mono,monospace;font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;' + (isElimFull ? 'opacity:0.4;' : '') + '">';
           html += '<span style="color:' + (isFirst ? 'var(--gold)' : 'var(--muted)') + ';font-size:11px;">' + (isElimFull ? '—' : (idx + 1)) + '</span>';
           html += '<div style="min-width:0;"><div style="color:var(--white);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? e.rider : e.horse) + '</div>'
             + '<div style="color:var(--muted);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? (e.horse || '') : e.rider) + '</div></div>';
+
           if (isElimFull) {
-            html += '<span></span><span></span>';
+            // R1 elim — span the round columns empty + status in the total cell
+            for (var ec = 0; ec < numRounds; ec++) html += '<span></span>';
             html += '<span style="text-align:right;color:var(--red);font-weight:600;">' + esc(eSd.label) + '</span>';
           } else {
-            html += '<span style="text-align:right;color:var(--muted);">' + esc(jR1) + '</span>';
-            html += '<span style="text-align:right;color:' + (r2IsStatus ? 'var(--red)' : 'var(--muted)') + ';">' + (r2IsStatus ? esc(eSd.label) : esc(jR2)) + '</span>';
+            // Render one cell per round 1..numRounds. Each cell either shows the
+            // judge's phase score for that round, OR the status label if the
+            // operator marked this round as eliminated/retired/etc.
+            for (var rr = 1; rr <= numRounds; rr++) {
+              var phases = e['r' + rr];
+              var ph = phases && phases[jj] ? phases[jj] : null;
+              var roundShown = !eSd || eSd['showR' + rr];
+              if (!roundShown) {
+                html += '<span style="text-align:right;color:var(--red);">' + esc(eSd.label) + '</span>';
+              } else {
+                html += '<span style="text-align:right;color:var(--muted);">' + esc(jcRenderPhaseScore(ph)) + '</span>';
+              }
+            }
             html += '<span style="text-align:right;color:var(--white);font-weight:600;">' + esc(jTotal) + '</span>';
           }
           html += '</div>';

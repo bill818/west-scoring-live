@@ -331,21 +331,25 @@ function parseCls(content, filename) {
     if (isHunter || result.classType === 'U') {
       // Hunter entry cols
       // col[13]=GoOrder, col[14]=CurrentPlace
-      // col[42]=R1Total, col[43]=R2Total, col[45]=CombinedTotal
-      // col[49]=HasGone_R1, col[50]=HasGone_R2, col[52]=R1StatusText, col[53]=R2StatusText
-      // col[46]=R1StatusNumeric, col[47]=R2StatusNumeric
+      // col[42]=R1Total, col[43]=R2Total, col[44]=R3Total, col[45]=CombinedTotal
+      // col[49/50/51]=HasGone_R1/R2/R3, col[52/53/54]=StatusText_R1/R2/R3
+      // col[46/47/48]=NumericStatus_R1/R2/R3
       entry.rideOrder  = cols[13] && cols[13] !== '0' ? cols[13] : '';
       entry.place      = cols[14] && cols[14] !== '0' ? cols[14] : '';
       entry.r1Total    = cols[42] && cols[42] !== '0' ? cols[42] : '';
       entry.r2Total    = cols[43] && cols[43] !== '0' ? cols[43] : '';
+      entry.r3Total    = cols[44] && cols[44] !== '0' ? cols[44] : '';
       entry.combined   = cols[45] && cols[45] !== '0' ? cols[45] : '';
       entry.hasGoneR1  = cols[49] === '1';
       entry.hasGoneR2  = cols[50] === '1';
+      entry.hasGoneR3  = cols[51] === '1';
       entry.statusCode = cols[52] || '';
       entry.r1TextStatus = cols[52] || '';
       entry.r2TextStatus = cols[53] || '';
+      entry.r3TextStatus = cols[54] || '';
       entry.r1NumericStatus = cols[46] || '';
       entry.r2NumericStatus = cols[47] || '';
+      entry.r3NumericStatus = cols[48] || '';
 
       // Per-judge scores — layout depends on class mode (derby vs non-derby)
       const numJudges = parseInt(result.numJudges) || 1;
@@ -364,13 +368,17 @@ function parseCls(content, filename) {
           entry.r2Bonus.push(cols[29] || '0');
         }
       } else {
-        // Non-derby scored: sequential from col[15] for R1, col[24] for R2
+        // Non-derby scored / Special: sequential from col[15] for R1, col[24]
+        // for R2, col[33] for R3. Clean +9 stride per round.
         // Confirmed 2026-04-08: 7 judges at cols 15-21 (R1) and 24-30 (R2)
+        // Confirmed 2026-04-10: R3 at cols 33-39 from class 925 Special test
         entry.r1Judges = [];
         entry.r2Judges = [];
+        entry.r3Judges = [];
         for (let j = 0; j < numJudges; j++) {
           entry.r1Judges.push(cols[15 + j] || '0');
           entry.r2Judges.push(cols[24 + j] || '0');
+          entry.r3Judges.push(cols[33 + j] || '0');
         }
       }
 
