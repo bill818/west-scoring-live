@@ -238,8 +238,31 @@ function render() {
   if (ta2 === '0') ta2 = '';
   if (ta3 === '0') ta3 = '';
 
-  // Competed percentage
-  var pct = totalCount > 0 ? Math.round(goneCount / totalCount * 100) : 0;
+  // Competed percentage — for hunter multi-round classes, count is round-relative.
+  // Worker emits comp.roundCompleted = [n, n, n] (per-round evidence-based counts)
+  // and comp.currentRound (1/2/3 = which round tab the operator has selected, or
+  // null when on Overall view). When we have currentRound, use that round's count
+  // and label it (custom Special label or "R1/R2/R3" fallback). Otherwise fall
+  // back to the legacy gone/total counter.
+  var competedNum = goneCount;
+  var competedDen = totalCount;
+  var competedLabel = 'Competed';
+  var competedHide = false;
+  if (isHunter && comp.currentRound && comp.roundCompleted && comp.numRounds > 1) {
+    var crIdx = comp.currentRound - 1;
+    if (crIdx >= 0 && crIdx < comp.roundCompleted.length) {
+      competedNum = comp.roundCompleted[crIdx];
+      competedDen = totalCount; // total entries — denominator stays the same
+      var crLabel = (comp.roundLabels && comp.roundLabels[crIdx])
+        || ('R' + comp.currentRound);
+      competedLabel = esc(crLabel) + ' Competed';
+    }
+  } else if (isHunter && comp.numRounds > 1 && !comp.currentRound) {
+    // Multi-round hunter but operator is on Overall view — we don't know which
+    // round to count, so hide per-round counter (rule: hide when uncertain).
+    competedHide = true;
+  }
+  var pct = competedDen > 0 ? Math.round(competedNum / competedDen * 100) : 0;
 
   // TOP BAR — Row 1: brand + class
   html += '<div class="top-bar">';
@@ -270,8 +293,10 @@ function render() {
   if (ta3 && maxRounds >= 3) html += '<span class="top-spec">' + esc(rLbl(smEarly, 3)) + ': <span class="top-spec-val">' + esc(ta3) + 's</span></span>';
   html += '</div>';
   html += '<div class="top-progress">';
-  html += '<span class="top-competed">' + goneCount + '/' + totalCount + '<span class="top-competed-lbl">Competed</span></span>';
-  html += '<div class="top-progress-bar"><div class="top-progress-fill" style="width:' + pct + '%"></div></div>';
+  if (!competedHide) {
+    html += '<span class="top-competed">' + competedNum + '/' + competedDen + '<span class="top-competed-lbl">' + competedLabel + '</span></span>';
+    html += '<div class="top-progress-bar"><div class="top-progress-fill" style="width:' + pct + '%"></div></div>';
+  }
   html += '</div>';
   html += '</div>';
   html += '</div>';

@@ -2256,6 +2256,18 @@ function computeHunterResults(body, h, base) {
     entries = computeDerbyRankings(entries, info.judgeCount);
     result.isSplitDecision = isSplitDecision(entries, info.judgeCount);
 
+    // Per-round competed counts. Same evidence-based rule as the non-derby
+    // path: an entry counts as "gone" for a round if it has a real score on
+    // that round OR a status code (EL/RT/etc.). Stuck hasGone flags alone
+    // don't count. Derbies are 2-round in Ryegate so R3 is always 0 here.
+    result.roundCompleted = [0, 0, 0];
+    entries.forEach(e => {
+      if (hasR1(e) || e.r1StatusCode) result.roundCompleted[0]++;
+      if (hasR2(e) || e.r2StatusCode) result.roundCompleted[1]++;
+      if (hasR3(e) || e.r3StatusCode) result.roundCompleted[2]++;
+    });
+    result.roundCompleted = result.roundCompleted.slice(0, info.numRounds);
+
     // Sort: placed first by place, then by combined desc
     entries.sort((a, b) => {
       const pa = parseInt(a.place) || 999, pb = parseInt(b.place) || 999;
@@ -2318,9 +2330,23 @@ function computeHunterResults(body, h, base) {
     // Normalize status codes (text + numeric → r1/r2/r3 StatusCode)
     entries.forEach(normalizeHunterStatus);
 
+    // Normalize status codes (text + numeric → r1/r2/r3 StatusCode)
+    entries.forEach(normalizeHunterStatus);
+
     // Compute per-judge rankings using the same engine as derby
     entries = computeDerbyRankings(entries, jc);
     result.isSplitDecision = isSplitDecision(entries, jc);
+
+    // Per-round competed counts. Evidence-based: an entry counts as "gone"
+    // for a round if it has a real score on that round OR a status code
+    // (EL/RT/etc.). Stuck hasGone flags alone don't count.
+    result.roundCompleted = [0, 0, 0];
+    entries.forEach(e => {
+      if (hasR1(e) || e.r1StatusCode) result.roundCompleted[0]++;
+      if (hasR2(e) || e.r2StatusCode) result.roundCompleted[1]++;
+      if (hasR3(e) || e.r3StatusCode) result.roundCompleted[2]++;
+    });
+    result.roundCompleted = result.roundCompleted.slice(0, numRounds);
 
     // Sort by place
     entries.sort((a, b) => {
