@@ -173,49 +173,54 @@ WEST.ribbon.svg = function(n) {
     12: {o:'#3d7a00',i:'#7ec800',f:'#f0fce0',t:'#2d5c00'},  // Lime green
   };
   var c = C[n]; if (!c) return '';
+  // Square 32x32 viewBox — no hanging tails. Bigger center disc so the
+  // place number reads cleanly. Petals at r=12 around (16,16).
   var p = '';
   for (var i = 0; i < 12; i++) {
-    var a = i * 30, r = 10, cx = 12, cy = 11, rad = a * Math.PI / 180;
+    var a = i * 30, r = 12, cx = 16, cy = 16, rad = a * Math.PI / 180;
     var x = (cx + r * Math.sin(rad)).toFixed(1);
     var y = (cy - r * Math.cos(rad)).toFixed(1);
-    p += '<ellipse cx="' + x + '" cy="' + y + '" rx="3.5" ry="2" fill="' + c.o + '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
+    p += '<ellipse cx="' + x + '" cy="' + y + '" rx="4.5" ry="2.6" fill="' + c.o + '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
   }
-  var tails = '<rect x="9" y="19" width="3" height="11" rx="1" fill="' + c.o + '" transform="rotate(-6,10.5,24.5)"/><rect x="12" y="19" width="3" height="11" rx="1" fill="' + c.i + '" transform="rotate(6,13.5,24.5)"/>';
-  var circles = '<circle cx="12" cy="11" r="7.5" fill="' + c.i + '"/><circle cx="12" cy="11" r="5.5" fill="' + c.f + '"/>';
-  var fs = n >= 10 ? '6' : '7.5';
-  var dy = n >= 10 ? '14.5' : '14';
-  return '<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">' + tails + p + circles + '<text x="12" y="' + dy + '" text-anchor="middle" font-family="serif" font-weight="bold" font-size="' + fs + '" fill="' + c.t + '">' + n + '</text></svg>';
+  var circles = '<circle cx="16" cy="16" r="10" fill="' + c.i + '"/><circle cx="16" cy="16" r="8" fill="' + c.f + '"/>';
+  // Number is now ~12px in a r=8 disc — comfortably readable. Double-digit
+  // shrinks slightly to fit.
+  var fs = n >= 10 ? '10' : '12';
+  return '<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">'
+    + p + circles
+    + '<text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="serif" font-weight="bold" font-size="' + fs + '" fill="' + c.t + '">' + n + '</text>'
+    + '</svg>';
 };
 
 WEST.ribbon.champSvg = function(isRC) {
   var cols = isRC ? ['#8b0000','#9a7800','#888'] : ['#0a3d8f','#8b0000','#9a7800'];
+  // Square 36x36 viewBox — no hanging tails. Three-layer rosette (outer +
+  // mid + inner) so champion ribbons read as fancier than place ribbons,
+  // with a bigger center disc for the CH/RC label.
   var p = '';
   for (var i = 0; i < 12; i++) {
-    var a = i * 30, r = 13, cx = 14, cy = 13, rad = a * Math.PI / 180;
+    var a = i * 30, r = 14, cx = 18, cy = 18, rad = a * Math.PI / 180;
     var x = (cx + r * Math.sin(rad)).toFixed(1);
     var y = (cy - r * Math.cos(rad)).toFixed(1);
-    p += '<ellipse cx="' + x + '" cy="' + y + '" rx="4.5" ry="2.5" fill="' + cols[0] + '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
+    p += '<ellipse cx="' + x + '" cy="' + y + '" rx="5" ry="2.8" fill="' + cols[0] + '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
   }
   for (var i2 = 0; i2 < 12; i2++) {
-    var a2 = i2 * 30 + 15, r2 = 9, cx2 = 14, cy2 = 13, rad2 = a2 * Math.PI / 180;
+    var a2 = i2 * 30 + 15, r2 = 10, cx2 = 18, cy2 = 18, rad2 = a2 * Math.PI / 180;
     var x2 = (cx2 + r2 * Math.sin(rad2)).toFixed(1);
     var y2 = (cy2 - r2 * Math.cos(rad2)).toFixed(1);
-    p += '<ellipse cx="' + x2 + '" cy="' + y2 + '" rx="3.5" ry="2" fill="' + cols[1] + '" transform="rotate(' + a2 + ',' + x2 + ',' + y2 + ')"/>';
+    p += '<ellipse cx="' + x2 + '" cy="' + y2 + '" rx="4" ry="2.3" fill="' + cols[1] + '" transform="rotate(' + a2 + ',' + x2 + ',' + y2 + ')"/>';
   }
   for (var i3 = 0; i3 < 8; i3++) {
-    var a3 = i3 * 45, r3 = 5, cx3 = 14, cy3 = 13, rad3 = a3 * Math.PI / 180;
+    var a3 = i3 * 45, r3 = 6, cx3 = 18, cy3 = 18, rad3 = a3 * Math.PI / 180;
     var x3 = (cx3 + r3 * Math.sin(rad3)).toFixed(1);
     var y3 = (cy3 - r3 * Math.cos(rad3)).toFixed(1);
-    p += '<ellipse cx="' + x3 + '" cy="' + y3 + '" rx="3" ry="1.8" fill="' + cols[2] + '" transform="rotate(' + a3 + ',' + x3 + ',' + y3 + ')"/>';
+    p += '<ellipse cx="' + x3 + '" cy="' + y3 + '" rx="3.4" ry="2" fill="' + cols[2] + '" transform="rotate(' + a3 + ',' + x3 + ',' + y3 + ')"/>';
   }
   var lbl = isRC ? 'RC' : 'CH';
-  return '<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">'
-    + '<rect x="10" y="24" width="3" height="14" rx="1" fill="' + cols[0] + '" transform="rotate(-7,11.5,31)"/>'
-    + '<rect x="14" y="24" width="3" height="14" rx="1" fill="' + cols[1] + '" transform="rotate(3,15.5,31)"/>'
-    + '<rect x="12" y="24" width="3" height="12" rx="1" fill="' + cols[2] + '" transform="rotate(10,13.5,30)"/>'
+  return '<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">'
     + p
-    + '<circle cx="14" cy="13" r="6" fill="#fff"/><circle cx="14" cy="13" r="4.5" fill="#f8f4e8"/>'
-    + '<text x="14" y="16.5" text-anchor="middle" font-family="serif" font-weight="bold" font-size="5" fill="#111">' + lbl + '</text>'
+    + '<circle cx="18" cy="18" r="8" fill="#fff"/><circle cx="18" cy="18" r="6.5" fill="#f8f4e8"/>'
+    + '<text x="18" y="18" text-anchor="middle" dominant-baseline="central" font-family="serif" font-weight="bold" font-size="9" fill="#111">' + lbl + '</text>'
     + '</svg>';
 };
 
