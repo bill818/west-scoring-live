@@ -876,15 +876,44 @@ Flag: S=Scored/Finished (hunter classes, indicates results are finalized),
 
 ## CONFIG.DAT STRUCTURE
 
+### CRITICAL CAVEAT — config.dat is in-memory cached:
+Confirmed 2026-04-11: Ryegate reads config.dat at startup, holds **every**
+field in memory while running, and **only flushes back to disk on clean
+exit** (or possibly an explicit Save Settings menu action). Mid-session
+changes to ANY config field are invisible to file watchers until Ryegate
+exits cleanly. If Ryegate crashes, mid-session changes are LOST and
+config.dat reverts to whatever was last persisted on prior clean exit.
+
+This means file-based detection of runtime config state is fundamentally
+unreliable. Use config.dat to know "what state did Ryegate start in",
+not "what state is Ryegate in right now".
+
+**Implications for the watcher:**
+- UDP port is read once at watcher startup (col[1]). If operator changes
+  the scoreboard port in Ryegate mid-session, the watcher keeps listening
+  on the old port and misses all subsequent UDP frames. config.dat won't
+  reflect the change either until Ryegate exits. Workaround: if no UDP
+  traffic arrives, the operator must restart both Ryegate and the watcher.
+- Live scoring toggle (col[8]) — same problem, no runtime detection.
+- Anything else the operator can toggle in Ryegate's settings UI.
+
 First line comma-separated:
 ```
 Col 0:  SerialPort         "COM7" etc
 Col 1:  UDPPort            scoreboard port e.g. 29711
+                           ★ STALE AT RUNTIME — see caveat above
 Col 2:  "FDS"
 Col 3:  ServerIP           Ryegate FTP server IP
 Col 4:  FTPPath            "/SHOWS/HITS/.../r1" — ring from /r1, /r2 etc
 Col 5:  FTPUser
 Col 6:  FTPPassword
+Col 7:  ?                  always True in tests so far
+Col 8:  LiveScoring        True/False — confirmed 2026-04-11 by toggling
+                           in Ryegate UI then clean-exiting Ryegate.
+                           ★ STALE AT RUNTIME — see caveat above.
+                           For runtime embargo control we need a separate
+                           mechanism (desktop watcher button writing its
+                           own flag, admin page toggle, etc.)
 Col 24: ShowURLSlug        Ryegate back office ID — NOT reliable as show slug
                            Use config.json slug set by operator instead
 ```
