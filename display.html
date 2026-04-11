@@ -553,11 +553,15 @@ function render() {
       var hCombined = e.combined || '';
       var hR1 = e.r1Total || '';
       var hR2 = e.r2Total || '';
+      var hR3 = e.r3Total || '';
       var hScore = e.score || '';
       var r1Rank = e.r1OverallRank || '';
       var r2Rank = e.r2OverallRank || '';
-      if (hCombined) {
-        // Single-judge multi-round
+      var r3Rank = e.r3OverallRank || '';
+      // Multi-round (numRounds > 1) gets the round-by-round + combined display.
+      // Single-round collapses to just the headline score (no row label, no
+      // duplicate total — the score IS the total).
+      if (numRounds > 1 && hCombined) {
         html += '<div class="s-rounds">';
         if (sd && !sd.showR1) {
           html += '<div class="s-round-line"><span class="s-round-lbl">R1</span><span class="s-round-flt" style="color:var(--red);">' + esc(sd.label) + '</span></div>';
@@ -569,12 +573,21 @@ function render() {
         } else if (hR2) {
           html += '<div class="s-round-line"><span class="s-round-lbl">R2</span><span class="s-round-flt" style="color:var(--muted);">' + esc(hR2) + '</span>' + (r2Rank ? '<span class="s-round-lbl" style="color:#555;">(' + r2Rank + ')</span>' : '') + '</div>';
         }
+        if (numRounds >= 3) {
+          if (sd && !sd.showR3) {
+            html += '<div class="s-round-line"><span class="s-round-lbl">R3</span><span class="s-round-flt" style="color:var(--red);">' + esc(sd.label) + '</span></div>';
+          } else if (hR3) {
+            html += '<div class="s-round-line"><span class="s-round-lbl">R3</span><span class="s-round-flt" style="color:var(--muted);">' + esc(hR3) + '</span>' + (r3Rank ? '<span class="s-round-lbl" style="color:#555;">(' + r3Rank + ')</span>' : '') + '</div>';
+          }
+        }
         html += '<div style="border-top:1px solid var(--border);margin:3px 0;"></div>';
         html += '<div class="s-round-line"><span class="s-round-flt" style="color:var(--white);font-weight:700;font-size:15px;">' + esc(hCombined) + '</span></div>';
         html += '</div>';
-      } else if (hScore || hR1) {
-        // Single score (forced/flat/scored non-derby)
-        html += '<div class="s-rounds"><div class="s-round-line"><span class="s-round-flt" style="color:var(--white);font-weight:700;font-size:15px;">' + esc(hScore || hR1) + '</span></div></div>';
+      } else if (hScore || hR1 || hCombined) {
+        // 1-round class — single score (forced/flat/scored OF/Special 1-round).
+        // R1 == Combined, no need for a round label or stacked total.
+        var single = hCombined || hR1 || hScore;
+        html += '<div class="s-rounds"><div class="s-round-line"><span class="s-round-flt" style="color:var(--white);font-weight:700;font-size:15px;">' + esc(single) + '</span></div></div>';
       } else {
         html += '<div></div>';
       }
@@ -589,7 +602,7 @@ function render() {
   if (!gone.length && seenList.length) {
     seenList.forEach(function(e) {
       var isCurrent = oc && String(oc.entry) === String(e.entry);
-      html += '<div class="stand-row' + (isCurrent ? ' on-course' : '') + '">';
+      html += '<div class="stand-row ' + gridClass + (isCurrent ? ' on-course' : '') + '">';
       html += '<div class="s-place"></div>';
       html += '<div class="s-entry-num">' + esc(e.entry) + '</div>';
       html += '<div class="s-entry">';

@@ -1291,10 +1291,17 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
     if (needed > rndW) rndW = needed;
   }
 
-  // Build grid columns: round label + per-judge + total
+  // Dimension-aware column collapse:
+  //  - judgeCount === 1 → drop the "Round Total" column (always == J1, redundant)
+  //  - numRounds === 1  → drop the bottom totals row (R1 row IS the overall, redundant)
+  // When BOTH apply (1 judge × 1 round) the grid collapses to a single cell.
+  var showTotalCol = judgeCount > 1;
+  var showTotalsRow = numRounds > 1;
+
+  // Build grid columns: round label + per-judge + (optional) total
   var gridCols = rndW + 'px';
   for (var i = 0; i < judgeCount; i++) gridCols += ' ' + colW + 'px';
-  gridCols += ' ' + totalW + 'px';
+  if (showTotalCol) gridCols += ' ' + totalW + 'px';
 
   var muted = dark ? '#999' : 'var(--text-muted)';
   var dimmed = dark ? '#666' : '#999';
@@ -1308,7 +1315,7 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
   for (var jh = 0; jh < judgeCount; jh++) {
     header += '<span style="color:' + bright + ';text-decoration:underline;">J' + (jh + 1) + (isDerby ? ' + HiOpt + Bonus' : '') + '</span>';
   }
-  header += '<span style="color:' + bright + ';text-decoration:underline;">Round Total</span>';
+  if (showTotalCol) header += '<span style="color:' + bright + ';text-decoration:underline;">Round Total</span>';
   header += '</div>';
 
   // Round renderer
@@ -1317,7 +1324,7 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
     h += '<span style="color:' + muted + ';font-size:12px;">' + lbl + '</span>';
     if (sd && !showRound) {
       for (var jx = 0; jx < judgeCount; jx++) h += '<span></span>';
-      h += '<span style="text-align:right;color:' + red + ';font-weight:600;">' + esc(sd.label) + '</span>';
+      if (showTotalCol) h += '<span style="text-align:right;color:' + red + ';font-weight:600;">' + esc(sd.label) + '</span>';
     } else {
       for (var jj = 0; jj < judgeCount; jj++) {
         var ph = rndData && rndData[jj] ? rndData[jj] : {};
@@ -1331,10 +1338,19 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
         } else {
           scoreStr = ph.score ? String(ph.score) : (ph.phaseTotal ? String(ph.phaseTotal) : '');
         }
-        var jRk = rndRanks && rndRanks[jj] ? rndRanks[jj] : '';
-        h += '<span style="text-align:right;color:' + muted + ';">' + esc(scoreStr) + (jRk ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + jRk + ')</span>' : '') + '</span>';
+        // Per-judge rank (N) — drop ONLY in the 1-judge × 1-round case
+        // (single visible cell, overall place is shown in the ribbon).
+        // For 1j×2r the per-judge rank is the round rank (meaningful).
+        // For 2j×1r the per-judge rank shows judge agreement (meaningful).
+        var collapseRanks = (judgeCount === 1 && numRounds === 1);
+        var jRk = (!collapseRanks && rndRanks && rndRanks[jj]) ? rndRanks[jj] : '';
+        // When the totals row is hidden (1-round class), promote the per-judge
+        // cells to "bright" so the single visible row reads as the headline.
+        var cellColor = showTotalsRow ? muted : bright;
+        var cellWeight = showTotalsRow ? '' : 'font-weight:600;';
+        h += '<span style="text-align:right;color:' + cellColor + ';' + cellWeight + '">' + esc(scoreStr) + (jRk ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + jRk + ')</span>' : '') + '</span>';
       }
-      h += '<span style="text-align:right;color:' + bright + ';font-weight:600;">' + esc(rndTotal) + (rndRank ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + rndRank + ')</span>' : '') + '</span>';
+      if (showTotalCol) h += '<span style="text-align:right;color:' + bright + ';font-weight:600;">' + esc(rndTotal) + (rndRank ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + rndRank + ')</span>' : '') + '</span>';
     }
     h += '</div>';
     return h;
@@ -1355,12 +1371,39 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
     allHidden = false;
   }
 
+  // 1 judge × 1 round — no grid needed, no labels, no header. Just the score
+  // (or status). The overall place is already shown in the ribbon/place column
+  // outside renderJudgeGrid, so the single value carries no rank either.
+  var collapseSingle = (judgeCount === 1 && numRounds === 1);
+  if (collapseSingle) {
+    if (allHidden) {
+      row = '<div style="font-family:DM Mono,monospace;font-size:24px;font-weight:700;color:' + red + ';text-align:right;margin-left:auto;width:fit-content;">' + esc(sd.label) + '</div>';
+    } else {
+      var phase = e.r1 && e.r1[0];
+      var scoreStr = '';
+      if (phase) {
+        if (isDerby) {
+          var parts = [];
+          if (phase.base) parts.push(phase.base);
+          if (phase.hiopt) parts.push('+' + phase.hiopt);
+          if (phase.bonus) parts.push('+' + phase.bonus);
+          scoreStr = parts.join('');
+        } else {
+          scoreStr = phase.score != null ? String(phase.score) : (phase.phaseTotal != null ? String(phase.phaseTotal) : '');
+        }
+      }
+      if (!scoreStr) scoreStr = e.r1Total != null ? String(e.r1Total) : '';
+      row = '<div style="font-family:DM Mono,monospace;font-size:24px;font-weight:700;color:' + accent + ';text-align:right;margin-left:auto;width:fit-content;">' + esc(scoreStr) + '</div>';
+    }
+    return { header: '', row: row, gridCols: '' };
+  }
+
   if (allHidden) {
     // Fully eliminated — just show status in the totals position
     row += '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:baseline;font-family:DM Mono,monospace;margin-left:auto;width:fit-content;">';
     row += '<span></span>';
     for (var je = 0; je < judgeCount; je++) row += '<span></span>';
-    row += '<span style="text-align:right;color:' + red + ';font-weight:700;font-size:17px;">' + esc(sd.label) + '</span>';
+    if (showTotalCol) row += '<span style="text-align:right;color:' + red + ';font-weight:700;font-size:17px;">' + esc(sd.label) + '</span>';
     row += '</div>';
   } else {
     // Loop rounds 1..numRounds — header is the truth, render every row that exists
@@ -1377,22 +1420,25 @@ WEST.hunter.renderJudgeGrid = function(entry, judgeCount, sd, opts) {
       }
     }
 
-    // Divider + per-judge totals row (ending with OVERALL combined in the corner)
-    var borderColor = dark ? 'var(--border,#1e2940)' : 'var(--border,#e2e2e2)';
-    row += '<div style="border-top:1px solid ' + borderColor + ';margin:5px 0;"></div>';
-    row += '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:baseline;font-family:DM Mono,monospace;margin-left:auto;width:fit-content;">';
-    row += '<span></span>';
-    for (var jt = 0; jt < judgeCount; jt++) {
-      var jCard = e.judgeCardTotals && e.judgeCardTotals[jt] ? e.judgeCardTotals[jt] : '';
-      var jCardRank = e.judgeCardRanks && e.judgeCardRanks[jt] ? e.judgeCardRanks[jt] : '';
-      if (jCard) {
-        row += '<span style="text-align:right;color:' + bright + ';font-size:14px;font-weight:600;">J' + (jt + 1) + ' ' + esc(jCard) + (jCardRank ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + jCardRank + ')</span>' : '') + '</span>';
-      } else {
-        row += '<span></span>';
+    // Divider + per-judge totals row (ending with OVERALL combined in the corner).
+    // Skipped entirely when numRounds === 1 — the single round row IS the overall.
+    if (showTotalsRow) {
+      var borderColor = dark ? 'var(--border,#1e2940)' : 'var(--border,#e2e2e2)';
+      row += '<div style="border-top:1px solid ' + borderColor + ';margin:5px 0;"></div>';
+      row += '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:baseline;font-family:DM Mono,monospace;margin-left:auto;width:fit-content;">';
+      row += '<span></span>';
+      for (var jt = 0; jt < judgeCount; jt++) {
+        var jCard = e.judgeCardTotals && e.judgeCardTotals[jt] ? e.judgeCardTotals[jt] : '';
+        var jCardRank = e.judgeCardRanks && e.judgeCardRanks[jt] ? e.judgeCardRanks[jt] : '';
+        if (jCard) {
+          row += '<span style="text-align:right;color:' + bright + ';font-size:14px;font-weight:600;">J' + (jt + 1) + ' ' + esc(jCard) + (jCardRank ? ' <span style="color:' + dimmed + ';font-size:10px;">(' + jCardRank + ')</span>' : '') + '</span>';
+        } else {
+          row += '<span></span>';
+        }
       }
+      if (showTotalCol) row += '<span style="text-align:right;color:' + accent + ';font-weight:700;font-size:17px;">' + esc(hCombined) + '</span>';
+      row += '</div>';
     }
-    row += '<span style="text-align:right;color:' + accent + ';font-weight:700;font-size:17px;">' + esc(hCombined) + '</span>';
-    row += '</div>';
   }
 
   return { header: header, row: row, gridCols: gridCols };
@@ -1637,44 +1683,61 @@ WEST.hunter.derby.renderScoresCol = function(g, judgeCount, hasR1, hasR2, r1Stat
 
   var html = '<div class="r-scores">';
 
-  for (var r = 1; r <= numRounds; r++) {
-    var idx = r - 1;
-    var has = hasArr[idx];
-    var status = statusArr[idx];
-    var total = totalArr[idx];
-    var phases = phasesArr[idx];
-    var judgeRanks = judgeRanksArr[idx];
-    var overallRank = overallRankArr[idx];
-    var lbl = roundLabels[idx] || ('R' + r);
+  // Dimension-aware collapse: when both judgeCount === 1 AND numRounds === 1,
+  // skip the per-round row entirely and just show the score in the total
+  // position. Drops "R1: 87 (1)" + separator + "87" down to just "87".
+  var collapseSingle = (judgeCount === 1 && numRounds === 1);
+  // Also drop the per-round-row label when there's only one round (the round
+  // label is redundant when there's nothing to compare it to). Per-judge ranks
+  // and per-round overall rank are still meaningful in 2j×1r and 1j×2r cases.
+  var hideRowLabel = (numRounds === 1);
 
-    if (has) {
-      if (judgeCount === 1) {
-        var p = phases && phases[0];
-        var k = judgeRanks && judgeRanks[0];
-        html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-          + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, r) + '</span>'
-          + (k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(k) + ')</span>' : '')
-          + '</div>';
-      } else {
-        html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-          + '<span class="r-score-val primary">' + total + '</span>'
-          + (overallRank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(overallRank) + ')</span>' : '')
-          + '</div>';
+  if (!collapseSingle) {
+    for (var r = 1; r <= numRounds; r++) {
+      var idx = r - 1;
+      var has = hasArr[idx];
+      var status = statusArr[idx];
+      var total = totalArr[idx];
+      var phases = phasesArr[idx];
+      var judgeRanks = judgeRanksArr[idx];
+      var overallRank = overallRankArr[idx];
+      var lbl = roundLabels[idx] || ('R' + r);
+      var lblHtml = hideRowLabel ? '' : '<span class="r-score-lbl">' + esc(lbl) + '</span>';
+
+      if (has) {
+        if (judgeCount === 1) {
+          var p = phases && phases[0];
+          var k = judgeRanks && judgeRanks[0];
+          html += '<div class="r-score-row">' + lblHtml
+            + '<span class="r-score-val primary">' + WEST.hunter.derby.renderPhaseMath(p, r) + '</span>'
+            + (k ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(k) + ')</span>' : '')
+            + '</div>';
+        } else {
+          html += '<div class="r-score-row">' + lblHtml
+            + '<span class="r-score-val primary">' + total + '</span>'
+            + (overallRank ? '<span class="r-score-val" style="font-size:11px;color:#aaa;">(' + WEST.ordinal(overallRank) + ')</span>' : '')
+            + '</div>';
+        }
+      } else if (status) {
+        html += '<div class="r-score-row">' + lblHtml + '<span class="r-status">' + status.label + '</span></div>';
       }
-    } else if (status) {
-      html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span><span class="r-status">' + status.label + '</span></div>';
     }
   }
 
   // Total row — show `combined` if every round in numRounds is done,
   // otherwise fall back to a partial sum of the rounds that are done.
+  // Skipped when collapseSingle handles the lone score below.
   var allDone = true;
   var anyDone = false;
   for (var rd = 0; rd < numRounds; rd++) {
     if (hasArr[rd]) anyDone = true;
     else allDone = false;
   }
-  if (allDone && g.combined !== undefined && g.combined !== null) {
+  if (collapseSingle) {
+    // 1×1: render the single score in the r-total position with no row above.
+    var single = (g.r1 && g.r1[0]) ? WEST.hunter.derby.renderPhaseMath(g.r1[0], 1) : (g.r1Total || '');
+    html += '<div class="r-total">' + esc(String(single)) + '</div>';
+  } else if (allDone && g.combined !== undefined && g.combined !== null) {
     var combinedStr = typeof g.combined === 'number' ? g.combined.toFixed(2) : String(g.combined);
     html += '<div class="r-total">' + combinedStr + '</div>';
   } else if (anyDone) {
