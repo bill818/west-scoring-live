@@ -876,26 +876,37 @@ Flag: S=Scored/Finished (hunter classes, indicates results are finalized),
 
 ## CONFIG.DAT STRUCTURE
 
-### CRITICAL CAVEAT — config.dat is in-memory cached:
-Confirmed 2026-04-11: Ryegate reads config.dat at startup, holds **every**
-field in memory while running, and **only flushes back to disk on clean
-exit** (or possibly an explicit Save Settings menu action). Mid-session
-changes to ANY config field are invisible to file watchers until Ryegate
-exits cleanly. If Ryegate crashes, mid-session changes are LOST and
-config.dat reverts to whatever was last persisted on prior clean exit.
+### CRITICAL CAVEAT — config.dat is partially in-memory cached:
+Confirmed 2026-04-11 by toggling fields and observing file mtime/contents:
 
-This means file-based detection of runtime config state is fundamentally
-unreliable. Use config.dat to know "what state did Ryegate start in",
-not "what state is Ryegate in right now".
+Ryegate reads config.dat at startup, holds **every** field in memory while
+running, and writes back to disk on **specific events**. Not all changes
+trigger a write.
 
-**Implications for the watcher:**
-- UDP port is read once at watcher startup (col[1]). If operator changes
-  the scoreboard port in Ryegate mid-session, the watcher keeps listening
-  on the old port and misses all subsequent UDP frames. config.dat won't
-  reflect the change either until Ryegate exits. Workaround: if no UDP
-  traffic arrives, the operator must restart both Ryegate and the watcher.
-- Live scoring toggle (col[8]) — same problem, no runtime detection.
-- Anything else the operator can toggle in Ryegate's settings UI.
+**Triggers for config.dat write:**
+- ✅ Changing hardware settings (UDP port, serial port, etc.) — flushes
+  the ENTIRE file (whole in-memory snapshot) the moment the operator
+  applies the change
+- ✅ Clean exit of Ryegate — final flush of in-memory state
+- ❌ Toggling Live Scoring on/off — in-memory ONLY, no flush
+- ❌ Crashing — in-memory state is LOST
+
+Because hardware-change writes flush the whole file, they side-effect any
+other in-memory state at the time. So if the operator turned Live Scoring
+off then changed the UDP port, the new file would show BOTH the new port
+AND col[8]=False — even though the Live Scoring toggle alone wouldn't
+have triggered a write.
+
+**Useful implications for the watcher:**
+- UDP port is read once at watcher startup (col[1]). The watcher CAN poll
+  config.dat for mtime changes — when it ticks, re-read and pick up the
+  new port without a restart. (Not yet implemented; tracked in the
+  desktop watcher UI work.)
+- Live Scoring toggle (col[8]) is NOT reliable for runtime state. It only
+  reflects what Ryegate flushed last. For runtime embargo control we need
+  a separate mechanism (desktop watcher button or admin page toggle).
+- "Buttons not sticking after a crash" — confirmed by Bill — is exactly
+  this: in-memory toggles never made it to disk before the crash.
 
 First line comma-separated:
 ```
