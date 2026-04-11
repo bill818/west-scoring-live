@@ -1093,10 +1093,12 @@ WEST.hunter.derby._shimJt = function(entries, judgeCount) {
       judgeCount:      judgeCount,
       r1Ranks:         e.r1Ranks || [],
       r2Ranks:         e.r2Ranks || [],
+      r3Ranks:         e.r3Ranks || [],
       judgeCardTotals: e.judgeCardTotals || [],
       judgeCardRanks:  e.judgeCardRanks || [],
       r1OverallRank:   e.r1OverallRank || null,
       r2OverallRank:   e.r2OverallRank || null,
+      r3OverallRank:   e.r3OverallRank || null,
       movement:        e.movement || null,
       combinedRank:    e.combinedRank || null,
     };
