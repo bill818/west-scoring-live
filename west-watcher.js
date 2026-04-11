@@ -172,6 +172,14 @@ function parseCSVLine(line) {
 
 // ── CLS PARSER ───────────────────────────────────────────────────────────────
 
+// UDP-based type hints — when the watcher sees a jumper UDP frame (fr=1)
+// for the currently-selected class, it remembers "this class is a jumper"
+// even if Ryegate's .cls header still says U (unformatted, the placeholder
+// state before timing equipment is connected). The hint persists for the
+// life of the watcher process. Once Ryegate writes the real type to the
+// .cls header, the hint is moot — the parsed value already matches.
+const udpTypeHints = {}; // classNum -> 'T' (or 'J')
+
 function parseCls(content, filename) {
   const lines = content.split(/\r?\n/).filter(l => l.trim());
   if (!lines.length) return null;
@@ -203,8 +211,20 @@ function parseCls(content, filename) {
       result.classType    = cols[0] || 'U';
       result.className    = cols[1] || '';
 
-      const isJumperHeader = cols[0] === 'J' || cols[0] === 'T';
-      const isHunterHeader = cols[0] === 'H';
+      // UDP type hint — applied BEFORE the isJumperHeader / isHunterHeader
+      // checks so that the hint affects which parsing block runs. Without
+      // this, a U-typed jumper class wouldn't extract scoringMethod / time
+      // allowed / round params, and inferRound would default to "Round 1"
+      // even after the hint flipped classType later.
+      const classNumFromName = (filename || '').replace(/\.cls$/, '');
+      if (result.classType === 'U' && udpTypeHints[classNumFromName]) {
+        const hinted = udpTypeHints[classNumFromName];
+        log(`[TYPE HINT] applied at parse: class ${classNumFromName} U -> ${hinted}`);
+        result.classType = hinted;
+      }
+
+      const isJumperHeader = result.classType === 'J' || result.classType === 'T';
+      const isHunterHeader = result.classType === 'H';
 
       if (isJumperHeader) {
         // Jumper header — CONFIRMED 2026-04-08 by cycling ALL Ryegate settings
@@ -454,6 +474,9 @@ function parseCls(content, filename) {
 
     result.entries.push(entry);
   }
+
+  // Note: UDP type hint override is applied in the row-0 header block above
+  // (so the isJumperHeader branch runs and extracts scoringMethod, TAs, etc.)
 
   return result;
 }
@@ -818,10 +841,16 @@ function cleanUdpVal(tag, val) {
 const CLASS_COMPLETE_PORT    = 31000;
 const CLASS_COMPLETE_COUNT   = 3;    // presses needed
 const CLASS_COMPLETE_WINDOW  = 2000; // ms window
+const CLASS_COMPLETE_COOLDOWN = 5000; // ms — ignore any Ctrl+A on the same
+                                       // class for 5s after CLASS_COMPLETE
+                                       // fires, so a trigger-happy 4th press
+                                       // doesn't accidentally re-select and
+                                       // reopen the class.
 
 let port31000LastClassNum  = null;
 let port31000PressCount    = 0;
 let port31000WindowTimer   = null;
+const port31000RecentlyCompleted = {}; // classNum -> timestamp ms
 
 function startPort31000Listener() {
   const dgram  = require('dgram');
@@ -861,6 +890,18 @@ function startPort31000Listener() {
     log(`[31000] Class: ${classNum} — ${className}`);
     udpLog(`[31000] Class number: ${classNum} | Name: ${className}`);
 
+    // Cooldown — if this class fired CLASS_COMPLETE in the last
+    // CLASS_COMPLETE_COOLDOWN ms, ignore any further Ctrl+A presses on it.
+    // Stops a trigger-happy 4th press from re-selecting the class and
+    // reopening it on the live page.
+    const lastComplete = port31000RecentlyCompleted[classNum];
+    if (lastComplete && (Date.now() - lastComplete) < CLASS_COMPLETE_COOLDOWN) {
+      const remaining = Math.round((CLASS_COMPLETE_COOLDOWN - (Date.now() - lastComplete)) / 1000);
+      log(`[31000] IGNORED — class ${classNum} just completed (${remaining}s cooldown remaining)`);
+      udpLog(`[31000] IGNORED — class ${classNum} cooldown ${remaining}s`);
+      return;
+    }
+
     if (classNum === port31000LastClassNum) {
       // Same class — increment counter
       port31000PressCount++;
@@ -872,6 +913,8 @@ function startPort31000Listener() {
         if (port31000WindowTimer) { clearTimeout(port31000WindowTimer); port31000WindowTimer = null; }
         port31000PressCount   = 0;
         port31000LastClassNum = null;
+        // Mark the cooldown so any further Ctrl+A on this class is ignored
+        port31000RecentlyCompleted[classNum] = Date.now();
         log(`★ CLASS COMPLETE — class ${classNum} ${className} (3x Ctrl+A confirmed)`);
         udpLog(`[31000] CLASS_COMPLETE fired for class ${classNum}`);
         handleClassComplete(classNum, className);
@@ -988,13 +1031,62 @@ function fireEvent(type, data) {
 function inferRound(entryNum, udpTa) {
   const taNum = parseFloat(udpTa) || 0;
 
-  // Use the selected class file — we know which class is in the ring
-  const filename = selectedClassNum ? selectedClassNum + '.cls' : null;
-  const content = filename ? fileStates[filename] : null;
+  // Use the selected class file — we know which class is in the ring.
+  // If selectedClassNum is null (e.g. watcher restart with no Ctrl+A yet),
+  // self-discover by scanning fileStates for a .cls that contains entryNum
+  // in its parsed entries. Caches the discovered class for next time.
+  let filename = selectedClassNum ? selectedClassNum + '.cls' : null;
+  let content = filename ? fileStates[filename] : null;
+
+  if (!content && entryNum) {
+    // Self-discovery: find a .cls with this entry. Filter aggressively to
+    // avoid cross-class entry collisions:
+    //   1. Only files modified in the last hour (active scoring window)
+    //   2. Only jumper-type files (J/T) — we're being called from a jumper
+    //      UDP handler, so a hunter file with the same entry# is wrong
+    //   3. Prefer the most recently modified match
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    let bestFname = null;
+    let bestMtime = 0;
+    for (const fname in fileStates) {
+      if (!fname.endsWith('.cls')) continue;
+      const c = fileStates[fname];
+      if (!c) continue;
+      // mtime filter — skip stale files from prior shows
+      let mt = 0;
+      try { mt = fs.statSync(path.join(CLASSES_DIR, fname)).mtimeMs; } catch (e) { continue; }
+      if (mt < oneHourAgo) continue;
+      // Type filter — must be jumper (the jumper UDP path is the only caller)
+      let p;
+      try { p = parseCls(c, fname); } catch (e) { continue; }
+      if (!p || !p.entries) continue;
+      if (p.classType !== 'J' && p.classType !== 'T') continue;
+      // Entry# must match
+      if (!p.entries.some(e => e.entryNum === entryNum)) continue;
+      // Prefer the most recently changed file
+      if (mt >= bestMtime) {
+        bestMtime = mt;
+        bestFname = fname;
+      }
+    }
+    if (bestFname) {
+      filename = bestFname;
+      content = fileStates[bestFname];
+      // Promote to selectedClassNum so subsequent calls don't re-scan
+      const discovered = bestFname.replace(/\.cls$/, '');
+      udpLog(`[inferRound] self-discovered selectedClassNum=${discovered} for entry ${entryNum}`);
+      selectedClassNum = discovered;
+    }
+  }
 
   if (content) {
     const parsed = parseCls(content, filename);
     if (parsed) {
+      const sm = String(parsed.scoringMethod || '');
+      const isTwoPhase = sm === '9';
+      const isThreeRound = sm === '3';
+      const isTeam = sm === '14';
+
       // Time fault formula values per round from .cls header
       const roundParams = {
         1: { fpi: parseFloat(parsed.r1FaultsPerInt) || 1, ti: parseFloat(parsed.r1TimeInterval) || 1, ps: parseFloat(parsed.penaltySeconds) || 6 },
@@ -1002,34 +1094,61 @@ function inferRound(entryNum, udpTa) {
         3: { fpi: parseFloat(parsed.r3FaultsPerInt) || 1, ti: parseFloat(parsed.r3TimeInterval) || 1, ps: parseFloat(parsed.penaltySeconds) || 6 },
       };
 
-      function result(round, label) {
+      // Method-aware label for a given round number. Two-phase uses Phase X,
+      // three-round uses R1/R2/JO, default jumper uses R1 → JO → R3.
+      function labelFor(round) {
+        if (isTwoPhase)   return round === 1 ? 'Phase 1' : round === 2 ? 'Phase 2' : 'Phase ' + round;
+        if (isThreeRound) return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Jump Off';
+        if (isTeam)       return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Round ' + round;
+        return round === 1 ? 'Round 1' : round === 2 ? 'Jump Off' : 'Round ' + round;
+      }
+
+      function result(round) {
         const rp = roundParams[round] || roundParams[1];
-        return { round, label, faultsPerInterval: rp.fpi, timeInterval: rp.ti, penaltySeconds: rp.ps };
+        return {
+          round,
+          label: labelFor(round),
+          faultsPerInterval: rp.fpi,
+          timeInterval: rp.ti,
+          penaltySeconds: rp.ps,
+        };
       }
 
-      if (parsed.scoringMethod === '9') {
+      // ── PRIMARY: TA matching ────────────────────────────────────────────
+      // Each round has its own r{N}TimeAllowed. Whichever the UDP TA matches
+      // is unambiguously the round Ryegate is currently running. This works
+      // for any scoring method that has multiple rounds with different TAs,
+      // including two-phase (different TA per phase). Robust against parse
+      // races where parsed.entries might not contain the current entry yet.
+      const ta1 = parseFloat(parsed.r1TimeAllowed);
+      const ta2 = parseFloat(parsed.r2TimeAllowed);
+      const ta3 = parseFloat(parsed.r3TimeAllowed);
+      const r1Match = taNum > 0 && taNum === ta1;
+      const r2Match = taNum > 0 && taNum === ta2;
+      const r3Match = taNum > 0 && taNum === ta3;
+
+      if (r1Match && !r2Match && !r3Match) return result(1);
+      if (r2Match && !r1Match && !r3Match) return result(2);
+      if (r3Match && !r1Match && !r2Match) return result(3);
+
+      // ── FALLBACK 1: two-phase entry inspection ──────────────────────────
+      // When TAs are ambiguous (e.g. r1TA == r2TA), use whether the entry
+      // already has r2 data. If yes → on PH2, otherwise → on PH1.
+      if (isTwoPhase) {
         const entry = parsed.entries.find(e => e.entryNum === entryNum);
-        if (entry && !entry.r2TotalTime) return result(1, 'Phase 1');
-        return result(2, 'Phase 2');
+        if (entry && entry.r2TotalTime) return result(2);
+        return result(1);
       }
 
-      const r1Match = taNum === parseFloat(parsed.r1TimeAllowed);
-      const r2Match = taNum === parseFloat(parsed.r2TimeAllowed);
-      const r3Match = taNum === parseFloat(parsed.r3TimeAllowed);
-
-      if (r1Match && !r2Match && !r3Match) return result(1, 'Round 1');
-      if (r2Match && !r1Match && !r3Match) return result(2, 'Jump Off');
-      if (r3Match && !r1Match && !r2Match) return result(3, 'Round 3');
-
-      // Ambiguous TAs — use class-level roundsCompleted
+      // ── FALLBACK 2: roundsCompleted counter from class header ──────────
       const rc = parseInt(parsed.roundsCompleted) || 0;
-      if (rc === 0) return result(1, 'Round 1');
-      if (rc === 1) return result(2, 'Jump Off');
-      return result(3, 'Round 3');
+      if (rc === 0) return result(1);
+      if (rc === 1) return result(2);
+      return result(3);
     }
   }
 
-  // No selected class — default with standard 1 fault/sec
+  // No selected class or no .cls cached — default with standard 1 fault/sec
   return { round: 1, label: 'Round 1', faultsPerInterval: 1, timeInterval: 1, penaltySeconds: 6 };
 }
 
@@ -1161,13 +1280,22 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
   lastJump  = jump;
 }
 
+// Module-scoped reference to the active scoreboard UDP socket so we can
+// close + recreate it when the operator changes the scoreboard port in
+// Ryegate mid-session (config.dat watcher catches the change).
+let udpSocket = null;
+let currentScoreboardPort = null;
+
 function startUdpListener(scoreboardPort) {
   const dgram  = require('dgram');
   const socket = dgram.createSocket('udp4');
+  udpSocket = socket;
+  currentScoreboardPort = scoreboardPort;
 
   socket.on('error', (err) => {
     udpLog(`ERROR: ${err.message}`);
     socket.close();
+    if (udpSocket === socket) udpSocket = null;
   });
 
   socket.on('listening', () => {
@@ -1305,6 +1433,30 @@ function startUdpListener(scoreboardPort) {
     // ── Skip other hunter frames ({fr}=12-16) — .cls is authoritative ─────────
     if (fr && fr !== '1') return;
 
+    // ── UDP type hint — first jumper frame for the selected class flags it ───
+    // as a jumper even if Ryegate hasn't yet written T/J to the .cls header.
+    // Only triggers when there's an actual entry in the packet (avoids
+    // hinting on heartbeat / placeholder frames).
+    const hintEntry = (tags['1'] || '').trim();
+    if (selectedClassNum && hintEntry && !udpTypeHints[selectedClassNum]) {
+      udpTypeHints[selectedClassNum] = 'T';
+      udpLog(`[TYPE HINT] class ${selectedClassNum} = T (first jumper UDP frame)`);
+      // Force a re-post of the .cls so the worker picks up the type override
+      // immediately, instead of waiting for the next .cls write.
+      try {
+        const fname = selectedClassNum + '.cls';
+        const fp = path.join(CLASSES_DIR, fname);
+        const cnt = safeRead(fp);
+        if (cnt) {
+          fileStates[fname] = cnt;
+          const reparsed = parseCls(cnt, fname);
+          if (reparsed) {
+            postToWorker('/postClassData', { ...reparsed, clsRaw: cnt }, `postClassData ${fname} (type-hint forced)`);
+          }
+        }
+      } catch (e) { udpLog(`[TYPE HINT] re-post failed: ${e.message}`); }
+    }
+
     // ── Known jumper tags ─────────────────────────────────────────────────────
     const entry   = cleanUdpVal('1',  tags['1']  || '');
     const horse   = cleanUdpVal('2',  tags['2']  || '');
@@ -1349,6 +1501,96 @@ function startUdpListener(scoreboardPort) {
   socket.bind(scoreboardPort);
 }
 
+// Restart the UDP listener on a new port. Closes the existing socket cleanly
+// then opens a new one. Used by the config.dat watcher when the operator
+// changes the scoreboard port in Ryegate's hardware settings.
+function restartUdpListener(newPort) {
+  if (currentScoreboardPort === newPort) {
+    udpLog(`[CONFIG] scoreboard port unchanged (${newPort}), skipping restart`);
+    return;
+  }
+  udpLog(`[CONFIG] scoreboard port changing: ${currentScoreboardPort} -> ${newPort}, restarting UDP listener`);
+  if (udpSocket) {
+    try { udpSocket.close(); } catch(e) { udpLog(`[CONFIG] error closing old socket: ${e.message}`); }
+    udpSocket = null;
+  }
+  // Slight delay to make sure the OS releases the port
+  setTimeout(() => {
+    startUdpListener(newPort);
+  }, 200);
+}
+
+// Watch config.dat for changes. Ryegate flushes config.dat on hardware
+// settings changes (UDP port etc.) and on clean exit. Live Scoring toggles
+// alone don't trigger a flush — see CLS-FORMAT.md "config.dat is partially
+// in-memory cached" caveat.
+//
+// Debounced because Windows fs.watch fires the change event twice for one
+// write (once for metadata, once for content). We re-read on each event but
+// only act on actual content diffs vs the last-known state.
+function watchConfigFile() {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    log(`[CONFIG] watch skipped — ${CONFIG_PATH} does not exist`);
+    return;
+  }
+  let lastContent = safeRead(CONFIG_PATH) || '';
+  let debounceTimer = null;
+
+  function handleChange() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      const content = safeRead(CONFIG_PATH);
+      if (!content) return;
+      if (content === lastContent) return; // mtime touched, no real diff
+
+      // Snapshot the new state for the change log
+      saveSnapshot('config.dat', content, 'live-change');
+
+      const oldCols = (lastContent.split(/\r?\n/)[0] || '').split(',');
+      const newCols = (content.split(/\r?\n/)[0] || '').split(',');
+
+      // Diff every line-0 column and log meaningful changes
+      const interesting = {
+        1:  'UDPPort',
+        7:  'col[7]',
+        8:  'LiveScoring',
+        9:  'col[9]',
+      };
+      const changes = [];
+      const maxLen = Math.max(oldCols.length, newCols.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (oldCols[i] !== newCols[i]) {
+          const label = interesting[i] || ('col[' + i + ']');
+          changes.push(`${label}: ${JSON.stringify(oldCols[i])} -> ${JSON.stringify(newCols[i])}`);
+        }
+      }
+      if (changes.length) {
+        log('');
+        log('[CONFIG CHANGED]');
+        changes.forEach(c => log('  ' + c));
+      }
+
+      // Act on UDP port changes — restart the listener on the new port
+      const newPort = parseInt(newCols[1]);
+      if (newPort && newPort > 0 && newPort !== currentScoreboardPort) {
+        restartUdpListener(newPort);
+      }
+
+      lastContent = content;
+    }, 150);
+  }
+
+  try {
+    fs.watch(CONFIG_PATH, (event) => {
+      if (event === 'change') handleChange();
+    });
+    log(`[CONFIG] watching ${CONFIG_PATH} for changes`);
+  } catch(e) {
+    log(`[CONFIG] watch failed: ${e.message}`);
+  }
+}
+
 // ── START UDP ─────────────────────────────────────────────────────────────────
 
 initUdpLog();
@@ -1371,4 +1613,5 @@ udpLog('═'.repeat(72));
 
 startUdpListener(scoreboardPort);
 startPort31000Listener();
+watchConfigFile();
 

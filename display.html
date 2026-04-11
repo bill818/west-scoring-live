@@ -92,6 +92,22 @@ body{background:var(--bg);color:var(--white);font-family:'Source Sans 3',sans-se
 .s-round-flt.clean{color:var(--green);}
 .s-round-time{font-family:'DM Mono',monospace;font-size:15px;min-width:76px;text-align:right;color:var(--white);}
 
+/* UNIVERSAL JUMPER ROUNDS BLOCK — output of WEST.jumper.renderRoundsBlock.
+   Shared with live.html and results.html (different themes per page). */
+.jp-rounds{display:flex;flex-direction:column;gap:2px;}
+.jp-row{display:flex;align-items:baseline;justify-content:flex-end;gap:8px;font-family:'DM Mono',monospace;}
+.jp-lbl{font-size:11px;color:var(--muted);min-width:28px;text-align:right;letter-spacing:.04em;}
+.jp-faults{font-size:15px;min-width:56px;text-align:right;color:var(--muted);}
+.jp-faults.clean{color:var(--green);}
+.jp-time{font-size:15px;min-width:76px;text-align:right;color:var(--white);}
+.jp-status{font-size:13px;color:var(--red);font-weight:600;}
+.jp-row-status .jp-status{min-width:56px;text-align:right;}
+.jp-row-opt{margin-top:1px;}
+.jp-row-opt .jp-time{font-size:11px;color:var(--muted);}
+.jp-row-opt.jp-opt-close .jp-time{color:var(--green);}
+.jp-converted .jp-faults{color:#bbb;}
+.jp-converted .jp-time{font-weight:600;}
+
 /* SIDEBAR */
 .sidebar{background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
 .sb-section{padding:16px 18px;border-bottom:1px solid var(--border);}
@@ -510,45 +526,12 @@ function render() {
       // All rounds hidden — just show status
       html += '<div class="s-status">' + esc(sd.label) + '</div>';
     } else if (isJumper) {
-      html += '<div class="s-rounds">';
-      var roundShow = { 1: !sd || sd.showR1, 2: !sd || sd.showR2, 3: !sd || sd.showR3 };
-      // Build rounds array, highest first
-      var rounds = [];
-      if (e.r3TotalTime) rounds.push({ r: 3, flt: e.r3TotalFaults, time: e.r3TotalTime, jf: e.r3JumpFaults });
-      if (e.r2TotalTime) rounds.push({ r: 2, flt: e.r2TotalFaults, time: e.r2TotalTime, jf: e.r2JumpFaults });
-      if (e.r1TotalTime) rounds.push({ r: 1, flt: e.r1TotalFaults, time: e.r1TotalTime, jf: e.r1JumpFaults });
-
-      rounds.forEach(function(rd) {
-        var lbl = rndLbl(rd.r);
-        if (!roundShow[rd.r]) {
-          // Round hidden by status rules
-          html += '<div class="s-round-line"><span class="s-round-lbl">' + esc(lbl) + '</span>'
-            + '<span class="s-round-flt" style="color:var(--red)">' + esc(sd ? sd.label : '') + '</span></div>';
-        } else if (isFaultsConverted) {
-          var jf = parseFloat(rd.jf || 0);
-          html += '<div class="s-round-line"><span class="s-round-lbl">' + esc(lbl) + '</span>'
-            + '<span class="s-round-flt" style="color:var(--muted)">' + jf + '</span>'
-            + '<span class="s-round-time">' + fmtTime(rd.time) + '</span></div>';
-        } else {
-          var faults = parseFloat(rd.flt || 0);
-          var isClean = faults === 0;
-          html += '<div class="s-round-line"><span class="s-round-lbl">' + esc(lbl) + '</span>'
-            + '<span class="s-round-flt' + (isClean ? ' clean' : '') + '">' + faults + ' flt</span>'
-            + '<span class="s-round-time">' + fmtTime(rd.time) + '</span></div>';
-        }
-        // Optimum time
-        if (isOptimum && optimumTime > 0 && rd.time && rd.r === 1) {
-          var t = parseFloat(rd.time);
-          if (!isNaN(t)) {
-            var dist = t - optimumTime;
-            var sign = dist >= 0 ? '+' : '';
-            html += '<div class="s-round-line"><span class="s-round-lbl">OPT</span>'
-              + '<span class="s-round-flt" style="font-size:11px;color:' + (Math.abs(dist) < 1 ? 'var(--green)' : 'var(--muted)') + ';">'
-              + sign + dist.toFixed(3) + 's</span></div>';
-          }
-        }
+      // Universal jumper rounds — see WEST.jumper.renderRoundsBlock in
+      // display-config.js. Same renderer used by live.html and results.html.
+      html += WEST.jumper.renderRoundsBlock(e, sm, {
+        clockPrecision: cd.clockPrecision || 0,
+        optimumTime: optimumTime,
       });
-      html += '</div>';
     } else if (isHunter) {
       var hCombined = e.combined || '';
       var hR1 = e.r1Total || '';

@@ -98,6 +98,22 @@ header{background:var(--black);border-bottom:3px solid var(--red);}
 .r-score-val.clean{color:var(--green);font-weight:600;}
 .r-total{font-size:14px;font-weight:700;color:var(--black);margin-top:3px;border-top:1px solid var(--border);padding-top:3px;text-align:right;}
 .r-status{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:uppercase;}
+
+/* UNIVERSAL JUMPER ROUNDS BLOCK — output of WEST.jumper.renderRoundsBlock.
+   Shared with display.html and live.html (different themes per page). */
+.jp-rounds{display:flex;flex-direction:column;gap:2px;}
+.jp-row{display:flex;align-items:baseline;justify-content:flex-end;gap:5px;font-family:'DM Mono',monospace;}
+.jp-lbl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#bbb;}
+.jp-faults{font-size:13px;color:var(--text-muted);}
+.jp-faults.clean{color:var(--green);font-weight:600;}
+.jp-time{font-size:13px;color:var(--text-muted);}
+.jp-status{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:uppercase;font-weight:600;}
+.jp-row-opt .jp-time{font-size:11px;}
+.jp-row-opt.jp-opt-close .jp-time{color:var(--green);}
+.jp-converted{justify-content:center;}
+.jp-converted .jp-faults{color:#bbb;text-align:center;min-width:56px;}
+.jp-converted .jp-time{font-weight:600;color:var(--black);}
+
 .no-results{text-align:center;padding:50px 20px;color:var(--text-muted);font-size:14px;}
 
 /* DERBY — movement arrow, expand panel, judge summary */
@@ -604,47 +620,28 @@ function renderResults() {
       // No rounds visible — show just the status label
       html += '<div class="r-scores"><span class="r-status">' + esc(sd.label) + '</span></div>';
     } else if (hasResult && isJumper) {
-      html += '<div class="r-scores">';
-      if (isFaultsConverted) {
-        // Table III: show jump faults (muted, centered) + final time (bold)
-        const r = g.rounds.find(r => r.round === 1) || g.rounds[0];
-        if (r) {
-          const jf = parseFloat(r.jump_faults || 0);
-          html += '<div class="r-score-row">'
-            + '<span class="r-score-val" style="color:#bbb;text-align:center;min-width:56px;">' + jf + '</span>'
-            + '<span class="r-score-val" style="font-weight:600;">' + fmtTime(r.time) + '</span></div>';
-        }
-      } else {
-        const roundShow = { 1: !sd || sd.showR1, 2: !sd || sd.showR2, 3: !sd || sd.showR3 };
-        g.rounds.sort((a, b) => b.round - a.round);
-        g.rounds.forEach(r => {
-          const lbl = roundLabel(r.round);
-          if (!roundShow[r.round]) {
-            // This round hidden by status rules — show label + status code
-            html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-              + '<span class="r-status">' + esc(sd ? sd.label : '') + '</span></div>';
-          } else {
-            const total = parseFloat(r.total) || 0;
-            const isClean = total === 0;
-            html += '<div class="r-score-row"><span class="r-score-lbl">' + lbl + '</span>'
-              + '<span class="r-score-val' + (isClean ? ' clean' : '') + '">' + (isClean ? '0' : total) + ' flt</span>'
-              + (r.time ? '<span class="r-score-val">' + fmtTime(r.time) + '</span>' : '')
-              + '</div>';
-          }
-          // Optimum time distance for IV.1 classes
-          if (isOptimum && optimumTime > 0 && r.time && r.round === 1) {
-            const t = parseFloat(r.time);
-            if (!isNaN(t)) {
-              const dist = t - optimumTime;
-              const sign = dist >= 0 ? '+' : '';
-              html += '<div class="r-score-row"><span class="r-score-lbl">OPT</span>'
-                + '<span class="r-score-val" style="font-size:11px;color:' + (Math.abs(dist) < 1 ? 'var(--green)' : 'var(--text-muted)') + ';">'
-                + sign + dist.toFixed(3) + 's</span></div>';
-            }
-          }
-        });
-      }
-      html += '</div>';
+      // Universal jumper rounds — see WEST.jumper.renderRoundsBlock in
+      // display-config.js. Same renderer used by display.html and live.html.
+      // results.html grouped entries store rounds in g.rounds[]; flatten to the
+      // r1Total/r2Total/r3Total shape the helper expects.
+      const flatEntry = {
+        r1StatusCode: g.r1StatusCode || '',
+        r2StatusCode: g.r2StatusCode || '',
+        r3StatusCode: g.r3StatusCode || '',
+      };
+      g.rounds.forEach(r => {
+        const k = 'r' + r.round;
+        flatEntry[k + 'TotalTime'] = r.time || '';
+        flatEntry[k + 'TotalFaults'] = r.total != null ? r.total : '';
+        flatEntry[k + 'JumpFaults'] = r.jump_faults != null ? r.jump_faults : '';
+        flatEntry[k + 'TimeFaults'] = r.time_faults != null ? r.time_faults : '';
+      });
+      html += '<div class="r-scores">'
+        + WEST.jumper.renderRoundsBlock(flatEntry, sm, {
+            clockPrecision: classInfo.clock_precision != null ? classInfo.clock_precision : 2,
+            optimumTime: optimumTime,
+          })
+        + '</div>';
     } else if (hasResult && isHunter) {
       html += '<div class="r-scores">';
       g.rounds.forEach(r => {

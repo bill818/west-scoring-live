@@ -396,6 +396,155 @@ WEST.jumper.roundLabel = function(method, round) {
   return round === 1 ? 'R1' : round === 2 ? 'JO' : 'R' + round;
 };
 
+// Convenience wrapper that pulls status codes off the entry directly so
+// callers don't have to thread four arguments. Returns the same shape as
+// WEST.jumper.getStatusDisplay (or null when no status). Use this from
+// outer row code that needs to decide whether to hide the place column.
+WEST.jumper.getEntryStatus = function(entry, scoringMethod) {
+  if (!entry || !WEST.jumper.getStatusDisplay) return null;
+  return WEST.jumper.getStatusDisplay(
+    scoringMethod,
+    entry.r1StatusCode || entry.r1TextStatus || '',
+    entry.r2StatusCode || entry.r2TextStatus || '',
+    entry.r3StatusCode || entry.r3TextStatus || ''
+  );
+};
+
+// ── UNIVERSAL JUMPER STANDINGS ROW (rounds block) ────────────────────────────
+// Single source of truth for jumper rounds rendering. All pages call this so
+// the same rules apply everywhere — status display ("R2 RT" with R1 still
+// visible), method-specific layouts (faults converted shows jf+final time,
+// optimum shows time + distance, two-phase shows PH1+PH2 stacked, etc.).
+//
+// Returns the ROUNDS PORTION of a standings row only. The caller wraps it in
+// their own outer row with the place column + entry info column. This keeps
+// each page's outer layout flexible while sharing the inner per-round logic.
+//
+// Entry shape — accepts both raw watcher fields and computed entries:
+//   r1Total, r2Total, r3Total
+//   r1TotalTime, r2TotalTime, r3TotalTime
+//   r1TotalFaults / r1JumpFaults / r1TimeFaults, r2*, r3*
+//   r1StatusCode, r2StatusCode, r3StatusCode  (or *TextStatus / statusCode fallback)
+//
+// scoringMethod: H[02] from .cls (string '0'..'15'), determines layout
+//
+// opts:
+//   { clockPrecision: 0|1|2, optimumTime: number, includeRoundLabel: bool }
+//
+// Output is class-based HTML using the `jp-*` namespace:
+//   <div class="jp-rounds">
+//     <div class="jp-row">
+//       <span class="jp-lbl">PH2</span>
+//       <span class="jp-faults">0 flt</span>
+//       <span class="jp-time">21.59</span>
+//     </div>
+//     ...
+//   </div>
+//
+// Each page adds its own CSS rules for the jp-* classes (light/dark theme,
+// font sizes, alignment) — see display.html, live.html, results.html.
+WEST.jumper.renderRoundsBlock = function(entry, scoringMethod, opts) {
+  opts = opts || {};
+  var esc = WEST.esc;
+  var clockPrec = opts.clockPrecision != null ? opts.clockPrecision : 2;
+  var optimumTime = opts.optimumTime || 0;
+  var fmtTime = function(t) { return WEST.formatTime(t, clockPrec); };
+
+  var method = WEST.jumper.getMethod(scoringMethod);
+  var isFaultsConverted = String(scoringMethod) === '0';
+  var isOptimum = method.isOptimum;
+
+  // Centralized status display rules — handles "R1 EL hides everything",
+  // "R2 RT keeps R1 visible", "JO RT keeps R1+R2", method-specific carry-back
+  // rules, etc. Returns null when no status is present.
+  var sd = WEST.jumper.getStatusDisplay
+    ? WEST.jumper.getStatusDisplay(
+        scoringMethod,
+        entry.r1StatusCode || entry.r1TextStatus || '',
+        entry.r2StatusCode || entry.r2TextStatus || '',
+        entry.r3StatusCode || entry.r3TextStatus || ''
+      )
+    : null;
+
+  // Full elimination — sd says hide every round. Single status badge.
+  if (sd && !sd.showR1 && !sd.showR2 && !sd.showR3) {
+    return '<div class="jp-rounds"><span class="jp-status">' + esc(sd.label) + '</span></div>';
+  }
+
+  var html = '<div class="jp-rounds">';
+
+  // Faults Converted (Table III): single row, jump faults + final time only.
+  // r1TotalTime is the converted time (clock + jumpFaults + penaltySeconds)
+  // computed by the worker (or watcher). No round label, no separate flt.
+  if (isFaultsConverted) {
+    var jf = parseFloat(entry.r1JumpFaults || 0);
+    var t1 = entry.r1TotalTime || '';
+    if (t1 || jf) {
+      html += '<div class="jp-row jp-converted">'
+        + '<span class="jp-faults">' + jf + ' jf</span>'
+        + '<span class="jp-time">' + esc(fmtTime(t1)) + '</span>'
+        + '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // Build rounds list, highest first (JO/R3 → R2 → R1).
+  // Round shows up if there's a total time, even if 0 — operator may have
+  // entered explicit zero. Status-only rounds rendered separately below.
+  var rounds = [];
+  if (entry.r3TotalTime) {
+    rounds.push({ r: 3, faults: entry.r3TotalFaults, time: entry.r3TotalTime, jf: entry.r3JumpFaults });
+  }
+  if (entry.r2TotalTime) {
+    rounds.push({ r: 2, faults: entry.r2TotalFaults, time: entry.r2TotalTime, jf: entry.r2JumpFaults });
+  }
+  if (entry.r1TotalTime) {
+    rounds.push({ r: 1, faults: entry.r1TotalFaults, time: entry.r1TotalTime, jf: entry.r1JumpFaults });
+  }
+
+  // Also surface status-only rows for rounds the operator failed but where
+  // earlier rounds completed (so the user sees "PH2 RF" rather than nothing).
+  // Status rows are rendered IN PLACE of the score row when sd.showRn is false.
+  rounds.forEach(function(rd) {
+    var lbl = WEST.jumper.roundLabel(scoringMethod, rd.r);
+    var roundShown = !sd || sd['showR' + rd.r];
+
+    if (!roundShown && sd) {
+      // Status replaces this round's score
+      html += '<div class="jp-row jp-row-status">'
+        + '<span class="jp-lbl">' + esc(lbl) + '</span>'
+        + '<span class="jp-status">' + esc(sd.label) + '</span>'
+        + '</div>';
+    } else {
+      var faults = parseFloat(rd.faults || 0);
+      var isClean = faults === 0;
+      html += '<div class="jp-row">'
+        + '<span class="jp-lbl">' + esc(lbl) + '</span>'
+        + '<span class="jp-faults' + (isClean ? ' clean' : '') + '">' + faults + ' flt</span>'
+        + '<span class="jp-time">' + esc(fmtTime(rd.time)) + '</span>'
+        + '</div>';
+    }
+
+    // Optimum distance under R1 (Method 6)
+    if (isOptimum && optimumTime > 0 && rd.time && rd.r === 1) {
+      var tNum = parseFloat(rd.time);
+      if (!isNaN(tNum)) {
+        var dist = tNum - optimumTime;
+        var sign = dist >= 0 ? '+' : '';
+        var closeClass = Math.abs(dist) < 1 ? ' jp-opt-close' : '';
+        html += '<div class="jp-row jp-row-opt' + closeClass + '">'
+          + '<span class="jp-lbl">OPT</span>'
+          + '<span class="jp-time">' + sign + dist.toFixed(3) + 's</span>'
+          + '</div>';
+      }
+    }
+  });
+
+  html += '</div>';
+  return html;
+};
+
 // ── OPTIMUM TIME ─────────────────────────────────────────────────────────────
 // Table IV.1 (method 6): optimum = TA - 4 (hardcoded FEI rule, not in .cls)
 WEST.jumper.OPTIMUM_OFFSET = 4;

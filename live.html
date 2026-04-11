@@ -71,6 +71,8 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .oc-ta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:4px;}
 .oc-faults{font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:var(--red);margin-top:4px;}
 .oc-faults:empty{display:none;}
+.oc-jp-rank{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:6px;letter-spacing:.06em;text-transform:uppercase;}
+.oc-jp-rank-val{color:var(--red);font-size:18px;font-weight:700;letter-spacing:0;text-transform:none;margin-left:4px;}
 .oc-fault-tbl{margin-top:6px;border-collapse:collapse;text-align:center;font-family:'DM Mono',monospace;}
 .oc-fault-hdr td{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);font-weight:400;padding:0 8px 2px;}
 .oc-fault-vals td{font-size:16px;font-weight:600;color:var(--text-body);padding:0 8px;}
@@ -92,6 +94,8 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .standing-row{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);}
 .standing-row:nth-child(even){background:#fafafa;}
 .s-place{width:32px;flex-shrink:0;font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);}
+.s-place.s-place-status{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);font-weight:600;letter-spacing:.06em;text-transform:uppercase;}
+.standing-row.elim{opacity:0.55;}
 .s-entry{flex:1;min-width:0;}
 .s-bib{display:inline-flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;margin-right:5px;background:#fafafa;}
 .s-horse{font-size:14px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -110,6 +114,22 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .s-round-faults{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-body);}
 .s-round-faults.clean{color:var(--green);}
 .s-round-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:56px;text-align:right;}
+
+/* UNIVERSAL JUMPER ROUNDS BLOCK — output of WEST.jumper.renderRoundsBlock.
+   Shared with display.html and results.html (different themes per page). */
+.jp-rounds{display:flex;flex-direction:column;gap:1px;}
+.jp-row{display:flex;align-items:baseline;justify-content:flex-end;gap:6px;padding:1px 0;font-family:'DM Mono',monospace;}
+.jp-lbl{font-size:9px;letter-spacing:.06em;color:#bbb;text-transform:uppercase;min-width:18px;}
+.jp-faults{font-size:11px;color:var(--text-body);}
+.jp-faults.clean{color:var(--green);}
+.jp-time{font-size:11px;color:var(--text-muted);min-width:56px;text-align:right;}
+.jp-status{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:uppercase;font-weight:600;}
+.jp-row-status .jp-status{min-width:56px;text-align:right;}
+.jp-row-opt .jp-time{font-size:10px;}
+.jp-row-opt.jp-opt-close .jp-time{color:var(--green);}
+.jp-converted{justify-content:center;}
+.jp-converted .jp-faults{color:#bbb;text-align:center;min-width:56px;}
+.jp-converted .jp-time{font-weight:600;color:var(--text-body);}
 
 /* FLAT CLASS — entry list in the ring */
 .flat-entries{padding:8px 0;}
@@ -698,7 +718,15 @@ function render() {
     const ocClassLabel = sel
       ? 'Class ' + esc(sel.classNum) + (jCd && jCd.className ? ' — ' + esc(jCd.className) : '')
       : '';
-    const roundLabel = oc.label || (oc.round === 2 ? 'Jump Off' : oc.round === 3 ? 'Round 3' : oc.round === 1 ? 'Round 1' : '');
+    // Round label — trust oc.label from watcher (set by inferRound). Falls
+    // back to the centralized WEST.jumper.roundLabel which is method-aware
+    // (PH1/PH2 for two-phase, R1/JO/R3 for default jumper, etc.). The
+    // hardcoded "Round 1" / "Jump Off" string fallback was removed.
+    const ocSm = jCd && jCd.scoringMethod || '';
+    const roundLabel = oc.label
+      || (oc.round && WEST.jumper && WEST.jumper.roundLabel
+            ? WEST.jumper.roundLabel(ocSm, oc.round)
+            : '');
     let clockVal, clockCls = '', phaseLabel = '', faultsHtml = '';
 
     if (phase === 'INTRO') {
@@ -749,6 +777,16 @@ function render() {
       optDistHtml = '<div id="oc-opt-dist" style="font-family:DM Mono,monospace;font-size:12px;color:' + (Math.abs(dist) < 2 ? 'var(--green)' : 'var(--text-muted)') + ';margin-top:2px;">' + sign + Math.floor(dist) + 's from opt</div>';
     }
 
+    // Rank display — shown only after FINISH. Strip any "RANK " prefix Ryegate
+    // sends. Hidden when rank is empty / "EL" / etc.
+    let rankHtml = '';
+    if (phase === 'FINISH' && oc.rank) {
+      const cleanRank = String(oc.rank).replace(/^RANK\s*/i, '').trim();
+      if (cleanRank && !/^EL$/i.test(cleanRank) && !/^NP$/i.test(cleanRank)) {
+        rankHtml = '<div class="oc-jp-rank">Rank <span class="oc-jp-rank-val">' + esc(cleanRank) + '</span></div>';
+      }
+    }
+
     html += '<div class="oc-wrap">'
       + '<div class="oc-header"><div class="oc-title">' + esc(phaseLabel) + (ocClassLabel ? ' &mdash; ' + ocClassLabel : '') + '</div></div>'
       + '<div class="oc-grid">'
@@ -763,6 +801,7 @@ function render() {
       + '<div class="oc-clock' + clockCls + '" id="oc-clock">' + clockVal + '</div>'
       + '<div class="oc-phase-label">' + esc(phaseLabel) + '</div>'
       + faultsHtml
+      + rankHtml
       + (taStr ? '<div class="oc-ta">' + taStr + '</div>' : '')
       + (optStr ? '<div class="oc-ta" style="color:var(--green);">' + optStr + '</div>' : '')
       + optDistHtml
@@ -916,51 +955,29 @@ function render() {
               ? '<span class="col-faults">Jump Faults</span><span class="col-time">Final Time</span>'
               : '<span class="col-faults">Faults</span><span class="col-time">Time</span>')
             + '</div>';
-          // Round labels from display config
+          // Round labels + scores via centralized helper. See
+          // WEST.jumper.renderRoundsBlock in display-config.js — same renderer
+          // used by display.html and results.html. Includes status display
+          // rules (e.g. "PH2 RT" with PH1 still visible) which the old
+          // inline render path was missing.
           const sm = cd.scoringMethod || '';
           const prec = cd.clockPrecision || 2;
-          function liveRoundLabel(r) { return WEST.jumper.roundLabel(sm, r); }
-          function liveFmtTime(val) { return WEST.formatTime(val, prec); }
 
           standSorted.forEach(e => {
             const entryNum = e.entryNum || e.entry_num || '';
             const place = e.overallPlace || e.place || '';
-            const hasR2 = e.r2TotalTime;
-            const hasR3 = e.r3TotalTime;
+            // Centralized status check — for two-phase RT/RF/EL the place
+            // column is hidden and replaced with the status code (the
+            // "elimination carries backwards" rule, method 9 r2CarryBack).
+            const sd = WEST.jumper.getEntryStatus(e, sm);
+            const isElimRow = sd && !sd.showPlace;
+            const placeText = isElimRow ? sd.label : place;
+            const roundsHtml = WEST.jumper.renderRoundsBlock(e, sm, {
+              clockPrecision: prec,
+            });
 
-            // Build round rows top-down: highest round first
-            let roundsHtml = '';
-            if (isFaultsConverted) {
-              // Table III: show jump faults (muted) + final time (bold)
-              const jf = parseFloat(e.r1JumpFaults || 0);
-              roundsHtml = '<div class="s-round-row">'
-                + '<span class="s-round-faults" style="color:#bbb;text-align:center;min-width:56px;">' + jf + '</span>'
-                + '<span class="s-round-time" style="font-weight:600;">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
-            } else {
-              if (hasR3) {
-                const tot3 = parseFloat(e.r3TotalFaults||0);
-                const cls3 = tot3 === 0 ? ' clean' : '';
-                roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(3) + '</span>'
-                  + '<span class="s-round-faults' + cls3 + '">' + tot3 + ' flt</span>'
-                  + '<span class="s-round-time">' + liveFmtTime(e.r3TotalTime) + '</span></div>';
-              }
-              if (hasR2) {
-                const tot2 = parseFloat(e.r2TotalFaults||0);
-                const cls2 = tot2 === 0 ? ' clean' : '';
-                roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(2) + '</span>'
-                  + '<span class="s-round-faults' + cls2 + '">' + tot2 + ' flt</span>'
-                  + '<span class="s-round-time">' + liveFmtTime(e.r2TotalTime) + '</span></div>';
-              }
-              // R1/PH1 always shown
-              const tot1 = parseFloat(e.r1TotalFaults||0);
-              const r1Cls = tot1 === 0 ? ' clean' : '';
-              roundsHtml += '<div class="s-round-row"><span class="s-round-lbl">' + liveRoundLabel(1) + '</span>'
-                + '<span class="s-round-faults' + r1Cls + '">' + tot1 + ' flt</span>'
-                + '<span class="s-round-time">' + liveFmtTime(e.r1TotalTime) + '</span></div>';
-            }
-
-            html += '<div class="standing-row standing-row-stacked">'
-              + '<span class="s-place">' + esc(place) + '</span>'
+            html += '<div class="standing-row standing-row-stacked' + (isElimRow ? ' elim' : '') + '">'
+              + '<span class="s-place' + (isElimRow ? ' s-place-status' : '') + '">' + esc(placeText) + '</span>'
               + '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>'
               + '<div class="s-rounds">' + roundsHtml + '</div>'
               + '</div>';
