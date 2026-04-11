@@ -826,16 +826,41 @@ function render() {
       + '</div>'
       + '</div></div>';
 
-    // Progress bar
+    // Progress bar — for hunter multi-round classes, show round-relative
+    // counter (matches display.html behavior). Worker emits comp.roundCompleted
+    // and comp.currentRound (from H[4] = round tab the operator has selected
+    // in Ryegate; null when on Overall view).
     const clsEntries = cd && cd.entries ? cd.entries : [];
     const clsGone = clsEntries.filter(e => e.hasGone).length;
     const gone = seenList.length > clsGone ? seenList.length : clsGone;
     const total = clsEntries.length > gone ? clsEntries.length : gone;
-    if (total > 0) {
+
+    const _compForProgress = (liveData.computed || {})[ac.classNum];
+    let progressNum = gone;
+    let progressDen = total;
+    let progressLabel = 'competed';
+    let progressHide = false;
+    if (isHunter && _compForProgress && _compForProgress.numRounds > 1) {
+      if (_compForProgress.currentRound && _compForProgress.roundCompleted) {
+        const crIdx = _compForProgress.currentRound - 1;
+        if (crIdx >= 0 && crIdx < _compForProgress.roundCompleted.length) {
+          progressNum = _compForProgress.roundCompleted[crIdx];
+          progressDen = total;
+          const crLbl = (_compForProgress.roundLabels && _compForProgress.roundLabels[crIdx])
+            || ('R' + _compForProgress.currentRound);
+          progressLabel = esc(crLbl) + ' competed';
+        }
+      } else {
+        // Multi-round hunter, operator on Overall view — hide per-round counter
+        progressHide = true;
+      }
+    }
+
+    if (total > 0 && !progressHide) {
       if (clsEntries.length > 0) {
-        const pct = Math.round(gone / total * 100);
+        const pct = progressDen > 0 ? Math.round(progressNum / progressDen * 100) : 0;
         html += '<div class="progress-wrap">'
-          + '<div class="progress-label"><span>' + gone + ' of ' + total + ' competed</span><span>' + pct + '%</span></div>'
+          + '<div class="progress-label"><span>' + progressNum + ' of ' + progressDen + ' ' + progressLabel + '</span><span>' + pct + '%</span></div>'
           + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>'
           + '</div>';
       } else {
