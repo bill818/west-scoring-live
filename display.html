@@ -237,6 +237,7 @@ function render() {
 
   // Class type label
   var smEarly = cd.scoringMethod || comp.scoringMethod || '';
+  var isJumperEqEarly = isJumper && String(smEarly) === '7'; // method 7 = jumper equitation
   var typeLabel = '';
   if (isJumper) {
     var method = WEST.jumper && WEST.jumper.getMethod ? WEST.jumper.getMethod(smEarly) : {};
@@ -343,8 +344,9 @@ function render() {
         html += '<div class="oog-row' + (isCurrent ? ' on-course' : '') + '">';
         html += '<span class="oog-order">' + (e.order || '') + '</span>';
         html += '<div class="oog-info">';
-        if (isEq || (!e.horse && e.rider)) {
+        if (isEq || isJumperEqEarly || (!e.horse && e.rider)) {
           html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+          if (e.horse && isJumperEqEarly) html += '<div class="oog-rider">' + esc(e.horse) + '</div>';
         } else {
           html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
           html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
@@ -360,8 +362,9 @@ function render() {
         html += '<div class="oog-row done">';
         html += '<span class="oog-order">' + (e.order || '') + '</span>';
         html += '<div class="oog-info">';
-        if (isEq || (!e.horse && e.rider)) {
+        if (isEq || isJumperEqEarly || (!e.horse && e.rider)) {
           html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+          if (e.horse && isJumperEqEarly) html += '<div class="oog-rider">' + esc(e.horse) + '</div>';
         } else {
           html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
           html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
@@ -378,8 +381,9 @@ function render() {
         html += '<div class="oog-row' + (isCurrent ? ' on-course' : '') + '">';
         html += '<span class="oog-order">' + (e.order || '') + '</span>';
         html += '<div class="oog-info">';
-        if (isEq || (!e.horse && e.rider)) {
+        if (isEq || isJumperEqEarly || (!e.horse && e.rider)) {
           html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+          if (e.horse && isJumperEqEarly) html += '<div class="oog-rider">' + esc(e.horse) + '</div>';
         } else {
           html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
           html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
@@ -394,8 +398,9 @@ function render() {
         html += '<div class="oog-row done">';
         html += '<span class="oog-order">' + (e.order || '') + '</span>';
         html += '<div class="oog-info">';
-        if (isEq || (!e.horse && e.rider)) {
+        if (isEq || isJumperEqEarly || (!e.horse && e.rider)) {
           html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+          if (e.horse && isJumperEqEarly) html += '<div class="oog-rider">' + esc(e.horse) + '</div>';
         } else {
           html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
           html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
@@ -416,8 +421,9 @@ function render() {
       html += '<div class="oog-row' + (isCurrent ? ' on-course' : '') + '">';
       html += '<span class="oog-order">' + esc(e.overallPlace || e.place || '') + '</span>';
       html += '<div class="oog-info">';
-      if (isEq) {
+      if (isEq || isJumperEqEarly) {
         html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+        if (e.horse && isJumperEqEarly) html += '<div class="oog-rider">' + esc(e.horse) + '</div>';
       } else {
         html += '<div class="oog-horse">' + esc(e.horse || e.rider) + '</div>';
         html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
@@ -430,8 +436,9 @@ function render() {
         html += '<div class="oog-row">';
         html += '<span class="oog-order"></span>';
         html += '<div class="oog-info">';
-        if (isEq || (!e.horse && e.rider)) {
+        if (isEq || isJumperEqEarly || (!e.horse && e.rider)) {
           html += '<div class="oog-horse">' + esc(e.rider) + '</div>';
+          if (e.horse && isJumperEqEarly) html += '<div class="oog-rider">' + esc(e.horse) + '</div>';
         } else {
           html += '<div class="oog-horse">' + esc(e.horse) + '</div>';
           html += '<div class="oog-rider">' + esc(e.rider) + '</div>';
@@ -444,6 +451,7 @@ function render() {
 
   // STANDINGS — same rendering logic as results.html, dark-themed
   var sm = cd.scoringMethod || comp.scoringMethod || '';
+  var isJumperEq = isJumper && String(sm) === '7'; // method 7 = jumper equitation (rider-first)
   var isOptimum = comp.isOptimum || false;
   var optimumTime = comp.optimumTime || 0;
   function rndLbl(r) { return WEST.jumper && WEST.jumper.roundLabel ? WEST.jumper.roundLabel(sm, r) : ('R' + r); }
@@ -500,7 +508,15 @@ function render() {
     var owner = e.owner && e.owner !== e.rider ? e.owner : '';
     html += '<div class="s-entry">';
     if (isEq) {
+      // Hunter equitation — rider primary, horse muted below
       html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.rider) + '</span>' + (flag ? ' ' + flag : '') + '</div>';
+      if (e.horse) html += '<div class="s-breeding">' + esc(e.horse) + '</div>';
+    } else if (isJumperEq) {
+      // Jumper equitation (method 7) — rider primary, city/state secondary, horse muted below
+      var jEqLocale = [e.city, e.state].filter(Boolean).join(', ');
+      html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.rider) + '</span>'
+        + (jEqLocale ? '<span class="s-hr-rider">' + esc(jEqLocale) + '</span>' : '')
+        + (flag ? ' ' + flag : '') + '</div>';
       if (e.horse) html += '<div class="s-breeding">' + esc(e.horse) + '</div>';
     } else {
       html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.horse) + '</span><span class="s-hr-rider">' + esc(e.rider) + '</span>' + (flag ? ' ' + flag : '') + '</div>';
@@ -589,7 +605,7 @@ function render() {
       html += '<div class="s-place"></div>';
       html += '<div class="s-entry-num">' + esc(e.entry) + '</div>';
       html += '<div class="s-entry">';
-      if (isEq || (!e.horse && e.rider)) {
+      if (isEq || isJumperEqEarly || (!e.horse && e.rider)) {
         html += '<div class="s-horse-rider"><span class="s-hr-horse">' + esc(e.rider) + '</span></div>';
         if (e.locale) html += '<div class="s-breeding">' + esc(e.locale) + '</div>';
       } else {
@@ -639,8 +655,13 @@ function render() {
     var roundFullName = data.label || '';
     var entryLine = '#' + esc(data.entry) + (roundFullName ? ' — ' + roundFullName : '');
     h += '<div style="font-family:Source Sans 3,sans-serif;font-size:' + entrySize + 'px;font-weight:600;color:' + entryColor + ';margin-bottom:6px;">' + entryLine + '</div>';
-    h += '<div style="font-size:' + nameSize + 'px;font-weight:700;color:var(--white);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? data.rider : data.horse) + '</div>';
-    h += '<div style="font-size:' + riderSize + 'px;color:var(--muted);margin-bottom:12px;">' + esc(isEq ? (data.horse || '') : data.rider) + '</div>';
+    var sbPrimary = (isEq || isJumperEq) ? data.rider : data.horse;
+    var sbSecondary = isEq ? (data.horse || '') : isJumperEq ? ([data.city, data.state].filter(Boolean).join(', ') || '') : data.rider;
+    h += '<div style="font-size:' + nameSize + 'px;font-weight:700;color:var(--white);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(sbPrimary) + '</div>';
+    h += '<div style="font-size:' + riderSize + 'px;color:var(--muted);margin-bottom:' + (isJumperEq && data.horse ? '4' : '12') + 'px;">' + esc(sbSecondary) + '</div>';
+    if (isJumperEq && data.horse) {
+      h += '<div style="font-size:' + Math.round(12 * scale) + 'px;color:rgba(255,255,255,0.35);font-style:italic;margin-bottom:12px;">' + esc(data.horse) + '</div>';
+    }
 
     if (isJumper) {
       // Clock / final time
@@ -650,28 +671,37 @@ function render() {
       if (isCurrent) {
         h += '<div id="livePhase" style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px;">ON COURSE</div>';
         h += '<div id="liveClock" style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--gold);text-align:center;line-height:1;margin:10px 0;">--</div>';
+      } else if (isJumperEq && data.eqScore) {
+        // Equitation score display — "89 pts" instead of clock time
+        h += '<div style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--gold);text-align:center;line-height:1;margin:10px 0;">' + parseFloat(data.eqScore) + ' pts</div>';
       } else if (sc) {
         h += '<div style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--red);text-align:center;line-height:1;margin:10px 0;">' + esc(WEST.statusDisplayLabel ? WEST.statusDisplayLabel(sc) : sc) + '</div>';
       } else {
         h += '<div style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--white);text-align:center;line-height:1;margin:10px 0;">' + fmtTime(timeVal) + '</div>';
       }
 
-      // Faults grid
-      var dJf = parseFloat(data.jumpFaults || 0);
-      var dTf = parseFloat(data.timeFaults || 0);
+      // Faults grid — guard against non-numeric values (equitation sends text labels)
+      var dJf = parseFloat(data.jumpFaults) || 0;
+      var dTf = parseFloat(data.timeFaults) || 0;
       var dTotal = dJf + dTf;
-      h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px;text-align:center;">';
-      h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Jump</div><div' + (isCurrent ? ' id="liveJF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;' + (dJf === 0 ? 'color:var(--green);' : 'color:var(--white);') + '">' + dJf + '</div></div>';
-      h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Time</div><div' + (isCurrent ? ' id="liveTF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;color:var(--white);">' + dTf + '</div></div>';
-      h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Total</div><div' + (isCurrent ? ' id="liveTotal"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;' + (dTotal === 0 ? 'color:var(--green);' : 'color:var(--white);') + '">' + dTotal + '</div></div>';
-      h += '</div>';
+      // Equitation (method 7): show only time faults, hide jump faults
+      if (isJumperEq) {
+        h += '<div style="text-align:center;margin-top:14px;">';
+        h += '<div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Time Faults</div>';
+        h += '<div' + (isCurrent ? ' id="liveTF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;color:var(--white);">' + dTf + '</div>';
+        h += '</div>';
+      } else {
+        h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px;text-align:center;">';
+        h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Jump</div><div' + (isCurrent ? ' id="liveJF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;' + (dJf === 0 ? 'color:var(--green);' : 'color:var(--white);') + '">' + dJf + '</div></div>';
+        h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Time</div><div' + (isCurrent ? ' id="liveTF"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;color:var(--white);">' + dTf + '</div></div>';
+        h += '<div><div class="sb-stat-label" style="font-size:' + faultLblSize + 'px;">Total</div><div' + (isCurrent ? ' id="liveTotal"' : '') + ' style="font-family:DM Mono,monospace;font-size:' + faultSize + 'px;font-weight:600;' + (dTotal === 0 ? 'color:var(--green);' : 'color:var(--white);') + '">' + dTotal + '</div></div>';
+        h += '</div>';
+      }
 
-      if (data.rank) {
-        var rankDisplay = String(data.rank).replace(/^RANK\s*/i, '').trim();
-        if (!rankDisplay) rankDisplay = 'JO';
-        rankDisplay = 'RANK ' + rankDisplay;
+      var rankDisplay = data.rank ? String(data.rank).replace(/^RANK\s*/i, '').trim() : '';
+      if (rankDisplay && rankDisplay !== 'EL' && rankDisplay !== 'NP') {
         h += '<div style="text-align:center;margin-top:10px;">'
-          + '<div style="font-family:DM Mono,monospace;font-size:' + rankSize + 'px;font-weight:600;color:var(--gold);">' + esc(rankDisplay) + '</div>'
+          + '<div style="font-family:DM Mono,monospace;font-size:' + rankSize + 'px;font-weight:600;color:var(--gold);">RANK ' + esc(rankDisplay) + '</div>'
           + '</div>';
       }
     }
@@ -734,8 +764,10 @@ function render() {
     var peRider = peStanding ? peStanding.rider : '';
     html += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">';
     html += '<span style="font-family:Source Sans 3,sans-serif;font-size:16px;font-weight:600;color:var(--muted);">#' + esc(pe.entry) + '</span>';
-    html += '<span style="font-size:16px;font-weight:700;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(isEq ? peRider : peHorse) + '</span>';
-    html += '<span style="font-size:13px;color:var(--muted);">' + esc(isEq ? peHorse : peRider) + '</span>';
+    var pePrimary = (isEq || isJumperEq) ? peRider : peHorse;
+    var peSecondary = isEq ? peHorse : isJumperEq ? ([peStanding && peStanding.city, peStanding && peStanding.state].filter(Boolean).join(', ') || '') : peRider;
+    html += '<span style="font-size:16px;font-weight:700;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(pePrimary) + '</span>';
+    html += '<span style="font-size:13px;color:var(--muted);">' + esc(peSecondary) + '</span>';
     html += '</div>';
     // Rounds — stacked, JO on top (same as standings)
     if (isJumper && peStanding) {

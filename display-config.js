@@ -380,6 +380,7 @@ WEST.jumper.methods = {
   '3':  { label: 'Jumper (3 rounds)',   table: 'III',   rounds: 3, hasJO: true,  immediate: false, isOptimum: false, isTwoPhase: false },
   '4':  { label: 'Speed II.1',         table: 'II.1',  rounds: 1, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false },
   '6':  { label: 'Optimum Time IV.1',  table: 'IV.1',  rounds: 1, hasJO: false, immediate: false, isOptimum: true,  isTwoPhase: false },
+  '7':  { label: 'Timed Equitation',   table: 'Eq',    rounds: 1, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false },
   '9':  { label: 'Two-Phase',          table: 'II.2d', rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: true  },
   '13': { label: 'Jumper II.2b',       table: 'II.2b', rounds: 2, hasJO: true,  immediate: true,  isOptimum: false, isTwoPhase: false },
 };
@@ -396,6 +397,37 @@ WEST.jumper.roundLabel = function(method, round) {
   return round === 1 ? 'R1' : round === 2 ? 'JO' : 'R' + round;
 };
 
+// ── EQUITATION ENTRY NAME HELPER ─────────────────────────────────────────────
+// For jumper equitation (method 7): rider-focused display.
+// Returns { primary, secondary, tertiary } for the entry row name fields.
+//   Standard jumper: primary=horse, secondary=rider
+//   Equitation:      primary=rider, secondary="City, ST", tertiary=horse
+WEST.jumper.entryNameParts = function(entry, scoringMethod) {
+  if (String(scoringMethod) === '7') {
+    var locale = [entry.city, entry.state].filter(Boolean).join(', ');
+    return { primary: entry.rider || '', secondary: locale, tertiary: entry.horse || '', isEq: true };
+  }
+  return { primary: entry.horse || '', secondary: entry.rider || '', tertiary: '', isEq: false };
+};
+
+// Render an entry name block as HTML (rider-first for equitation, horse-first otherwise).
+// Includes bib number and optional flag. Reusable across live/results/display pages.
+WEST.jumper.renderEntryName = function(entry, scoringMethod, opts) {
+  opts = opts || {};
+  var esc = WEST.esc;
+  var p = WEST.jumper.entryNameParts(entry, scoringMethod);
+  var flag = opts.flag || '';
+  var bib = opts.showBib !== false ? '<span class="r-bib">' + esc(entry.entryNum || entry.entry_num || '') + '</span>' : '';
+  var html = '<div class="r-info"><div class="r-horse-rider">'
+    + bib
+    + '<span class="r-horse">' + esc(p.primary) + (flag && !p.isEq ? ' ' + flag : '') + '</span>'
+    + '<span class="r-rider-inline">' + esc(p.secondary) + (flag && p.isEq ? ' ' + flag : '') + '</span>'
+    + '</div>';
+  if (p.tertiary) html += '<div class="r-owner">' + esc(p.tertiary) + '</div>';
+  html += '</div>';
+  return html;
+};
+
 // Convenience wrapper that pulls status codes off the entry directly so
 // callers don't have to thread four arguments. Returns the same shape as
 // WEST.jumper.getStatusDisplay (or null when no status). Use this from
@@ -408,6 +440,240 @@ WEST.jumper.getEntryStatus = function(entry, scoringMethod) {
     entry.r2StatusCode || entry.r2TextStatus || '',
     entry.r3StatusCode || entry.r3TextStatus || ''
   );
+};
+
+// ── SHARED ON-COURSE RENDERER ────────────────────────────────────────────────
+// Single source of truth for the on-course banner/card across all pages.
+// All equitation rules, phase handling, fault display, entry name logic,
+// and clock rendering live HERE — not scattered across HTML files.
+//
+// Usage:  var html = WEST.renderOnCourse(oc, classData, opts);
+//         container.innerHTML = html;
+//
+// The function uses `woc-*` CSS classes. Each page defines its own CSS for
+// these classes to control theme (light/dark) and layout (grid/strip/card).
+// Element IDs are standardized: woc-clock, woc-jf, woc-tf, woc-total.
+// Each page's tickClock() references these IDs to update in real-time.
+//
+// opts:
+//   scale:       number (default 1, display page uses 0.75 for previous entry)
+//   showTA:      boolean (default true)
+//   isPrevious:  boolean (dims the card)
+//   compact:     boolean (stats strip mode — no card wrapper)
+
+WEST.renderOnCourse = function(oc, classData, opts) {
+  if (!oc || (!oc.horse && !oc.rider && !oc.entry)) return '';
+  opts = opts || {};
+  var esc = WEST.esc;
+  var fmtTime = function(t) { return WEST.formatTime ? WEST.formatTime(t, 2) : t; };
+
+  // ── Scoring method + equitation detection ──
+  var sm = classData ? String(classData.scoringMethod || '') : '';
+  var isEq = sm === '7';
+  var isOpt = sm === '6';
+
+  // ── Phase ──
+  var phase = (oc.phase || 'ONCOURSE').toUpperCase();
+  var phaseLabel = phase === 'INTRO' ? 'In Gate'
+    : phase === 'CD' ? 'Countdown'
+    : phase === 'FINISH' ? 'Finished'
+    : 'On Course';
+
+  // ── Entry name (equitation-aware) ──
+  var primary, secondary, tertiary;
+  if (isEq) {
+    primary = oc.rider || '';
+    secondary = [oc.city, oc.state].filter(Boolean).join(', ');
+    tertiary = oc.horse || '';
+  } else {
+    primary = oc.horse || '';
+    secondary = oc.rider || '';
+    tertiary = '';
+  }
+
+  // ── Round label ──
+  var roundLabel = oc.label || '';
+  if (!roundLabel && oc.round && WEST.jumper && WEST.jumper.roundLabel) {
+    roundLabel = WEST.jumper.roundLabel(sm, oc.round);
+  }
+
+  // ── Clock ──
+  var elapsed = parseFloat(oc.elapsed) || 0;
+  var clockVal, clockClass = '';
+  var ta = parseFloat(oc.ta) || 0;
+  var now = Date.now();
+  var ts = new Date(oc.ts).getTime() || now;
+
+  if (phase === 'INTRO') {
+    clockVal = '45';
+    clockClass = 'woc-countdown';
+  } else if (phase === 'CD') {
+    var cdVal = Math.abs(parseInt(oc.countdown) || 45);
+    var cdElapsed = Math.floor((now - ts) / 1000);
+    clockVal = String(Math.max(0, cdVal - cdElapsed));
+    clockClass = 'woc-countdown';
+  } else if (phase === 'FINISH') {
+    // Equitation score — show "90 pts" instead of clock time
+    if (isEq && oc.eqScore) {
+      clockVal = parseFloat(oc.eqScore) + ' pts';
+      clockClass = 'woc-score';
+    } else {
+      var elVal = oc.elapsed || '';
+      if (elVal && isNaN(parseFloat(elVal))) {
+        clockVal = WEST.statusDisplayLabel ? WEST.statusDisplayLabel(elVal) : elVal;
+        clockClass = 'woc-status';
+      } else {
+        clockVal = elVal ? fmtTime(elVal) : String(Math.floor(elapsed));
+      }
+    }
+  } else {
+    // ONCOURSE — ticking
+    var ocElapsed = oc.paused ? elapsed : elapsed + Math.floor((now - ts) / 1000);
+    clockVal = String(Math.max(0, Math.floor(ocElapsed)));
+    if (ta > 0 && ocElapsed > ta) clockClass = 'woc-overtime';
+  }
+
+  // ── Faults ──
+  var jf = parseFloat(oc.jumpFaults) || 0;
+  var fpi = parseFloat(oc.fpi) || 1;
+  var ti  = parseFloat(oc.ti) || 1;
+  var secsOver = 0;
+  if (phase === 'ONCOURSE' && ta > 0) {
+    var rtElapsed = oc.paused ? elapsed : elapsed + Math.floor((now - ts) / 1000);
+    secsOver = Math.max(0, rtElapsed - ta);
+  }
+  var tf = secsOver > 0 ? Math.ceil(secsOver / ti) * fpi : (parseFloat(oc.timeFaults) || 0);
+  var totalF = jf + tf;
+
+  // ── Rank ──
+  var rank = oc.rank ? String(oc.rank).replace(/^RANK\s*/i, '').trim() : '';
+  var showRank = phase === 'FINISH' && rank && !/^EL$/i.test(rank) && !/^NP$/i.test(rank);
+
+  // ── TA string ──
+  var taStr = ta > 0 ? 'TA ' + oc.ta + 's' : '';
+
+  // ── Optimum time (method 6) ──
+  var optStr = '';
+  var optDistHtml = '';
+  if (isOpt && ta > 0) {
+    var optTime = ta - 4;
+    optStr = 'Optimum ' + optTime + 's';
+    if (phase === 'ONCOURSE') {
+      var ocNow = oc.paused ? elapsed : elapsed + Math.floor((now - ts) / 1000);
+      var dist = ocNow - optTime;
+      var sign = dist >= 0 ? '+' : '';
+      optDistHtml = '<div class="woc-opt-dist" id="woc-opt-dist">' + sign + Math.floor(dist) + 's from opt</div>';
+    }
+  }
+
+  // ── Build HTML — two sections for layout flexibility ──
+  // woc-info: entry identity (name, locale, entry number)
+  // woc-data: clock, faults, rank, TA — the live/changing stuff
+  // Pages wrap these in their own grid/stack/strip container.
+
+  var info = '<div class="woc-info">';
+  info += '<div class="woc-entry">#' + esc(oc.entry || '') + '</div>';
+  info += '<div class="woc-primary">' + esc(primary) + '</div>';
+  if (secondary) info += '<div class="woc-secondary">' + esc(secondary) + '</div>';
+  if (tertiary) info += '<div class="woc-tertiary">' + esc(tertiary) + '</div>';
+  info += '</div>';
+
+  var data = '<div class="woc-data">';
+  if (roundLabel) data += '<div class="woc-round">' + esc(roundLabel) + '</div>';
+  data += '<div class="woc-clock ' + clockClass + '" id="woc-clock">' + clockVal + '</div>';
+  data += '<div class="woc-phase-label">' + esc(phaseLabel) + '</div>';
+
+  // Faults
+  if (phase === 'ONCOURSE' || phase === 'FINISH') {
+    data += '<div class="woc-faults">';
+    if (isEq) {
+      data += '<div class="woc-fault"><span class="woc-fault-lbl">Time Faults</span><span class="woc-fault-val" id="woc-tf">' + tf + '</span></div>';
+    } else {
+      data += '<div class="woc-fault"><span class="woc-fault-lbl">Jump</span><span class="woc-fault-val" id="woc-jf">' + jf + '</span></div>';
+      data += '<div class="woc-fault"><span class="woc-fault-lbl">Time</span><span class="woc-fault-val" id="woc-tf">' + tf + '</span></div>';
+      data += '<div class="woc-fault"><span class="woc-fault-lbl">Total</span><span class="woc-fault-val" id="woc-total">' + totalF + '</span></div>';
+    }
+    data += '</div>';
+  }
+
+  if (showRank) data += '<div class="woc-rank">RANK ' + esc(rank) + '</div>';
+  if (taStr && opts.showTA !== false) data += '<div class="woc-ta">' + taStr + '</div>';
+  if (optStr) data += '<div class="woc-ta woc-opt">' + optStr + '</div>';
+  if (optDistHtml) data += optDistHtml;
+  data += '</div>';
+
+  return info + data;
+};
+
+// Shared tickClock for on-course — call from setInterval(WEST.tickOnCourse, 1000).
+// Updates woc-clock, woc-tf, woc-total, woc-opt-dist by standard IDs.
+// Pages store clock state in WEST._ocState (set by renderOnCourse call).
+WEST._ocState = null;
+
+WEST.setOcState = function(oc, classData) {
+  if (!oc) { WEST._ocState = null; return; }
+  var sm = classData ? String(classData.scoringMethod || '') : '';
+  var ta = parseFloat(oc.ta) || 0;
+  WEST._ocState = {
+    phase: (oc.phase || 'ONCOURSE').toUpperCase(),
+    elapsed: parseFloat(oc.elapsed) || 0,
+    ts: new Date(oc.ts).getTime() || Date.now(),
+    paused: !!oc.paused,
+    ta: ta,
+    fpi: parseFloat(oc.fpi) || 1,
+    ti: parseFloat(oc.ti) || 1,
+    jf: parseFloat(oc.jumpFaults) || 0,
+    countdown: Math.abs(parseInt(oc.countdown) || 45),
+    isEq: sm === '7',
+    isOpt: sm === '6',
+    optTime: (sm === '6' && ta > 0) ? ta - 4 : 0,
+  };
+};
+
+WEST.tickOnCourse = function() {
+  var s = WEST._ocState;
+  if (!s) return;
+  var el = document.getElementById('woc-clock');
+  if (!el) return;
+  var now = Date.now();
+  var diff = (now - s.ts) / 1000;
+
+  if (s.phase === 'INTRO') {
+    el.textContent = '45';
+    return;
+  }
+  if (s.phase === 'CD') {
+    var remaining = Math.max(0, s.countdown - Math.floor(diff));
+    el.textContent = String(remaining);
+    return;
+  }
+  if (s.phase === 'FINISH') return; // frozen
+
+  // ONCOURSE — tick up
+  var display = s.paused ? s.elapsed : Math.max(0, Math.floor(s.elapsed + diff));
+  if (display > 300) { el.textContent = '--'; return; }
+  el.textContent = String(display);
+  el.className = 'woc-clock' + (s.ta > 0 && display > s.ta ? ' woc-overtime' : '');
+
+  // Update time faults
+  var tfEl = document.getElementById('woc-tf');
+  if (tfEl && s.ta > 0) {
+    var secsOver = Math.max(0, display - s.ta);
+    var tf = secsOver > 0 ? Math.ceil(secsOver / s.ti) * s.fpi : 0;
+    tfEl.textContent = String(tf);
+    var totEl = document.getElementById('woc-total');
+    if (totEl) totEl.textContent = String(s.jf + tf);
+  }
+
+  // Optimum distance
+  if (s.isOpt && s.optTime > 0) {
+    var optEl = document.getElementById('woc-opt-dist');
+    if (optEl) {
+      var dist = display - s.optTime;
+      var sign = dist >= 0 ? '+' : '';
+      optEl.textContent = sign + Math.floor(dist) + 's from opt';
+    }
+  }
 };
 
 // ── UNIVERSAL JUMPER STANDINGS ROW (rounds block) ────────────────────────────
@@ -453,6 +719,18 @@ WEST.jumper.renderRoundsBlock = function(entry, scoringMethod, opts) {
   var method = WEST.jumper.getMethod(scoringMethod);
   var isFaultsConverted = String(scoringMethod) === '0';
   var isOptimum = method.isOptimum;
+  var isEquitation = String(scoringMethod) === '7';
+
+  // Equitation (method 7): after pinned, show score as "X pts", hide time/faults.
+  // Equitation score lives in r1JumpFaults (col[19]) — Ryegate repurposes the
+  // jump faults field for the judge's score. Placement shown by the outer row.
+  if (isEquitation && entry.place && parseInt(entry.place) > 0) {
+    var eqScore = parseFloat(entry.r1JumpFaults || 0);
+    if (eqScore > 0) {
+      return '<div class="jp-rounds"><span class="jp-eq-score">' + eqScore + ' pts</span></div>';
+    }
+    return ''; // pinned but no score entered — just show placement
+  }
 
   // Centralized status display rules — handles "R1 EL hides everything",
   // "R2 RT keeps R1 visible", "JO RT keeps R1+R2", method-specific carry-back
@@ -520,9 +798,12 @@ WEST.jumper.renderRoundsBlock = function(entry, scoringMethod, opts) {
       var faults = parseFloat(rd.faults || 0);
       var isClean = faults === 0;
       html += '<div class="jp-row">'
-        + '<span class="jp-lbl">' + esc(lbl) + '</span>'
-        + '<span class="jp-faults' + (isClean ? ' clean' : '') + '">' + faults + ' flt</span>'
-        + '<span class="jp-time">' + esc(fmtTime(rd.time)) + '</span>'
+        + '<span class="jp-lbl">' + esc(lbl) + '</span>';
+      // Equitation: hide jump faults (always 0, irrelevant to viewers)
+      if (!isEquitation) {
+        html += '<span class="jp-faults' + (isClean ? ' clean' : '') + '">' + faults + ' flt</span>';
+      }
+      html += '<span class="jp-time">' + esc(fmtTime(rd.time)) + '</span>'
         + '</div>';
     }
 

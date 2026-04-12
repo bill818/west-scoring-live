@@ -176,6 +176,7 @@ export default {
         const key = `oncourse:${slug}:${ring}`;
         await env.WEST_LIVE.put(key, JSON.stringify({
           entry: body.entry, horse: body.horse, rider: body.rider, owner: body.owner,
+          city: body.city || '', state: body.state || '',
           phase: 'INTRO', ta: body.ta || '',
           round: body.round || 1, label: body.label || '',
           fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,
@@ -223,9 +224,11 @@ export default {
         await env.WEST_LIVE.put(key, JSON.stringify({
           entry: body.entry || prev.entry, horse: body.horse || prev.horse,
           rider: body.rider || prev.rider, owner: body.owner || prev.owner,
+          city: body.city || prev.city || '', state: body.state || prev.state || '',
           phase: 'FINISH', ta: prev.ta || body.ta || '',
-          elapsed: body.elapsed || '', jumpFaults: body.jumpFaults || '0',
+          elapsed: body.elapsed || prev.elapsed || '', jumpFaults: body.jumpFaults || '0',
           timeFaults: body.timeFaults || '0', rank: body.rank || '',
+          eqScore: body.eqScore || prev.eqScore || '',
           hunterScore: body.hunterScore || '', isHunter: !!body.isHunter,
           round: body.round || 1, label: body.label || '',
           ts: new Date().toISOString()
@@ -238,6 +241,7 @@ export default {
         const key = `oncourse:${slug}:${ring}`;
         await env.WEST_LIVE.put(key, JSON.stringify({
           entry: body.entry, horse: body.horse, rider: body.rider, owner: body.owner,
+          city: body.city || '', state: body.state || '',
           phase: 'CD', countdown: body.countdown || 0, ta: body.ta || '',
           round: body.round || 1, label: body.label || '',
           fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,
@@ -251,6 +255,7 @@ export default {
         const key = `oncourse:${slug}:${ring}`;
         await env.WEST_LIVE.put(key, JSON.stringify({
           entry: body.entry, horse: body.horse, rider: body.rider, owner: body.owner,
+          city: body.city || '', state: body.state || '',
           phase: 'ONCOURSE', elapsed: body.elapsed || 0, ta: body.ta || '',
           round: body.round || 1, label: body.label || '',
           fpi: body.faultsPerInterval || 1, ti: body.timeInterval || 1, ps: body.penaltySeconds || 6,

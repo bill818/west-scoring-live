@@ -33,6 +33,201 @@ const SNAPSHOTS_DIR = 'C:\\west_snapshots';
 // Track previous file states to detect changes
 const fileStates = {};
 
+// Track .tod file sizes per class number so we can detect first-time creation
+// and subsequent size deltas. A NEW .tod or a grown .tod both mean the operator
+// pressed Finish Results / Upload & Close with new data to commit. No-op
+// re-presses leave .tod size unchanged and are ignored.
+//   todSizes[classNum] = last known byte size (or undefined if never seen)
+const todSizes = {};
+
+// ── CLASS COMMIT DEDUPLICATION ────────────────────────────────────────────────
+// Multiple signals can detect the same class finalize event (Ctrl+A, peek,
+// .tod, idle). This shared timestamp ensures only the FIRST signal fires
+// CLASS_COMPLETE. Subsequent signals within the dedup window are ignored.
+const lastClassCommitted = {};  // classNum → timestamp ms
+const COMMIT_DEDUP_WINDOW = 5 * 60 * 1000; // 5 minutes
+
+function shouldCommit(classNum, source) {
+  const t = lastClassCommitted[classNum];
+  if (t && (Date.now() - t) < COMMIT_DEDUP_WINDOW) {
+    log(`[DEDUP] class ${classNum} already committed ${Math.round((Date.now() - t) / 1000)}s ago — skipping ${source}`);
+    return false;
+  }
+  lastClassCommitted[classNum] = Date.now();
+  return true;
+}
+
+// ── RYEGATE.LIVE PEEK ────────────────────────────────────────────────────────
+// Polls the ryegate.live results page for the active class at randomized
+// 15–30s intervals. Detects the LIVE → UPLOADED transition (ON COURSE and
+// "X of Y Competed" indicators disappear when Upload Results is pressed).
+// This is the universal finalize detector — works for ALL timer brands.
+let ryegateLivePath = '';   // set from config.dat cols[4], e.g. "SHOWS/West/2025/..."
+let peekTimer = null;
+let peekLastState = {};     // classNum → 'NOT_STARTED' | 'LIVE' | 'IN_PROGRESS' | 'UPLOADED' | 'ERROR'
+let peekErrorCount = 0;     // consecutive errors — goes dormant after 3
+
+function buildPeekUrl(classNum) {
+  if (!ryegateLivePath) return null;
+  const livePath = ryegateLivePath.replace(/^SHOWS\//i, '');
+  return `https://ryegate.live/${livePath}/results.php?class=${classNum}`;
+}
+
+async function peekClass(classNum) {
+  const url = buildPeekUrl(classNum);
+  if (!url) return null;
+
+  try {
+    const https = require('https');
+    const http = require('http');
+    const mod = url.startsWith('https') ? https : http;
+
+    return new Promise((resolve, reject) => {
+      const req = mod.get(url, { timeout: 8000 }, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          if (/please\s+check\s+back/i.test(body))       return resolve('NOT_STARTED');
+          if (/ON COURSE/i.test(body))                    return resolve('LIVE');
+          if (/\d+\s+of\s+\d+\s+Competed/i.test(body))   return resolve('IN_PROGRESS');
+          // Order of Go posted — page has entries but no scores yet.
+          // Without this check, peek would see "no ON COURSE, no Competed,
+          // has table" and wrongly classify it as UPLOADED (final results).
+          if (/order\s+of\s+go/i.test(body))              return resolve('ORDER_POSTED');
+          // No live indicators and not an order of go — results have been uploaded
+          // Verify there's actually content (not an empty/error page)
+          if (/<table/i.test(body) && /class="CBody"/i.test(body)) return resolve('UPLOADED');
+          resolve('UNKNOWN');
+        });
+      });
+      req.on('error', (e) => resolve('ERROR'));
+      req.on('timeout', () => { req.destroy(); resolve('ERROR'); });
+    });
+  } catch(e) {
+    return 'ERROR';
+  }
+}
+
+function startPeekPolling(classNum) {
+  stopPeekPolling();
+  if (!ryegateLivePath) {
+    log('[PEEK] No ryegate.live path configured — peek disabled');
+    return;
+  }
+  // Skip peek for test/nonexistent paths — NONWEST is the default test path
+  // that doesn't exist on ryegate.live. Real shows have paths like
+  // SHOWS/West/2026/Culpeper/wk1/ring1 with at least 3 path segments.
+  var segments = ryegateLivePath.replace(/^SHOWS\//i, '').split('/').filter(Boolean);
+  if (segments.length < 3 || /^NONWEST$/i.test(segments[0])) {
+    log('[PEEK] Test path detected (' + ryegateLivePath + ') — peek disabled until real show configured');
+    return;
+  }
+  const url = buildPeekUrl(classNum);
+  log(`[PEEK] Starting poll for class ${classNum}: ${url}`);
+  peekLastState[classNum] = null; // reset
+
+  function scheduleNext() {
+    // Randomized 15–30 second interval — no fixed cadence
+    const delay = 15000 + Math.floor(Math.random() * 15000);
+    peekTimer = setTimeout(async () => {
+      if (!selectedClassNum || selectedClassNum !== classNum) {
+        log(`[PEEK] class ${classNum} no longer active — stopping`);
+        return;
+      }
+
+      const state = await peekClass(classNum);
+      const prev = peekLastState[classNum];
+
+      if (state === 'ERROR' || state === 'UNKNOWN' || state === null) {
+        // Can't get definitive proof — go dormant, let other signals handle it.
+        // Don't keep polling a page that returns garbage.
+        if (state === 'ERROR') {
+          // Network issue — retry a few more times then go dormant
+          peekErrorCount = (peekErrorCount || 0) + 1;
+          if (peekErrorCount >= 3) {
+            log(`[PEEK] class ${classNum}: 3 consecutive errors — going dormant`);
+            return; // stop polling
+          }
+          scheduleNext();
+          return;
+        }
+        // UNKNOWN or null — page exists but isn't a recognizable results page
+        log(`[PEEK] class ${classNum}: unrecognizable page — going dormant`);
+        return; // stop polling, other signals will handle detection
+      }
+      peekErrorCount = 0; // reset on any successful read
+
+      if (state !== prev) {
+        log(`[PEEK] class ${classNum}: ${prev || '(init)'} → ${state}`);
+        peekLastState[classNum] = state;
+      }
+
+      // Forward ORDER_POSTED state to Worker — live page can show an OOG badge
+      if (state === 'ORDER_POSTED' && prev !== 'ORDER_POSTED') {
+        postToWorker('/postClassEvent',
+          { event: 'ORDER_POSTED', classNum },
+          `ORDER_POSTED class ${classNum} (via peek)`);
+      }
+
+      // Detect LIVE/IN_PROGRESS → UPLOADED transition
+      if (state === 'UPLOADED' && (prev === 'LIVE' || prev === 'IN_PROGRESS')) {
+        if (shouldCommit(classNum, 'peek')) {
+          let className = '';
+          const clsContent = fileStates[classNum + '.cls'];
+          if (clsContent) {
+            try {
+              const parsed = parseCls(clsContent, classNum + '.cls');
+              if (parsed && parsed.className) className = parsed.className;
+            } catch(e) {}
+          }
+          logSeparator();
+          log(`★ CLASS COMPLETE — class ${classNum} via ryegate.live peek (UPLOADED detected)`);
+          logSeparator();
+          handleClassComplete(classNum, className);
+        }
+      }
+
+      scheduleNext();
+    }, delay);
+  }
+
+  scheduleNext();
+}
+
+function stopPeekPolling() {
+  if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+}
+
+// ── IDLE TIMEOUT ─────────────────────────────────────────────────────────────
+// If no .cls changes occur for 30 minutes on the active class, fire
+// CLASS_COMPLETE as a final safety net. Resets on every .cls write.
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+let idleTimer = null;
+
+function resetIdleTimer(classNum) {
+  if (idleTimer) clearTimeout(idleTimer);
+  if (!classNum) return;
+
+  idleTimer = setTimeout(() => {
+    if (!selectedClassNum || selectedClassNum !== classNum) return;
+    if (!shouldCommit(classNum, '30-min idle')) return;
+
+    let className = '';
+    const clsContent = fileStates[classNum + '.cls'];
+    if (clsContent) {
+      try {
+        const parsed = parseCls(clsContent, classNum + '.cls');
+        if (parsed && parsed.className) className = parsed.className;
+      } catch(e) {}
+    }
+
+    logSeparator();
+    log(`★ CLASS COMPLETE — class ${classNum} via 30-minute idle timeout`);
+    logSeparator();
+    handleClassComplete(classNum, className);
+  }, IDLE_TIMEOUT_MS);
+}
+
 // ── WORKER CONFIG ─────────────────────────────────────────────────────────────
 // Loaded from config.json in same folder as this script
 
@@ -221,6 +416,20 @@ function parseCls(content, filename) {
         const hinted = udpTypeHints[classNumFromName];
         log(`[TYPE HINT] applied at parse: class ${classNumFromName} U -> ${hinted}`);
         result.classType = hinted;
+      }
+
+      // Header-based type inference: if still U but the header has a scoring
+      // method in H[2], this is a formatted-but-unopened jumper/equitation class.
+      // Infer the type from the scoring method so jumper field parsing runs
+      // without needing a UDP hint. This covers the show-office import case
+      // where classes arrive formatted with entries but type still U.
+      if (result.classType === 'U' && cols[2] && /^\d+$/.test(cols[2])) {
+        const method = parseInt(cols[2]);
+        // Known jumper scoring methods: 0,2,3,4,6,7,9,13,14
+        if (method >= 0 && method <= 15) {
+          log(`[TYPE INFER] class ${classNumFromName} U -> T (scoring method ${method} found in header)`);
+          result.classType = 'T';
+        }
       }
 
       const isJumperHeader = result.classType === 'J' || result.classType === 'T';
@@ -648,6 +857,13 @@ function readConfig() {
       log('  Ring #:       ' + SHOW_RING);
     }
 
+    // Store full FTP path for ryegate.live peek polling
+    // e.g. "SHOWS/West/2025/SaratogaJune/wk1/ring1" → peek URL base
+    ryegateLivePath = (cols[4] || '').trim();
+    if (ryegateLivePath) {
+      log('  Peek URL:     https://ryegate.live/' + ryegateLivePath.replace(/^SHOWS\//i, '') + '/results.php?class=...');
+    }
+
     // Slug comes from config.json only — Ryegate col[24] is ignored
     // col[24] is unreliable (often "False" or stale) — we own our slugs
     if (SHOW_SLUG) {
@@ -665,7 +881,8 @@ function readConfig() {
 
 function scanAll() {
   try {
-    const files = fs.readdirSync(CLASSES_DIR).filter(f => f.endsWith('.cls'));
+    const allFiles = fs.readdirSync(CLASSES_DIR);
+    const files = allFiles.filter(f => f.endsWith('.cls'));
     log(`Found ${files.length} .cls files in ${CLASSES_DIR}`);
     files.forEach((f, i) => {
       const fullPath = path.join(CLASSES_DIR, f);
@@ -683,6 +900,20 @@ function scanAll() {
         }, i * 150);
       }
     });
+
+    // Snapshot baseline .tod sizes so existing .tod files aren't mistaken
+    // for NEW on the first fs.watch event after startup.
+    const todFiles = allFiles.filter(f => f.endsWith('.tod'));
+    todFiles.forEach(f => {
+      const classNum = f.replace(/\.tod$/, '');
+      try {
+        const st = fs.statSync(path.join(CLASSES_DIR, f));
+        todSizes[classNum] = st.size;
+      } catch(e) {}
+    });
+    if (todFiles.length) {
+      log(`Found ${todFiles.length} .tod files — baseline sizes captured`);
+    }
   } catch(e) {
     log(`ERROR scanning directory: ${e.message}`);
   }
@@ -693,31 +924,200 @@ function scanAll() {
 function startWatcher() {
   try {
     fs.watch(CLASSES_DIR, { persistent: true }, (eventType, filename) => {
-      if (!filename || !filename.endsWith('.cls')) return;
-      const fullPath = path.join(CLASSES_DIR, filename);
+      if (!filename) return;
 
-      // Small delay to let Ryegate finish writing
-      setTimeout(() => {
-        const content = safeRead(fullPath);
-        if (!content) return;
+      // .cls file — score save path
+      if (filename.endsWith('.cls')) {
+        const fullPath = path.join(CLASSES_DIR, filename);
 
-        // Only log if content actually changed
-        if (content === fileStates[filename]) return;
-        fileStates[filename] = content;
+        // Small delay to let Ryegate finish writing
+        setTimeout(() => {
+          const content = safeRead(fullPath);
+          if (!content) return;
 
-        const parsed = parseCls(content, filename);
-        if (parsed) {
-          saveSnapshot(filename, content, 'changed');
-          logClass(parsed, true);
-          postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename}`);
-        }
-      }, 200);
+          // Only log if content actually changed
+          if (content === fileStates[filename]) return;
+          fileStates[filename] = content;
+
+          // Reset 30-min idle timer — class is still active
+          const clsClassNum = filename.replace(/\.cls$/, '');
+          if (selectedClassNum && clsClassNum === selectedClassNum) {
+            resetIdleTimer(selectedClassNum);
+          }
+
+          const parsed = parseCls(content, filename);
+          if (parsed) {
+            saveSnapshot(filename, content, 'changed');
+            logClass(parsed, true);
+            postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename}`);
+
+            // FINISH metric #3: .cls file shows a time for the on-course entry.
+            // This is the Farmtek fallback — Farmtek pauses emit decimal UDP
+            // times that look like FINISH, but the .cls only gets a time when
+            // the score is ACTUALLY saved. Also catches manual time entry
+            // (no UDP FINISH frame at all). Deduplicates naturally: if UDP
+            // FINISH already fired, lastPhase won't be ONCOURSE anymore.
+            if (lastEntry && (lastPhase === 'ONCOURSE' || lastPhase === 'CD') && clsClassNum === selectedClassNum && parsed.entries) {
+              const ocEntry = parsed.entries.find(e => e.entryNum === lastEntry);
+              if (ocEntry) {
+                const hasTime = parseFloat(ocEntry.r1TotalTime) > 0;
+                const hasStatus = ocEntry.statusCode && ocEntry.statusCode !== '';
+                if (hasTime || hasStatus) {
+                  log(`[CLS FINISH] entry #${lastEntry} has time=${ocEntry.r1TotalTime || ''} status=${ocEntry.statusCode || ''} in .cls — confirming FINISH`);
+                  fireEvent('FINISH', { entry: lastEntry, horse: ocEntry.horse, rider: ocEntry.rider, elapsed: ocEntry.r1TotalTime || '', rank: ocEntry.place || '' });
+                  postToWorker('/postClassEvent',
+                    { event: 'FINISH', entry: lastEntry, horse: ocEntry.horse || '', rider: ocEntry.rider || '',
+                      elapsed: ocEntry.r1TotalTime || '', rank: ocEntry.place || '',
+                      jumpFaults: ocEntry.r1JumpFaults || '0', timeFaults: ocEntry.r1TimeFaults || '0',
+                      totalFaults: ocEntry.r1TotalFaults || '0' },
+                    `FINISH #${lastEntry} (cls confirm)`);
+                  lastPhase = 'IDLE';
+                  lastEntry = '';
+                }
+              }
+            }
+          }
+        }, 200);
+        return;
+      }
+
+      // .tod file — finalize journal. A NEW file or a size delta means the
+      // operator pressed Finish Results / Upload & Close with new data. A
+      // touch with unchanged size means a no-op re-press, ignore.
+      if (filename.endsWith('.tod')) {
+        const classNum = filename.replace(/\.tod$/, '');
+        const fullPath = path.join(CLASSES_DIR, filename);
+
+        setTimeout(() => {
+          let stat;
+          try { stat = fs.statSync(fullPath); }
+          catch(e) { return; }  // file vanished between event and stat
+
+          const prevSize = todSizes[classNum];
+          const isNew = prevSize === undefined;
+          const grew = !isNew && stat.size > prevSize;
+
+          // Always update the stored size so subsequent touches are compared
+          // against the latest known state.
+          todSizes[classNum] = stat.size;
+
+          if (!isNew && !grew) {
+            // No-op re-press — size unchanged. Ignore silently.
+            return;
+          }
+
+          // Dedup: if peek or Ctrl+A already committed this class, skip
+          if (!shouldCommit(classNum, '.tod ' + (isNew ? 'NEW' : 'grew ' + prevSize + '→' + stat.size))) {
+            return;
+          }
+
+          // Look up className from cached .cls parse if we have one
+          let className = '';
+          const clsContent = fileStates[classNum + '.cls'];
+          if (clsContent) {
+            try {
+              const parsed = parseCls(clsContent, classNum + '.cls');
+              if (parsed && parsed.className) className = parsed.className;
+            } catch(e) {}
+          }
+
+          logSeparator();
+          log(`★ CLASS COMPLETE — class ${classNum} via .tod ${isNew ? 'NEW' : 'grew ' + prevSize + '→' + stat.size}`);
+          logSeparator();
+
+          handleClassComplete(classNum, className);
+        }, 200);
+        return;
+      }
     });
     log(`Watching ${CLASSES_DIR} for changes...`);
   } catch(e) {
     log(`ERROR starting watcher: ${e.message}`);
   }
 }
+
+// ── LOG.TXT ERROR WATCHER (COMMENTED OUT — NUCLEAR OPTION) ──────────────────
+// FUTURE SELF: This is the "bad path" finalize detector. If Bill decides to
+// stop populating ryegate.live (relationship with Ryegate owner goes south),
+// he changes config.dat's upload IP to 127.0.0.1 or a dead IP. Every upload
+// attempt then FAILS, and Ryegate logs the error to log.txt.
+//
+// How to activate:
+//   1. Set config.dat col[4] FTP path to a nonexistent directory (e.g. SHOWS/NONWEST)
+//      — server IP stays real (68.178.203.100), connection succeeds, but the bad
+//      path causes a 553 "File name not allowed" error per upload attempt.
+//      The REAL show path on ryegate.live stays empty = no results published there.
+//   2. Uncomment this block
+//   3. Optionally disable the peek polling (set ryegateLivePath = '' in readConfig)
+//
+// Detection logic: log.txt grows = upload attempt. But auto-sync ALSO fails
+// and writes errors, so we need to filter: a log.txt growth that correlates
+// with a .cls change (within ±2s) is auto-sync noise. A log.txt growth with
+// NO .cls change nearby is an explicit Upload Results click.
+//
+// const LOG_TXT_PATH = 'C:\\Ryegate\\Jumper\\log.txt';
+// let lastLogTxtSize = null;
+// let lastClsChangeTime = 0;  // timestamp of most recent .cls content change
+//
+// function startLogTxtWatcher() {
+//   try {
+//     const initStat = fs.statSync(LOG_TXT_PATH);
+//     lastLogTxtSize = initStat.size;
+//     log(`[LOG.TXT] Baseline size: ${lastLogTxtSize} bytes`);
+//   } catch(e) {
+//     log(`[LOG.TXT] Could not stat ${LOG_TXT_PATH}: ${e.message}`);
+//     return;
+//   }
+//
+//   fs.watch(path.dirname(LOG_TXT_PATH), { persistent: true }, (event, filename) => {
+//     if (!filename || filename.toLowerCase() !== 'log.txt') return;
+//
+//     setTimeout(() => {
+//       let stat;
+//       try { stat = fs.statSync(LOG_TXT_PATH); }
+//       catch(e) { return; }
+//
+//       if (lastLogTxtSize === null) { lastLogTxtSize = stat.size; return; }
+//       if (stat.size <= lastLogTxtSize) { lastLogTxtSize = stat.size; return; }
+//
+//       const delta = stat.size - lastLogTxtSize;
+//       lastLogTxtSize = stat.size;
+//
+//       // Was there a .cls change within the last 2 seconds?
+//       // If yes, this error is from auto-sync (piggybacked on score save) — ignore.
+//       // If no, this error is from an explicit Upload Results click — that's the signal.
+//       const timeSinceClsChange = Date.now() - lastClsChangeTime;
+//       if (timeSinceClsChange < 2000) {
+//         log(`[LOG.TXT] +${delta} bytes — auto-sync error (cls changed ${timeSinceClsChange}ms ago), ignoring`);
+//         return;
+//       }
+//
+//       log(`[LOG.TXT] +${delta} bytes — no recent cls change → Upload Results detected`);
+//
+//       if (selectedClassNum && shouldCommit(selectedClassNum, 'log.txt error')) {
+//         let className = '';
+//         const clsContent = fileStates[selectedClassNum + '.cls'];
+//         if (clsContent) {
+//           try {
+//             const parsed = parseCls(clsContent, selectedClassNum + '.cls');
+//             if (parsed && parsed.className) className = parsed.className;
+//           } catch(e) {}
+//         }
+//         logSeparator();
+//         log(`★ CLASS COMPLETE — class ${selectedClassNum} via log.txt error (bad-path mode)`);
+//         logSeparator();
+//         handleClassComplete(selectedClassNum, className);
+//       }
+//     }, 300);
+//   });
+//   log(`[LOG.TXT] Watching for upload errors (bad-path mode active)`);
+// }
+//
+// To wire it in, also uncomment these lines in the MAIN section:
+//   startLogTxtWatcher();
+// And in the .cls handler, add:
+//   lastClsChangeTime = Date.now();
+// (This is needed for the auto-sync filter to work.)
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 
@@ -915,9 +1315,14 @@ function startPort31000Listener() {
         port31000LastClassNum = null;
         // Mark the cooldown so any further Ctrl+A on this class is ignored
         port31000RecentlyCompleted[classNum] = Date.now();
-        log(`★ CLASS COMPLETE — class ${classNum} ${className} (3x Ctrl+A confirmed)`);
-        udpLog(`[31000] CLASS_COMPLETE fired for class ${classNum}`);
-        handleClassComplete(classNum, className);
+        // Dedup against peek/.tod — if already committed, skip
+        if (!shouldCommit(classNum, '3x Ctrl+A')) {
+          udpLog(`[31000] CLASS_COMPLETE skipped (already committed via other signal)`);
+        } else {
+          log(`★ CLASS COMPLETE — class ${classNum} ${className} (3x Ctrl+A confirmed)`);
+          udpLog(`[31000] CLASS_COMPLETE fired for class ${classNum}`);
+          handleClassComplete(classNum, className);
+        }
       }
     } else {
       // New class — single press = CLASS_SELECTED, start window for potential CLASS_COMPLETE
@@ -957,6 +1362,12 @@ function handleClassSelected(classNum, className) {
   selectedClassNum = classNum;
   flatEntriesSeen = {}; // reset flat entry tracking on new class selection
   hunterResults = [];     // reset flat results on new class selection
+
+  // Clear the commit dedup so the class can be re-committed after being reopened.
+  // Without this, shouldCommit() would block a second CLASS_COMPLETE within 5 min
+  // of the first — which is wrong if the operator intentionally reopened + re-closed.
+  delete lastClassCommitted[classNum];
+
   logSeparator();
   log(`CLASS SELECTED: class ${classNum} — ${className}`);
   log(`  Screens watching this class will refresh`);
@@ -965,6 +1376,12 @@ function handleClassSelected(classNum, className) {
   postToWorker('/postClassEvent',
     { event: 'CLASS_SELECTED', classNum, className },
     `CLASS_SELECTED class ${classNum}`);
+
+  // Start ryegate.live peek polling for this class (randomized 15–30s interval)
+  startPeekPolling(classNum);
+
+  // Start 30-minute idle timer — resets on every .cls write
+  resetIdleTimer(classNum);
 
   // Re-post this class's current data 300ms later so the Worker's live: KV
   // gets populated with the right class immediately after selected: KV is set.
@@ -985,8 +1402,11 @@ function handleClassSelected(classNum, className) {
 function handleClassComplete(classNum, className) {
   logSeparator();
   log(`CLASS COMPLETE: class ${classNum} — ${className}`);
-  log(`  Triggered by 3x Ctrl+A on port ${CLASS_COMPLETE_PORT}`);
   logSeparator();
+
+  // Stop peek polling and idle timer — class is done
+  stopPeekPolling();
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
 
   // Force-read the .cls file and post fresh data BEFORE the CLASS_COMPLETE
   // event. For forced/flat hunter classes, the .cls may have just been written
@@ -1086,6 +1506,9 @@ function inferRound(entryNum, udpTa) {
       const isTwoPhase = sm === '9';
       const isThreeRound = sm === '3';
       const isTeam = sm === '14';
+      // Single-round methods with no jump-off: II.1 Speed (4), Optimum Time (6), Timed Equitation (7)
+      const noJumpOff = sm === '4' || sm === '6' || sm === '7';
+      const maxRounds = isThreeRound ? 3 : (isTwoPhase || !noJumpOff) ? 2 : 1;
 
       // Time fault formula values per round from .cls header
       const roundParams = {
@@ -1100,6 +1523,7 @@ function inferRound(entryNum, udpTa) {
         if (isTwoPhase)   return round === 1 ? 'Phase 1' : round === 2 ? 'Phase 2' : 'Phase ' + round;
         if (isThreeRound) return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Jump Off';
         if (isTeam)       return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Round ' + round;
+        if (noJumpOff)    return 'Round 1'; // II.1 Speed / Optimum — single round, never "Jump Off"
         return round === 1 ? 'Round 1' : round === 2 ? 'Jump Off' : 'Round ' + round;
       }
 
@@ -1141,8 +1565,11 @@ function inferRound(entryNum, udpTa) {
       }
 
       // ── FALLBACK 2: roundsCompleted counter from class header ──────────
+      // Cap at the method's max rounds so single-round classes (II.1, Optimum)
+      // never advance to "round 2" / "Jump Off" after all entries have gone.
       const rc = parseInt(parsed.roundsCompleted) || 0;
       if (rc === 0) return result(1);
+      if (rc >= maxRounds) return result(maxRounds);
       if (rc === 1) return result(2);
       return result(3);
     }
@@ -1152,7 +1579,36 @@ function inferRound(entryNum, udpTa) {
   return { round: 1, label: 'Round 1', faultsPerInterval: 1, timeInterval: 1, penaltySeconds: 6 };
 }
 
-function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank, hunterScore, isHunterScore) {
+// Enrich on-course entry data from .cls cache. Ryegate's UDP may swap fields
+// (equitation puts rider in {2}/horse field, leaves {3}/rider empty) or have
+// missing data. The .cls file is authoritative for horse/rider/city/state/owner.
+function enrichFromCls(entryNum, udpHorse, udpRider) {
+  if (!selectedClassNum) return { horse: udpHorse, rider: udpRider, owner: '', city: '', state: '' };
+  const content = fileStates[selectedClassNum + '.cls'];
+  if (!content) return { horse: udpHorse, rider: udpRider, owner: '', city: '', state: '' };
+  const parsed = parseCls(content, selectedClassNum + '.cls');
+  if (!parsed || !parsed.entries) return { horse: udpHorse, rider: udpRider, owner: '', city: '', state: '' };
+  const e = parsed.entries.find(x => x.entryNum === entryNum);
+  if (!e) return { horse: udpHorse, rider: udpRider, owner: '', city: '', state: '' };
+  return {
+    horse: e.horse || udpHorse || '',
+    rider: e.rider || udpRider || '',
+    owner: e.owner || '',
+    city:  e.city  || '',
+    state: e.state || '',
+  };
+}
+
+function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rank, hunterScore, isHunterScore, isScoreFrame, eqScore) {
+  // Enrich with .cls data — fixes equitation's swapped horse/rider in UDP
+  // and ensures city/state/owner are available for on-course display.
+  var enriched = enrichFromCls(entry, horse, rider);
+  horse = enriched.horse;
+  rider = enriched.rider;
+  var owner = enriched.owner;
+  var city = enriched.city;
+  var state = enriched.state;
+
   if (entry !== lastEntry) {
     if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
     if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
@@ -1161,13 +1617,71 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     lastCd      = '';
   }
 
-  // Fire events on phase change, entry change, OR TA change (round switch)
-  if (phase !== lastPhase || entry !== lastEntry || ta !== lastTa) {
-    if (phase === 'INTRO' && lastPhase !== 'INTRO') {
+  // Entry changed mid-stream. Two scenarios:
+  //
+  // (A) Entry switch during active phase (CD/ONCOURSE) — operator clicked
+  //     the wrong horse and corrected it. The physical timer keeps running,
+  //     so we carry the clock forward and just swap the entry. No INTRO flash.
+  //
+  // (B) New entry from IDLE or without a prior INTRO — watcher restarted
+  //     mid-entry, intro UDP lost, or operator skipped the intro step.
+  //     Synthesize an INTRO so the live page sets up the on-course banner.
+  if (entry && entry !== lastEntry && phase !== 'INTRO' && phase !== 'IDLE' && phase !== 'FINISH') {
+    const ri = inferRound(entry, ta);
+
+    if (lastPhase === 'ONCOURSE' || lastPhase === 'CD') {
+      // (A) Entry switch mid-run — carry the timestamps, keep the current phase
+      log(`[ENTRY SWITCH] #${lastEntry} → #${entry} mid-${lastPhase} — clock carries forward`);
+      fireEvent('ENTRY_SWITCH', { from: lastEntry, to: entry, horse, rider, elapsed });
+
+      // Post the correct event for the CURRENT phase, not always ON_COURSE
+      if (phase === 'CD') {
+        postToWorker('/postClassEvent',
+          { event: 'CD_START', entry, horse, rider, owner, city, state,
+            countdown: parseInt(cd) || 0, ta: ta || '',
+            round: ri.round, label: ri.label,
+            faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+          `CD_START #${entry} (entry switch from #${lastEntry})`);
+      } else {
+        postToWorker('/postClassEvent',
+          { event: 'ON_COURSE', entry, horse, rider, owner, city, state,
+            elapsed: parseInt(elapsed) || 0, ta: ta || '',
+            round: ri.round, label: ri.label,
+            faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+          `ON_COURSE #${entry} (entry switch from #${lastEntry})`);
+      }
+      lastEntry = entry;
+      lastTa    = ta;
+      // DON'T change lastPhase — keep clock running in correct phase
+    } else {
+      // (B) New entry without prior INTRO — synthesize one
+      log(`[SYNTHETIC INTRO] #${entry} ${horse} — no intro received, synthesizing from ${phase} frame`);
+      fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: '', isHunter: false });
+      postToWorker('/postClassEvent',
+        { event: 'INTRO', entry, horse, rider, owner, city, state, ta: ta || '',
+          round: ri.round, label: ri.label,
+          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+        `INTRO #${entry} (synthetic)`);
+      lastPhase = 'INTRO';
+      lastEntry = entry;
+      lastTa    = ta;
+    }
+  }
+
+  // Fire events on phase change, entry change, OR TA change (round switch).
+  // INTRO always re-fires (explicit operator action, KV TTL may expire).
+  // FINISH re-fires when rank changes (Display Scores sends a second FINISH
+  // frame with the actual rank — e.g. equitation first FINISH has empty rank,
+  // then Display Scores adds "RANK 1" with the equitation score).
+  const isRepeatIntro = (phase === 'INTRO' && lastPhase === 'INTRO' && entry === lastEntry);
+  // Score frame ({19}=SCORE) = equitation Display Scores — always re-fire FINISH
+  // with the actual rank and score, even though phase/entry haven't changed.
+  if (phase !== lastPhase || entry !== lastEntry || ta !== lastTa || isRepeatIntro || isScoreFrame) {
+    if (phase === 'INTRO' && (lastPhase !== 'INTRO' || isRepeatIntro)) {
       const ri = inferRound(entry, ta);
       fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: hunterScore || '', isHunter: !!isHunterScore });
       postToWorker('/postClassEvent',
-        { event: 'INTRO', entry, horse, rider, owner: '', ta: ta || '',
+        { event: 'INTRO', entry, horse, rider, owner, city, state, ta: ta || '',
           round: ri.round, label: ri.label,
           faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
         `INTRO #${entry}`);
@@ -1176,7 +1690,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
       const ri = inferRound(entry, ta);
       fireEvent('CD_START', { entry, horse, rider, ta, countdown: cd, round: ri.round, label: ri.label });
       postToWorker('/postClassEvent',
-        { event: 'CD_START', entry, horse, rider, owner: '',
+        { event: 'CD_START', entry, horse, rider, owner, city, state,
           countdown: parseInt(cd) || 0, ta: ta || '',
           round: ri.round, label: ri.label,
           faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
@@ -1188,7 +1702,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
       const ri = inferRound(entry, ta);
       fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round: ri.round, label: ri.label });
       postToWorker('/postClassEvent',
-        { event: 'ON_COURSE', entry, horse, rider, owner: '',
+        { event: 'ON_COURSE', entry, horse, rider, owner, city, state,
           elapsed: parseInt(elapsed) || 0, ta: ta || '',
           round: ri.round, label: ri.label,
           faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
@@ -1198,7 +1712,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
     if (phase === 'ONCOURSE' && lastPhase === 'ONCOURSE' && ta !== lastTa && entry === lastEntry) {
       const ri = inferRound(entry, ta);
       postToWorker('/postClassEvent',
-        { event: 'ON_COURSE', entry, horse, rider, owner: '',
+        { event: 'ON_COURSE', entry, horse, rider, owner, city, state,
           elapsed: parseInt(elapsed) || 0, ta: ta || '',
           round: ri.round, label: ri.label,
           faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
@@ -1211,16 +1725,19 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
       if (isHunterScore) {
         fireEvent('FINISH', { entry, horse, rider, rank, hunterScore, isHunter: true, round, label });
         postToWorker('/postClassEvent',
-          { event: 'FINISH', entry, horse, rider, owner: '',
+          { event: 'FINISH', entry, horse, rider, owner, city, state,
             rank, hunterScore, isHunter: true, round, label },
           `FINISH #${entry}`);
       } else {
-        fireEvent('FINISH', { entry, horse, rider, rank, jumpFaults: jump, timeFaults: time, round, label });
+        // For score frames ({19}=SCORE), {17} is the equitation score, not elapsed.
+        // Don't overwrite the real elapsed with the score value.
+        const finishElapsed = isScoreFrame ? '' : (elapsed || '');
+        fireEvent('FINISH', { entry, horse, rider, rank, jumpFaults: jump, timeFaults: time, eqScore: eqScore || '', round, label });
         postToWorker('/postClassEvent',
-          { event: 'FINISH', entry, horse, rider, owner: '',
-            elapsed: elapsed || '', jumpFaults: jump, timeFaults: time,
-            rank, round, label },
-          `FINISH #${entry}`);
+          { event: 'FINISH', entry, horse, rider, owner, city, state,
+            elapsed: finishElapsed, jumpFaults: jump, timeFaults: time,
+            eqScore: eqScore || '', rank, round, label },
+          `FINISH #${entry}` + (isScoreFrame ? ' (SCORE frame)' : ''));
       }
     }
   }
@@ -1462,11 +1979,20 @@ function startUdpListener(scoreboardPort) {
     const horse   = cleanUdpVal('2',  tags['2']  || '');
     const rider   = cleanUdpVal('3',  tags['3']  || '');
     const ta      = cleanUdpVal('13', tags['13'] || '');
-    const jump    = cleanUdpVal('14', tags['14'] || '');
-    const time    = cleanUdpVal('15', tags['15'] || '');
+    let   jump    = cleanUdpVal('14', tags['14'] || '');
+    let   time    = cleanUdpVal('15', tags['15'] || '');
     const elapsed = cleanUdpVal('17', tags['17'] || '');
     const cd      = cleanUdpVal('23', tags['23'] || '');
     const rank    = cleanUdpVal('8',  tags['8']  || '');
+    // Equitation sends {14}=TIME and {15}=FLTS as text labels instead of
+    // numeric values. Sanitize to '0' so downstream pages don't get NaN.
+    if (jump && isNaN(parseFloat(jump))) jump = '0';
+    if (time && isNaN(parseFloat(time))) time = '0';
+
+    // Equitation Display Scores: tag {19}=SCORE signals this is a score frame.
+    // When present, {17} = equitation score (not elapsed time), {8} = final rank.
+    const isScoreFrame = (tags['19'] || '').toUpperCase().includes('SCORE');
+    const eqScore = isScoreFrame ? elapsed : ''; // {17} is the score, not time
 
     // ── Hunter-specific tags (confirmed 2026-03-23) ───────────────────────────
     // tag {14} = H:XX.XXX when hunter score present (H: prefix)
@@ -1480,6 +2006,19 @@ function startUdpListener(scoreboardPort) {
     if (cd)                                      phase = 'CD';
     if (elapsed && !rankClean)                   phase = 'ONCOURSE';
     if (rankClean)                               phase = 'FINISH';
+    // FINISH metric #2: precise decimal time in elapsed field.
+    // Physical timers count in whole seconds during a run (8, 9, 10...) then
+    // snap to precise millisecond time on stop (28.990). If elapsed has a
+    // decimal AND no rank tag, the timer has likely stopped.
+    // NOTE: Farmtek timers may emit decimal times on PAUSE too — the clock
+    // can resume after a pause. For now, classify as FINISH on decimal time.
+    // If Farmtek pause causes false FINISH, the next ONCOURSE frame (when
+    // timer resumes) will re-trigger a synthetic INTRO or ENTRY_SWITCH and
+    // the clock restarts. Acceptable trade-off: brief false finish on pause
+    // is better than a clock that never stops on equitation/manual-time.
+    if (phase === 'ONCOURSE' && elapsed && elapsed.includes('.') && !rankClean) {
+      phase = 'FINISH';
+    }
 
     // Suppress duplicate log lines
     const stateKey = entry || 'idle';
@@ -1495,7 +2034,7 @@ function startUdpListener(scoreboardPort) {
       }
     }
 
-    detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rankClean, hunterScore, isHunterScore);
+    detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rankClean, hunterScore, isHunterScore, isScoreFrame, eqScore);
   });
 
   socket.bind(scoreboardPort);

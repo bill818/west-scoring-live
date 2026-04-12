@@ -78,6 +78,28 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .oc-fault-vals td{font-size:16px;font-weight:600;color:var(--text-body);padding:0 8px;}
 .oc-fault-vals td:last-child{color:var(--red);}
 
+/* SHARED ON-COURSE (woc-*) — light theme for live page */
+.woc-info{background:var(--off-white);border-radius:6px;padding:12px 14px;}
+.woc-data{background:var(--off-white);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.woc-entry{font-family:'DM Mono',monospace;font-size:13px;color:var(--red);margin-bottom:3px;}
+.woc-primary{font-size:16px;font-weight:600;color:var(--black);line-height:1.2;}
+.woc-secondary{font-size:14px;color:var(--text-muted);margin-top:3px;}
+.woc-tertiary{font-size:12px;color:#aaa;font-style:italic;margin-top:2px;}
+.woc-clock{font-family:'DM Mono',monospace;font-size:42px;font-weight:500;color:var(--black);line-height:1;}
+.woc-overtime{color:var(--red) !important;}
+.woc-countdown{color:var(--text-muted);}
+.woc-status{color:var(--red);}
+.woc-round{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);font-weight:600;margin-bottom:4px;}
+.woc-phase-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
+.woc-faults{display:flex;gap:14px;margin-top:8px;font-family:'DM Mono',monospace;text-align:center;}
+.woc-fault-lbl{display:block;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);font-weight:400;}
+.woc-fault-val{display:block;font-size:16px;font-weight:600;color:var(--text-body);}
+.woc-faults .woc-fault:last-child .woc-fault-val{color:var(--red);}
+.woc-rank{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:6px;letter-spacing:.06em;text-transform:uppercase;}
+.woc-ta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:4px;}
+.woc-opt{color:var(--green);}
+.woc-opt-dist{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:2px;}
+
 /* PROGRESS */
 .progress-wrap{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;}
 .progress-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:5px;display:flex;justify-content:space-between;}
@@ -522,9 +544,10 @@ function render() {
   const ocIsHunterEarly = !!(oc && (oc.isHunter || (sel && cdMap[sel.classNum] && cdMap[sel.classNum].classType === 'H')));
 
   // After 10s showing FINISH, suppress the on-course block (jumpers only).
-  // Hunters hold the finish display indefinitely — it only clears when a new
-  // ON_COURSE / CLEAR_ONCOURSE event replaces the oncourse record.
-  const finishExpired = !ocIsHunterEarly && oc && oc.phase === 'FINISH' && finishShownAt && (Date.now() - finishShownAt > 10000);
+  // Hunters and equitation score displays hold indefinitely — they only clear
+  // when a new ON_COURSE / CLEAR_ONCOURSE event replaces the oncourse record.
+  const hasEqScore = oc && oc.eqScore;
+  const finishExpired = !ocIsHunterEarly && !hasEqScore && oc && oc.phase === 'FINISH' && finishShownAt && (Date.now() - finishShownAt > 10000);
   const showOc = oc && !finishExpired;
 
   // Reset finish timer when a new horse appears
@@ -682,14 +705,16 @@ function render() {
         + '</div>';
     }
 
-    // Equitation: rider primary, horse muted below. Pull city/state from class entry row.
-    // Detect eq from .cls header OR from UDP (no horse + has rider = eq)
-    const isHunterEq = (ocCd && WEST.hunter.isEquitation(ocCd)) || (!oc.horse && oc.rider);
+    // Equitation: rider primary, horse muted below.
+    // Detect eq from hunter isEquitation OR jumper method 7
+    const isHunterEq = ocCd && WEST.hunter.isEquitation(ocCd);
+    const isJumperEq = ocCd && String(ocCd.scoringMethod) === '7';
+    const isEqOC = isHunterEq || isJumperEq;
     let leftCardHtml;
-    if (isHunterEq) {
-      // Try class entry row first, fall back to oncourse flatEntries for locale
-      const seenEntry = oc.flatEntries && oc.flatEntries.find(e => String(e.entry) === String(oc.entry));
-      const locale = entryRow ? [entryRow.city, entryRow.state].filter(Boolean).join(', ') : (seenEntry && seenEntry.locale ? seenEntry.locale : '');
+    if (isEqOC) {
+      // City/state from enriched on-course data (watcher fills from .cls), fallback to entry row
+      const locale = [oc.city, oc.state].filter(Boolean).join(', ')
+        || (entryRow ? [entryRow.city, entryRow.state].filter(Boolean).join(', ') : '');
       leftCardHtml = '<div class="oc-card">'
         + '<div class="oc-card-label">Entry</div>'
         + '<div class="oc-entry-num">#' + esc(oc.entry) + '</div>'
@@ -718,95 +743,15 @@ function render() {
     const ocClassLabel = sel
       ? 'Class ' + esc(sel.classNum) + (jCd && jCd.className ? ' — ' + esc(jCd.className) : '')
       : '';
-    // Round label — trust oc.label from watcher (set by inferRound). Falls
-    // back to the centralized WEST.jumper.roundLabel which is method-aware
-    // (PH1/PH2 for two-phase, R1/JO/R3 for default jumper, etc.). The
-    // hardcoded "Round 1" / "Jump Off" string fallback was removed.
-    const ocSm = jCd && jCd.scoringMethod || '';
-    const roundLabel = oc.label
-      || (oc.round && WEST.jumper && WEST.jumper.roundLabel
-            ? WEST.jumper.roundLabel(ocSm, oc.round)
-            : '');
-    let clockVal, clockCls = '', phaseLabel = '', faultsHtml = '';
+    const phaseLabel = (phase === 'INTRO' ? 'In Gate' : phase === 'CD' ? 'Countdown' : phase === 'FINISH' ? 'Finished' : 'On Course');
 
-    if (phase === 'INTRO') {
-      phaseLabel = 'In Gate';
-      clockVal = '45';
-      clockCls = ' countdown';
-    } else if (phase === 'CD') {
-      phaseLabel = 'Countdown';
-      clockVal = Math.max(0, Math.abs((oc.countdown || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000)));
-      clockCls = ' countdown';
-    } else if (phase === 'FINISH') {
-      phaseLabel = 'Finished';
-      clockVal = oc.elapsed || '';
-      if (!oc.isHunter) {
-        faultsHtml = fmtFaultsHtml(oc.jumpFaults, oc.timeFaults);
-      }
-      if (oc.isHunter && oc.hunterScore) {
-        faultsHtml = '<div class="oc-faults">Score: ' + esc(oc.hunterScore) + '</div>';
-      }
-    } else {
-      // ONCOURSE — ticking up
-      phaseLabel = 'On Course';
-      clockVal = oc.paused ? (oc.elapsed || 0)
-        : Math.max(0, (oc.elapsed || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000));
-      const ta = parseFloat(oc.ta) || 0;
-      if (ta > 0 && clockVal > ta) clockCls = ' overtime';
-      // Live fault table — time faults from cls formula, updated by tickClock
-      const jf = parseFloat(oc.jumpFaults) || 0;
-      const fpi = parseFloat(oc.fpi) || 1;
-      const ti  = parseFloat(oc.ti) || 1;
-      const secsOver = ta > 0 ? Math.max(0, clockVal - ta) : 0;
-      const tf = secsOver > 0 ? Math.ceil(secsOver / ti) * fpi : 0;
-      faultsHtml = '<table class="oc-fault-tbl"><tr class="oc-fault-hdr"><td>Jump</td><td>Time</td><td>Total</td></tr>'
-        + '<tr class="oc-fault-vals"><td id="oc-jf">' + jf + '</td><td id="oc-tf">' + tf + '</td><td id="oc-total">' + (jf + tf) + '</td></tr></table>';
-    }
-
-    const taVal = parseFloat(oc.ta) || 0;
-    const taStr = taVal ? 'TA ' + oc.ta + 's' : '';
-    // Check if this is an optimum time class (method 6 / IV.1)
-    const isOptClass = sel && cdMap[sel.classNum] && cdMap[sel.classNum].scoringMethod === '6';
-    const optTime = isOptClass && taVal ? taVal - 4 : 0;
-    const optStr = optTime > 0 ? 'Optimum ' + optTime + 's' : '';
-    // Live distance from optimum (only during ONCOURSE)
-    let optDistHtml = '';
-    if (optTime > 0 && phase === 'ONCOURSE' && typeof clockVal === 'number') {
-      const dist = clockVal - optTime;
-      const sign = dist >= 0 ? '+' : '';
-      optDistHtml = '<div id="oc-opt-dist" style="font-family:DM Mono,monospace;font-size:12px;color:' + (Math.abs(dist) < 2 ? 'var(--green)' : 'var(--text-muted)') + ';margin-top:2px;">' + sign + Math.floor(dist) + 's from opt</div>';
-    }
-
-    // Rank display — shown only after FINISH. Strip any "RANK " prefix Ryegate
-    // sends. Hidden when rank is empty / "EL" / etc.
-    let rankHtml = '';
-    if (phase === 'FINISH' && oc.rank) {
-      const cleanRank = String(oc.rank).replace(/^RANK\s*/i, '').trim();
-      if (cleanRank && !/^EL$/i.test(cleanRank) && !/^NP$/i.test(cleanRank)) {
-        rankHtml = '<div class="oc-jp-rank">Rank <span class="oc-jp-rank-val">' + esc(cleanRank) + '</span></div>';
-      }
-    }
+    // ── SHARED ON-COURSE RENDERER — single source of truth ──
+    const ocHtml = WEST.renderOnCourse(oc, jCd);
+    WEST.setOcState(oc, jCd);
 
     html += '<div class="oc-wrap">'
       + '<div class="oc-header"><div class="oc-title">' + esc(phaseLabel) + (ocClassLabel ? ' &mdash; ' + ocClassLabel : '') + '</div></div>'
-      + '<div class="oc-grid">'
-      + '<div class="oc-card">'
-      + '<div class="oc-card-label">Entry</div>'
-      + '<div class="oc-entry-num">#' + esc(oc.entry) + '</div>'
-      + '<div class="oc-horse">' + esc(oc.horse) + '</div>'
-      + '<div class="oc-rider">' + esc(oc.rider) + '</div>'
-      + '</div>'
-      + '<div class="oc-card oc-clock-wrap">'
-      + (roundLabel ? '<div class="oc-round-label">' + esc(roundLabel) + '</div>' : '')
-      + '<div class="oc-clock' + clockCls + '" id="oc-clock">' + clockVal + '</div>'
-      + '<div class="oc-phase-label">' + esc(phaseLabel) + '</div>'
-      + faultsHtml
-      + rankHtml
-      + (taStr ? '<div class="oc-ta">' + taStr + '</div>' : '')
-      + (optStr ? '<div class="oc-ta" style="color:var(--green);">' + optStr + '</div>' : '')
-      + optDistHtml
-      + '</div>'
-      + '</div></div>';
+      + '<div class="oc-grid">' + ocHtml + '</div></div>';
   } else if (previousEntry && finishExpired) {
     // Previous entry card after FINISH expires
     let prevResult = '';
@@ -978,7 +923,7 @@ function render() {
 
             html += '<div class="standing-row standing-row-stacked' + (isElimRow ? ' elim' : '') + '">'
               + '<span class="s-place' + (isElimRow ? ' s-place-status' : '') + '">' + esc(placeText) + '</span>'
-              + '<div class="s-entry"><div class="s-horse"><span class="s-bib">' + esc(entryNum) + '</span>' + esc(e.horse) + '</div><div class="s-rider">' + esc(e.rider) + '</div></div>'
+              + WEST.jumper.renderEntryName(e, sm, {})
               + '<div class="s-rounds">' + roundsHtml + '</div>'
               + '</div>';
           });
@@ -1083,58 +1028,8 @@ function render() {
 }
 
 function tickClock() {
-  const el = document.getElementById('oc-clock');
-  if (!el || !liveData.onCourse) return;
-  const oc = liveData.onCourse;
-  const phase = oc.phase || 'ONCOURSE';
-  const ta = parseFloat(oc.ta) || 0;
-
-  if (phase === 'INTRO') {
-    el.textContent = '45';
-    el.className = 'oc-clock countdown';
-  } else if (phase === 'CD') {
-    const sec = Math.max(0, Math.abs((oc.countdown || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000)));
-    el.textContent = sec;
-    el.className = 'oc-clock countdown';
-  } else if (phase === 'FINISH') {
-    // Frozen — show final elapsed time
-    el.textContent = oc.elapsed || '';
-    el.className = 'oc-clock';
-  } else {
-    // ONCOURSE — ticking up
-    const sec = oc.paused ? (oc.elapsed || 0)
-      : Math.max(0, (oc.elapsed || 0) + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000));
-    el.textContent = sec;
-    el.className = 'oc-clock' + (ta > 0 && sec > ta ? ' overtime' : '');
-    // Update live fault table — time faults from cls formula
-    const jfEl = document.getElementById('oc-jf');
-    const tfEl = document.getElementById('oc-tf');
-    const totEl = document.getElementById('oc-total');
-    if (jfEl && tfEl && totEl) {
-      const jf = parseFloat(oc.jumpFaults) || 0;
-      const fpi = parseFloat(oc.fpi) || 1;
-      const ti  = parseFloat(oc.ti) || 1;
-      const secsOver = ta > 0 ? Math.max(0, sec - ta) : 0;
-      const tf = secsOver > 0 ? Math.ceil(secsOver / ti) * fpi : 0;
-      jfEl.textContent = jf;
-      tfEl.textContent = tf;
-      totEl.textContent = jf + tf;
-    }
-    // Update optimum distance for IV.1 classes
-    const optEl = document.getElementById('oc-opt-dist');
-    if (optEl && ta > 0) {
-      const sel = liveData.selected;
-      const cdMap = liveData.classData || {};
-      const isOpt = sel && cdMap[sel.classNum] && cdMap[sel.classNum].scoringMethod === '6';
-      if (isOpt) {
-        const opt = ta - 4;
-        const dist = sec - opt;
-        const sign = dist >= 0 ? '+' : '';
-        optEl.textContent = sign + Math.floor(dist) + 's from opt';
-        optEl.style.color = Math.abs(dist) < 2 ? 'var(--green)' : 'var(--text-muted)';
-      }
-    }
-  }
+  // Use the shared on-course tick from display-config.js
+  WEST.tickOnCourse();
 }
 
 function toggleView(classNum, view) {

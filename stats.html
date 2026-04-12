@@ -82,13 +82,13 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .oog-horse{flex:1;min-width:0;}
 .oog-rider{flex:1;min-width:0;}
 .oog-flag{width:28px;flex-shrink:0;text-align:center;}
-.oog-row{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--border);font-size:12px;}
+.oog-row{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);font-size:13px;}
 .oog-row:last-child{border-bottom:none;}
 .oog-row.on-course{background:#fef3f3;border-left:3px solid var(--red);}
 .oog-row.next-up{background:#f0faf0;border-left:3px solid var(--green);}
 .oog-row .go-num{width:32px;flex-shrink:0;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
 .oog-row .ent-num{width:40px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
-.oog-row .horse-name{flex:1;min-width:0;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.oog-row .horse-name{flex:1.5;min-width:0;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .oog-row .rider-name{flex:1;min-width:0;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .oog-row .flag-img{width:28px;flex-shrink:0;text-align:center;}
 .oog-indicator{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;margin-right:4px;}
@@ -595,7 +595,7 @@ function renderLiveStrip() {
   }
   if (total === 0 && orderOfGo.length > 0) total = orderOfGo.length;
 
-  if (!oc || !oc.horse) {
+  if (!oc || (!oc.horse && !oc.rider)) {
     strip.innerHTML = '<div class="ls-waiting">Waiting for next horse&hellip;</div>'
       + (total > 0 ? '<div class="ls-progress"><div class="ls-progress-fill" style="width:' + (total > 0 ? Math.round(competed / total * 100) : 0) + '%"></div></div>' : '');
     return;
@@ -642,28 +642,45 @@ function renderLiveStrip() {
   var jf = parseFloat(oc.jumpFaults) || 0;
   var tf = parseFloat(oc.timeFaults) || 0;
   // If live on course, calculate time faults from elapsed vs TA
-  if (phase === 'on-course' && ta > 0 && elapsed > ta) {
+  // Use current real-time elapsed (not just the snapshot) so the initial render
+  // matches what tickClock will show — prevents flicker between 0 and real value.
+  if (phase === 'ONCOURSE' && ta > 0) {
     var fpi = parseFloat(oc.fpi) || 1;
     var ti = parseFloat(oc.ti) || 1;
-    tf = Math.ceil((elapsed - ta) / ti) * fpi;
+    var rtElapsed = oc.paused ? elapsed : elapsed + Math.floor((Date.now() - new Date(oc.ts).getTime()) / 1000);
+    var secsOver = Math.max(0, rtElapsed - ta);
+    tf = secsOver > 0 ? Math.ceil(secsOver / ti) * fpi : 0;
   }
   var totalF = jf + tf;
 
   var roundLabel = oc.label || (oc.round ? 'Round ' + oc.round : '');
 
+  // Equitation (method 7): rider is primary, horse is secondary
+  var isEqStats = classInfo && (classInfo.scoring_method === '7' || classInfo.scoring_method === 7);
+  var lsPrimary = isEqStats ? (oc.rider || '') : (oc.horse || '');
+  var lsLocale = isEqStats ? [oc.city, oc.state].filter(Boolean).join(', ') : '';
+  var lsSecondary = isEqStats ? lsLocale : (oc.rider || '');
+  var lsHorseLow = isEqStats ? (oc.horse || '') : '';
+
   var html = '<div class="ls-row">'
     + '<span class="ls-phase ' + phaseCls + '">' + esc(phaseLabel) + '</span>'
     + '<span class="ls-entry">#' + esc(oc.entry) + '</span>'
-    + '<span class="ls-horse">' + esc(oc.horse) + '</span>'
-    + '<span class="ls-rider">' + esc(oc.rider) + '</span>'
+    + '<span class="ls-horse">' + esc(lsPrimary) + '</span>'
+    + '<span class="ls-rider">' + esc(lsSecondary) + '</span>'
+    + (lsHorseLow ? '<span class="ls-rider" style="font-style:italic;color:#bbb;">' + esc(lsHorseLow) + '</span>' : '')
     + '<div class="ls-clock-wrap">'
     + (roundLabel ? '<div class="ls-round-label">' + esc(roundLabel) + '</div>' : '')
     + '<div class="ls-clock" id="liveClock">' + clockDisplay + '</div>'
     + '</div>'
-    + '<div class="ls-faults">'
-    + '<span class="hdr">Jump</span><span class="hdr">Time</span><span class="hdr">Total</span>'
-    + '<span class="val">' + jf + '</span><span class="val">' + tf.toFixed(0) + '</span><span class="val">' + totalF.toFixed(0) + '</span>'
-    + '</div>'
+    + '<div class="ls-faults">';
+  if (isEqStats) {
+    html += '<span class="hdr">Time Faults</span>'
+      + '<span class="val" id="lsTf">' + tf.toFixed(0) + '</span>';
+  } else {
+    html += '<span class="hdr">Jump</span><span class="hdr">Time</span><span class="hdr">Total</span>'
+      + '<span class="val" id="lsJf">' + jf + '</span><span class="val" id="lsTf">' + tf.toFixed(0) + '</span><span class="val" id="lsTotal">' + totalF.toFixed(0) + '</span>';
+  }
+  html += '</div>'
     + '</div>';
 
   if (total > 0) {
@@ -678,10 +695,18 @@ function renderLiveStrip() {
   clockCountdown = Math.abs(parseInt(oc.countdown) || 45);
   clockPaused = oc.paused || (phase === 'FINISH') || (phase === 'INTRO');
   clockTs = new Date(oc.ts).getTime() || Date.now();
+  clockTa = ta;
+  clockFpi = parseFloat(oc.fpi) || 1;
+  clockTi = parseFloat(oc.ti) || 1;
+  clockJf = jf;
 }
 
 var clockPhase = 'ONCOURSE';
 var clockCountdown = 0;
+var clockTa = 0;    // time allowed for live fault calc
+var clockFpi = 1;   // faults per interval
+var clockTi = 1;    // time interval (seconds)
+var clockJf = 0;    // jump faults (static during run)
 
 function tickClock() {
   var el = document.getElementById('liveClock');
@@ -705,6 +730,16 @@ function tickClock() {
     return;
   }
   el.textContent = display;
+
+  // Update time faults in real-time
+  var tfEl = document.getElementById('lsTf');
+  var totEl = document.getElementById('lsTotal');
+  if (tfEl && clockTa > 0) {
+    var secsOver = Math.max(0, display - clockTa);
+    var tf = secsOver > 0 ? Math.ceil(secsOver / clockTi) * clockFpi : 0;
+    tfEl.textContent = tf;
+    if (totEl) totEl.textContent = clockJf + tf; // not present in equitation layout
+  }
 }
 
 /* ── RENDER: CLASS INFO BAR ──────────────────────────────────────────── */
@@ -730,8 +765,19 @@ function renderClassInfoBar() {
     ciTa = { r1: pr.r1TA, r2: pr.r2TA, r3: pr.r3TA };
   }
   var taStr = '';
-  if (ciTa.r1 > 0) taStr += 'R1=' + ciTa.r1 + 's';
-  if (ciTa.r2 > 0) taStr += (taStr ? ', JO=' : 'JO=') + ciTa.r2 + 's';
+  // Single-round methods (II.1 Speed, Optimum) — show just "TA" not "R1"
+  // Methods with JO — show "R1=Xs, JO=Ys"
+  // Two-phase — show "PH1=Xs, PH2=Ys"
+  var noJO = sm === '4' || sm === '6' || sm === '7';
+  var isTwoPhase = sm === '9';
+  if (ciTa.r1 > 0) {
+    if (noJO) taStr = 'TA=' + ciTa.r1 + 's';
+    else taStr = (isTwoPhase ? 'PH1=' : 'R1=') + ciTa.r1 + 's';
+  }
+  if (ciTa.r2 > 0 && !noJO) {
+    var r2Label = isTwoPhase ? 'PH2' : 'JO';
+    taStr += (taStr ? ', ' + r2Label + '=' : r2Label + '=') + ciTa.r2 + 's';
+  }
 
   var totalEntries = (classInfo._computed ? (classInfo._computed.entries || []).length : 0) || rawEntries.length || 0;
   var watcherAlive = liveData && liveData.watcherAlive;
@@ -745,8 +791,20 @@ function renderClassInfoBar() {
 }
 
 /* ── RENDER: ORDER OF GO ─────────────────────────────────────────────── */
+function isClassComplete() {
+  if (!liveData) return false;
+  // Class is in recentClasses = CLASS_COMPLETE has fired
+  if (liveData.recentClasses && liveData.recentClasses.some(function(r) { return String(r.classNum) === String(CLASS_NUM); })) return true;
+  // Class is not active and not selected = done
+  var isActive = liveData.activeClasses && liveData.activeClasses.some(function(a) { return String(a.classNum) === String(CLASS_NUM); });
+  var isSelected = liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
+  if (!isActive && !isSelected && rawEntries.length > 0) return true;
+  return false;
+}
+
 function renderOrderOfGo() {
   if (!orderOfGo.length) return '';
+  if (isClassComplete()) return ''; // hide OOG after CLASS_COMPLETE
 
   // Normalize field names — pre-computed uses entry_num/order, parseClsRaw uses entryNum/rideOrder
   var normalized = orderOfGo.map(function(e) {
@@ -785,11 +843,14 @@ function renderOrderOfGo() {
   var html = '<div class="section-label">Order of Go (' + remaining.length + ' remaining)'
     + ' <button class="toggle-btn" onclick="toggleOOG()">' + (oogCollapsed ? 'Show' : 'Hide') + '</button></div>';
   html += '<div class="oog-wrap" id="oogTable" style="' + (oogCollapsed ? 'display:none' : '') + '">';
-  html += '<div class="oog-hdr"><span class="oog-go">Go</span><span class="oog-ent">Entry</span><span class="oog-horse">Horse</span><span class="oog-rider">Rider</span><span class="oog-flag"></span></div>';
+  var isEqMethod = classInfo && (String(classInfo.scoring_method) === '7');
+  html += '<div class="oog-hdr"><span class="oog-go">Go</span><span class="oog-ent">Entry</span><span class="oog-horse">' + (isEqMethod ? 'Rider' : 'Horse') + '</span><span class="oog-rider">' + (isEqMethod ? 'Horse' : 'Rider') + '</span><span class="oog-flag"></span></div>';
   remaining.forEach(function(e, i) {
     var isOC = String(e.entryNum) === onCourseEntry;
     var isNext = String(e.entryNum) === nextEntry;
     var rowCls = isOC ? ' on-course' : isNext ? ' next-up' : '';
+    var oogPrimary = isEqMethod ? e.rider : e.horse;
+    var oogSecondary = isEqMethod ? e.horse : e.rider;
     html += '<div class="oog-row' + rowCls + '">'
       + '<span class="go-num">';
     if (isOC) html += '<span class="oog-indicator oc">OC</span>';
@@ -797,8 +858,8 @@ function renderOrderOfGo() {
     else html += e.rideOrder;
     html += '</span>'
       + '<span class="ent-num">' + esc(e.entryNum) + '</span>'
-      + '<span class="horse-name">' + esc(e.horse) + '</span>'
-      + '<span class="rider-name">' + esc(e.rider) + '</span>'
+      + '<span class="horse-name">' + esc(oogPrimary) + '</span>'
+      + '<span class="rider-name">' + esc(oogSecondary) + '</span>'
       + '<span class="flag-img">' + countryFlag(e.country) + '</span>'
       + '</div>';
   });
@@ -976,10 +1037,11 @@ function metricCard(val, label, sub) {
 
 /* ── RENDER: STANDINGS TABLE ─────────────────────────────────────────── */
 function renderStandingsTable(entries, roundNum) {
+  var isEqMethod = classInfo && (String(classInfo.scoring_method) === '7');
   var html = '<div class="standings-wrap">';
   html += '<div class="standings-hdr">'
     + '<span class="col-place">#</span>'
-    + '<span class="col-entry">Horse / Rider</span>'
+    + '<span class="col-entry">' + (isEqMethod ? 'Rider / Horse' : 'Horse / Rider') + '</span>'
     + '<span class="col-faults">Faults</span>'
     + '<span class="col-time">Time</span>'
     + '<span class="col-gap">Gap</span></div>';
@@ -994,9 +1056,11 @@ function renderStandingsTable(entries, roundNum) {
     var gapStr = hasStatus ? WEST.statusDisplayLabel(rd.status_code) : g.gap;
     var gapCls = hasStatus ? 'fault-gap' : g.gapClass;
 
+    var stPrimary = isEqMethod ? g.rider : g.horse;
+    var stSecondary = isEqMethod ? g.horse : g.rider;
     html += '<div class="standing-row">'
       + '<span class="s-place">' + (i + 1) + '</span>'
-      + '<div class="s-entry"><div class="s-horse">' + esc(g.horse) + '</div><div class="s-rider">' + esc(g.rider) + '</div></div>'
+      + '<div class="s-entry"><div class="s-horse">' + esc(stPrimary) + '</div><div class="s-rider">' + esc(stSecondary) + '</div></div>'
       + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
       + '<span class="s-time">' + esc(timeStr) + '</span>'
       + '<span class="s-gap ' + esc(gapCls) + '">' + esc(gapStr) + '</span></div>';
@@ -1006,11 +1070,12 @@ function renderStandingsTable(entries, roundNum) {
 }
 
 function renderR1StandingsTable(entries, hasJO) {
+  var isEqMethod = classInfo && (String(classInfo.scoring_method) === '7');
   var gapLabel = hasJO ? 'vs TA' : 'Gap';
   var html = '<div class="standings-wrap">';
   html += '<div class="standings-hdr">'
     + '<span class="col-place">#</span>'
-    + '<span class="col-entry">Horse / Rider</span>'
+    + '<span class="col-entry">' + (isEqMethod ? 'Rider / Horse' : 'Horse / Rider') + '</span>'
     + '<span class="col-faults">Faults</span>'
     + '<span class="col-time">Time</span>'
     + '<span class="col-gap">' + gapLabel + '</span></div>';
@@ -1023,9 +1088,11 @@ function renderR1StandingsTable(entries, hasJO) {
     var timeStr = r1 && r1.time ? fmtTimePrecision(r1.time) : '\u2014';
     var placeDisplay = (hasJO && g.isJOQualifier) ? '<span class="jo-tag">JO</span>' : String(i + 1);
 
+    var r1Primary = isEqMethod ? g.rider : g.horse;
+    var r1Secondary = isEqMethod ? g.horse : g.rider;
     html += '<div class="standing-row">'
       + '<span class="s-place">' + placeDisplay + '</span>'
-      + '<div class="s-entry"><div class="s-horse">' + esc(g.horse) + '</div><div class="s-rider">' + esc(g.rider) + '</div></div>'
+      + '<div class="s-entry"><div class="s-horse">' + esc(r1Primary) + '</div><div class="s-rider">' + esc(r1Secondary) + '</div></div>'
       + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
       + '<span class="s-time">' + esc(timeStr) + '</span>'
       + '<span class="s-gap ' + esc(g.gapClass) + '">' + esc(g.gap) + '</span></div>';

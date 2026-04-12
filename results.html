@@ -239,6 +239,15 @@ let liveData  = {};
 
 var esc = WEST.esc;
 
+function isClassComplete() {
+  if (!liveData) return false;
+  if (liveData.recentClasses && liveData.recentClasses.some(function(r) { return String(r.classNum) === String(CLASS_NUM); })) return true;
+  var isActive = liveData.activeClasses && liveData.activeClasses.some(function(a) { return String(a.classNum) === String(CLASS_NUM); });
+  var isSelected = liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
+  if (!isActive && !isSelected && entries.length > 0) return true;
+  return false;
+}
+
 // FEI flags and cls header parser now in display-config.js;
 
 var parseClsHeader = WEST.parseClsHeader;
@@ -527,20 +536,22 @@ function renderResults() {
   });
 
   if (!grouped.length) {
-    // No competed entries — check for Order of Go
+    // No competed entries — check for Order of Go (hide if class is complete)
     const oog = c && c.orderOfGo;
-    if (oog && oog.length) {
+    if (oog && oog.length && !isClassComplete()) {
       let oogHtml = '<div class="results-wrap">';
       oogHtml += '<div style="padding:14px 16px 8px;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--black);">Order of Go</div>';
       oog.forEach(function(e) {
         const flag = classInfo.show_flags ? countryFlag(e.country) : '';
         oogHtml += '<div class="result-entry"><div class="result-main">'
           + '<div class="r-ribbon"><div class="r-place-txt">' + e.order + '</div></div>'
-          + '<div class="r-info"><div class="r-horse-rider">'
-          + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
-          + '<span class="r-horse">' + esc(e.horse) + '</span>'
-          + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
-          + '</div></div>'
+          + (isJumper
+              ? WEST.jumper.renderEntryName(e, sm, { flag: flag })
+              : ('<div class="r-info"><div class="r-horse-rider">'
+                + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
+                + '<span class="r-horse">' + esc(e.horse) + '</span>'
+                + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
+                + '</div></div>'))
           + '</div></div>';
       });
       oogHtml += '</div>';
@@ -592,7 +603,7 @@ function renderResults() {
     const flag = classInfo.show_flags ? countryFlag(g.country) : '';
 
     if (isHunterEq) {
-      // Equitation — rider primary, city/state next to rider, horse muted below
+      // Hunter equitation — rider primary, city/state next to rider, horse muted below
       const locale = [g.city, g.state].filter(Boolean).join(', ');
       html += '<div class="r-info">'
         + '<div class="r-horse-rider">'
@@ -602,7 +613,11 @@ function renderResults() {
         + '</div>'
         + (g.horse ? '<div class="r-owner">' + esc(g.horse) + '</div>' : '')
         + '</div>';
+    } else if (isJumper) {
+      // Jumper — rider-first for equitation (method 7), horse-first otherwise
+      html += WEST.jumper.renderEntryName(g, sm, { flag: flag });
     } else {
+      // Hunter non-equitation — horse + rider with breeding/owner
       const breeding = [g.sire, g.dam].filter(Boolean).join(' x ');
       html += '<div class="r-info">'
         + '<div class="r-horse-rider">'
@@ -664,8 +679,9 @@ function renderResults() {
   html += '</div>';
 
   // Append remaining OOG entries below results (entries that haven't competed yet)
+  // Hide once class is complete — no need to show "remaining" for a finished class
   const oog = c && c.orderOfGo;
-  if (oog && oog.length) {
+  if (oog && oog.length && !isClassComplete()) {
     // Build set of entries already in results
     const resultSet = {};
     grouped.forEach(function(g) { resultSet[g.entry_num] = true; });
@@ -677,11 +693,13 @@ function renderResults() {
         const flag = classInfo.show_flags ? countryFlag(e.country) : '';
         html += '<div class="result-entry"><div class="result-main">'
           + '<div class="r-ribbon"><div class="r-place-txt" style="color:#bbb;">' + e.order + '</div></div>'
-          + '<div class="r-info"><div class="r-horse-rider">'
-          + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
-          + '<span class="r-horse" style="color:var(--text-muted);">' + esc(e.horse) + '</span>'
-          + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
-          + '</div></div>'
+          + (isJumper
+              ? WEST.jumper.renderEntryName(e, sm, { flag: flag })
+              : ('<div class="r-info"><div class="r-horse-rider">'
+                + '<span class="r-bib">' + esc(e.entry_num) + '</span>'
+                + '<span class="r-horse" style="color:var(--text-muted);">' + esc(e.horse) + '</span>'
+                + '<span class="r-rider-inline">' + esc(e.rider) + (flag ? ' ' + flag : '') + '</span>'
+                + '</div></div>'))
           + '</div></div>';
       });
       html += '</div>';
