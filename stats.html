@@ -38,7 +38,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .live-strip.active{display:block;}
 .ls-row{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;}
 .ls-phase{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:2px 6px;border-radius:2px;flex-shrink:0;}
-.ls-phase.in-gate{background:#e8f5e9;color:var(--green);}
+.ls-phase.intro{background:#e8f5e9;color:var(--green);}
 .ls-phase.countdown{background:#fff3e0;color:var(--amber);}
 .ls-phase.on-course{background:var(--red);color:#fff;}
 .ls-phase.finished{background:var(--off-white);color:var(--text-muted);}
@@ -603,8 +603,8 @@ function renderLiveStrip() {
 
   // Determine phase
   var phase = (oc.phase || 'ONCOURSE').toUpperCase();
-  var phaseLabel = phase === 'INTRO' ? 'In Gate' : phase === 'CD' ? 'Countdown' : phase === 'FINISH' ? 'Finished' : 'On Course';
-  var phaseCls = phase === 'INTRO' ? 'in-gate' : phase === 'CD' ? 'countdown' : phase === 'FINISH' ? 'finished' : 'on-course';
+  var phaseLabel = WEST.phaseLabel(phase);
+  var phaseCls = phase === 'INTRO' ? 'intro' : phase === 'CD' ? 'countdown' : phase === 'FINISH' ? 'finished' : 'on-course';
 
   // Clock value per phase:
   // INTRO: -45 frozen
@@ -791,15 +791,9 @@ function renderClassInfoBar() {
 }
 
 /* ── RENDER: ORDER OF GO ─────────────────────────────────────────────── */
+// Delegates to shared helper in display-config.js
 function isClassComplete() {
-  if (!liveData) return false;
-  // Class is in recentClasses = CLASS_COMPLETE has fired
-  if (liveData.recentClasses && liveData.recentClasses.some(function(r) { return String(r.classNum) === String(CLASS_NUM); })) return true;
-  // Class is not active and not selected = done
-  var isActive = liveData.activeClasses && liveData.activeClasses.some(function(a) { return String(a.classNum) === String(CLASS_NUM); });
-  var isSelected = liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
-  if (!isActive && !isSelected && rawEntries.length > 0) return true;
-  return false;
+  return WEST.isClassComplete(liveData, CLASS_NUM, rawEntries.length > 0);
 }
 
 function renderOrderOfGo() {
@@ -821,7 +815,10 @@ function renderOrderOfGo() {
   var goneSet = {};
   rawEntries.forEach(function(e) { if (e.round) goneSet[e.entry_num] = true; });
 
-  var onCourseEntry = liveData && liveData.onCourse ? String(liveData.onCourse.entry) : '';
+  // Use shared helper: entry is "on-course" only if phase is not FINISH.
+  // Fixes bug where a finished entry was still tagged OC on the stats page.
+  var oc = liveData && liveData.onCourse;
+  var onCourseEntry = (oc && oc.phase !== 'FINISH') ? String(oc.entry) : '';
 
   // Filter: only show entries that haven't gone yet + the one currently on course
   var remaining = normalized.filter(function(e) {
@@ -1188,9 +1185,9 @@ function renderAll() {
 
   /* 8. JO STANDINGS + JO FAULT BREAKDOWN */
   if (s.hasJO && s.joWithGap.length > 0) {
-    html += '<div class="section-label">Jump-Off Standings (' + s.joEntryCount + ' entries)</div>';
+    html += '<div class="section-label">Jump Off Standings (' + s.joEntryCount + ' entries)</div>';
     html += renderStandingsTable(s.joWithGap, 2);
-    html += '<div class="section-label">Fault Distribution &mdash; Jump-Off</div>';
+    html += '<div class="section-label">Fault Distribution &mdash; Jump Off</div>';
     html += renderFaultSection(s.joBuckets, s.joEntryCount);
   }
 

@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Statistics — WEST Scoring Live</title>
+<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=Source+Sans+3:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --green: #2e7d32;
+  --amber: #b45309;
+}
+body { font-family: 'Source Sans 3', sans-serif; background: var(--off-white); color: var(--text-body); min-height: 100vh; }
+.gauge-wrap { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 20px 24px; margin-bottom: 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.gauge-svg-wrap { flex-shrink: 0; }
+.gauge-info { flex: 1; min-width: 160px; }
+.gauge-title { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+.gauge-score { font-family: 'Playfair Display', serif; font-size: 42px; font-weight: 700; line-height: 1; }
+.gauge-label { font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; margin-top: 4px; }
+.gauge-detail { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+
+/* HEADER */
+header { background: var(--black); border-bottom: 3px solid var(--red); padding: 0 clamp(16px,4vw,48px); height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.back-btn { display: flex; align-items: center; gap: 6px; color: #fff; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .06em; text-decoration: none; background: none; border: none; cursor: pointer; padding: 0; min-height: 44px; }
+.back-btn:hover { color: var(--red); }
+.header-logo { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 20px; color: var(--white); letter-spacing: -0.01em; }
+.header-logo span { color: var(--red); font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 400; letter-spacing: 0.08em; margin-left: 8px; }
+.refresh-btn { background: none; border: 1px solid #333; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #888; padding: 5px 10px; cursor: pointer; }
+.refresh-btn:hover { border-color: #888; color: #fff; }
+
+/* TITLE BAR */
+.title-bar { background: #fff; border-bottom: 1px solid var(--border); padding: 14px clamp(16px,4vw,48px); }
+.title-classnum { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--red); margin-bottom: 4px; }
+.title-main { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--black); line-height: 1.2; }
+.title-meta { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.title-show { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); letter-spacing: .06em; }
+.progress-wrap { display: flex; align-items: center; gap: 8px; }
+.progress-bar-bg { width: 80px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.progress-bar-fill { height: 4px; background: var(--red); border-radius: 2px; transition: width 0.4s; }
+.progress-txt { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); }
+.live-dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; display: inline-block; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* CONTENT */
+.content { max-width: 900px; margin: 0 auto; padding: 20px clamp(16px,4vw,48px); }
+
+/* FIELD SUMMARY */
+.section-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px; }
+.fault-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-bottom: 24px; }
+.fault-card { background: #fff; border: 1px solid var(--border); padding: 14px 16px; }
+.fault-card-num { font-family: 'Playfair Display', serif; font-size: 32px; font-weight: 700; line-height: 1; }
+.fault-card-num.clear { color: var(--green); }
+.fault-card-num.faulted { color: var(--text-body); }
+.fault-card-num.elim { color: var(--red); }
+.fault-card-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+.fault-card-pct { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* COURSE DIFFICULTY */
+.difficulty-bar-wrap { background: #fff; border: 1px solid var(--border); padding: 16px; margin-bottom: 24px; }
+.diff-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.diff-row:last-child { margin-bottom: 0; }
+.diff-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .08em; width: 80px; flex-shrink: 0; color: var(--text-body); }
+.diff-bar-bg { flex: 1; height: 8px; background: var(--off-white); border-radius: 2px; overflow: hidden; }
+.diff-bar-fill { height: 8px; border-radius: 2px; transition: width 0.6s ease; }
+.diff-bar-fill.clear { background: var(--green); }
+.diff-bar-fill.f1-3 { background: #f59e0b; }
+.diff-bar-fill.f4 { background: #d97706; }
+.diff-bar-fill.f8 { background: #dc2626; }
+.diff-bar-fill.elim { background: var(--black); }
+.diff-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); width: 28px; text-align: right; flex-shrink: 0; }
+.diff-pct { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); width: 36px; text-align: right; flex-shrink: 0; }
+
+/* COURSE METRICS */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 24px; }
+.metric-card { background: #fff; border: 1px solid var(--border); padding: 14px 16px; }
+.metric-val { font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500; color: var(--black); }
+.metric-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+.metric-card-wide { grid-column: span 2; }
+.metric-countries-top { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 8px; }
+.mc-country { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--black); display: flex; align-items: center; gap: 4px; }
+.mc-count { font-size: 11px; color: var(--text-muted); }
+.metric-countries-rest { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 6px; letter-spacing: .04em; }
+.metric-countries-jo-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.multi-riders-wrap { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 0; margin-bottom: 16px; overflow: hidden; }
+.multi-riders-wrap-header { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); padding: 8px 14px; background: var(--off-white); border-bottom: 1px solid var(--border); }
+.multi-rider-row { display: flex; align-items: baseline; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.multi-rider-row:last-child { border-bottom: none; }
+.multi-rider-name { font-family: 'Source Sans 3', sans-serif; font-size: 13px; font-weight: 600; color: var(--black); white-space: nowrap; min-width: 160px; }
+.multi-rider-horses { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.multi-riders-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); margin: 8px 0 4px; }
+
+/* STANDINGS TABLE */
+.standings-wrap { background: #fff; border: 1px solid var(--border); margin-bottom: 24px; }
+.standings-hdr { display: grid; gap: 0; border-bottom: 2px solid var(--black); padding: 8px 16px; }
+.standings-hdr-inner { display: flex; gap: 8px; align-items: center; }
+.col-place { width: 32px; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+.col-entry { flex: 1; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+.col-faults { width: 56px; text-align: right; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+.col-time { width: 64px; text-align: right; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+.col-gap { width: 72px; text-align: right; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+
+.standing-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.standing-row:last-child { border-bottom: none; }
+.standing-row:hover { background: var(--off-white); }
+.s-place { width: 32px; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; color: var(--text-muted); }
+.s-entry { flex: 1; min-width: 0; }
+.s-horse { font-size: 14px; font-weight: 600; color: var(--black); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-rider { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-faults { width: 56px; text-align: right; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 13px; }
+.s-faults.clear { color: var(--green); font-weight: 600; }
+.s-faults.faulted { color: var(--text-body); }
+.s-faults.elim { color: var(--red); font-size: 10px; letter-spacing: .06em; }
+.s-time { width: 64px; text-align: right; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text-muted); }
+.s-gap { width: 72px; text-align: right; flex-shrink: 0; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.s-gap.behind { color: var(--amber); }
+.s-gap.fault-gap { color: var(--red); }
+.s-gap.leader { color: var(--green); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+
+/* JUMPOFF SECTION */
+.jo-section { margin-bottom: 24px; }
+
+/* STATES */
+.state-box { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 16px; }
+.spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-lbl { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); letter-spacing: .1em; text-transform: uppercase; }
+
+.not-jumper { text-align: center; padding: 60px 20px; }
+.not-jumper h2 { font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 8px; }
+.not-jumper p { color: var(--text-muted); font-size: 14px; }
+
+@media(max-width:600px){
+  .fault-grid { grid-template-columns: repeat(3,1fr); }
+  .metrics-grid { grid-template-columns: repeat(2,1fr); }
+}
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+.ryegate-header-credit { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: #666; margin-left: auto; white-space: nowrap; }
+.ryegate-header-credit a { color: #555; text-decoration: none; }
+.ryegate-header-credit a:hover { color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="back-btn" onclick="goBack()">‹ Results</button>
+  <div class="header-logo">WEST <span>SCORING.LIVE</span></div>
+  <span class="ryegate-header-credit">via <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a></span>
+  <button class="refresh-btn" onclick="loadStats(false)">↺ Refresh</button>
+</header>
+
+<div id="titleBar"></div>
+<div id="content" class="content">
+  <div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Statistics…</div></div>
+</div>
+
+<script>
+const WORKER = 'https://ryegate-proxy.bill-acb.workers.dev';
+const params   = new URLSearchParams(location.search);
+const resultUrl = params.get('url');
+const classNum  = params.get('num')  || '';
+const className = params.get('name') || 'Class';
+const showName  = params.get('show') || '';
+const crumb     = params.get('crumb') || '';
+const tskedUrl  = params.get('tsked') || '';
+
+let refreshTimer = null;
+let isLiveClass  = false;
+
+function goBack() {
+  const base = 'results.html?url=' + encodeURIComponent(resultUrl)
+    + '&num=' + encodeURIComponent(classNum)
+    + '&name=' + encodeURIComponent(className)
+    + '&show=' + encodeURIComponent(showName)
+    + '&crumb=' + encodeURIComponent(crumb)
+    + (tskedUrl ? '&tsked=' + encodeURIComponent(tskedUrl) : '');
+  location.href = base;
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── PARSER (subset of results.html jumper parser) ─────────────────────────
+function parseJumperResults(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // Detect live
+  let liveDot = false;
+  doc.querySelectorAll('td').forEach(td => {
+    const b = td.querySelector('b');
+    if (b && b.textContent.trim().toUpperCase() === 'ON COURSE') liveDot = true;
+  });
+
+  // Competed count
+  let competed = 0, total = 0;
+  doc.querySelectorAll('p').forEach(p => {
+    const m = p.textContent.match(/(\d+)\s+of\s+(\d+)\s+competed/i);
+    if (m) { competed = parseInt(m[1]); total = parseInt(m[2]); }
+  });
+
+  // Find results table
+  const tables = Array.from(doc.querySelectorAll('table'));
+  let rt = null;
+  for (let t = tables.length-1; t >= 0; t--) {
+    if (Array.from(tables[t].querySelectorAll('tr')).some(r => r.className === 'CBody')) { rt = tables[t]; break; }
+  }
+  if (!rt) return null;
+
+  const allRows  = Array.from(rt.querySelectorAll('tr'));
+  const hdr      = allRows[0];
+  const hdrText  = hdr ? hdr.textContent.toLowerCase() : '';
+  if (!hdrText.includes('flt') && !hdrText.includes('time') && !hdrText.includes('fault') && !hdrText.includes('ph1') && !hdrText.includes('ph2') && !hdrText.includes('r1')) return null;
+
+  // Detect column positions from header row
+  const hdrTds = Array.from(allRows[0].querySelectorAll('td'));
+  const hdrLabels = hdrTds.map(td => td.textContent.replace(/\u00a0/g,' ').trim().toUpperCase());
+  // R1 column: FR, PH1, R1 — JO/R2 column: JO, PH2, R2
+  const r1FaultsIdx = hdrLabels.findIndex(l => /^(FR|PH1|R1)$/.test(l));
+  const r1TimeIdx   = r1FaultsIdx >= 0 ? r1FaultsIdx + 1 : -1;
+  const joFaultsIdx = hdrLabels.findIndex(l => /^(JO|PH2|R2)$/.test(l));
+  const joTimeIdx   = joFaultsIdx >= 0 ? joFaultsIdx + 1 : -1;
+  const isTwoPhase  = hdrLabels.some(l => /^PH1$/.test(l)) && hdrLabels.some(l => /^PH2$/.test(l));
+  // Fallback to fixed positions if header not detected
+  const c_r1f = r1FaultsIdx >= 0 ? r1FaultsIdx : 4;
+  const c_r1t = r1TimeIdx   >= 0 ? r1TimeIdx   : 5;
+  const c_jof = joFaultsIdx >= 0 ? joFaultsIdx : 6;
+  const c_jot = joTimeIdx   >= 0 ? joTimeIdx   : 7;
+
+  const dataRows = allRows.slice(1);
+  const entries  = [];
+
+  dataRows.forEach(row => {
+    if (row.className !== 'CBody') return;
+    const tds = Array.from(row.querySelectorAll('td'));
+    if (tds.length < 4) return;
+    const place    = tds[0] ? tds[0].textContent.replace(/\u00a0/g,' ').trim().split(' ')[0] : '';
+    const r1FaultsCheck = tds[c_r1f] ? tds[c_r1f].textContent.trim() : '';
+    // Include RT/EL/WD entries even if place is blank — they count as starters
+    const isNonFinisher = ['E','EL','WD','RT','RET'].includes(r1FaultsCheck.toUpperCase());
+    if (!place && !isNonFinisher) return;
+    const num      = tds[1] ? tds[1].textContent.trim() : '';
+    // Horse and rider — strip CBody2 spans (breeding/owner) before reading text
+    function cellName(td) {
+      if (!td) return '';
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll('.CBody2, i').forEach(el => el.remove());
+      return clone.textContent.replace(/\s+/g,' ').trim();
+    }
+    const horse = cellName(tds[2]);
+    const rider = cellName(tds[3]);
+    // TA values from header
+    const ta1 = hdrTds[c_r1t] ? parseFloat((hdrTds[c_r1t].textContent.match(/TA:?(\d+)/)||[])[1]||0) : 0;
+    const ta2 = hdrTds[c_jot] ? parseFloat((hdrTds[c_jot].textContent.match(/TA:?(\d+)/)||[])[1]||0) : 0;
+    const r1Faults = tds[c_r1f] ? tds[c_r1f].textContent.trim() : '';
+    const r1Time   = tds[c_r1t] ? tds[c_r1t].textContent.trim() : '';
+    const joFaults = tds[c_jof] ? tds[c_jof].textContent.trim() : '';
+    const joTime   = tds[c_jot] ? tds[c_jot].textContent.trim() : '';
+    entries.push({ place, num, horse, rider, r1Faults, r1Time, joFaults, joTime, ta1, ta2 });
+  });
+
+  const hasJO = entries.some(e => e.joFaults || e.joTime);
+  return { entries, hasJO, isTwoPhase, isLive: liveDot, competed, total };
+}
+
+// ── STATS COMPUTATION ─────────────────────────────────────────────────────
+
+// Country flags for stats page
+const STAT_FLAGS={AFG:'🇦🇫',ALB:'🇦🇱',ALG:'🇩🇿',AND:'🇦🇩',ANG:'🇦🇴',ANT:'🇦🇬',ARG:'🇦🇷',ARM:'🇦🇲',ARU:'🇦🇼',AUS:'🇦🇺',AUT:'🇦🇹',AZE:'🇦🇿',BAH:'🇧🇸',BAN:'🇧🇩',BAR:'🇧🇧',BDI:'🇧🇮',BEL:'🇧🇪',BEN:'🇧🇯',BER:'🇧🇲',BHU:'🇧🇹',BIH:'🇧🇦',BIZ:'🇧🇿',BOL:'🇧🇴',BOT:'🇧🇼',BRA:'🇧🇷',BRN:'🇧🇭',BRU:'🇧🇳',BUL:'🇧🇬',BUR:'🇧🇫',CAF:'🇨🇫',CAM:'🇰🇭',CAN:'🇨🇦',CAY:'🇰🇾',CGO:'🇨🇬',CHA:'🇹🇩',CHI:'🇨🇱',CHN:'🇨🇳',CIV:'🇨🇮',CMR:'🇨🇲',COD:'🇨🇩',COK:'🇨🇰',COL:'🇨🇴',COM:'🇰🇲',CPV:'🇨🇻',CRC:'🇨🇷',CRO:'🇭🇷',CUB:'🇨🇺',CYP:'🇨🇾',CZE:'🇨🇿',DEN:'🇩🇰',DJI:'🇩🇯',DOM:'🇩🇴',ECU:'🇪🇨',EGY:'🇪🇬',ERI:'🇪🇷',ESA:'🇸🇻',ESP:'🇪🇸',EST:'🇪🇪',ETH:'🇪🇹',FIJ:'🇫🇯',FIN:'🇫🇮',FRA:'🇫🇷',FSM:'🇫🇲',GAB:'🇬🇦',GAM:'🇬🇲',GBR:'🇬🇧',GBS:'🇬🇼',GEO:'🇬🇪',GEQ:'🇬🇶',GER:'🇩🇪',GHA:'🇬🇭',GRE:'🇬🇷',GRN:'🇬🇩',GUA:'🇬🇹',GUI:'🇬🇳',GUM:'🇬🇺',GUY:'🇬🇾',HAI:'🇭🇹',HKG:'🇭🇰',HON:'🇭🇳',HUN:'🇭🇺',INA:'🇮🇩',IND:'🇮🇳',IRI:'🇮🇷',IRL:'🇮🇪',IRQ:'🇮🇶',ISL:'🇮🇸',ISR:'🇮🇱',ISV:'🇻🇮',ITA:'🇮🇹',IVB:'🇻🇬',JAM:'🇯🇲',JOR:'🇯🇴',JPN:'🇯🇵',KAZ:'🇰🇿',KEN:'🇰🇪',KGZ:'🇰🇬',KOR:'🇰🇷',KSA:'🇸🇦',KUW:'🇰🇼',LAO:'🇱🇦',LAT:'🇱🇻',LBA:'🇱🇾',LBN:'🇱🇧',LBR:'🇱🇷',LCA:'🇱🇨',LES:'🇱🇸',LIE:'🇱🇮',LTU:'🇱🇹',LUX:'🇱🇺',MAD:'🇲🇬',MAR:'🇲🇦',MAS:'🇲🇾',MAW:'🇲🇼',MDA:'🇲🇩',MDV:'🇲🇻',MEX:'🇲🇽',MGL:'🇲🇳',MKD:'🇲🇰',MLI:'🇲🇱',MLT:'🇲🇹',MON:'🇲🇨',MOZ:'🇲🇿',MRI:'🇲🇺',MTN:'🇲🇷',MYA:'🇲🇲',NAM:'🇳🇦',NCA:'🇳🇮',NED:'🇳🇱',NEP:'🇳🇵',NIG:'🇳🇪',NOR:'🇳🇴',NZL:'🇳🇿',OMA:'🇴🇲',PAK:'🇵🇰',PAN:'🇵🇦',PAR:'🇵🇾',PER:'🇵🇪',PHI:'🇵🇭',PLE:'🇵🇸',PLW:'🇵🇼',PNG:'🇵🇬',POL:'🇵🇱',POR:'🇵🇹',PRK:'🇰🇵',PUR:'🇵🇷',QAT:'🇶🇦',ROU:'🇷🇴',RSA:'🇿🇦',RUS:'🇷🇺',RWA:'🇷🇼',SAM:'🇼🇸',SEN:'🇸🇳',SEY:'🇸🇨',SIN:'🇸🇬',SKN:'🇰🇳',SLE:'🇸🇱',SLO:'🇸🇮',SMR:'🇸🇲',SOL:'🇸🇧',SOM:'🇸🇴',SRB:'🇷🇸',SRI:'🇱🇰',SSD:'🇸🇸',STP:'🇸🇹',SUD:'🇸🇩',SUI:'🇨🇭',SUR:'🇸🇷',SVK:'🇸🇰',SWE:'🇸🇪',SWZ:'🇸🇿',SYR:'🇸🇾',TAN:'🇹🇿',TGA:'🇹🇴',THA:'🇹🇭',TJK:'🇹🇯',TKM:'🇹🇲',TLS:'🇹🇱',TOG:'🇹🇬',TPE:'🇹🇼',TTO:'🇹🇹',TUN:'🇹🇳',TUR:'🇹🇷',UAE:'🇦🇪',UGA:'🇺🇬',UKR:'🇺🇦',URU:'🇺🇾',USA:'🇺🇸',UZB:'🇺🇿',VAN:'🇻🇺',VEN:'🇻🇪',VIE:'🇻🇳',VIN:'🇻🇨',YEM:'🇾🇪',ZAM:'🇿🇲',ZIM:'🇿🇼'};
+
+function computeStats(parsed) {
+  const { entries, hasJO, isTwoPhase } = parsed;
+  const ta1Val = entries[0] ? (entries[0].ta1 || 0) : 0;
+  const ta2Val = entries[0] ? (entries[0].ta2 || 0) : 0;
+
+  // Separate valid R1 entries from elim/WD
+  const isElim = e => !e.r1Faults || e.r1Faults === 'E' || e.r1Faults === 'WD' || e.r1Faults === 'RET' || e.r1Faults === 'RT' || isNaN(parseFloat(e.r1Faults));
+  const validEntries = entries.filter(e => !isElim(e));
+  const elimCount = entries.filter(e => isElim(e)).length;
+
+  // Smart fault buckets — actual unique fault values in data
+  // For two-phase, use total faults as primary bucket
+  const getBucketFaults = e => isTwoPhase
+    ? (parseFloat(e.r1Faults)||0) + (parseFloat(e.joFaults)||0)
+    : parseFloat(e.r1Faults);
+
+  const faultValSet = new Set(validEntries.map(e => getBucketFaults(e)).filter(f => !isNaN(f)));
+  const faultVals = [...faultValSet].sort((a,b) => a-b);
+
+  // Group faults: 0-8 individual, 9-11 grouped, 12+ grouped
+  const smartBuckets = [];
+  const indivVals = faultVals.filter(f => f <= 8);
+  indivVals.forEach(f => {
+    const isClear = f === 0;
+    smartBuckets.push({
+      label: isClear ? '0' : String(f),
+      value: f,
+      count: validEntries.filter(e => getBucketFaults(e) === f).length
+    });
+  });
+  const mid = validEntries.filter(e => { const f = getBucketFaults(e); return f >= 9 && f <= 11; });
+  if (mid.length) smartBuckets.push({ label: '9-11', value: '9-11', count: mid.length });
+  const high = validEntries.filter(e => getBucketFaults(e) >= 12);
+  if (high.length) smartBuckets.push({ label: '12+', value: '12+', count: high.length });
+  if (elimCount > 0) smartBuckets.push({ label: 'Elim / WD / RT', value: null, count: elimCount });
+
+  // Phase 1 and Phase 2 individual breakdowns (two-phase only)
+  const ph1ValSet = isTwoPhase ? new Set(validEntries.map(e => parseFloat(e.r1Faults)).filter(f => !isNaN(f))) : new Set();
+  const ph1Buckets = [...ph1ValSet].sort((a,b)=>a-b).map(f => ({
+    label: String(f), value: f,
+    count: validEntries.filter(e => parseFloat(e.r1Faults) === f).length
+  }));
+
+  const ph2ValSet = isTwoPhase ? new Set(validEntries.filter(e => e.joFaults !== '').map(e => parseFloat(e.joFaults)).filter(f => !isNaN(f))) : new Set();
+  const ph2Buckets = [...ph2ValSet].sort((a,b)=>a-b).map(f => ({
+    label: String(f), value: f,
+    count: validEntries.filter(e => parseFloat(e.joFaults) === f.toString() || parseFloat(e.joFaults) === f).length
+  }));
+
+  // Core R1 metrics
+  const validFaults = validEntries.map(e => parseFloat(e.r1Faults));
+  const avgFaults = validFaults.length ? (validFaults.reduce((a,b)=>a+b,0) / validFaults.length) : 0;
+  const clearEntries = validEntries.filter(e => isTwoPhase
+    ? (parseFloat(e.r1Faults)||0) + (parseFloat(e.joFaults)||0) === 0
+    : parseFloat(e.r1Faults) === 0);
+  const clearTimes = clearEntries.map(e => parseFloat(e.r1Time)).filter(t => !isNaN(t));
+  const fastestClear = clearTimes.length ? Math.min(...clearTimes) : null;
+
+  // Fastest 4-fault entry
+  const f4Entries = validEntries.filter(e => parseFloat(e.r1Faults) === 4);
+  const fastest4 = f4Entries.length ? f4Entries.reduce((best, e) => {
+    const t = parseFloat(e.r1Time);
+    return (!best || t < parseFloat(best.r1Time)) ? e : best;
+  }, null) : null;
+
+  // JO fault buckets
+  const joValidEntries = entries.filter(e => e.joFaults !== '' && !isNaN(parseFloat(e.joFaults)));
+  const joFaultValSet = new Set(joValidEntries.map(e => parseFloat(e.joFaults)));
+  const joFaultVals = [...joFaultValSet].sort((a,b) => a-b);
+  const joElimCount = entries.filter(e => hasJO && e.joFaults && ['E','EL','WD','RET','RT'].includes(e.joFaults.toUpperCase())).length;
+  const joSmartBuckets = [];
+  joFaultVals.filter(f => f <= 8).forEach(f => {
+    joSmartBuckets.push({ label: String(f), value: f, count: joValidEntries.filter(e => parseFloat(e.joFaults) === f).length });
+  });
+  const joMid = joValidEntries.filter(e => { const f = parseFloat(e.joFaults); return f >= 9 && f <= 11; });
+  if (joMid.length) joSmartBuckets.push({ label: '9-11', value: '9-11', count: joMid.length });
+  const joHigh = joValidEntries.filter(e => parseFloat(e.joFaults) >= 12);
+  if (joHigh.length) joSmartBuckets.push({ label: '12+', value: '12+', count: joHigh.length });
+  if (joElimCount > 0) joSmartBuckets.push({ label: 'Elim / WD / RT', value: null, count: joElimCount });
+
+  // TA distance — only relevant for R1+JO classes (FR time affects placement in FR-only)
+  const withTADist = validEntries.map(e => {
+    const t = parseFloat(e.r1Time);
+    const dist = (hasJO && !isNaN(t) && ta1Val) ? parseFloat((t - ta1Val).toFixed(3)) : null;
+    return { ...e, taDistance: dist };
+  });
+
+  // Avg distance from TA — only for R1+JO classes
+  const taDists = hasJO ? withTADist.map(e => e.taDistance).filter(d => d !== null) : [];
+  const avgTADist = taDists.length ? (taDists.reduce((a,b)=>a+b,0) / taDists.length).toFixed(3) : null;
+
+  const clearTADists = hasJO ? withTADist.filter(e => parseFloat(e.r1Faults) === 0).map(e => e.taDistance).filter(d => d !== null) : [];
+  const avgTADistClears = clearTADists.length ? (clearTADists.reduce((a,b)=>a+b,0) / clearTADists.length).toFixed(3) : null;
+
+  const timeFaultCount = (hasJO && ta1Val) ? withTADist.filter(e => e.taDistance !== null && e.taDistance > 0).length : 0;
+  const timeFaultPct = validEntries.length ? Math.round((timeFaultCount / validEntries.length) * 100) : 0;
+
+  // R1 sort: faults then time
+  const r1Sorted = [...withTADist].sort((a, b) => {
+    const af = parseFloat(a.r1Faults), bf = parseFloat(b.r1Faults);
+    if (af !== bf) return af - bf;
+    return parseFloat(a.r1Time) - parseFloat(b.r1Time);
+  });
+
+  // R1 gap to leader (FR-only classes)
+  // For R1+JO classes, determine the minimum faults (JO qualifying threshold)
+  const minFaults = validEntries.length ? Math.min(...validEntries.map(e => parseFloat(e.r1Faults)||0)) : 0;
+
+  const r1Leader = r1Sorted[0] || null;
+  const r1WithGap = r1Sorted.map((e, i) => {
+    let gap = '', gapClass = '';
+    if (i === 0) { gap = 'Leader'; gapClass = 'leader'; }
+    else if (r1Leader) {
+      const lf = parseFloat(r1Leader.r1Faults), ef = parseFloat(e.r1Faults);
+      const lt = parseFloat(r1Leader.r1Time),   et = parseFloat(e.r1Time);
+      if (ef > lf) { gap = '+' + (ef-lf) + ' flt'; gapClass = 'fault-gap'; }
+      else { gap = '+' + (et-lt).toFixed(3) + 's'; gapClass = 'behind'; }
+    }
+    // For R1+JO classes: mark qualifying horses with joPlace = 'JO'
+    const isJOQualifier = hasJO && (parseFloat(e.r1Faults)||0) === minFaults;
+    return { ...e, gap, gapClass, joPlace: isJOQualifier ? 'JO' : null };
+  });
+
+  // JO standings — only entries with actual JO data
+  const joEntries = hasJO ? entries.filter(e => e.joFaults !== '' && ((!isNaN(parseFloat(e.joFaults))) || ['E','EL','WD','RT','RET'].includes(e.joFaults.toUpperCase()))) : [];
+  const isJOElim = e => ['E','EL','WD','RT','RET'].includes((e.joFaults||'').toUpperCase());
+  const joSorted = [...joEntries].sort((a,b) => {
+    if (isTwoPhase) {
+      const ap = parseInt(a.place)||999, bp = parseInt(b.place)||999;
+      return ap - bp;
+    }
+    // Push WD/EL to bottom
+    const ae = isJOElim(a), be = isJOElim(b);
+    if (ae && !be) return 1;
+    if (!ae && be) return -1;
+    if (ae && be) return 0;
+    // R1+JO: sort by JO faults then JO time
+    const af = parseFloat(a.joFaults)||0, bf = parseFloat(b.joFaults)||0;
+    if (af !== bf) return af - bf;
+    return (parseFloat(a.joTime)||0) - (parseFloat(b.joTime)||0);
+  });
+  const joLeader = joSorted[0] || null;
+  const joWithGap = joSorted.map((e, i) => {
+    let gap = '', gapClass = '';
+    if (isJOElim(e)) { gap = e.joFaults.toUpperCase(); gapClass = 'elim'; }
+    else if (i === 0) { gap = 'Leader'; gapClass = 'leader'; }
+    else if (joLeader) {
+      if (isTwoPhase) {
+        const lt = parseFloat(joLeader.r1Faults)||0 + parseFloat(joLeader.joFaults)||0;
+        const et = parseFloat(e.r1Faults)||0 + parseFloat(e.joFaults)||0;
+        const lTime = parseFloat(joLeader.joTime)||0, eTime = parseFloat(e.joTime)||0;
+        if (et > lt) { gap = '+' + (et-lt) + ' flt'; gapClass = 'fault-gap'; }
+        else { gap = '+' + (eTime-lTime).toFixed(3) + 's'; gapClass = 'behind'; }
+      } else {
+        const lf = parseFloat(joLeader.joFaults)||0, ef = parseFloat(e.joFaults)||0;
+        const lt = parseFloat(joLeader.joTime)||0,   et = parseFloat(e.joTime)||0;
+        if (ef > lf) { gap = '+' + (ef-lf) + ' flt'; gapClass = 'fault-gap'; }
+        else { gap = '+' + (et-lt).toFixed(3) + 's'; gapClass = 'behind'; }
+      }
+    }
+    return { ...e, gap, gapClass };
+  });
+
+  // Unique riders
+  const riderMap = {};
+  entries.forEach(e => {
+    if (!e.rider) return;
+    // Strip country code for grouping
+    const riderKey = e.rider.replace(/\s*\([A-Z]{2,3}\)\s*$/, '').trim().toUpperCase();
+    if (!riderKey) return;
+    if (!riderMap[riderKey]) riderMap[riderKey] = { name: e.rider.replace(/\s*\([A-Z]{2,3}\)\s*$/, '').trim(), horses: [] };
+    riderMap[riderKey].horses.push(e.horse);
+  });
+  const uniqueRiderCount = Object.keys(riderMap).length;
+  const multiRiders = Object.values(riderMap).filter(r => r.horses.length > 1)
+    .sort((a,b) => b.horses.length - a.horses.length);
+
+  // Unique riders in JO
+  const joRiderMap = {};
+  joEntries.forEach(e => {
+    if (!e.rider || isJOElim(e)) return;
+    const riderKey = e.rider.replace(/\s*\([A-Z]{2,3}\)\s*$/, '').trim().toUpperCase();
+    if (!riderKey) return;
+    if (!joRiderMap[riderKey]) joRiderMap[riderKey] = { name: e.rider.replace(/\s*\([A-Z]{2,3}\)\s*$/, '').trim(), horses: [] };
+    joRiderMap[riderKey].horses.push(e.horse);
+  });
+  const uniqueJORiderCount = Object.keys(joRiderMap).length;
+  const multiJORiders = Object.values(joRiderMap).filter(r => r.horses.length > 1)
+    .sort((a,b) => b.horses.length - a.horses.length);
+
+  // Country data — only if country codes present in rider names
+  const countryMap = {};
+  entries.forEach(e => {
+    const m = e.rider ? e.rider.match(/\(([A-Z]{2,3})\)\s*$/) : null;
+    if (m) countryMap[m[1]] = (countryMap[m[1]] || 0) + 1;
+  });
+  const countryKeys = Object.keys(countryMap);
+  const countries = countryKeys.length ? countryKeys
+    .sort((a,b) => countryMap[b] - countryMap[a])
+    .map(c => ({ code: c, count: countryMap[c] })) : null;
+
+  // Countries in JO
+  const joCountryMap = {};
+  joEntries.forEach(e => {
+    if (isJOElim(e)) return;
+    const m = e.rider ? e.rider.match(/\(([A-Z]{2,3})\)\s*$/) : null;
+    if (m) joCountryMap[m[1]] = (joCountryMap[m[1]] || 0) + 1;
+  });
+  const joCountryKeys = Object.keys(joCountryMap);
+  const joCountries = joCountryKeys.length ? joCountryKeys
+    .sort((a,b) => joCountryMap[b] - joCountryMap[a])
+    .map(c => ({ code: c, count: joCountryMap[c] })) : null;
+
+  // Course difficulty gauge
+  const targetClears = Math.max(8, Math.floor(entries.length / 5));
+  const clearRatio = clearEntries.length / Math.max(targetClears, 1);
+  const timePressure = timeFaultCount / Math.max(validEntries.length, 1);
+  const rawDiff = Math.max(0, Math.min(10, (1 - clearRatio) * 8 + timePressure * 2));
+  const diffScore = Math.round(rawDiff * 10) / 10;
+  const diffLabel = diffScore <= 2 ? 'Accessible' : diffScore <= 4 ? 'Moderate' : diffScore <= 6 ? 'Technical' : diffScore <= 8 ? 'Challenging' : 'Severe';
+  const diffColor = diffScore <= 3 ? '#2e7d32' : diffScore <= 6 ? '#b45309' : '#b82025';
+
+  return {
+    smartBuckets, joSmartBuckets, ph1Buckets, ph2Buckets, avgFaults, fastestClear, fastest4,
+    avgTADist, avgTADistClears, timeFaultPct, timeFaultCount,
+    r1WithGap, joWithGap, hasJO, isTwoPhase,
+    clearCount: clearEntries.length, elimCount,
+    finishers: validEntries.length, countries,
+    diffScore, diffLabel, diffColor, targetClears,
+    uniqueRiderCount, multiRiders, uniqueJORiderCount, multiJORiders,
+    joCountries,
+    ta1: ta1Val, ta2: ta2Val, total: entries.length, validCount: validEntries.length
+  };
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────
+function faultClass(r1Faults) {
+  if (!r1Faults || ['E','EL','WD','RET','RT'].includes(r1Faults.toUpperCase())) return 'elim';
+  return parseFloat(r1Faults) === 0 ? 'clear' : 'faulted';
+}
+
+function faultDisplay(r1Faults) {
+  if (!r1Faults) return '—';
+  const fu = r1Faults.toUpperCase();
+  if (fu === 'E' || fu === 'EL') return 'ELIM';
+  if (fu === 'WD') return 'WD';
+  if (fu === 'RET' || fu === 'RT') return 'RT';
+  return r1Faults;
+}
+
+function renderStats(parsed) {
+  const s = computeStats(parsed);
+  const total = parsed.entries.length;
+  const sPct = n => s.validCount ? Math.round((n/s.validCount)*100) : 0;
+
+  // Title bar
+  const crumbStr = [showName, crumb].filter(Boolean).join(' \u203a ');
+  document.getElementById('titleBar').innerHTML = `
+    <div class="title-bar">
+      ${classNum ? `<div class="title-classnum">Class ${esc(classNum)} \u2014 Statistics</div>` : ''}
+      <div class="title-main">${esc(className)}</div>
+      <div class="title-meta">
+        ${crumbStr ? `<span class="title-show">${esc(crumbStr)}</span>` : ''}
+        ${parsed.total > 0 ? `
+          <div class="progress-wrap">
+            ${parsed.isLive ? '<span class="live-dot"></span>' : ''}
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${parsed.total ? Math.round((parsed.competed/parsed.total)*100) : 100}%"></div></div>
+            <span class="progress-txt">${parsed.competed || total} of ${parsed.total || total} competed</span>
+          </div>` : ''}
+      </div>
+    </div>`;
+
+  let html = '';
+
+  // COURSE DIFFICULTY GAUGE
+  if (difficultyGaugeEnabled && s.validCount >= 4) {
+    const score = s.diffScore;
+    const pct = score / 10;
+    const angle = 180 - (pct * 180);
+    const rad = angle * Math.PI / 180;
+    const cx = 70, cy = 65, r = 52;
+    const nx = cx + r * Math.cos(rad);
+    const ny = cy - r * Math.sin(rad);
+    const largeArc = pct > 0.5 ? 1 : 0;
+    const gaugeHtml = '<svg width="140" height="80" viewBox="0 0 140 80" xmlns="http://www.w3.org/2000/svg">'
+      + '<path d="M18 65 A52 52 0 0 1 122 65" fill="none" stroke="#e2e2e2" stroke-width="8" stroke-linecap="round"/>'
+      + '<path d="M18 65 A52 52 0 ' + largeArc + ' 1 ' + nx.toFixed(1) + ' ' + ny.toFixed(1) + '" fill="none" stroke="' + s.diffColor + '" stroke-width="8" stroke-linecap="round"/>'
+      + '<line x1="70" y1="65" x2="' + nx.toFixed(1) + '" y2="' + ny.toFixed(1) + '" stroke="var(--black)" stroke-width="2.5" stroke-linecap="round"/>'
+      + '<circle cx="70" cy="65" r="4" fill="var(--black)"/>'
+      + '<text x="14" y="78" font-family="DM Mono,monospace" font-size="8" fill="#aaa" text-anchor="middle">Easy</text>'
+      + '<text x="126" y="78" font-family="DM Mono,monospace" font-size="8" fill="#aaa" text-anchor="middle">Hard</text>'
+      + '</svg>';
+    html += '<div class="gauge-wrap">'
+      + '<div class="gauge-svg-wrap">' + gaugeHtml + '</div>'
+      + '<div class="gauge-info">'
+      + '<div class="gauge-title">Course Difficulty</div>'
+      + '<div class="gauge-score" style="color:' + s.diffColor + '">' + score.toFixed(1) + '<span style="font-size:18px;color:var(--text-muted);font-family:DM Mono,monospace;margin-left:6px;">/10</span></div>'
+      + '<div class="gauge-label" style="color:' + s.diffColor + '">' + esc(s.diffLabel) + '</div>'
+      + '<div class="gauge-detail">'
+      + '<span>Target clears: ' + s.targetClears + ' · Actual: ' + s.clearCount + '</span>'
+      + '<span>Time fault rate: ' + (s.timeFaultPct || 0) + '%</span>'
+      + '</div>'
+      + '</div></div>';
+  }
+
+  // FAULT DISTRIBUTION — smart buckets
+  html += `<div class="section-label">Field Breakdown \u2014 ${s.isTwoPhase ? 'Total Faults' : 'Round 1'}</div>`;
+  html += '<div class="fault-grid">';
+  s.smartBuckets.forEach(b => {
+    const isElim = b.value === null;
+    const isClear = b.value === 0;
+    const cls = isElim ? 'elim' : isClear ? 'clear' : 'faulted';
+    const lbl = isElim ? 'Elim / WD / RT' : isClear ? 'Clear' : b.label + ' Faults';
+    html += `<div class="fault-card">
+      <div class="fault-card-num ${cls}">${b.count}</div>
+      <div class="fault-card-label">${esc(lbl)}</div>
+      <div class="fault-card-pct">${sPct(b.count)}% of field</div>
+    </div>`;
+  });
+  html += '</div>';
+
+  // VISUAL BAR
+  html += '<div class="difficulty-bar-wrap">';
+  s.smartBuckets.forEach(b => {
+    const isElim = b.value === null;
+    const isClear = b.value === 0;
+    const barCls = isElim ? 'elim' : isClear ? 'clear' : b.value <= 4 ? 'f1-3' : b.value <= 8 ? 'f4' : 'f8';
+    const lbl = isElim ? 'Elim / WD / RT' : isClear ? 'Clear' : b.label + ' Faults';
+    html += `<div class="diff-row">
+      <span class="diff-label">${esc(lbl)}</span>
+      <div class="diff-bar-bg"><div class="diff-bar-fill ${barCls}" style="width:${sPct(b.count)}%"></div></div>
+      <span class="diff-count">${b.count}</span>
+      <span class="diff-pct">${sPct(b.count)}%</span>
+    </div>`;
+  });
+  html += '</div>';
+
+  // COURSE METRICS
+  html += `<div class="section-label">Course Metrics</div><div class="metrics-grid">
+    <div class="metric-card"><div class="metric-val">${s.finishers} / ${total}</div><div class="metric-label">Finishers / Starters</div></div>
+    ${s.ta1 ? `<div class="metric-card"><div class="metric-val">${s.ta1}s</div><div class="metric-label">TA — ${s.isTwoPhase ? 'Phase 1' : 'Round 1'}</div></div>` : ''}
+    ${(s.hasJO || s.isTwoPhase) && s.ta2 ? `<div class="metric-card"><div class="metric-val">${s.ta2}s</div><div class="metric-label">TA — ${s.isTwoPhase ? 'Phase 2' : 'Jump-Off'}</div></div>` : ''}
+    <div class="metric-card"><div class="metric-val">${s.clearCount > 0 ? sPct(s.clearCount) + '%' : '0%'}</div><div class="metric-label">Clear Rate</div></div>
+    ${s.countries ? `<div class="metric-card metric-card-wide">
+      <div class="metric-val">${s.countries.length}</div>
+      <div class="metric-label">Countries Represented${s.hasJO && s.joCountries ? ' — Full Field' : ''}</div>
+      <div class="metric-countries-top">${s.countries.slice(0,3).map(c => {
+        const flag = STAT_FLAGS[c.code] || '';
+        return `<span class="mc-country">${flag} ${esc(c.code)} <span class="mc-count">(${c.count})</span></span>`;
+      }).join('')}</div>
+      ${s.countries.length > 3 ? `<div class="metric-countries-rest">${s.countries.slice(3).map(c => (STAT_FLAGS[c.code]||'') + ' ' + esc(c.code) + ' (' + c.count + ')').join(' · ')}</div>` : ''}
+      ${s.hasJO && s.joCountries ? `<div class="metric-countries-jo-label">Jump-Off</div>
+      <div class="metric-countries-top">${s.joCountries.slice(0,3).map(c => {
+        const flag = STAT_FLAGS[c.code] || '';
+        return `<span class="mc-country">${flag} ${esc(c.code)} <span class="mc-count">(${c.count})</span></span>`;
+      }).join('')}</div>
+      ${s.joCountries.length > 3 ? `<div class="metric-countries-rest">${s.joCountries.slice(3).map(c => (STAT_FLAGS[c.code]||'') + ' ' + esc(c.code) + ' (' + c.count + ')').join(' · ')}</div>` : ''}` : ''}
+    </div>` : ''}
+    <div class="metric-card"><div class="metric-val">${s.avgFaults.toFixed(2)}</div><div class="metric-label">Avg Faults</div></div>
+    <div class="metric-card">
+      <div class="metric-val">${s.fastest4 ? s.fastest4.r1Time + 's' : '\u2014'}</div>
+      <div class="metric-label">Fastest 4-Fault</div>
+      ${s.fastest4 ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:4px;">${esc(s.fastest4.horse)} / ${esc(s.fastest4.rider)}</div>` : ''}
+    </div>
+    ${s.hasJO && s.ta1 ? `
+    <div class="metric-card"><div class="metric-val">${s.avgTADist !== null ? (parseFloat(s.avgTADist) >= 0 ? '+' : '') + s.avgTADist + 's' : '\u2014'}</div><div class="metric-label">Avg vs TA (All)</div></div>
+    <div class="metric-card"><div class="metric-val">${s.avgTADistClears !== null ? (parseFloat(s.avgTADistClears) >= 0 ? '+' : '') + s.avgTADistClears + 's' : '\u2014'}</div><div class="metric-label">Avg vs TA (Clears)</div></div>
+    <div class="metric-card"><div class="metric-val">${s.timeFaultPct}%</div><div class="metric-label">Time Fault Rate</div></div>
+    ` : ''}
+  </div>`;
+
+  // JO STANDINGS
+  // UNIQUE RIDERS
+  if (s.uniqueRiderCount > 0) {
+    html += `<div class="section-label">Unique Riders</div>`;
+    html += `<div class="metrics-grid">
+      <div class="metric-card"><div class="metric-val">${s.uniqueRiderCount}</div><div class="metric-label">Unique Riders</div></div>
+      ${s.hasJO && s.uniqueJORiderCount ? `<div class="metric-card"><div class="metric-val">${s.uniqueJORiderCount}</div><div class="metric-label">In Jump-Off</div></div>` : ''}
+    </div>`;
+    if (s.multiRiders.length) {
+      html += `<div class="multi-riders-wrap"><div class="multi-riders-wrap-header">Multiple Entries</div>`;
+      s.multiRiders.forEach(r => {
+        html += `<div class="multi-rider-row">
+          <span class="multi-rider-name">${esc(r.name)}</span>
+          <span class="multi-rider-horses">${r.horses.map(h => esc(h)).join(' · ')}</span>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    if (s.hasJO && s.multiJORiders.length) {
+      html += `<div class="multi-riders-wrap"><div class="multi-riders-wrap-header">Multiple Entries in Jump-Off</div>`;
+      s.multiJORiders.forEach(r => {
+        html += `<div class="multi-rider-row">
+          <span class="multi-rider-name">${esc(r.name)}</span>
+          <span class="multi-rider-horses">${r.horses.map(h => esc(h)).join(' · ')}</span>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+  }
+
+  if (s.hasJO && s.joWithGap.length) {
+    html += `<div class="section-label">${s.isTwoPhase ? 'Phase 2' : 'Jump-Off'} \u2014 Standings &amp; Gap to Leader</div>
+    <div class="standings-wrap">
+      <div class="standings-hdr"><div class="standings-hdr-inner">
+        <span class="col-place">Plc</span><span class="col-entry">Horse / Rider</span>
+        <span class="col-faults">Faults</span><span class="col-time">Time</span><span class="col-gap">Gap</span>
+      </div></div>`;
+    s.joWithGap.forEach(e => {
+      html += `<div class="standing-row">
+        <span class="s-place">${esc(e.place)}</span>
+        <div class="s-entry"><div class="s-horse">${esc(e.horse)}</div><div class="s-rider">${esc(e.rider)}</div></div>
+        <span class="s-faults ${faultClass(e.joFaults)}">${faultDisplay(e.joFaults)}</span>
+        <span class="s-time">${esc(e.joTime)}</span>
+        <span class="s-gap ${e.gapClass}">${esc(e.gap)}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // TWO-PHASE: individual phase breakdowns
+  if (s.isTwoPhase) {
+    // Phase 2 breakdown
+    if (s.ph2Buckets && s.ph2Buckets.length) {
+      const ph2Total = s.ph2Buckets.reduce((a,b)=>a+b.count,0);
+      const ph2Pct = n => ph2Total ? Math.round((n/ph2Total)*100) : 0;
+      html += '<div class="section-label">Phase 2 — Fault Breakdown</div><div class="fault-grid">';
+      s.ph2Buckets.forEach(b => {
+        const isClear = b.value === 0;
+        const cls = isClear ? 'clear' : 'faulted';
+        html += `<div class="fault-card"><div class="fault-card-num ${cls}">${b.count}</div><div class="fault-card-label">${esc(b.label + (isClear ? ' Clear' : ' Faults'))}</div><div class="fault-card-pct">${ph2Pct(b.count)}% of PH2</div></div>`;
+      });
+      html += '</div>';
+    }
+    // Phase 1 breakdown
+    if (s.ph1Buckets && s.ph1Buckets.length) {
+      const ph1Total = s.ph1Buckets.reduce((a,b)=>a+b.count,0);
+      const ph1Pct = n => ph1Total ? Math.round((n/ph1Total)*100) : 0;
+      html += '<div class="section-label">Phase 1 — Fault Breakdown</div><div class="fault-grid">';
+      s.ph1Buckets.forEach(b => {
+        const isClear = b.value === 0;
+        const cls = isClear ? 'clear' : 'faulted';
+        html += `<div class="fault-card"><div class="fault-card-num ${cls}">${b.count}</div><div class="fault-card-label">${esc(b.label + (isClear ? ' Clear' : ' Faults'))}</div><div class="fault-card-pct">${ph1Pct(b.count)}% of PH1</div></div>`;
+      });
+      html += '</div>';
+    }
+  }
+
+  // JO FAULT BREAKDOWN (R1+JO classes only)
+  if (s.hasJO && !s.isTwoPhase && s.joSmartBuckets.length) {
+    const joTotal = s.joSmartBuckets.reduce((a,b) => a+b.count, 0);
+    const joPct = n => joTotal ? Math.round((n/joTotal)*100) : 0;
+    html += `<div class="section-label">${s.isTwoPhase ? 'Phase 2' : 'Jump-Off'} \u2014 Field Breakdown</div>`;
+    html += '<div class="fault-grid">';
+    s.joSmartBuckets.forEach(b => {
+      const isElim = b.value === null;
+      const isClear = b.value === 0;
+      const cls = isElim ? 'elim' : isClear ? 'clear' : 'faulted';
+      const lbl = isElim ? 'Elim / WD / RT' : isClear ? 'Clear' : b.label + ' Faults';
+      html += `<div class="fault-card">
+        <div class="fault-card-num ${cls}">${b.count}</div>
+        <div class="fault-card-label">${esc(lbl)}</div>
+        <div class="fault-card-pct">${joPct(b.count)}% of JO</div>
+      </div>`;
+    });
+    html += '</div>';
+    html += '<div class="difficulty-bar-wrap">';
+    s.joSmartBuckets.forEach(b => {
+      const isElim = b.value === null;
+      const isClear = b.value === 0;
+      const barCls = isElim ? 'elim' : isClear ? 'clear' : (typeof b.value === 'number' && b.value <= 4) ? 'f1-3' : (typeof b.value === 'number' && b.value <= 8) ? 'f4' : 'f8';
+      const lbl = isElim ? 'Elim / WD / RT' : isClear ? 'Clear' : b.label + ' Faults';
+      html += `<div class="diff-row">
+        <span class="diff-label">${esc(lbl)}</span>
+        <div class="diff-bar-bg"><div class="diff-bar-fill ${barCls}" style="width:${joPct(b.count)}%"></div></div>
+        <span class="diff-count">${b.count}</span>
+        <span class="diff-pct">${joPct(b.count)}%</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // R1 STANDINGS
+  const frLabel = s.hasJO ? (s.isTwoPhase ? 'Phase 1 \u2014 Faults &amp; Time vs TA' : 'Round 1 \u2014 Faults &amp; Time vs TA') : 'Round 1 \u2014 Standings, Faults &amp; Gap to Leader';
+  html += `<div class="section-label">${frLabel}</div>
+  <div class="standings-wrap">
+    <div class="standings-hdr"><div class="standings-hdr-inner">
+      <span class="col-place">Plc</span><span class="col-entry">Horse / Rider</span>
+      <span class="col-faults">Faults</span><span class="col-time">Time</span>
+      <span class="col-gap">${s.hasJO ? 'vs TA' : 'Gap'}</span>
+    </div></div>`;
+  s.r1WithGap.forEach(e => {
+    const fc = faultClass(e.r1Faults);
+    let gapVal = '', gapCls = '';
+    if (s.hasJO && e.taDistance !== null) {
+      // R1+JO class — show TA distance
+      const td = e.taDistance;
+      gapVal = (td >= 0 ? '+' : '') + td + 's';
+      gapCls = td > 0 ? 'fault-gap' : td < -3 ? 'leader' : 'behind';
+    } else {
+      // FR only — show gap to leader
+      gapVal = e.gap;
+      gapCls = e.gapClass;
+    }
+    const displayPlace = (s.hasJO && e.joPlace) ? e.joPlace : esc(e.place);
+    const placeStyle = (s.hasJO && e.joPlace) ? 'color:var(--red);font-size:10px;letter-spacing:.08em;font-weight:600;' : '';
+    html += `<div class="standing-row">
+      <span class="s-place" style="${placeStyle}">${displayPlace}</span>
+      <div class="s-entry"><div class="s-horse">${esc(e.horse)}</div><div class="s-rider">${esc(e.rider)}</div></div>
+      <span class="s-faults ${fc}">${faultDisplay(e.r1Faults)}</span>
+      <span class="s-time">${esc(e.r1Time)}</span>
+      <span class="s-gap ${gapCls}">${esc(gapVal)}</span>
+    </div>`;
+  });
+  html += '</div>';
+
+  document.getElementById('content').innerHTML = html;
+}
+
+// ── LOAD ─────────────────────────────────────────────────────────────────
+let difficultyGaugeEnabled = false;
+
+async function loadStats(showSpinner = true) {
+  if (showSpinner) {
+    document.getElementById('content').innerHTML = `<div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Statistics…</div></div>`;
+  }
+  try {
+    try {
+      const sRes = await fetch(`${WORKER}?action=getSettings`);
+      if (sRes.ok) { const st = await sRes.json(); difficultyGaugeEnabled = !!st.showDifficultyGauge; }
+    } catch(e) {}
+
+    const res = await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(resultUrl)}`);
+    if (!res.ok) throw new Error('fetch failed');
+    const html = await res.text();
+    const parsed = parseJumperResults(html);
+
+    if (!parsed) {
+      document.getElementById('content').innerHTML = `
+        <div class="not-jumper">
+          <h2>Not a Jumper Class</h2>
+          <p>Statistics are only available for jumper classes.</p>
+        </div>`;
+      return;
+    }
+
+    renderStats(parsed);
+    isLiveClass = parsed.isLive;
+
+    if (parsed.isLive) {
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(() => loadStats(false), 30000);
+    }
+  } catch(e) {
+    document.getElementById('content').innerHTML = `
+      <div class="state-box">
+        <div class="state-lbl">Could not load statistics</div>
+      </div>`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadStats);
+</script>
+<footer>
+  <p>WEST Timing and Scoring &nbsp;·&nbsp; Results powered by <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a> &nbsp;·&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;·&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+</body>
+</html>

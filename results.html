@@ -239,13 +239,9 @@ let liveData  = {};
 
 var esc = WEST.esc;
 
+// Delegates to shared helper in display-config.js
 function isClassComplete() {
-  if (!liveData) return false;
-  if (liveData.recentClasses && liveData.recentClasses.some(function(r) { return String(r.classNum) === String(CLASS_NUM); })) return true;
-  var isActive = liveData.activeClasses && liveData.activeClasses.some(function(a) { return String(a.classNum) === String(CLASS_NUM); });
-  var isSelected = liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
-  if (!isActive && !isSelected && entries.length > 0) return true;
-  return false;
+  return WEST.isClassComplete(liveData, CLASS_NUM, entries.length > 0);
 }
 
 // FEI flags and cls header parser now in display-config.js;

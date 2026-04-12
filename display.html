@@ -669,7 +669,8 @@ function render() {
       var sc = '';
       if (isFin && isNaN(parseFloat(timeVal))) { sc = timeVal; timeVal = ''; }
       if (isCurrent) {
-        h += '<div id="livePhase" style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px;">ON COURSE</div>';
+        // Use shared phase label — matches live/stats pages
+        h += '<div id="livePhase" style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px;">' + esc(WEST.phaseLabel(data.phase || 'ONCOURSE')) + '</div>';
         h += '<div id="liveClock" style="font-family:DM Mono,monospace;font-size:' + clockSize + 'px;font-weight:700;color:var(--gold);text-align:center;line-height:1;margin:10px 0;">--</div>';
       } else if (isJumperEq && data.eqScore) {
         // Equitation score display — "89 pts" instead of clock time
@@ -743,9 +744,9 @@ function render() {
     return h;
   }
 
-  // CURRENT — on course
+  // CURRENT — on course (label is phase-aware: Intro / Countdown / On Course)
   if (oc && oc.phase !== 'FINISH') {
-    html += renderSideCard('On Course', oc, { isCurrent: true });
+    html += renderSideCard(WEST.phaseLabel(oc.phase || 'ONCOURSE'), oc, { isCurrent: true });
   }
 
   // FINISHED — just finished, full card

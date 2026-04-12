@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body { background: var(--off-white); color: var(--text-body); font-family: 'Source Sans 3', sans-serif; min-height: 100vh; }
+
+/* HEADER */
+header { background: var(--black); border-bottom: 3px solid var(--red); }
+.header-inner { max-width: 1280px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; height: 56px; gap: 12px; }
+.back-btn { display: flex; align-items: center; gap: 6px; color: #fff; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .06em; text-decoration: none; min-width: 44px; min-height: 44px; padding: 0; background: none; border: none; cursor: pointer; flex-shrink: 0; white-space: nowrap; }
+.back-btn:hover { color: var(--red); }
+.header-crumb { flex: 1; font-family: 'DM Mono', monospace; font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.logo-tap { display: flex; align-items: center; gap: 8px; text-decoration: none; margin-left: auto; }
+
+/* BREADCRUMBS */
+.breadcrumbs { background: #fff; border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; align-items: center; gap: 0; min-height: 40px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.breadcrumbs::-webkit-scrollbar { display: none; }
+.bc-home { display: inline-flex; align-items: center; gap: 5px; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: var(--red); text-decoration: none; padding: 10px 10px 10px 0; white-space: nowrap; flex-shrink: 0; }
+.bc-home:hover { color: var(--black); }
+.bc-sep { font-family: 'DM Mono', monospace; font-size: 11px; color: #ccc; padding: 0 6px; flex-shrink: 0; user-select: none; }
+.bc-link { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .04em; color: var(--red); text-decoration: none; padding: 10px 0; white-space: nowrap; flex-shrink: 0; border-bottom: 1px solid transparent; }
+.bc-link:hover { border-bottom-color: var(--red); }
+.bc-current { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .04em; color: var(--text-muted); padding: 10px 0; white-space: nowrap; flex-shrink: 0; }
+.logo-img { height: 30px; width: auto; filter: invert(1); }
+.logo-west { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 20px; color: #fff; }
+.logo-sep { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); margin: 0 3px; }
+.logo-scoring { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); letter-spacing: .04em; }
+
+/* TITLE BAR */
+.title-bar { background: #fff; border-bottom: 1px solid var(--border); padding: 14px 16px 12px; }
+.title-ryegate { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .04em; color: var(--text-muted); margin-top: 6px; }
+.title-sponsor { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+.title-ryegate a { color: var(--text-muted); text-decoration: none; }
+.title-ryegate a:hover { color: var(--red); }
+.stats-btn { display: none; margin-top: 10px; background: none; border: 1px solid var(--border); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); padding: 6px 12px; cursor: pointer; text-decoration: none; }
+.stats-btn:hover { border-color: var(--black); color: var(--black); }
+.stats-btn.visible { display: inline-block; }
+.title-crumb { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); letter-spacing: .06em; margin-bottom: 4px; }
+.title-classnum { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--red); letter-spacing: .08em; margin-bottom: 2px; }
+.title-main { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--black); line-height: 1.2; }
+
+/* ON COURSE BLOCK */
+.on-course-wrap { background: #fff; border-bottom: 3px solid var(--red); padding: 14px 16px; }
+.oc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.oc-title { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); display: flex; align-items: center; gap: 7px; }
+.live-pill { display: inline-flex; align-items: center; gap: 4px; background: var(--red); color: #fff; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; padding: 3px 8px; border-radius: 2px; }
+.live-blink { width: 5px; height: 5px; background: #fff; border-radius: 50%; animation: blink 1.6s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+.oc-refresh-info { font-family: 'DM Mono', monospace; font-size: 9px; color: #aaa; }
+.oc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.oc-card { background: var(--off-white); border-radius: 6px; padding: 10px 12px; }
+.oc-card-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 5px; }
+.oc-entry-num { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); margin-bottom: 2px; }
+.oc-rider { font-size: 14px; font-weight: 600; color: var(--black); line-height: 1.2; }
+.oc-horse { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.oc-score { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--black); margin-top: 4px; font-weight: 600; }
+.oc-empty { font-size: 13px; color: #bbb; font-style: italic; }
+
+/* PROGRESS BAR */
+.progress-wrap { margin-top: 12px; }
+.progress-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 5px; display: flex; justify-content: space-between; }
+.progress-bar-bg { background: #eee; border-radius: 3px; height: 5px; overflow: hidden; }
+.progress-bar-fill { background: var(--red); height: 5px; border-radius: 3px; transition: width .5s ease; }
+
+/* RESULTS */
+.results-wrap { padding-bottom: 60px; }
+.result-entry { display: block; border-bottom: 1px solid var(--border); background: #fff; }
+.result-entry:nth-child(even) { background: #fafafa; }
+.result-entry.has-judges { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.result-entry.has-judges:hover { background: #f9f9f9; }
+.result-entry.has-judges:active { background: #f0f0f0; }
+.result-main { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; }
+.r-ribbon { flex-shrink: 0; width: 32px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.r-place-txt { font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 700; color: var(--black); line-height: 1; }
+.r-prize-ribbon { font-family: 'DM Mono', monospace; font-size: 10px; color: #2e7d32; font-weight: 600; margin-top: 3px; text-align: center; line-height: 1.2; }
+.r-bib { display: inline-flex; align-items: center; justify-content: center; font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; margin-right: 5px; background: #fafafa; vertical-align: middle; flex-shrink: 0; }
+.r-info { flex: 1; min-width: 0; }
+.r-horse-line { display: flex; align-items: baseline; gap: 0 6px; line-height: 1.3; min-width: 0; flex-wrap: nowrap; }
+.r-horse-rider { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px; min-width: 0; flex: 1; }
+.r-horse { font-size: 15px; font-weight: 600; color: var(--black); }
+.r-rider-inline { font-size: 13px; color: var(--text-muted); }
+.r-breeding { font-size: 11px; color: #bbb; font-style: italic; margin-top: 1px; padding-left: 38px; }
+.r-owner { font-size: 12px; color: #aaa; font-style: italic; margin-top: 1px; padding-left: 38px; }
+.r-rider-eq { font-size: 15px; font-weight: 600; color: var(--black); line-height: 1.2; }
+/* Judge scores middle column — hidden on mobile, shown on desktop */
+.r-judge-mid { display: none; }
+/* Scores right column */
+.r-scores { flex-shrink: 0; text-align: right; font-family: 'DM Mono', monospace; min-width: 70px; }
+.r-score-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 5px; margin-top: 2px; }
+.r-score-lbl { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: #bbb; }
+.r-score-val { font-size: 13px; color: var(--text-muted); }
+.r-score-val.primary { font-size: 14px; font-weight: 600; color: var(--red); }
+.r-total { font-size: 14px; font-weight: 700; color: var(--black); margin-top: 3px; border-top: 1px solid var(--border); padding-top: 3px; text-align: right; }
+.r-score-rank { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); margin-left: 5px; }
+.r-prize { font-size: 11px; color: #2e7d32; font-family: 'DM Mono', monospace; margin-top: 3px; font-weight: 600; }
+.r-prize-only { font-size: 13px; color: #2e7d32; font-family: 'DM Mono', monospace; font-weight: 600; }
+
+/* Unknown format fallback */
+.unknown-format-wrap { padding: 12px 16px 60px; }
+.unknown-format-notice { background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-family: 'DM Mono', monospace; font-size: 11px; color: #795548; }
+.unknown-table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px; }
+.unknown-table tr { border-bottom: 1px solid var(--border); }
+.unknown-table tr:nth-child(even) { background: #fafafa; }
+.unknown-table td { padding: 8px 12px; vertical-align: top; color: var(--text-body); }
+.unknown-table td:first-child { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); width: 40px; }
+
+.r-judge-hint { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #aaa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 5px 9px; margin-top: 8px; background: #fafafa; }
+.r-judge-hint::before { content: '▸'; font-size: 10px; }
+.result-entry.open .r-judge-hint { color: var(--red); border-color: #ffd0d0; background: #fff8f8; }
+.result-entry.open .r-judge-hint::before { content: '▾'; }
+.judge-expand { display: none; padding: 9px 16px 11px 16px; border-top: 1px solid var(--border); }
+.result-entry.open .judge-expand { display: flex; justify-content: flex-end; }
+.jp-label { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: #aaa; display: block; }
+.jp-val { color: var(--text-body); font-family: 'DM Mono', monospace; font-size: 12px; }
+.jp-row { margin-bottom: 3px; }
+.jp-row:last-child { margin-bottom: 0; }
+
+
+/* ── JUDGE TRACKER (derby classes only) ─────────────────────────────────────── */
+.jt-summary { background: #fff; border-bottom: 1px solid var(--border); }
+.jt-summary-toggle { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; cursor: pointer; user-select: none; -webkit-user-select: none; min-height: 52px; }
+.jt-summary-toggle:active { background: var(--off-white); }
+.jt-summary-left { display: flex; align-items: center; gap: 10px; }
+.jt-summary-title { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); }
+.jt-disagree-pill { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; background: #fff3f3; color: var(--red); border: 1px solid #ffd0d0; padding: 4px 10px; border-radius: 3px; font-weight: 600; }
+.jt-summary-right { display: flex; align-items: center; gap: 10px; }
+.jt-summary-count { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.jt-chevron { font-size: 16px; color: #bbb; transition: transform .2s; font-weight: 300; }
+.jt-summary.open .jt-chevron { transform: rotate(90deg); }
+.jt-body { display: none; padding: 0 16px 12px; }
+.jt-summary.open .jt-body { display: block; }
+.jt-judge-block { margin-bottom: 10px; }
+.jt-judge-block:last-child { margin-bottom: 0; }
+.jt-judge-block-lbl { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: #bbb; margin-bottom: 4px; }
+.jt-judge-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
+.jt-rank { font-family: 'DM Mono', monospace; font-size: 10px; color: #bbb; min-width: 16px; }
+.jt-judge-horse { font-size: 13px; font-weight: 600; color: var(--black); flex: 1; }
+.jt-judge-score { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.jt-judge-row.differs .jt-judge-horse { color: var(--red); }
+@media(min-width: 768px) {
+  .jt-summary-toggle { padding: 10px clamp(16px,4vw,48px); }
+  .jt-body { padding: 0 clamp(16px,4vw,48px) 14px; }
+}
+/* Movement arrow */
+.r-move { flex-shrink: 0; width: 28px; text-align: center; font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 600; line-height: 1; padding-top: 3px; }
+.r-move.up   { color: #2e7d32; }
+.r-move.down { color: var(--red); }
+.r-move.flat { color: #ccc; }
+/* Derby expand panel */
+.derby-expand { display: none; padding: 10px 16px 12px 16px; border-top: 1px solid var(--border); display: none; }
+.result-entry.open .derby-expand { display: flex; justify-content: flex-end; }
+.de-inner { text-align: left; min-width: 220px; max-width: 340px; }
+.de-round { margin-bottom: 10px; }
+.de-round:last-child { margin-bottom: 0; }
+.de-round-hdr { display: flex; align-items: baseline; gap: 10px; margin-bottom: 5px; }
+.de-round-lbl { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #bbb; min-width: 24px; }
+.de-round-total { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 600; color: var(--black); }
+.de-round-rank { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); }
+.de-judge-row { display: flex; align-items: baseline; gap: 6px; padding: 2px 0 2px 8px; }
+.de-judge-lbl { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; color: #ccc; min-width: 20px; }
+.de-judge-math { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.de-judge-rank { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-left: 5px; }
+.de-judge-rank.solo-winner { color: #2e7d32; font-weight: 600; }
+.de-combined { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
+.de-combined-hdr { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.de-combined-lbl { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #bbb; min-width: 60px; }
+.de-combined-total { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 700; color: var(--black); }
+.de-combined-rank { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); }
+.de-judge-card-row { display: flex; align-items: baseline; gap: 6px; padding: 2px 0 2px 8px; }
+.de-judge-card-lbl { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; color: #ccc; min-width: 60px; }
+.de-judge-card-val { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.de-judge-card-rank { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-left: 5px; }
+.de-judge-card-rank.would-win { color: #2e7d32; font-weight: 600; }
+@media(min-width: 768px) {
+  .jt-summary { padding: 14px clamp(16px,4vw,48px); }
+  .derby-expand { padding: 10px clamp(16px,4vw,48px) 12px; }
+  .de-inner { min-width: 260px; max-width: 400px; }
+}
+/* NOT POSTED / ERROR */
+.state-box { text-align: center; padding: 60px 20px; }
+.spinner { width: 28px; height: 28px; border: 3px solid #e8e8e8; border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-lbl { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
+.not-posted { text-align: center; padding: 50px 20px; }
+.not-posted-icon { font-size: 32px; margin-bottom: 14px; opacity: .4; }
+.not-posted h2 { font-family: 'Playfair Display', serif; font-size: 20px; margin-bottom: 8px; }
+.not-posted p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+.error-box { margin: 16px; background: #fff8f8; border: 1px solid #ffd0d0; border-radius: 8px; padding: 32px 20px; text-align: center; }
+.error-box h2 { font-family: 'Playfair Display', serif; font-size: 20px; margin-bottom: 8px; }
+.error-box p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+@media(min-width: 768px) {
+  .header-inner { height: 70px; padding: 0 clamp(16px,4vw,48px); }
+  .title-bar { padding: 18px clamp(16px,4vw,48px) 14px; }
+  .title-main { font-size: 24px; }
+  .on-course-wrap { padding: 16px clamp(16px,4vw,48px); }
+  .result-main { padding: 13px clamp(16px,4vw,48px); gap: 14px; }
+  .judge-expand { padding: 9px clamp(16px,4vw,48px) 11px 72px; }
+
+}
+
+/* ── ORDER OF GO ─────────────────────────────────────────────────── */
+.oog-section { margin-top: 24px; }
+/* ON DECK */
+.on-deck-wrap { margin-top: 16px; border-top: 1px solid var(--border); }
+.on-deck-header { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--text-muted); padding: 10px 16px 6px; }
+.on-deck-row { display: flex; align-items: center; gap: 10px; padding: 7px 16px; border-bottom: 1px solid var(--border); }
+.on-deck-row:last-child { border-bottom: none; }
+.on-deck-pos { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); width: 28px; flex-shrink: 0; }
+.on-deck-num { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--red); width: 40px; flex-shrink: 0; }
+.on-deck-name { font-family: 'Source Sans 3', sans-serif; font-size: 13px; color: var(--text-body); }
+.oog-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--black); }
+.oog-header-label { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--white); }
+.oog-count { font-family: 'DM Mono', monospace; font-size: 10px; color: #888; margin-left: auto; }
+.oog-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: #fff; }
+.oog-row:last-child { border-bottom: none; }
+.oog-go { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text-muted); width: 24px; text-align: right; flex-shrink: 0; }
+.oog-num { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--red); width: 40px; flex-shrink: 0; }
+.oog-name-line { display: flex; align-items: baseline; flex-wrap: nowrap; gap: 0 6px; flex: 1; min-width: 0; overflow: hidden; }
+.oog-horse { font-size: 14px; font-weight: 600; color: var(--black); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oog-rider { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+.ryegate-header-credit { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: #666; margin-left: auto; white-space: nowrap; }
+.ryegate-header-credit a { color: #555; text-decoration: none; }
+.ryegate-header-credit a:hover { color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <button class="back-btn" onclick="goBack()">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="backLabel">Classes</span>
+    </button>
+    <span class="ryegate-header-credit">via <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a></span>
+    <a class="logo-tap" href="index.html">
+      <img src="assets/logo.png" class="logo-img" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<nav class="breadcrumbs" id="breadcrumbs" style="display:none">
+  <a class="bc-home" href="index.html">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    All Shows
+  </a>
+  <span class="bc-sep">›</span>
+  <a class="bc-link" id="bcShow" href="#">Show</a>
+  <span class="bc-sep" id="bcRingSep" style="display:none">›</span>
+  <a class="bc-link" id="bcClasses" href="#">Classes</a>
+  <span class="bc-sep">›</span>
+  <span class="bc-current" id="bcClass">Class</span>
+</nav>
+
+<div id="content">
+  <div class="state-box">
+    <div class="spinner"></div>
+    <div class="state-lbl">Loading Results…</div>
+  </div>
+</div>
+
+<script>
+const WORKER   = 'https://ryegate-proxy.bill-acb.workers.dev';
+const params   = new URLSearchParams(location.search);
+const resultUrl = params.get('url');
+const classNum  = params.get('num')   || '';
+const className = params.get('name')  || 'Class';
+const showName  = params.get('show')  || 'Show';
+const crumb     = params.get('crumb') || '';
+const tskedUrl  = params.get('tsked') || '';
+
+if (!resultUrl) location.href = 'index.html';
+
+function getClassesUrl() {
+  if (!tskedUrl) return 'index.html';
+  return 'classes.html?url=' + encodeURIComponent(tskedUrl)
+    + '&show=' + encodeURIComponent(showName)
+    + '&crumb=' + encodeURIComponent(crumb);
+}
+
+function getShowUrl() {
+  if (!tskedUrl) return 'index.html';
+  try {
+    const u = new URL(tskedUrl);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const showIndexUrl = u.origin + '/' + parts.slice(0, 3).join('/') + '/index.html';
+    return 'show.html?url=' + encodeURIComponent(showIndexUrl) + '&name=' + encodeURIComponent(showName);
+  } catch(e) { return 'index.html'; }
+}
+
+function goBack() {
+  location.href = getClassesUrl();
+}
+
+function buildBreadcrumbs() {
+  document.getElementById('bcShow').href        = getShowUrl();
+  document.getElementById('bcShow').textContent = showName;
+  document.getElementById('bcClasses').href        = getClassesUrl();
+  document.getElementById('bcClasses').textContent = crumb || showName;
+  if (crumb) {
+    document.getElementById('bcRingSep').style.display = '';
+  } else {
+    // No ring level — hide the show link and make bcClasses the show link
+    document.getElementById('bcShow').style.display = 'none';
+    document.getElementById('bcRingSep').style.display = 'none';
+  }
+  document.getElementById('bcClass').textContent = classNum ? 'Class ' + classNum : className;
+  document.getElementById('breadcrumbs').style.display = '';
+  document.getElementById('backLabel').textContent = crumb || showName;
+}
+
+buildBreadcrumbs();
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function decodeHtml(s) { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; }
+function td2text(td) { return td ? decodeHtml(td.textContent) : ''; }
+
+// ── ON COURSE PARSER ──────────────────────────────────────────────────────────
+// Looks for the CBody2 row containing ON COURSE / PREVIOUS EXHIBITOR
+function parseOnCourse(doc) {
+  let onCourseCell = null, previousCell = null;
+
+  // Find td containing bold "ON COURSE" text
+  doc.querySelectorAll('td').forEach(td => {
+    const b = td.querySelector('b');
+    if (!b) return;
+    const txt = b.textContent.trim().toUpperCase();
+    if (txt === 'ON COURSE') onCourseCell = td;
+    if (txt === 'PREVIOUS EXHIBITOR') previousCell = td;
+  });
+
+  if (!onCourseCell && !previousCell) return null; // Not live
+
+  function parseCell(td) {
+    if (!td) return null;
+    const html = td.innerHTML;
+    // Split on <br> tags
+    const parts = html.split(/<br\s*\/?>/i);
+    // parts[0] = <b>ON COURSE</b> or <b>PREVIOUS EXHIBITOR</b>
+    // parts[1] = "ENTRY# RIDER / HORSE" (may be empty if gate just opened)
+    // parts[2+] = score line(s)
+
+    const entryLine = parts[1] ? parts[1].replace(/<[^>]+>/g, '').trim() : '';
+    let entryNum = '', rider = '', horse = '';
+
+    if (entryLine) {
+      // Format: "3289 TRICIA O'CONNOR / KTS VALVERDE"
+      const slashIdx = entryLine.indexOf('/');
+      if (slashIdx > -1) {
+        const leftPart  = entryLine.substring(0, slashIdx).trim();
+        horse = entryLine.substring(slashIdx + 1).trim();
+        // leftPart = "3289 RIDER NAME"
+        const spaceIdx = leftPart.indexOf(' ');
+        if (spaceIdx > -1) {
+          entryNum = leftPart.substring(0, spaceIdx).trim();
+          rider    = leftPart.substring(spaceIdx + 1).trim();
+        } else {
+          entryNum = leftPart;
+        }
+      } else {
+        entryNum = entryLine;
+      }
+    }
+
+    // Score line — look for <b>Score : </b>
+    let score = '';
+    const scorePart = parts.find(p => /score\s*:/i.test(p));
+    if (scorePart) {
+      score = scorePart.replace(/<[^>]+>/g, '').replace(/score\s*:\s*/i, '').trim();
+    }
+
+    return { entryNum, rider, horse, score, empty: !entryLine };
+  }
+
+  // Parse progress: "X of Y Competed"
+  let competed = 0, total = 0;
+  doc.querySelectorAll('p.CBody, p').forEach(p => {
+    const m = p.textContent.match(/(\d+)\s+of\s+(\d+)\s+competed/i);
+    if (m) { competed = parseInt(m[1]); total = parseInt(m[2]); }
+  });
+
+  return {
+    isLive: true,
+    onCourse: parseCell(onCourseCell),
+    previous: parseCell(previousCell),
+    competed,
+    total
+  };
+}
+
+// ── ON DECK PARSER ────────────────────────────────────────────────────────────
+function parseOnDeck(doc) {
+  // Find table cell containing bold "ON DECK" text
+  let onDeckCell = null;
+  doc.querySelectorAll('td').forEach(td => {
+    const b = td.querySelector('b');
+    if (b && b.textContent.trim().toUpperCase() === 'ON DECK') onDeckCell = td;
+  });
+  if (!onDeckCell) return null;
+
+  // Parse lines after ON DECK — each line is "ENTRYNUM HORSENAME"
+  const html = onDeckCell.innerHTML;
+  const parts = html.split(/<br\s*\/?>/i);
+  const entries = [];
+  parts.forEach(p => {
+    const txt = p.replace(/<[^>]+>/g, '').trim();
+    if (!txt || /ON DECK/i.test(txt)) return;
+    const spaceIdx = txt.indexOf(' ');
+    if (spaceIdx < 0) return;
+    const num  = txt.substring(0, spaceIdx).trim();
+    const name = txt.substring(spaceIdx + 1).trim();
+    if (num && name && /^\d+$/.test(num)) entries.push({ num, name });
+  });
+  return entries.length ? entries : null;
+}
+
+function renderOnDeck(entries) {
+  if (!entries || !entries.length) return '';
+  const rows = entries.map((e, i) => {
+    const pos = i === 0 ? 'Next' : '-' + String(i);
+    return `<div class="on-deck-row">
+      <span class="on-deck-pos">${esc(pos)}</span>
+      <span class="on-deck-num">${esc(e.num)}</span>
+      <span class="on-deck-name">${esc(e.name)}</span>
+    </div>`;
+  }).join('');
+  return `<div class="on-deck-wrap">
+    <div class="on-deck-header">On Deck</div>
+    ${rows}
+  </div>`;
+}
+
+function renderOnCourse(oc, lastRefresh) {
+  const refreshStr = lastRefresh
+    ? 'Updated ' + lastRefresh.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})
+    : '';
+
+  function cardHtml(data, label) {
+    if (!data) return '';
+    if (data.empty) {
+      return `<div class="oc-card">
+        <div class="oc-card-label">${esc(label)}</div>
+        <div class="oc-empty">Waiting…</div>
+      </div>`;
+    }
+    return `<div class="oc-card">
+      <div class="oc-card-label">${esc(label)}</div>
+      ${data.entryNum ? `<div class="oc-entry-num">#${esc(data.entryNum)}</div>` : ''}
+      <div class="oc-rider">${esc(data.rider)}</div>
+      <div class="oc-horse">${esc(data.horse)}</div>
+      ${data.score ? `<div class="oc-score">${esc(data.score)}</div>` : ''}
+    </div>`;
+  }
+
+  let progressHtml = '';
+  if (oc.total > 0) {
+    const pct = Math.round((oc.competed / oc.total) * 100);
+    progressHtml = `<div class="progress-wrap">
+      <div class="progress-label">
+        <span>${oc.competed} of ${oc.total} Competed</span>
+        <span>${pct}%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" style="width:${pct}%"></div>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="on-course-wrap">
+    <div class="oc-header">
+      <div class="oc-title">
+        <span class="live-pill"><span class="live-blink"></span>Live</span>
+        In The Ring
+      </div>
+      <div class="oc-refresh-info">${esc(refreshStr)}</div>
+    </div>
+    <div class="oc-grid">
+      ${cardHtml(oc.onCourse, 'On Course')}
+      ${cardHtml(oc.previous, 'Previous')}
+    </div>
+    ${progressHtml}
+  </div>`;
+}
+
+// ── RESULT PARSERS (ported from index.html) ───────────────────────────────────
+
+const FLAGS={AFG:'🇦🇫',ALB:'🇦🇱',ALG:'🇩🇿',AND:'🇦🇩',ANG:'🇦🇴',ANT:'🇦🇬',ARG:'🇦🇷',ARM:'🇦🇲',ARU:'🇦🇼',AUS:'🇦🇺',AUT:'🇦🇹',AZE:'🇦🇿',BAH:'🇧🇸',BAN:'🇧🇩',BAR:'🇧🇧',BDI:'🇧🇮',BEL:'🇧🇪',BEN:'🇧🇯',BER:'🇧🇲',BHU:'🇧🇹',BIH:'🇧🇦',BIZ:'🇧🇿',BOL:'🇧🇴',BOT:'🇧🇼',BRA:'🇧🇷',BRN:'🇧🇭',BRU:'🇧🇳',BUL:'🇧🇬',BUR:'🇧🇫',CAF:'🇨🇫',CAM:'🇰🇭',CAN:'🇨🇦',CAY:'🇰🇾',CGO:'🇨🇬',CHA:'🇹🇩',CHI:'🇨🇱',CHN:'🇨🇳',CIV:'🇨🇮',CMR:'🇨🇲',COD:'🇨🇩',COK:'🇨🇰',COL:'🇨🇴',COM:'🇰🇲',CPV:'🇨🇻',CRC:'🇨🇷',CRO:'🇭🇷',CUB:'🇨🇺',CYP:'🇨🇾',CZE:'🇨🇿',DEN:'🇩🇰',DJI:'🇩🇯',DOM:'🇩🇴',ECU:'🇪🇨',EGY:'🇪🇬',ERI:'🇪🇷',ESA:'🇸🇻',ESP:'🇪🇸',EST:'🇪🇪',ETH:'🇪🇹',FIJ:'🇫🇯',FIN:'🇫🇮',FRA:'🇫🇷',FSM:'🇫🇲',GAB:'🇬🇦',GAM:'🇬🇲',GBR:'🇬🇧',GBS:'🇬🇼',GEO:'🇬🇪',GEQ:'🇬🇶',GER:'🇩🇪',GHA:'🇬🇭',GRE:'🇬🇷',GRN:'🇬🇩',GUA:'🇬🇹',GUI:'🇬🇳',GUM:'🇬🇺',GUY:'🇬🇾',HAI:'🇭🇹',HKG:'🇭🇰',HON:'🇭🇳',HUN:'🇭🇺',INA:'🇮🇩',IND:'🇮🇳',IRI:'🇮🇷',IRL:'🇮🇪',IRQ:'🇮🇶',ISL:'🇮🇸',ISR:'🇮🇱',ISV:'🇻🇮',ITA:'🇮🇹',IVB:'🇻🇬',JAM:'🇯🇲',JOR:'🇯🇴',JPN:'🇯🇵',KAZ:'🇰🇿',KEN:'🇰🇪',KGZ:'🇰🇬',KOR:'🇰🇷',KSA:'🇸🇦',KUW:'🇰🇼',LAO:'🇱🇦',LAT:'🇱🇻',LBA:'🇱🇾',LBN:'🇱🇧',LBR:'🇱🇷',LCA:'🇱🇨',LES:'🇱🇸',LIE:'🇱🇮',LTU:'🇱🇹',LUX:'🇱🇺',MAD:'🇲🇬',MAR:'🇲🇦',MAS:'🇲🇾',MAW:'🇲🇼',MDA:'🇲🇩',MDV:'🇲🇻',MEX:'🇲🇽',MGL:'🇲🇳',MKD:'🇲🇰',MLI:'🇲🇱',MLT:'🇲🇹',MON:'🇲🇨',MOZ:'🇲🇿',MRI:'🇲🇺',MTN:'🇲🇷',MYA:'🇲🇲',NAM:'🇳🇦',NCA:'🇳🇮',NED:'🇳🇱',NEP:'🇳🇵',NIG:'🇳🇪',NOR:'🇳🇴',NZL:'🇳🇿',OMA:'🇴🇲',PAK:'🇵🇰',PAN:'🇵🇦',PAR:'🇵🇾',PER:'🇵🇪',PHI:'🇵🇭',PLE:'🇵🇸',PLW:'🇵🇼',PNG:'🇵🇬',POL:'🇵🇱',POR:'🇵🇹',PRK:'🇰🇵',PUR:'🇵🇷',QAT:'🇶🇦',ROU:'🇷🇴',RSA:'🇿🇦',RUS:'🇷🇺',RWA:'🇷🇼',SAM:'🇼🇸',SEN:'🇸🇳',SEY:'🇸🇨',SIN:'🇸🇬',SKN:'🇰🇳',SLE:'🇸🇱',SLO:'🇸🇮',SMR:'🇸🇲',SOL:'🇸🇧',SOM:'🇸🇴',SRB:'🇷🇸',SRI:'🇱🇰',SSD:'🇸🇸',STP:'🇸🇹',SUD:'🇸🇩',SUI:'🇨🇭',SUR:'🇸🇷',SVK:'🇸🇰',SWE:'🇸🇪',SWZ:'🇸🇿',SYR:'🇸🇾',TAN:'🇹🇿',TGA:'🇹🇴',THA:'🇹🇭',TJK:'🇹🇯',TKM:'🇹🇲',TLS:'🇹🇱',TOG:'🇹🇬',TPE:'🇹🇼',TTO:'🇹🇹',TUN:'🇹🇳',TUR:'🇹🇷',UAE:'🇦🇪',UGA:'🇺🇬',UKR:'🇺🇦',URU:'🇺🇾',USA:'🇺🇸',UZB:'🇺🇿',VAN:'🇻🇺',VEN:'🇻🇪',VIE:'🇻🇳',VIN:'🇻🇨',YEM:'🇾🇪',ZAM:'🇿🇲',ZIM:'🇿🇼'};
+
+function flagify(name) {
+  const m = name.match(/^(.*?)\s*\(([A-Z]{2,3})\)\s*$/);
+  if (!m) return { clean: name, flag: '' };
+  const fl = FLAGS[m[2]] || '';
+  return { clean: m[1].trim(), flag: fl ? fl + ' ' + m[2] : m[2] };
+}
+
+function ribbonSvg(n) {
+  // Colors: outer petal, inner petal, center fill, text color
+  const C={
+    1: {o:'#0a3d8f',i:'#3a7bd5',f:'#e8f0fb',t:'#0a3d8f'},  // Blue
+    2: {o:'#8b0000',i:'#cc2222',f:'#fbe8e8',t:'#8b0000'},  // Red
+    3: {o:'#9a7800',i:'#d4a800',f:'#fdf6d8',t:'#7a5e00'},  // Yellow
+    4: {o:'#888',  i:'#bbb',   f:'#f4f4f4',t:'#555'},      // White/Grey
+    5: {o:'#ad1457',i:'#e91e8c',f:'#fde8f3',t:'#ad1457'},  // Pink
+    6: {o:'#1a6b2a',i:'#2ea043',f:'#e8f5eb',t:'#1a6b2a'},  // Green
+    7: {o:'#4a2d8e',i:'#7c52cc',f:'#f0ebfb',t:'#4a2d8e'},  // Purple
+    8: {o:'#5c3317',i:'#8b5e3c',f:'#f5ede6',t:'#5c3317'},  // Brown
+    9: {o:'#666',  i:'#999',   f:'#f0f0f0',t:'#444'},      // Grey
+   10: {o:'#1565a8',i:'#5ba3e0',f:'#e3f2fd',t:'#1565a8'},  // Light blue
+   11: {o:'#b0006a',i:'#e8409a',f:'#fce4f2',t:'#8b0052'},  // Fuchsia
+   12: {o:'#3d7a00',i:'#7ec800',f:'#f0fce0',t:'#2d5c00'},  // Lime green
+  };
+  const c = C[n]; if (!c) return '';
+  // 12 petals, tighter radius, slimmer ellipses
+  let p = '';
+  for (let i = 0; i < 12; i++) {
+    const a = i * 30;
+    const r=10, cx=12, cy=11, rad=a*Math.PI/180;
+    const x=(cx+r*Math.sin(rad)).toFixed(1), y=(cy-r*Math.cos(rad)).toFixed(1);
+    p += `<ellipse cx="${x}" cy="${y}" rx="3.5" ry="2" fill="${c.o}" transform="rotate(${a},${x},${y})"/>`;
+  }
+  // Ribbon tails — shorter, neater
+  const tails = `<rect x="9" y="19" width="3" height="11" rx="1" fill="${c.o}" transform="rotate(-6,10.5,24.5)"/><rect x="12" y="19" width="3" height="11" rx="1" fill="${c.i}" transform="rotate(6,13.5,24.5)"/>`;
+  // Center circles
+  const circles = `<circle cx="12" cy="11" r="7.5" fill="${c.i}"/><circle cx="12" cy="11" r="5.5" fill="${c.f}"/>`;
+  const fs = n >= 10 ? '6' : '7.5';
+  const dy = n >= 10 ? '14.5' : '14';
+  return `<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">${tails}${p}${circles}<text x="12" y="${dy}" text-anchor="middle" font-family="serif" font-weight="bold" font-size="${fs}" fill="${c.t}">${n}</text></svg>`;
+}
+
+function champSvg(isRC) {
+  const cols = isRC ? ['#8b0000','#9a7800','#888'] : ['#0a3d8f','#8b0000','#9a7800'];
+  let p = '';
+  // Outer ring — 12 petals
+  for (let i = 0; i < 12; i++) { const a=i*30,r=13,cx=14,cy=13,rad=a*Math.PI/180,x=(cx+r*Math.sin(rad)).toFixed(1),y=(cy-r*Math.cos(rad)).toFixed(1); p+=`<ellipse cx="${x}" cy="${y}" rx="4.5" ry="2.5" fill="${cols[0]}" transform="rotate(${a},${x},${y})"/>`; }
+  // Middle ring — 12 petals offset
+  for (let i = 0; i < 12; i++) { const a=i*30+15,r=9,cx=14,cy=13,rad=a*Math.PI/180,x=(cx+r*Math.sin(rad)).toFixed(1),y=(cy-r*Math.cos(rad)).toFixed(1); p+=`<ellipse cx="${x}" cy="${y}" rx="3.5" ry="2" fill="${cols[1]}" transform="rotate(${a},${x},${y})"/>`; }
+  // Inner ring
+  for (let i = 0; i < 8; i++) { const a=i*45,r=5,cx=14,cy=13,rad=a*Math.PI/180,x=(cx+r*Math.sin(rad)).toFixed(1),y=(cy-r*Math.cos(rad)).toFixed(1); p+=`<ellipse cx="${x}" cy="${y}" rx="3" ry="1.8" fill="${cols[2]}" transform="rotate(${a},${x},${y})"/>`; }
+  const lbl = isRC ? 'RC' : 'CH';
+  return `<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="24" width="3" height="14" rx="1" fill="${cols[0]}" transform="rotate(-7,11.5,31)"/><rect x="14" y="24" width="3" height="14" rx="1" fill="${cols[1]}" transform="rotate(3,15.5,31)"/><rect x="12" y="24" width="3" height="12" rx="1" fill="${cols[2]}" transform="rotate(10,13.5,30)"/>${p}<circle cx="14" cy="13" r="6" fill="#fff"/><circle cx="14" cy="13" r="4.5" fill="#f8f4e8"/><text x="14" y="16.5" text-anchor="middle" font-family="serif" font-weight="bold" font-size="5" fill="#111">${lbl}</text></svg>`;
+}
+
+function placeRibbon(place, cn) {
+  const n = parseInt(place);
+  const isChamp = cn && /champion/i.test(cn);
+  if (isChamp && n === 1) return champSvg(false);
+  if (isChamp && n === 2) return champSvg(true);
+  return ribbonSvg(n) || '';
+}
+
+
+// ── ORDER OF GO PARSER ─────────────────────────────────────────────────────
+function parseOOG(doc) {
+  const cname = doc.querySelector('.CName');
+  if (!cname) return null;
+  const cnameText = cname.textContent;
+  if (!/order\s+of\s+go/i.test(cnameText)) return null;
+
+  const entries = [];
+  // Find the OOG table — has CBody rows with 4 columns: go, num, horse, rider
+  doc.querySelectorAll('tr.CBody').forEach(row => {
+    const tds = row.querySelectorAll('td');
+    if (tds.length < 4) return;
+    const go   = tds[0].textContent.replace(/&nbsp;/g,'').trim();
+    const num  = tds[1].textContent.trim();
+    const horse = tds[2].textContent.trim();
+    const rider = tds[3].textContent.trim();
+    if (!go || !num || isNaN(parseInt(go))) return; // skip header row
+    entries.push({ go: parseInt(go), num, horse, rider });
+  });
+  return entries.length ? entries : null;
+}
+
+function renderOOG(entries) {
+  if (!entries || !entries.length) return '';
+  let rows = entries.map(e => `
+    <div class="oog-row">
+      <span class="oog-go">${e.go}</span>
+      <div class="oog-name-line"><span class="oog-num">${esc(e.num)}</span><span class="oog-horse">${esc(e.horse)}</span><span class="oog-rider">${esc(e.rider)}</span></div>
+    </div>`).join('');
+  return `
+    <div class="oog-section">
+      <div class="oog-header">
+        <span class="oog-header-label">Order of Go</span>
+        <span class="oog-count">${entries.length} entries</span>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function parseResults(doc, isLive = false) {
+  const tables = Array.from(doc.querySelectorAll('table'));
+  let rt = null;
+  for (let t = tables.length-1; t >= 0; t--) {
+    if (Array.from(tables[t].querySelectorAll('tr')).some(r => r.className === 'CBody')) { rt = tables[t]; break; }
+  }
+  if (!rt) { let b=0; tables.forEach(t => { const n=t.querySelectorAll('tr').length; if(n>b){b=n;rt=t;} }); }
+  if (!rt) return { format: 'unknown', entries: [], rawRows: [] };
+
+  const allRows  = Array.from(rt.querySelectorAll('tr'));
+  const hdr      = allRows[0];
+  const hdrText  = hdr ? hdr.textContent : '';
+  const hdrTds   = hdr ? Array.from(hdr.querySelectorAll('td')) : [];
+  const hdrLabels = hdrTds.map(td => td.textContent.replace(/\u00a0/g,' ').trim());
+  const isSire   = hdrText.includes('Sire x Dam');
+  const hasPrize = hdrText.toLowerCase().includes('prize');
+  const isEq     = !isSire && hdrTds.length >= 3 && hdrTds[2] && hdrTds[2].textContent.trim() === 'Rider' && (!hdrTds[3] || !hdrTds[3].textContent.trim());
+  const frt      = allRows[0] ? allRows[0].textContent.toLowerCase() : '';
+  const dataRows = (frt.includes('plc') || frt.includes('horse') || frt.includes('rider')) ? allRows.slice(1) : allRows;
+
+  // Detect score column labels from header — drives display order and labels
+  // Jumper: R1/JO or PH1/PH2 (PH2 shown first); Hunter: RD1/RD2 (chronological)
+  const hasJOLabel = hdrLabels.some(l => /^JO$/i.test(l));
+  const hasPH2Label = hdrLabels.some(l => /^PH2$/i.test(l));
+  const scoreLabel1 = hdrLabels.find(l => /^(R1|PH1|RD1)$/i.test(l)) || '';
+  const scoreLabel2 = hdrLabels.find(l => /^(JO|PH2|RD2)$/i.test(l)) || '';
+  const taLabel1    = hdrLabels.find(l => /^TA:\d+$/i.test(l) && hdrLabels.indexOf(l) < hdrLabels.findIndex(x => /^(JO|PH2|RD2)$/i.test(x))) || '';
+  const taLabel2    = hdrLabels.filter(l => /^TA:\d+$/i.test(l)).slice(-1)[0] || '';
+  const jumperSecondRound = hasJOLabel || hasPH2Label; // show round 2 on top
+
+  if (isSire) {
+    const entries = [];
+    dataRows.forEach(row => {
+      if (row.className !== 'CBody') return;
+      const tds = Array.from(row.querySelectorAll('td'));
+      if (tds.length < 4) return;
+      const place = tds[0].textContent.replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().split(' ')[0];
+      const num   = tds[1] ? tds[1].textContent.trim() : '';
+      const hTd   = tds[2], hLines = hTd ? hTd.innerHTML.split(/<br\s*\/?>/ ) : [];
+      const horse = decodeHtml(hLines[0] ? hLines[0].replace(/<[^>]+>/g,'').trim() : '');
+      const sire  = hTd ? decodeHtml((hTd.querySelector('span.CBody2')||{textContent:''}).textContent.trim()) : '';
+      const rTd   = tds[3], rLines = rTd ? rTd.innerHTML.split(/<br\s*\/?>/i) : [];
+      const rRaw  = decodeHtml(rLines[0] ? rLines[0].replace(/<[^>]+>/g,'').trim() : '');
+      const owner = rTd ? decodeHtml((rTd.querySelector('span.CBody2')||{textContent:''}).textContent.trim()) : '';
+      const {clean: rider, flag} = flagify(rRaw);
+      entries.push({ place, num, horse, sire, rider, flag, owner,
+        r1Faults: tds[4] ? tds[4].textContent.trim() : '',
+        r1Time:   tds[5] ? tds[5].textContent.trim() : '',
+        joFaults: tds[6] ? tds[6].textContent.trim() : '',
+        joTime:   tds[7] ? tds[7].textContent.trim() : '',
+        prize:    hasPrize && tds[8] ? tds[8].textContent.trim() : ''
+      });
+    });
+    const hasJO = entries.some(e => e.joFaults || e.joTime);
+    return { format: 'jumper', entries, hasJO, hasPrize, jumperSecondRound, scoreLabel1, scoreLabel2, taLabel1, taLabel2 };
+  }
+
+  if (isEq) {
+    const entries = []; let i = 0;
+    while (i < dataRows.length) {
+      const row = dataRows[i];
+      if (row.className !== 'CBody') { i++; continue; }
+      const tds = Array.from(row.querySelectorAll('td'));
+      const place = tds[0] ? tds[0].textContent.replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().split(' ')[0] : '';
+      const num = tds[1] ? tds[1].textContent.replace(/\u00a0/g,'').trim() : '';
+      if (!place || /^\s*$/.test(place)) {
+        // Stop at "Round N" section divider
+        const anyText = Array.from(tds).map(t => t.textContent.trim()).join(' ');
+        if (/Round\s+\d/i.test(anyText)) break;
+        // If no place but has a valid entry number, it's a live unplaced entry — include it
+        if (!num || !/^\d+$/.test(num)) { i++; continue; }
+      }
+      let score = '', prize = '';
+      for (let c = tds.length-1; c >= 3; c--) {
+        const v = tds[c].textContent.replace(/\u00a0/g,'').trim();
+        if (!v) continue;
+        if (v.startsWith('$')) { prize = v; }
+        else if (!score) { score = v; }
+      }
+      // Sub-row judge breakdown
+      const subRow = dataRows[i+1];
+      let judgeScores = '';
+      if (subRow && subRow.className === 'CBody') {
+        const subTds = Array.from(subRow.querySelectorAll('td'));
+        const subPlace = subTds[0] ? subTds[0].textContent.replace(/\u00a0/g,' ').trim() : '';
+        if (!subPlace || subPlace === '\u00a0') {
+          // It's a sub-row, not a new entry
+          const jTd = subTds[3] || subTds[2] || subTds[1];
+          if (jTd) {
+            const jSpan = jTd.querySelector('span.CBody2');
+            if (jSpan) judgeScores = decodeHtml(jSpan.innerHTML.replace(/<br\s*\/?>/gi, '\n')).trim();
+          }
+          i += 2; // skip sub-row
+          // Extract per-round scores (eq classics have Rnd1 + Rnd2 + total cols after rider)
+      const rnd1eq = tds[3] ? tds[3].textContent.replace(/ /g,'').trim() : '';
+      const rnd2eq = tds[4] ? tds[4].textContent.replace(/ /g,'').trim() : '';
+      // total is the last non-blank numeric column (may be same as score)
+      let totaleq = score;
+      for (let c = tds.length-1; c >= 5; c--) {
+        const v = tds[c].textContent.replace(/ /g,'').trim();
+        if (v && !v.startsWith('$') && /^[\d.]+$/.test(v)) { totaleq = v; break; }
+      }
+      entries.push({ place, num: td2text(tds[1]), rider: td2text(tds[2]), score, rnd1: rnd1eq, rnd2: rnd2eq, total: totaleq, prize, judgeScores });
+          continue;
+        }
+      }
+      const rnd1eq2 = tds[3] ? tds[3].textContent.replace(/ /g,'').trim() : '';
+      const rnd2eq2 = tds[4] ? tds[4].textContent.replace(/ /g,'').trim() : '';
+      let totaleq2 = score;
+      for (let c = tds.length-1; c >= 5; c--) {
+        const v = tds[c].textContent.replace(/ /g,'').trim();
+        if (v && !v.startsWith('$') && /^[\d.]+$/.test(v)) { totaleq2 = v; break; }
+      }
+      entries.push({ place, num: td2text(tds[1]), rider: td2text(tds[2]), score, rnd1: rnd1eq2, rnd2: rnd2eq2, total: totaleq2, prize, judgeScores });
+      i++;
+    }
+    return { format: 'equitation', entries, hasScore: entries.some(e => e.score), isClassic: entries.some(e => e.rnd2 && e.rnd2 !== '' && e.judgeScores) };
+  }
+
+  // Hunter — check it has expected columns before committing
+  const looksLikeHunter = hdrLabels.some(l => /horse/i.test(l)) || hdrLabels.some(l => /rider/i.test(l)) || hdrTds.length >= 4;
+  if (!looksLikeHunter) {
+    // Unknown format — return raw rows for fallback renderer
+    const rawRows = dataRows.filter(r => r.className === 'CBody').map(r =>
+      Array.from(r.querySelectorAll('td')).map(td => decodeHtml(td.textContent.replace(/\u00a0/g,' ').trim()))
+    );
+    return { format: 'unknown', entries: [], rawRows, hdrLabels };
+  }
+
+  const entries = []; let i = 0;
+  while (i < dataRows.length) {
+    const row = dataRows[i];
+    if (row.className !== 'CBody') { i++; continue; }
+    const tds = Array.from(row.querySelectorAll('td'));
+    if (tds.length < 2) { i++; continue; }
+    const place = tds[0] ? tds[0].textContent.replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().split(' ')[0] : '';
+    if (!place || /^\s*$/.test(place)) {
+      // Stop if this is a "Round 1" / "Round 2" section divider
+      const riderColText = tds[3] ? tds[3].textContent.trim() : (tds[1] ? tds[1].textContent.trim() : '');
+      if (/^Round\s+\d/i.test(riderColText)) break;
+      // For live non-scored hunter classes, include entries with a valid entry number
+      const entryNum = tds[1] ? tds[1].textContent.replace(/\u00a0/g,'').trim() : '';
+      if (!isLive || !entryNum || !/^\d+$/.test(entryNum)) { i++; continue; }
+    }
+    let total = '', prize = '', rnd1 = '', rnd2 = '';
+    const extraVals = [];
+    for (let c = 4; c < tds.length; c++) {
+      const v = tds[c].textContent.replace(/\u00a0/g,'').trim();
+      if (!v) continue;
+      if (v.startsWith('$')) { prize = v; }
+      else { extraVals.push(v); }
+    }
+    // extraVals layout: [rnd1, rnd2, total] when R2 exists, [rnd1, total] when R1 only
+    if (extraVals.length >= 3) {
+      rnd1  = extraVals[0] || '';
+      rnd2  = extraVals[1] || '';
+      total = extraVals[2] || '';
+    } else {
+      rnd1  = extraVals[0] || '';
+      rnd2  = '';
+      total = extraVals[1] || extraVals[0] || '';
+    }
+    // Sub-row: owner, breeding, and judge breakdown lines
+    const subRow = dataRows[i+1];
+    let owner = '', judgeScores = '';
+    if (subRow) {
+      const t2 = Array.from(subRow.querySelectorAll('td'));
+      const oTd = t2[2];
+      if (oTd) {
+        const sp = oTd.querySelectorAll('span.CBody2');
+        if (sp.length) owner = decodeHtml(sp[0].textContent.trim());
+        else { const it = oTd.querySelector('i'); if (it) owner = decodeHtml(it.textContent.split('\n')[0].trim()); }
+      }
+      // Judge score breakdown — in CBody2 span, rider column (td[3] or colspan td)
+      const scoreTd = t2[3] || t2[2];
+      if (scoreTd) {
+        const jSpan = scoreTd.querySelector('span.CBody2');
+        if (jSpan) {
+          judgeScores = decodeHtml(jSpan.innerHTML.replace(/<br\s*\/?>/gi, '\n')).trim();
+        }
+      }
+    }
+    // Breeding — from horse cell italic/span
+    const hCell = tds[2];
+    let breeding = '';
+    if (hCell) {
+      const bSpans = hCell.querySelectorAll('span.CBody2, i');
+      // Last span is usually sire×dam
+      if (bSpans.length) breeding = decodeHtml(bSpans[bSpans.length-1].textContent.trim());
+    }
+    entries.push({ place, num: td2text(tds[1]), horse: td2text(tds[2]).split('\n')[0].trim(), breeding, rider: td2text(tds[3]), owner, rnd1, rnd2, total, prize, judgeScores });
+    const nr = dataRows[i+1];
+    const np = nr ? nr.querySelectorAll('td')[0]?.textContent.replace(/\u00a0/g,' ').trim() : 'x';
+    i += (nr && !np) ? 2 : 1;
+  }
+  return { format: 'hunter', entries, isDerby: entries.some(e => e.rnd2 && e.rnd2 !== ''), hasScore: entries.some(e => e.total && e.total !== ''), hasPrize: entries.some(e => e.prize && e.prize !== ''), scoreLabel1, scoreLabel2 };
+}
+
+
+function judgeExpandHtml(judgeScores) {
+  if (!judgeScores) return '';
+  const lines = judgeScores.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return '';
+  const rows = lines.map(line => {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx > -1) {
+      const label = line.substring(0, colonIdx).trim();
+      const val   = line.substring(colonIdx + 1).trim();
+      return `<div class="jp-row"><span class="jp-label">${esc(label)}</span><span class="jp-val">${esc(val)}</span></div>`;
+    }
+    return `<div class="jp-row"><span class="jp-val">${esc(line)}</span></div>`;
+  }).join('');
+  return `<div class="judge-expand"><div class="de-inner">${rows}</div></div>`;
+}
+
+function judgeMidHtml(e) {
+  if (!e) return '<div class="r-judge-mid"></div>';
+
+  // Use structured phase data if available
+  if (e._jt && e._jt.phases && e._jt.phases.length) {
+    const jt = e._jt;
+    const ranksByPhase = [jt.r1Ranks, jt.r2Ranks];
+    const showLabel = jt.phases.length > 1;
+    let rows = '';
+    jt.phases.forEach((phase, phaseIdx) => {
+      const ranks = ranksByPhase[phaseIdx];
+      phase.judges.forEach((j, judgeIdx) => {
+        const mathStr = j.parts.length > 1
+          ? j.parts.join(' + ') + ' = ' + j.total.toFixed(1)
+          : j.total.toFixed(1);
+        const rank = ranks ? ranks[judgeIdx] : null;
+        const lbl = showLabel ? phase.label + ' J' + (judgeIdx+1) : 'J' + (judgeIdx+1);
+        rows += `<div class="r-judge-mid-row">
+          <span class="r-judge-mid-lbl">${esc(lbl)}</span>
+          <span class="r-judge-mid-val">${mathStr}</span>
+          ${rank ? `<span class="r-judge-mid-rank">(${ordinal(rank)})</span>` : ''}
+        </div>`;
+      });
+    });
+    if (!rows) return '<div class="r-judge-mid"></div>';
+    return `<div class="r-judge-mid">
+      <div class="r-judge-mid-btn">View Judge Scores</div>
+      <div class="r-judge-mid-scores">${rows}</div>
+    </div>`;
+  }
+
+  // Fallback: raw string
+  const judgeScores = typeof e === 'string' ? e : (e.judgeScores || '');
+  if (!judgeScores) return '<div class="r-judge-mid"></div>';
+  const lines = judgeScores.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return '<div class="r-judge-mid"></div>';
+  const rows = lines.map(line => {
+    if (/^\d/.test(line)) return `<div class="r-judge-mid-row"><span class="r-judge-mid-val">${esc(line)}</span></div>`;
+    return `<div class="r-judge-mid-row"><span class="r-judge-mid-lbl">${esc(line)}</span></div>`;
+  }).join('');
+  return `<div class="r-judge-mid">
+    <div class="r-judge-mid-btn">View Judge Scores</div>
+    <div class="r-judge-mid-scores">${rows}</div>
+  </div>`;
+}
+
+function scoreWrap(innerHtml, judgeScores) {
+  const hint = judgeScores ? '<span class="r-judge-hint">View Judge Scores</span>' : '';
+  return `<div class="r-scores">${innerHtml}${hint}</div>`;
+}
+
+
+function bibHtml(num) {
+  if (!num) return '';
+  return `<span class="r-bib">${esc(num)}</span>`;
+}
+
+function ribbonCol(place, cn, prize, isLive) {
+  const n = parseInt(String(place).replace(/^T/i, ''));  // strip T prefix for ties
+  const isChamp = cn && /champion/i.test(cn);
+  let svg = '';
+  if (!isLive) {
+    if (isChamp && n === 1) svg = champSvg(false);
+    else if (isChamp && n === 2) svg = champSvg(true);
+    else svg = ribbonSvg(n) || '';
+  }
+  const placeTxt = (!isLive && svg) ? '' : `<span class="r-place-txt">${esc(place)}</span>`;
+  const prizeTxt = prize ? `<div class="r-prize-ribbon">${esc(prize)}</div>` : '';
+  return `<div class="r-ribbon">${svg}${placeTxt}${prizeTxt}</div>`;
+}
+
+function renderResultEntries(parsed, isLive) {
+  if (!parsed.entries || !parsed.entries.length) {
+    // Unknown format fallback
+    if (parsed.format === 'unknown' && parsed.rawRows && parsed.rawRows.length) {
+      // Fire flag to worker asynchronously
+      fetch(`${WORKER}?action=logUnknownFormat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classUrl: resultUrl, className, showName })
+      }).catch(() => {});
+      const hdrs = (parsed.hdrLabels || []).filter(Boolean);
+      const hdrRow = hdrs.length ? `<tr>${hdrs.map(h => `<td>${esc(h)}</td>`).join('')}</tr>` : '';
+      const rows = parsed.rawRows.map(cols =>
+        `<tr>${cols.map((c,i) => `<td>${esc(c)}</td>`).join('')}</tr>`
+      ).join('');
+      return `<div class="unknown-format-wrap">
+        <div class="unknown-format-notice">⚑ Unrecognized result format — displaying raw data. This has been flagged for review.</div>
+        <table class="unknown-table">${hdrRow}${rows}</table>
+      </div>`;
+    }
+    return '';
+  }
+
+  let html = '<div class="results-wrap">';
+
+  if (parsed.format === 'jumper') {
+    parsed.entries.forEach((e, i) => {
+      const rider = e.flag ? `${esc(e.rider)} <span style="font-size:13px">${e.flag}</span>` : esc(e.rider);
+      // JO/PH2 on top if present (most important for placement), R1/PH1 below
+      let scoresHtml = '';
+      if (parsed.hasJO || parsed.jumperSecondRound) {
+        const lbl2 = parsed.scoreLabel2 || (parsed.hasJO ? 'JO' : 'PH2');
+        const lbl1 = parsed.scoreLabel1 || 'R1';
+        scoresHtml = `
+          <div class="r-score-row"><span class="r-score-lbl">${esc(lbl2)}</span><span class="r-score-val primary">${esc(e.joFaults)}</span><span class="r-score-val">${esc(e.joTime)}</span></div>
+          <div class="r-score-row"><span class="r-score-lbl">${esc(lbl1)}</span><span class="r-score-val">${esc(e.r1Faults)}</span><span class="r-score-val">${esc(e.r1Time)}</span></div>`;
+      } else {
+        scoresHtml = `<div class="r-score-row"><span class="r-score-val primary">${esc(e.r1Faults)}</span><span class="r-score-val">${esc(e.r1Time)}</span></div>`;
+      }
+      html += `<div class="result-entry">
+        <div class="result-main">
+          ${ribbonCol(e.place, className, e.prize, isLive)}
+          <div class="r-info">
+            <div class="r-horse-line">${bibHtml(e.num)}<div class="r-horse-rider"><span class="r-horse">${esc(e.horse)}</span><span class="r-rider-inline">${rider}</span></div></div>
+            ${e.sire ? `<div class="r-breeding">${esc(e.sire)}</div>` : ''}
+            ${e.owner ? `<div class="r-owner">${esc(e.owner)}</div>` : ''}
+          </div>
+          ${scoreWrap(scoresHtml, null)}
+        </div>
+      </div>`;
+    });
+
+  } else if (parsed.format === 'equitation') {
+    // Judge tracker for any eq class with per-judge scores (classic or single-round)
+    const hasJudgeData = JUDGE_TRACKER_ENABLED && parsed.entries.some(e => e.judgeScores);
+    const isClassic = parsed.isClassic && hasJudgeData;
+    if (hasJudgeData) computeRankings(parsed.entries);
+    const judgeSummaryEq = isClassic ? renderJudgeSummary(parsed.entries) : '';
+
+    const eqEntriesHtml = (() => {
+      let h = '';
+      parsed.entries.forEach((e, i) => {
+        const hasJ = !!e.judgeScores;
+        // Scores display: classic shows rnd1+rnd2+total, regular shows one score
+        let scoreInner = '';
+        const jt = e._jt || null;
+        const r1rank = jt && jt.r1CombinedRank ? `<span class="r-score-rank">(${ordinal(jt.r1CombinedRank)})</span>` : '';
+        const r2rank = jt && jt.r2CombinedRank ? `<span class="r-score-rank">(${ordinal(jt.r2CombinedRank)})</span>` : '';
+        if (isClassic && e.rnd1) {
+          if (e.rnd2) {
+            scoreInner = `
+              <div class="r-score-row"><span class="r-score-lbl">R1</span><span class="r-score-val">${esc(e.rnd1)}</span>${r1rank}</div>
+              <div class="r-score-row"><span class="r-score-lbl">R2</span><span class="r-score-val">${esc(e.rnd2)}</span>${r2rank}</div>
+              ${e.total ? `<div class="r-total">${esc(e.total)}</div>` : ''}`;
+          } else {
+            scoreInner = `<div class="r-score-row"><span class="r-score-lbl">R1</span><span class="r-score-val primary">${esc(e.rnd1)}</span>${r1rank}</div>`;
+          }
+        } else if (e.score) {
+          scoreInner = `<div class="r-score-row"><span class="r-score-val primary">${esc(e.score)}</span></div>`;
+        }
+        const expandHtml = isClassic && hasJ ? derbyExpandHtml(e) : (hasJ ? judgeExpandHtml(e.judgeScores) : '');
+        h += `<div class="result-entry${hasJ ? ' has-judges' : ''}" ${hasJ ? 'onclick="toggleEntry(this,event)"' : ''}>
+          <div class="result-main">
+            ${isClassic ? movementHtml(e) : ''}
+            ${ribbonCol(e.place, className, e.prize, isLive)}
+            <div class="r-info">
+              <div class="r-horse-line">${bibHtml(e.num)}<span class="r-rider-eq">${esc(e.rider)}</span></div>
+            </div>
+            ${scoreInner ? scoreWrap(scoreInner, hasJ ? e.judgeScores : null) : ""}
+          </div>
+          ${expandHtml}
+        </div>`;
+      });
+      return h;
+    })();
+
+    html += eqEntriesHtml;
+    if (judgeSummaryEq) {
+      html = html.replace('<div class="results-wrap">', '<div class="results-wrap">' + judgeSummaryEq);
+    }
+
+  } else {
+    // Hunter — run judge tracker for any class with per-judge scores
+    const hasJudgeData = JUDGE_TRACKER_ENABLED && parsed.entries.some(e => e.judgeScores);
+    const isDerby = parsed.isDerby && hasJudgeData;
+    if (hasJudgeData) computeRankings(parsed.entries);
+
+    // Judge summary header (derby only, renders above the list)
+    if (isDerby) html = html.replace('<div class="results-wrap">', '<div class="results-wrap">') + '';
+    const judgeSummary = isDerby ? renderJudgeSummary(parsed.entries) : '';
+
+    const entriesHtml = (() => {
+      let h = '';
+      parsed.entries.forEach((e, i) => {
+        const lbl1 = parsed.scoreLabel1 || 'RD1';
+        const lbl2 = parsed.scoreLabel2 || 'RD2';
+        let scoresHtml = '';
+        const jt = e._jt || null;
+        const r1rank = jt && jt.r1CombinedRank ? `<span class="r-score-rank">(${ordinal(jt.r1CombinedRank)})</span>` : '';
+        const r2rank = jt && jt.r2CombinedRank ? `<span class="r-score-rank">(${ordinal(jt.r2CombinedRank)})</span>` : '';
+        if (e.rnd1 && e.rnd2) {
+          scoresHtml = `
+            <div class="r-score-row"><span class="r-score-lbl">${esc(lbl1)}</span><span class="r-score-val">${esc(e.rnd1)}</span>${r1rank}</div>
+            <div class="r-score-row"><span class="r-score-lbl">${esc(lbl2)}</span><span class="r-score-val">${esc(e.rnd2)}</span>${r2rank}</div>
+            ${e.total ? `<div class="r-total">${esc(e.total)}</div>` : ''}`;
+        } else if (e.total) {
+          scoresHtml = `<div class="r-score-row"><span class="r-score-val primary">${esc(e.total)}</span></div>`;
+        } else if (e.rnd1) {
+          scoresHtml = `<div class="r-score-row"><span class="r-score-lbl">${esc(lbl1)}</span><span class="r-score-val primary">${esc(e.rnd1)}</span></div>`;
+        }
+        const hasJ = !!e.judgeScores;
+        const expandHtml = isDerby && hasJ ? derbyExpandHtml(e) : (hasJ ? judgeExpandHtml(e.judgeScores) : '');
+        h += `<div class="result-entry${hasJ ? ' has-judges' : ''}" ${hasJ ? 'onclick="toggleEntry(this,event)"' : ''}>
+          <div class="result-main">
+            ${isDerby ? movementHtml(e) : ''}
+            ${ribbonCol(e.place, className, e.prize, isLive)}
+            <div class="r-info">
+              <div class="r-horse-line">${bibHtml(e.num)}<div class="r-horse-rider"><span class="r-horse">${esc(e.horse)}</span><span class="r-rider-inline">${esc(e.rider)}</span></div></div>
+              ${e.breeding ? `<div class="r-breeding">${esc(e.breeding)}</div>` : ''}
+              ${e.owner ? `<div class="r-owner">${esc(e.owner)}</div>` : ''}
+            </div>
+            ${scoresHtml ? scoreWrap(scoresHtml, hasJ ? e.judgeScores : null) : ""}
+          </div>
+          ${expandHtml}
+        </div>`;
+      });
+      return h;
+    })();
+
+    // Insert judge summary between title bar and results
+    html += entriesHtml;
+    // Inject summary before closing results-wrap by rebuilding the open tag
+    if (judgeSummary) {
+      html = html.replace('<div class="results-wrap">', '<div class="results-wrap">' + judgeSummary);
+    }
+  }
+
+  html += '</div>';
+  return html;
+}
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// JUDGE TRACKER — hunter derby per-judge leaderboard
+// Set JUDGE_TRACKER_ENABLED = false to disable entirely and fall back to
+// the simple judgeExpandHtml() display with zero impact on anything else.
+// ═══════════════════════════════════════════════════════════════════════════════
+const JUDGE_TRACKER_ENABLED = true;
+
+// Parse "96.000 + 4, 93.000 + 4" into array of per-judge totals
+// Returns [{total: 100, parts: [96, 4]}, {total: 97, parts: [93, 4]}]
+// Handles arbitrary judge count (2, 3, 4...)
+function parseJudgeScores(str) {
+  if (!str) return [];
+  // Strip round label prefix e.g. "R1: " or "R2: "
+  const clean = str.replace(/^R\d+\s*:\s*/i, '').trim();
+  return clean.split(',').map(seg => {
+    const parts = seg.trim().split('+').map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
+    const total = parts.reduce((a, b) => a + b, 0);
+    return { total: Math.round(total * 1000) / 1000, parts };
+  });
+}
+
+// Given an array of numeric values (higher = better), return rank array (1-based, ties same rank)
+function rankValues(vals) {
+  // vals is array of {idx, val} — null/undefined = did not compete
+  const competed = vals.filter(v => v.val !== null && v.val !== undefined && !isNaN(v.val));
+  competed.sort((a, b) => b.val - a.val);
+  const ranks = new Array(vals.length).fill(null);
+  let rank = 1;
+  for (let i = 0; i < competed.length; i++) {
+    if (i > 0 && competed[i].val === competed[i-1].val) {
+      ranks[competed[i].idx] = ranks[competed[i-1].idx]; // tie
+    } else {
+      ranks[competed[i].idx] = rank;
+    }
+    rank++;
+  }
+  return ranks;
+}
+
+function ordinal(n) {
+  if (n === null || n === undefined) return '';
+  const s = ['th','st','nd','rd'], v = n % 100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+
+// Post-process pass: compute all rankings and inject onto entries
+// Runs for any class with judge data
+function computeRankings(entries) {
+  // Helper: find the R1 data — supports both "R1: 91, 88" prefixed and plain "91, 88" formats
+  // Parse judgeScores into phases regardless of format:
+  //   "R1: 91, 88\nR2: 95, 90"        → [{label:'R1', line:'91, 88'}, {label:'R2', ...}]
+  //   "91, 88"                          → [{label:'R1', line:'91, 88'}]
+  //   "HUNTER PHASE\n88, 91\nJUMPER PHASE\n85, 87" → [{label:'HUNTER PHASE', line:'88, 91'}, ...]
+  function parsePhases(judgeScores) {
+    if (!judgeScores) return [];
+    const lines = judgeScores.split('\n').map(l => l.trim()).filter(Boolean);
+    const phases = [];
+
+    // R1/R2 prefixed format
+    const r1 = lines.find(l => /^R1\b/i.test(l));
+    if (r1) {
+      phases.push({ label: 'R1', line: r1 });
+      const r2 = lines.find(l => /^R2\b/i.test(l));
+      if (r2) phases.push({ label: 'R2', line: r2 });
+      return phases;
+    }
+
+    // Label + scores alternating, or plain scores only
+    let pendingLabel = null;
+    for (const line of lines) {
+      if (/^\d/.test(line)) {
+        // Numeric line = score data
+        phases.push({ label: pendingLabel || ('R' + (phases.length + 1)), line });
+        pendingLabel = null;
+      } else {
+        pendingLabel = line.replace(/:$/, '').trim(); // text label, strip trailing colon
+      }
+    }
+    return phases;
+  }
+
+  const judgeCount = Math.max(...entries.map(e => {
+    const phases = parsePhases(e.judgeScores);
+    if (!phases.length) return 0;
+    return parseJudgeScores(phases[0].line).length;
+  }));
+  if (judgeCount === 0) return entries;
+
+  // With only one judge there's nothing to compare — parse phases but skip ranking
+  const singleJudge = judgeCount === 1;
+
+  // Parse each entry's phases
+  entries.forEach(e => {
+    e._jt = { judgeCount, phases: [], r1: null, r2: null };
+    if (!e.judgeScores) return;
+    const phases = parsePhases(e.judgeScores);
+    e._jt.phases = phases.map(p => ({ label: p.label, judges: parseJudgeScores(p.line) }));
+    if (e._jt.phases[0]) e._jt.r1 = e._jt.phases[0].judges;
+    if (e._jt.phases[1]) e._jt.r2 = e._jt.phases[1].judges;
+  });
+
+  if (singleJudge) {
+    // Single judge — compute positional ranks per phase but skip inter-judge comparison
+    const r1vals = entries.map((e, idx) => ({ idx, val: e._jt.r1 ? (e._jt.r1[0] ? e._jt.r1[0].total : null) : null }));
+    const r1ranks = rankValues(r1vals);
+    entries.forEach((e, i) => {
+      e._jt.r1Ranks = [r1ranks[i]];
+      e._jt.r1CombinedRank = r1ranks[i];
+    });
+    const hasR2single = entries.some(e => e._jt.r2);
+    if (hasR2single) {
+      const r2vals = entries.map((e, idx) => ({ idx, val: e._jt.r2 ? (e._jt.r2[0] ? e._jt.r2[0].total : null) : null }));
+      const r2ranks = rankValues(r2vals);
+      entries.forEach((e, i) => {
+        e._jt.r2Ranks = [r2ranks[i]];
+        e._jt.r2CombinedRank = r2ranks[i];
+      });
+    }
+    return entries;
+  }
+
+  // Rank: R1 per judge
+  for (let j = 0; j < judgeCount; j++) {
+    const vals = entries.map((e, idx) => ({
+      idx, val: e._jt.r1 ? (e._jt.r1[j] ? e._jt.r1[j].total : null) : null
+    }));
+    const ranks = rankValues(vals);
+    entries.forEach((e, i) => {
+      if (!e._jt.r1Ranks) e._jt.r1Ranks = [];
+      e._jt.r1Ranks[j] = ranks[i];
+    });
+  }
+
+  // R1 combined rank (use rnd1 field)
+  const r1vals = entries.map((e, idx) => ({ idx, val: e.rnd1 ? parseFloat(e.rnd1) : null }));
+  const r1ranks = rankValues(r1vals);
+  entries.forEach((e, i) => { e._jt.r1CombinedRank = r1ranks[i]; });
+
+  // Rank: R2 per judge — only among entries that actually have R2 data
+  const hasR2 = entries.some(e => e._jt.r2);
+  if (hasR2) {
+    for (let j = 0; j < judgeCount; j++) {
+      // Only include entries with a real R2 score for this judge
+      const vals = entries.map((e, idx) => ({
+        idx, val: (e._jt.r2 && e._jt.r2[j]) ? e._jt.r2[j].total : null
+      }));
+      const ranks = rankValues(vals); // rankValues already skips nulls
+      entries.forEach((e, i) => {
+        if (!e._jt.r2Ranks) e._jt.r2Ranks = [];
+        e._jt.r2Ranks[j] = ranks[i]; // null if no R2
+      });
+    }
+
+    // R2 combined rank — only among entries with rnd2
+    const r2vals = entries.map((e, idx) => ({ idx, val: e.rnd2 ? parseFloat(e.rnd2) : null }));
+    const r2ranks = rankValues(r2vals);
+    entries.forEach((e, i) => { e._jt.r2CombinedRank = r2ranks[i]; });
+  }
+
+  // Judge card totals (R1+R2 per judge) and ranks
+  if (hasR2) {
+    for (let j = 0; j < judgeCount; j++) {
+      const vals = entries.map((e, idx) => {
+        if (!e._jt.r1 || !e._jt.r2) return { idx, val: null };
+        const r1 = e._jt.r1[j] ? e._jt.r1[j].total : null;
+        const r2 = e._jt.r2[j] ? e._jt.r2[j].total : null;
+        return { idx, val: (r1 !== null && r2 !== null) ? r1 + r2 : null };
+      });
+      const ranks = rankValues(vals);
+      entries.forEach((e, i) => {
+        if (!e._jt.judgeCardTotals) e._jt.judgeCardTotals = [];
+        if (!e._jt.judgeCardRanks) e._jt.judgeCardRanks = [];
+        e._jt.judgeCardTotals[j] = vals[i].val !== null ? Math.round(vals[i].val * 1000) / 1000 : null;
+        e._jt.judgeCardRanks[j] = ranks[i];
+      });
+    }
+  }
+
+  // Final combined rank (use total field)
+  const finalVals = entries.map((e, idx) => ({ idx, val: e.total ? parseFloat(e.total) : null }));
+  const finalRanks = rankValues(finalVals);
+  entries.forEach((e, i) => { e._jt.finalRank = finalRanks[i]; });
+
+  // Movement: R1 combined rank → final combined rank
+  entries.forEach(e => {
+    if (e._jt.r1CombinedRank !== null && e._jt.finalRank !== null) {
+      e._jt.movement = e._jt.r1CombinedRank - e._jt.finalRank; // positive = moved up
+    } else {
+      e._jt.movement = null;
+    }
+  });
+
+  return entries;
+}
+
+// Movement arrow HTML
+function movementHtml(entry) {
+  if (!JUDGE_TRACKER_ENABLED) return '';
+  const m = entry._jt ? entry._jt.movement : null;
+  if (m === null || m === undefined) return '<div class="r-move flat">·</div>';
+  if (m > 0)  return `<div class="r-move up">↑${m}</div>`;
+  if (m < 0)  return `<div class="r-move down">↓${Math.abs(m)}</div>`;
+  return '<div class="r-move flat">—</div>';
+}
+
+// Judge summary — collapsible, only shown when judges disagree on top 3
+function renderJudgeSummary(entries) {
+  if (!JUDGE_TRACKER_ENABLED) return '';
+  const withData = entries.filter(e => e._jt && e._jt.judgeCardTotals);
+  if (!withData.length) return '';
+  const judgeCount = withData[0]._jt.judgeCount;
+  if (judgeCount < 2) return '';
+
+  const competed = entries.filter(e => e._jt && (e._jt.r1 || e._jt.r2)).length;
+  const total = entries.length;
+
+  // Build top-3 per judge
+  const judgeTop3 = [];
+  for (let j = 0; j < judgeCount; j++) {
+    const ranked = entries
+      .map(e => ({ horse: e.horse || e.rider, score: e._jt.judgeCardTotals ? e._jt.judgeCardTotals[j] : null }))
+      .filter(x => x.score !== null && x.score !== undefined)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    judgeTop3.push(ranked);
+  }
+
+  // Only show if at least one judge has a different top horse
+  const topHorses = judgeTop3.map(t => t[0] ? t[0].horse : null).filter(Boolean);
+  const allAgree = topHorses.every(h => h === topHorses[0]);
+  if (allAgree) return ''; // no drama — stay hidden
+
+  // Build body: one block per judge, top 3 listed
+  // Mark any horse that differs from the overall winner (final rank 1)
+  const overallWinner = entries.find(e => e._jt && e._jt.finalRank === 1);
+  const overallName = overallWinner ? (overallWinner.horse || overallWinner.rider) : null;
+
+  const blocks = judgeTop3.map((top, j) => {
+    const rows = top.map((t, rank) => {
+      const differs = overallName && t.horse !== overallName && rank === 0;
+      return `<div class="jt-judge-row${differs ? ' differs' : ''}">
+        <span class="jt-rank">${rank + 1}</span>
+        <span class="jt-judge-horse">${esc(t.horse)}</span>
+        <span class="jt-judge-score">${t.score.toFixed(1)}</span>
+      </div>`;
+    }).join('');
+    return `<div class="jt-judge-block">
+      <div class="jt-judge-block-lbl">Judge ${j+1}</div>
+      ${rows}
+    </div>`;
+  }).join('');
+
+  return `<div class="jt-summary" id="jtSummary">
+    <div class="jt-summary-toggle" onclick="document.getElementById('jtSummary').classList.toggle('open')">
+      <div class="jt-summary-left">
+        <span class="jt-summary-title">Judge Cards</span>
+        <span class="jt-disagree-pill">Split decision</span>
+      </div>
+      <div class="jt-summary-right">
+        <span class="jt-summary-count">${competed} of ${total} competed</span>
+        <span class="jt-chevron">›</span>
+      </div>
+    </div>
+    <div class="jt-body">${blocks}</div>
+  </div>`;
+}
+
+// Rich derby expand panel
+function derbyExpandHtml(e) {
+  if (!JUDGE_TRACKER_ENABLED || !e._jt) return judgeExpandHtml(e.judgeScores);
+  const jt = e._jt;
+  const phases = jt.phases || [];
+  if (!phases.length) return judgeExpandHtml(e.judgeScores);
+
+  let html = '<div class="derby-expand"><div class="de-inner">';
+
+  // Per-phase, per-judge rows
+  const ranksByPhase = [jt.r1Ranks, jt.r2Ranks]; // index matches phase index
+  phases.forEach((phase, phaseIdx) => {
+    const ranks = ranksByPhase[phaseIdx];
+    const showLabel = phases.length > 1; // only show phase label if multi-phase
+    phase.judges.forEach((j, judgeIdx) => {
+      const mathStr = j.parts.length > 1
+        ? j.parts.join(' + ') + ' = ' + j.total.toFixed(1)
+        : j.total.toFixed(1);
+      const rank = ranks ? ranks[judgeIdx] : null;
+      const soloWin = rank === 1 && jt.judgeCount > 1;
+      const lbl = showLabel
+        ? phase.label + ' J' + (judgeIdx + 1)
+        : 'J' + (judgeIdx + 1);
+      html += `<div class="de-judge-row">
+        <span class="de-judge-lbl">${esc(lbl)}</span>
+        <span class="de-judge-math">${mathStr}</span>
+        <span class="de-judge-rank${soloWin ? ' solo-winner' : ''}">${rank ? '(' + ordinal(rank) + ')' : ''}</span>
+      </div>`;
+    });
+  });
+
+  // Judge card totals — only show if multi-round and judges disagree
+  if (phases.length > 1 && jt.judgeCardTotals && jt.judgeCardTotals.some(t => t !== null)) {
+    const allSame = jt.judgeCardRanks && jt.judgeCardRanks.every(r => r === 1);
+    if (!allSame) {
+      html += '<div class="de-combined">';
+      jt.judgeCardTotals.forEach((t, idx) => {
+        if (t === null) return;
+        const rank = jt.judgeCardRanks ? jt.judgeCardRanks[idx] : null;
+        const wouldWin = rank === 1;
+        html += `<div class="de-judge-card-row">
+          <span class="de-judge-card-lbl">J${idx+1} card</span>
+          <span class="de-judge-card-val">${t.toFixed(1)}</span>
+          <span class="de-judge-card-rank${wouldWin ? ' would-win' : ''}">${rank ? '(' + ordinal(rank) + ')' : ''}</span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+  }
+
+  html += '</div></div>'; // de-inner, derby-expand
+  return html;
+}
+// ── ENTRY EXPAND ─────────────────────────────────────────────────────────────
+function toggleEntry(el, event) {
+  event.stopPropagation();
+  el.classList.toggle('open');
+}
+
+// ── SPONSOR PARSER ────────────────────────────────────────────────────────────
+function parseSponsor(doc) {
+  const cname = doc.querySelector('.CName');
+  if (!cname) return '';
+  const lines = cname.textContent.split('\n').map(l => l.trim()).filter(Boolean);
+  const sponsorLine = lines.find(l => /sponsored\s+by/i.test(l));
+  if (!sponsorLine) return '';
+  return sponsorLine.replace(/^sponsored\s+by\s*/i, 'Sponsored by ');
+}
+
+// ── TITLE BAR HTML ────────────────────────────────────────────────────────────
+function titleBarHtml(isJumper, sponsor = '') {
+  const statsUrl = 'stats.html?url=' + encodeURIComponent(resultUrl)
+    + '&num=' + encodeURIComponent(classNum)
+    + '&name=' + encodeURIComponent(className)
+    + '&show=' + encodeURIComponent(showName)
+    + '&crumb=' + encodeURIComponent(crumb)
+    + (tskedUrl ? '&tsked=' + encodeURIComponent(tskedUrl) : '');
+  return `<div class="title-bar">
+    ${classNum ? `<div class="title-classnum">Class ${esc(classNum)}</div>` : ''}
+    <div class="title-main">${esc(className)}</div>
+    ${sponsor ? `<div class="title-sponsor">${esc(sponsor)}</div>` : ''}
+    ${isJumper ? `<a class="stats-btn visible" href="${statsUrl}">⬡ Class Statistics</a>` : ''}
+    <div class="title-ryegate">Data via <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a></div>
+  </div>`;
+}
+
+// ── MAIN LOAD ─────────────────────────────────────────────────────────────────
+let liveRefreshTimer = null;
+
+async function loadResults(showSpinner = true) {
+  if (showSpinner) {
+    document.getElementById('content').innerHTML = `<div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Results…</div></div>`;
+  }
+
+  try {
+    const res = await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(resultUrl)}`);
+    if (!res.ok) throw new Error('fetch failed');
+    const html = await res.text();
+
+    // Check for "Please Check Back Later"
+    if (/please\s+check\s+back\s+later/i.test(html)) {
+      stopLiveRefresh();
+      document.getElementById('content').innerHTML = titleBarHtml(false) + `
+        <div class="not-posted">
+          <div class="not-posted-icon">🕐</div>
+          <h2>Not Posted Yet</h2>
+          <p>Results for this class haven't been posted yet.<br>Check back after the class runs.</p>
+        </div>`;
+      return;
+    }
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const oc  = parseOnCourse(doc);
+    const now = new Date();
+
+    // Check OOG first — before parseResults grabs the table
+    const oogEntries = parseOOG(doc);
+    const oogHtml    = renderOOG(oogEntries);
+
+    if (oc && oc.isLive) {
+      // Live — show ON COURSE block + whatever results exist so far + OOG
+      const sponsor = parseSponsor(doc);
+      const parsed = parseResults(doc, true);
+      // For live non-scored classes (hunter with no place/scores), add a section label
+      const hasNoScores = parsed.format === 'hunter' && parsed.entries.length > 0 &&
+        parsed.entries.every(e => !e.total && !e.rnd1 && !e.place);
+      const prevEntriesLabel = hasNoScores
+        ? '<div class="section-label" style="margin:0;padding:10px 16px 6px;background:#fff;border-bottom:1px solid var(--border);font-family:DM Mono,monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#aaa;">Previous Entries</div>'
+        : '';
+      const resultsHtml = prevEntriesLabel + renderResultEntries(parsed, true);
+      const onDeckEntries = parseOnDeck(doc);
+      const onDeckHtml = renderOnDeck(onDeckEntries);
+      document.getElementById('content').innerHTML = titleBarHtml(parsed.format==='jumper', sponsor) + renderOnCourse(oc, now) + resultsHtml + oogHtml + onDeckHtml;
+      startLiveRefresh();
+      stopSlowRefresh();
+    } else if (oogEntries && !oc) {
+      // Pre-class OOG only — no results yet, not live
+      document.getElementById('content').innerHTML = titleBarHtml(false) + oogHtml;
+      startSlowRefresh();
+    } else {
+      // Complete — show results + OOG if present
+      stopLiveRefresh();
+      const sponsor = parseSponsor(doc);
+      const parsed = parseResults(doc);
+      if (!parsed.entries.length && parsed.format !== 'unknown') {
+        document.getElementById('content').innerHTML = titleBarHtml(false) + (oogHtml || `
+          <div class="not-posted">
+            <div class="not-posted-icon">📋</div>
+            <h2>No Results Yet</h2>
+            <p>No placings have been posted for this class.</p>
+          </div>`);
+      } else {
+        document.getElementById('content').innerHTML = titleBarHtml(parsed.format==='jumper', sponsor) + renderResultEntries(parsed, false) + oogHtml;
+        startSlowRefresh();
+      }
+    }
+
+  } catch(e) {
+    document.getElementById('content').innerHTML = titleBarHtml(false) + `
+      <div class="error-box">
+        <h2>Could Not Load</h2>
+        <p>Unable to fetch results. <a href="#" onclick="loadResults(true);return false;" style="color:var(--red)">Try again</a></p>
+      </div>`;
+  }
+}
+
+function startLiveRefresh() {
+  if (liveRefreshTimer) return; // already running
+  liveRefreshTimer = setInterval(() => loadResults(false), 30 * 1000);
+}
+
+function stopLiveRefresh() {
+  if (liveRefreshTimer) { clearInterval(liveRefreshTimer); liveRefreshTimer = null; }
+}
+
+let slowRefreshTimer = null;
+function startSlowRefresh() {
+  if (slowRefreshTimer || liveRefreshTimer) return;
+  slowRefreshTimer = setInterval(() => loadResults(false), 5 * 60 * 1000);
+}
+function stopSlowRefresh() {
+  if (slowRefreshTimer) { clearInterval(slowRefreshTimer); slowRefreshTimer = null; }
+}
+
+// Set header labels immediately from URL params
+document.title = className + ' — WEST Scoring Live';
+
+loadResults(true);
+</script>
+<footer>
+  <p>WEST Timing and Scoring &nbsp;·&nbsp; Results powered by <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a> &nbsp;·&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;·&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+</body>
+</html>

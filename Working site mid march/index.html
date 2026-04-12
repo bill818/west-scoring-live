@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live — Horse Show Results</title>
+<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --card-radius: 10px;
+  --tap: 52px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
+.header-inner{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
+.logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
+.logo-img{height:34px;width:auto;filter:invert(1);}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:24px;color:#fff;line-height:1;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
+.header-right{display:flex;align-items:center;gap:10px;}
+.live-pill{display:none;align-items:center;gap:5px;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;border-radius:2px;}
+.live-dot{width:5px;height:5px;background:#fff;border-radius:50%;animation:blink 1.6s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.update-chip{font-family:'DM Mono',monospace;font-size:10px;color:#666;}
+
+/* SEARCH */
+.search-bar{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;}
+.search-wrap{flex:1;position:relative;}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;pointer-events:none;}
+.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Source Sans 3',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
+.search-input::placeholder{color:#aaa;}
+.search-input:focus{border-color:var(--black);}
+.year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;appearance:auto;-webkit-appearance:auto;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+
+/* TOOLBAR */
+.toolbar{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;}
+.toolbar-left{display:flex;align-items:center;gap:14px;}
+.active-block{display:flex;align-items:baseline;gap:5px;}
+.active-num{font-family:'Playfair Display',serif;font-size:34px;font-weight:900;color:var(--red);line-height:1;}
+.active-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);line-height:1.4;}
+.shows-lbl{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.refresh-btn{background:none;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:8px 14px;cursor:pointer;min-height:40px;}
+.refresh-btn:active{background:var(--black);color:#fff;border-color:var(--black);}
+
+/* CARDS */
+.cards{padding:12px 12px 80px;max-width:680px;margin:0 auto;}
+.show-card{background:#fff;border-radius:var(--card-radius);border:1px solid var(--border);margin-bottom:10px;overflow:hidden;cursor:pointer;transition:transform .12s;opacity:0;animation:fadeUp .3s ease forwards;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.show-card:active{transform:scale(.98);}
+.card-top{padding:14px 16px 10px;}
+.card-row1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;}
+.card-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--black);line-height:1.2;flex:1;}
+.card-chevron{font-size:20px;color:#ccc;margin-top:1px;flex-shrink:0;}
+.card-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
+.status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;}
+.status-active{background:#e8f5e9;color:#2e7d32;}
+.status-upcoming{background:#e3f2fd;color:#1565c0;}
+.status-completed{background:#f5f5f5;color:#757575;}
+.card-dates{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.card-synced{font-family:'DM Mono',monospace;font-size:10px;color:#aaa;margin-left:auto;}
+.card-divider{height:1px;background:var(--border);margin:0 16px;}
+.card-classes{padding:9px 16px 13px;}
+.cls-row{display:flex;align-items:baseline;gap:8px;padding:3px 0;}
+.cls-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-width:34px;flex-shrink:0;}
+.cls-name{font-size:13px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.ring-chip{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);padding:3px 0;}
+.ring-chip-link{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);padding:4px 8px;margin:-4px -8px;border-radius:6px;text-decoration:none;transition:background .15s,color .15s;}
+.ring-chip-link:hover{background:var(--off-white);color:var(--red);}
+.cls-row-link{display:flex;align-items:baseline;gap:8px;padding:4px 8px;margin:-4px -8px;border-radius:6px;text-decoration:none;color:inherit;transition:background .15s;}
+.cls-row-link:hover{background:var(--off-white);}
+.cls-row-link:hover .cls-num{color:var(--red);}
+.ring-icon{color:var(--red);font-size:11px;flex-shrink:0;}
+.more-cls{font-family:'DM Mono',monospace;font-size:10px;color:#bbb;margin-top:3px;}
+.card-recent-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#bbb;padding:8px 0 4px;border-top:1px solid var(--border);margin-top:6px;}
+.card-recent-placeholder{min-height:0;}
+.cls-row-ring{padding-left:22px!important;font-size:12px;}
+.upcoming-note{font-size:13px;color:#bbb;font-style:italic;}
+.no-results{background:#fff;border-radius:var(--card-radius);border:1px solid var(--border);padding:40px 20px;text-align:center;color:var(--text-muted);font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;display:none;}
+
+/* LOADING / ERROR */
+.spinner{width:30px;height:30px;border:3px solid #e8e8e8;border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-lbl{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+.error-box{margin:12px;background:#fff8f8;border:1px solid #ffd0d0;border-radius:var(--card-radius);padding:36px 20px;text-align:center;}
+.error-box h2{font-family:'Playfair Display',serif;font-size:20px;margin-bottom:8px;}
+.error-box p{font-size:13px;color:var(--text-muted);line-height:1.6;}
+
+/* SLIDE PANELS */
+
+/* NAV ROWS */
+.nav-icon{color:var(--red);font-size:16px;flex-shrink:0;}
+.nav-label{font-size:16px;font-weight:600;color:var(--black);flex:1;}
+.nav-arrow{font-size:16px;color:#ccc;}
+
+/* CLASS ROWS */
+.day-section{margin-top:8px;}
+.day-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:8px 16px 5px;}
+.class-row{display:flex;align-items:center;gap:10px;padding:0 16px;min-height:52px;background:#fff;border-bottom:1px solid var(--border);cursor:pointer;}
+.class-row:active{background:var(--off-white);}
+.class-num{font-family:'DM Mono',monospace;font-size:12px;color:var(--red);min-width:50px;flex-shrink:0;}
+.class-name{font-size:14px;color:var(--text-body);flex:1;line-height:1.3;}
+.class-arrow{font-size:15px;color:#ccc;flex-shrink:0;}
+
+/* LIVE DOT */
+.live-dot-inline{display:inline-block;width:7px;height:7px;background:var(--red);border-radius:50%;margin-left:7px;flex-shrink:0;animation:blink 1.6s ease-in-out infinite;vertical-align:middle;}
+.class-name-wrap{display:flex;align-items:center;flex:1;min-width:0;}
+.class-name-wrap .class-name{flex:1;}
+
+/* RESULTS PANEL */
+.results-title-area{padding:14px 16px 12px;border-bottom:1px solid var(--border);}
+.results-badge{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);margin-bottom:3px;letter-spacing:.08em;}
+.results-class-name{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--black);line-height:1.2;}
+.results-body{padding-bottom:80px;}
+
+/* RESULT ENTRIES */
+.r-place-txt{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--black);line-height:1;}
+.r-rider{font-size:13px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.r-owner{font-size:12px;color:#aaa;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.r-sire{font-size:11px;color:#bbb;font-style:italic;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.r-main{font-size:14px;font-weight:600;color:var(--red);}
+.r-sub{font-size:11px;color:var(--text-muted);margin-top:2px;}
+
+/* FOOTER */
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:var(--red);text-decoration:none;}
+
+/* DESKTOP */
+@media(min-width:768px){
+  .header-inner{height:70px;padding:0 clamp(16px,4vw,48px);}
+  .logo-img{height:42px;}
+  .logo-west{font-size:30px;}
+  .logo-sep,.logo-scoring{font-size:17px;}
+  .update-chip{display:block;}
+  .search-bar{padding:14px clamp(16px,4vw,48px);}
+  .toolbar{padding:12px clamp(16px,4vw,48px);}
+  .cards{padding:20px clamp(16px,4vw,48px) 80px;max-width:860px;}
+  .show-card{margin-bottom:0;}
+  .card-title{font-size:19px;}
+
+  .nav-row,.class-row{padding:0 28px;}
+  .day-lbl{padding:10px 28px 5px;}
+  .results-title-area{padding:18px 28px 14px;}
+  .result-entry{padding:13px 28px;}
+  footer{padding:26px clamp(16px,4vw,48px);font-size:11px;}
+}
+.ryegate-header-credit { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: #666; margin-right: 8px; white-space: nowrap; }
+.ryegate-header-credit a { color: #555; text-decoration: none; }
+.ryegate-header-credit a:hover { color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo-tap">
+      <img src="assets/logo.png" class="logo-img" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </div>
+    <div class="header-right">
+      <span class="ryegate-header-credit">via <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a></span>
+      <div class="live-pill" id="livePill"><div class="live-dot"></div>Live</div>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="toolbar-left">
+    <div class="active-block">
+      <div class="active-num" id="statNumber">—</div>
+      <div class="active-lbl">Active<br>Shows</div>
+    </div>
+    <div class="shows-lbl" id="showsLbl"></div>
+  </div>
+  <button class="refresh-btn" onclick="loadData()">↺ Refresh</button>
+</div>
+
+<div class="search-bar">
+  <div class="search-wrap">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="6.5" cy="6.5" r="5" stroke="#888" stroke-width="1.5"/>
+      <path d="M10.5 10.5L14 14" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input type="search" id="searchInput" class="search-input" placeholder="Search shows…" oninput="filterShows()" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <select id="yearSelect" class="year-sel" onchange="filterShows()">
+    <option value="recent">Recent</option>
+  </select>
+</div>
+
+<div id="content">
+  <div class="loading-state">
+    <div class="spinner"></div>
+    <div class="loading-lbl">Loading Results…</div>
+  </div>
+</div>
+
+
+
+<footer>
+  <p>WEST Timing and Scoring &nbsp;·&nbsp; Results powered by <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a> &nbsp;·&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;·&nbsp; <a href="admin.html" target="_blank" rel="noopener">Admin</a></p>
+</footer>
+
+<script>
+const WORKER = 'https://ryegate-proxy.bill-acb.workers.dev';
+let allShows = [];
+
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function esc(s){ if(!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function baseUrl(url){ return url.substring(0, url.lastIndexOf('/')+1); }
+
+function fmtDate(d){ return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : ''; }
+function timeAgo(isoStr) {
+  if (!isoStr) return '';
+  const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+  if (diff < 60) return 'Synced just now';
+  if (diff < 3600) return 'Synced ' + Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return 'Synced ' + Math.floor(diff/3600) + 'h ago';
+  return 'Synced ' + Math.floor(diff/86400) + 'd ago';
+}
+
+function displayDates(show, parsedDates){
+  if(parsedDates) return parsedDates;
+  if(!show.startDate) return '';
+  if(show.startDate && show.endDate && show.startDate !== show.endDate) return fmtDate(show.startDate)+' – '+fmtDate(show.endDate);
+  return fmtDate(show.startDate);
+}
+
+// ── FILTER ────────────────────────────────────────────────────────────────
+function filterShows(forceYr){
+  const q = (document.getElementById('searchInput').value||'').toLowerCase().trim();
+  const sel = document.getElementById('yearSelect');
+  const yr = forceYr || sel.value;
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 90*24*60*60*1000); // 90 days ago
+  const curYear = String(now.getFullYear());
+  const prevYear = String(now.getFullYear()-1);
+  const cards = document.querySelectorAll('.show-card');
+  let vis = 0;
+  cards.forEach(c=>{
+    const name=(c.dataset.name||'').toLowerCase();
+    const year=String(c.dataset.year||'');
+    const endDate=c.dataset.endDate ? new Date(c.dataset.endDate) : null;
+    const words=q.split(/\s+/).filter(Boolean);
+    const matchesSearch = !q||words.every(w=>name.includes(w));
+    let matchesYear = false;
+    if(yr==='all') matchesYear=true;
+    else if(yr==='recent') matchesYear = endDate ? endDate>=cutoff : year===curYear;
+    else matchesYear = year===yr;
+    const ok = matchesSearch && matchesYear;
+    c.style.display = ok ? '' : 'none';
+    if(ok) vis++;
+  });
+  // Auto-fallback: recent→curYear→prevYear→all, update dropdown to match
+  if(vis===0 && yr==='recent') { sel.value=curYear; filterShows(curYear); return; }
+  if(vis===0 && yr===curYear) { sel.value=prevYear; filterShows(prevYear); return; }
+  if(vis===0 && yr===prevYear) { sel.value='all'; filterShows('all'); return; }
+  document.getElementById('showsLbl').textContent = vis ? `${vis} show${vis!==1?'s':''}` : '';
+  const nr = document.getElementById('noResultsCard');
+  if(nr) nr.style.display = vis===0 ? '' : 'none';
+}
+
+// ── PARSE SHOW ────────────────────────────────────────────────────────────
+function parseShow(show){
+  const doc = new DOMParser().parseFromString(show.html,'text/html');
+  let showTitle=show.name, showDates='';
+  const cname=doc.querySelector('.CName');
+  if(cname){ const lines=cname.textContent.split('\n').map(s=>s.trim()).filter(Boolean); if(lines[0] && !show.hasNameOverride && show.source !== 'manual') showTitle=lines[0]; if(lines[1]) showDates=lines[1]; }
+  else {
+    const hs=doc.querySelector('.HITSTitle strong,.HITSTitle b');
+    if(hs&&hs.textContent.trim() && !show.hasNameOverride) showTitle=hs.textContent.trim();
+    else if(!show.hasNameOverride) { const t=doc.querySelector('title'); if(t&&t.textContent.trim()) showTitle=t.textContent.trim(); }
+  }
+  const days=[];
+  Array.from(doc.querySelectorAll('center')).forEach(center=>{
+    const text=center.textContent.trim();
+    if(!/^\w+day,/.test(text)) return;
+    let node=center.nextSibling,tbl=null;
+    while(node&&!tbl){ if(node.nodeName==='TABLE') tbl=node; else if(node.querySelector) tbl=node.querySelector('table'); node=node.nextSibling; }
+    if(!tbl) return;
+    const classes=[];
+    tbl.querySelectorAll('tr').forEach(row=>{ const tds=row.querySelectorAll('td'); if(tds.length<2) return; const na=tds[0].querySelector('a'); if(!na||!na.getAttribute('href')) return; classes.push({num:na.textContent.trim(),name:(tds[1].querySelector('a')||tds[1]).textContent.trim(),href:na.getAttribute('href')}); });
+    if(classes.length) days.push({label:text,classes});
+  });
+  const subLinks=[];
+  if(!days.length){ doc.querySelectorAll('a[href]').forEach(a=>{ const href=a.getAttribute('href'),text=a.textContent.trim(); if(href&&text&&text.length>2&&text.length<80&&!href.startsWith('http')) if(href.includes('tsked')||href.includes('ring')||href.includes('wk')||href.includes('index')) subLinks.push({text,href}); }); }
+  // First day in parsed = most recent day (Ryegate lists newest first)
+  const lastDay=days[0];
+  const previewClasses=lastDay?lastDay.classes.slice(-4):[];
+  return { showTitle, showDates, days, subLinks, isMultiLevel: subLinks.length>0&&days.length===0, previewClasses };
+}
+
+// ── PARSE TSKED ───────────────────────────────────────────────────────────
+function parseTsked(html, pageUrl){
+  const doc=new DOMParser().parseFromString(html,'text/html');
+  let title='';
+  const cname=doc.querySelector('.CName');
+  if(cname){
+    const cnameText=cname.textContent.trim().toUpperCase();
+    // Detect "Please Check Back Later" — scoring computer not pointed here yet
+    if(cnameText.includes('PLEASE CHECK BACK LATER')) return {title:'',days:[],pageUrl,notReady:true};
+    const lines=cname.textContent.split('\n').map(s=>s.trim()).filter(Boolean);
+    title=lines[0]||'';
+  }
+  const days=[];
+  Array.from(doc.querySelectorAll('center')).forEach(center=>{
+    const text=center.textContent.trim();
+    if(!/^\w+day,/.test(text)) return;
+    let node=center.nextSibling,tbl=null;
+    while(node&&!tbl){ if(node.nodeName==='TABLE') tbl=node; else if(node.querySelector) tbl=node.querySelector('table'); node=node.nextSibling; }
+    if(!tbl) return;
+    const classes=[];
+    tbl.querySelectorAll('tr').forEach(row=>{
+      const tds=row.querySelectorAll('td');
+      if(tds.length<2) return;
+      const na=tds[0].querySelector('a');
+      if(!na||!na.getAttribute('href')) return;
+      // Detect live.jpg in the name cell — this class is in the ring right now
+      const nameTd=tds[1];
+      const isLive=nameTd.innerHTML.toLowerCase().includes('live.jpg');
+      const name=(nameTd.querySelector('a')||nameTd).textContent.trim();
+      classes.push({num:na.textContent.trim(), name, href:na.getAttribute('href'), isLive});
+    });
+    if(classes.length) days.push({label:text,classes});
+  });
+  return {title,days,pageUrl,notReady:false};
+}
+
+// ── RENDER CARDS ──────────────────────────────────────────────────────────
+function renderShows(shows){
+  const content=document.getElementById('content');
+  if(!shows||!shows.length){
+    content.innerHTML=`<div class="error-box"><h2>No Shows Found</h2><p>WEST show results will appear here as they become available.</p></div>`;
+    document.getElementById('statNumber').textContent='0';
+    return;
+  }
+  const parsed=shows.map(s=>({...s,parsed:parseShow(s)}));
+  const activeCount=shows.filter(s=>s.status==='active').length;
+  document.getElementById('statNumber').textContent=activeCount;
+  const lp=document.getElementById('livePill');
+  lp.style.display=activeCount>0?'flex':'none';
+
+  const wrap=document.createElement('div');
+  wrap.className='cards';
+
+  parsed.forEach((show,i)=>{
+    const p=show.parsed, status=show.status||'unknown';
+    const dates=displayDates(show,p.showDates);
+    const card=document.createElement('div');
+    card.className='show-card';
+    card.style.animationDelay=`${i*0.05}s`;
+    card.onclick=()=>{ location.href='show.html?url='+encodeURIComponent(show.url)+'&name='+encodeURIComponent(p.showTitle||show.name||''); };
+    card.dataset.name=(p.showTitle||show.name||'').toLowerCase();
+    const ym=(show.url||'').match(/\/(\d{4})\//);
+    card.dataset.year=ym?ym[1]:String(new Date().getFullYear());
+    card.dataset.endDate=show.endDate||'';
+
+    const badge={active:`<span class="status-badge status-active">● Live</span>`,upcoming:`<span class="status-badge status-upcoming">◷ Upcoming</span>`,completed:`<span class="status-badge status-completed">✓ Completed</span>`}[status]||'';
+
+    let classesHtml='';
+    const showName=encodeURIComponent(p.showTitle||show.name||'');
+    const showBase=show.url.substring(0,show.url.lastIndexOf('/')+1);
+    if(status==='upcoming'){
+      classesHtml=`<div class="card-divider"></div><div class="card-classes"><div class="upcoming-note">Check back when the show begins</div></div>`;
+    } else if(p.isMultiLevel&&p.subLinks.length){
+      // Rings — each clickable, goes straight to that ring's class list
+      let chips=p.subLinks.map(l=>{
+        const tskedUrl=showBase+l.href;
+        const ringUrl='classes.html?url='+encodeURIComponent(tskedUrl)+'&show='+showName+'&crumb='+encodeURIComponent(l.text);
+        return `<a class="ring-chip-link" href="${ringUrl}" onclick="event.stopPropagation()"><span class="ring-icon">◈</span>${esc(l.text)}</a>`;
+      }).join('');
+      // Build ring chips with a placeholder beneath each for async class injection
+      const ringSections=p.subLinks.map(l=>{
+        const tskedUrl=showBase+l.href;
+        const ringUrl='classes.html?url='+encodeURIComponent(tskedUrl)+'&show='+showName+'&crumb='+encodeURIComponent(l.text);
+        const pid='rp_'+Math.random().toString(36).slice(2,8);
+        // Async fetch this ring's classes
+        (async()=>{
+          try{
+            const res=await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(tskedUrl)}`);
+            if(!res.ok) return;
+            const html=await res.text();
+            const parsed=parseTsked(html,tskedUrl);
+            if(parsed.notReady||!parsed.days.length) return;
+            // First day in parsed = most recent day (Ryegate lists newest first)
+            const lastDay=parsed.days[0];
+            const last3=lastDay?lastDay.classes.slice(-3):[];
+            if(!last3.length) return;
+            const el=document.getElementById(pid);
+            if(!el) return;
+            const ringBase=tskedUrl.substring(0,tskedUrl.lastIndexOf('/')+1);
+            el.innerHTML=last3.map(c=>{
+              const classUrl=ringBase+c.href;
+              const resUrl='results.html?url='+encodeURIComponent(classUrl)+'&num='+encodeURIComponent(c.num)+'&name='+encodeURIComponent(c.name)+'&show='+showName+'&crumb='+encodeURIComponent(l.text);
+              return `<a class="cls-row-link cls-row-ring" href="${resUrl}" onclick="event.stopPropagation()"><span class="cls-num">${esc(c.num)}</span><span class="cls-name">${esc(c.name)}</span></a>`;
+            }).join('');
+          }catch(e){}
+        })();
+        return `<a class="ring-chip-link" href="${ringUrl}" onclick="event.stopPropagation()"><span class="ring-icon">◈</span>${esc(l.text)}</a><div id="${pid}" class="card-recent-placeholder"></div>`;
+      }).join('');
+      classesHtml=`<div class="card-divider"></div><div class="card-classes">${ringSections}</div>`;
+    } else if(p.previewClasses.length){
+      // Last 4 classes — each clickable, goes straight to results
+      let rows=p.previewClasses.map(c=>{
+        const classUrl=showBase+c.href;
+        const resUrl='results.html?url='+encodeURIComponent(classUrl)+'&num='+encodeURIComponent(c.num)+'&name='+encodeURIComponent(c.name)+'&show='+showName;
+        return `<a class="cls-row-link" href="${resUrl}" onclick="event.stopPropagation()"><span class="cls-num">${esc(c.num)}</span><span class="cls-name">${esc(c.name)}</span></a>`;
+      }).join('');
+      const total=p.days.reduce((a,d)=>a+d.classes.length,0);
+      if(total>4) rows+=`<div class="more-cls">+ ${total-4} more classes</div>`;
+      classesHtml=`<div class="card-divider"></div><div class="card-classes">${rows}</div>`;
+    }
+
+    card.innerHTML=`<div class="card-top"><div class="card-row1"><div class="card-title">${esc(p.showTitle||show.name)}</div><div class="card-chevron">›</div></div><div class="card-meta">${badge}${dates?`<span class="card-dates">${esc(dates)}</span>`:''}</div></div>${classesHtml}`;
+    wrap.appendChild(card);
+  });
+
+  // no-results placeholder
+  const nr=document.createElement('div');
+  nr.id='noResultsCard'; nr.className='no-results'; nr.textContent='No shows match your search';
+  wrap.appendChild(nr);
+  content.replaceChildren(wrap);
+
+  // Year dropdown — Recent = current year, then individual years, then All
+  const years=[...new Set(Array.from(wrap.querySelectorAll('.show-card')).map(c=>c.dataset.year).filter(Boolean))].sort((a,b)=>b-a);
+  const sel=document.getElementById('yearSelect');
+  const curYear=String(new Date().getFullYear());
+  const prev=sel.value;
+  sel.innerHTML='<option value="recent">Recent</option>'
+    +years.map(y=>`<option value="${y}">${y}</option>`).join('')
+    +'<option value="all">All</option>';
+  if([...sel.options].some(o=>o.value===prev)) sel.value=prev; else sel.value='recent';
+
+  filterShows();
+}
+
+// ── LOAD ──────────────────────────────────────────────────────────────────
+async function loadData(){
+  try{
+    const res=await fetch(`${WORKER}?action=getData`);
+    if(!res.ok) throw new Error();
+    const data=await res.json();
+    allShows=Array.isArray(data)?data:(data.shows||[]);
+    const lastUpdated=data.lastUpdated?new Date(data.lastUpdated):null;
+    renderShows(allShows);
+  } catch(e){
+    document.getElementById('content').innerHTML=`<div class="error-box"><h2>Unable to Load</h2><p>Could not connect. Please refresh or visit <a href="https://ryegate.live" style="color:var(--red)">ryegate.live</a> directly.</p></div>`;
+  }
+}
+
+// ── SWIPE BACK ────────────────────────────────────────────────────────────
+loadData();
+// Auto-refresh every 2 minutes when there are active shows, hourly otherwise
+function scheduleRefresh() {
+  const hasActive = allShows.some(s => s.status === 'active');
+  setTimeout(() => { loadData().then(scheduleRefresh); }, hasActive ? 2*60*1000 : 60*60*1000);
+}
+scheduleRefresh();
+</script>
+</body>
+</html>

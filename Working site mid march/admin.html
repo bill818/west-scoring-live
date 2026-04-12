@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — Admin</title>
+<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --black: #111111;
+    --red:   #b82025;
+    --white: #ffffff;
+    --off-white: #f8f7f5;
+    --border: #e0ddd8;
+    --text-muted: #888;
+  }
+  body { font-family: 'Source Sans 3', sans-serif; background: var(--off-white); color: var(--black); min-height: 100vh; }
+
+  /* HEADER */
+  header { background: var(--black); border-bottom: 3px solid var(--red); padding: 0 clamp(16px,4vw,48px); height: 64px; display: flex; align-items: center; justify-content: space-between; }
+  .logo-area { display: flex; align-items: center; gap: 14px; text-decoration: none; }
+  .logo-img { height: 44px; width: auto; display: block; filter: invert(1); }
+  .logo-text { display: flex; align-items: baseline; }
+  .logo-west { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 28px; color: var(--white); }
+  .logo-sep { font-family: 'DM Mono', monospace; font-size: 16px; color: var(--red); margin: 0 6px; }
+  .logo-scoring { font-family: 'DM Mono', monospace; font-size: 16px; color: var(--red); letter-spacing: 0.04em; }
+  .admin-badge { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; background: var(--red); color: white; padding: 3px 10px; border-radius: 2px; }
+
+  /* LOGIN */
+  #loginScreen { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 67px); }
+  .login-card { background: white; border: 1px solid var(--border); padding: 48px; width: 100%; max-width: 380px; text-align: center; }
+  .login-card h2 { font-family: 'Playfair Display', serif; font-size: 24px; margin-bottom: 8px; }
+  .login-card p { color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); padding: 10px 14px; font-family: 'DM Mono', monospace; font-size: 14px; margin-bottom: 16px; outline: none; }
+  .login-card input:focus { border-color: var(--black); }
+  .login-card button { width: 100%; background: var(--black); color: white; border: none; padding: 12px; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+  .login-card button:hover { background: var(--red); }
+  .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
+
+  /* MAIN */
+  #adminScreen { display: none; max-width: 1200px; margin: 0 auto; padding: 32px clamp(16px,4vw,48px); }
+
+  /* CONTROL PANEL */
+  .control-panel { background: white; border: 1px solid var(--border); padding: 20px 24px; margin-bottom: 24px; display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+  .control-group { display: flex; flex-direction: column; gap: 8px; }
+  .control-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted); }
+  .control-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ctrl-btn { background: none; border: 1px solid var(--black); font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 16px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .ctrl-btn:hover { background: var(--black); color: white; }
+  .ctrl-btn.danger { border-color: #cc4444; color: #cc4444; }
+  .ctrl-btn.danger:hover { background: #cc4444; color: white; }
+  .ctrl-btn.loading { opacity: 0.6; pointer-events: none; }
+
+  /* HIDE UPCOMING TOGGLE */
+  .toggle-row { display: flex; align-items: center; gap: 12px; }
+  .toggle-label { font-family: 'Source Sans 3', sans-serif; font-size: 14px; color: var(--black); }
+  .toggle-desc { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .big-toggle { appearance: none; width: 44px; height: 24px; background: var(--border); border-radius: 12px; position: relative; cursor: pointer; transition: background 0.2s; outline: none; flex-shrink: 0; }
+  .big-toggle:checked { background: var(--red); }
+  .big-toggle::after { content: ''; position: absolute; width: 18px; height: 18px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+  .big-toggle:checked::after { transform: translateX(20px); }
+
+  /* SCRAPE STATUS */
+  .scrape-status { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .add-show-panel { background: white; border: 1px solid var(--border); padding: 16px 24px; margin-bottom: 24px; display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .add-show-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 260px; }
+  .add-show-input { border: 1px solid var(--border); padding: 9px 12px; font-family: 'DM Mono', monospace; font-size: 12px; outline: none; width: 100%; }
+  .add-show-input:focus { border-color: var(--black); }
+  .add-show-status { font-family: 'DM Mono', monospace; font-size: 11px; margin-top: 6px; min-height: 16px; }
+  .add-show-status.ok  { color: #2e7d32; }
+  .add-show-status.err { color: #cc4444; }
+  .scrape-status span { color: var(--black); }
+
+  /* STUB PROGRESS */
+  .stub-progress { margin-top: 10px; }
+  .progress-bar-wrap { background: var(--border); border-radius: 2px; height: 6px; width: 100%; max-width: 340px; margin-top: 5px; overflow: hidden; }
+  .progress-bar-fill { height: 6px; border-radius: 2px; background: #2e7d32; transition: width 0.4s ease; }
+  .progress-bar-fill.has-failed { background: linear-gradient(90deg, #2e7d32 var(--ok-pct), #cc4444 var(--ok-pct)); }
+  .progress-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+  .progress-label .ok  { color: #2e7d32; font-weight: 600; }
+  .progress-label .bad { color: #cc4444; font-weight: 600; }
+
+  /* FILTERS */
+  .admin-filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .admin-search { flex: 1; min-width: 200px; max-width: 340px; border: 1px solid var(--border); padding: 8px 12px; font-family: 'Source Sans 3', sans-serif; font-size: 13px; outline: none; }
+  .admin-search:focus { border-color: var(--black); }
+  .year-sel-admin { border: 1px solid var(--border); padding: 8px 10px; font-family: 'DM Mono', monospace; font-size: 11px; outline: none; background: white; cursor: pointer; }
+  .show-count { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); letter-spacing: 0.06em; margin-left: auto; }
+
+  /* TABLE */
+  .shows-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border); }
+  .shows-table thead tr { border-bottom: 2px solid var(--black); }
+  .shows-table thead th { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); padding: 12px 16px; text-align: left; }
+  .shows-table tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  .shows-table tbody tr:last-child { border-bottom: none; }
+  .shows-table tbody tr:hover { background: var(--off-white); }
+  .shows-table td { padding: 12px 16px; vertical-align: middle; }
+  .show-name-cell { font-family: 'Playfair Display', serif; font-size: 15px; font-weight: 700; }
+  .show-url-cell { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+  .show-source { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: #bbb; margin-top: 2px; }
+  .status-badge { display: inline-block; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 8px; border-radius: 2px; font-weight: 600; margin-top: 4px; }
+  .status-active    { background: #e8f5e9; color: #2e7d32; }
+  .status-upcoming  { background: #e3f2fd; color: #1565c0; }
+  .status-completed { background: #f5f5f5; color: #757575; }
+  .status-unknown   { background: #fff3e0; color: #e65100; }
+  .date-inputs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .date-inputs input[type="date"] { border: 1px solid var(--border); padding: 6px 10px; font-family: 'DM Mono', monospace; font-size: 12px; outline: none; background: white; }
+  .date-inputs input[type="date"]:focus { border-color: var(--black); }
+  .date-inputs input.overridden { border-color: var(--red); background: #fff5f5; }
+  .save-btn { background: var(--black); color: white; border: none; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 14px; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+  .save-btn:hover { background: var(--red); }
+  .save-btn.saved { background: #2e7d32; }
+  .reset-btn { background: none; border: 1px solid #cc4444; color: #cc4444; font-family: 'DM Mono', monospace; font-size: 11px; padding: 7px 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .reset-btn:hover { background: #cc4444; color: white; }
+  .rings-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); font-family: 'DM Mono', monospace; font-size: 11px; padding: 7px 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .refresh-show-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); font-family: 'DM Mono', monospace; font-size: 11px; padding: 7px 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .refresh-show-btn:hover { border-color: var(--black); color: var(--black); }
+  .refresh-show-btn.loading { opacity: 0.5; cursor: wait; }
+  .rings-btn:hover { border-color: var(--black); color: var(--black); }
+  .rings-btn.open { border-color: var(--black); background: var(--black); color: white; }
+  .ring-editor-cell { background: #f9f8f6; border-bottom: 2px solid var(--border); padding: 0 !important; }
+  .ring-editor { padding: 16px 20px; }
+  .ring-editor-loading { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+  .ring-editor-title { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px; }
+  .ring-label-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .ring-label-url { font-family: 'DM Mono', monospace; font-size: 10px; color: #aaa; flex: 0 0 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ring-label-input { flex: 1; min-width: 160px; border: 1px solid var(--border); padding: 6px 10px; font-family: 'Source Sans 3', sans-serif; font-size: 13px; outline: none; }
+  .ring-label-input:focus { border-color: var(--black); }
+  .ring-label-input.overridden { border-color: var(--red); background: #fff5f5; }
+  .ring-save-btn { background: var(--black); color: white; border: none; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+  .ring-save-btn:hover { background: var(--red); }
+  .ring-save-btn.saved { background: #2e7d32; }
+  .parsed-dates { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+  .parsed-dates span { color: var(--black); }
+  .name-input { width: 100%; border: 1px solid var(--border); padding: 6px 10px; font-family: 'Source Sans 3', sans-serif; font-size: 13px; outline: none; margin-bottom: 4px; }
+  .name-input:focus { border-color: var(--black); }
+  .name-input.overridden { border-color: var(--red); background: #fff5f5; }
+  .stub-badge { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; margin-left: 4px; }
+  .stub-pending { background: #fff3e0; color: #e65100; }
+  .stub-failed  { background: #fce4e4; color: #cc4444; }
+  .stub-loaded  { background: #e8f5e9; color: #2e7d32; }
+  .visibility-cell { text-align: center; }
+  .vis-toggle { appearance: none; width: 36px; height: 20px; background: var(--border); border-radius: 10px; position: relative; cursor: pointer; transition: background 0.2s; outline: none; }
+  .vis-toggle:checked { background: #2e7d32; }
+  .vis-toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  .vis-toggle:checked::after { transform: translateX(16px); }
+  .status-select { border: 1px solid var(--border); padding: 6px 10px; font-family: 'DM Mono', monospace; font-size: 11px; outline: none; background: white; cursor: pointer; width: 100%; min-width: 130px; }
+  .status-select:focus { border-color: var(--black); }
+  .status-select.overridden { border-color: var(--red); background: #fff5f5; }
+
+  /* DELETE MODAL */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; display: none; align-items: center; justify-content: center; }
+  .modal-backdrop.open { display: flex; }
+  .modal-box { background: white; border: 2px solid #cc4444; padding: 36px 32px; max-width: 400px; width: 90%; }
+  .modal-box h3 { font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 8px; color: #cc4444; }
+  .modal-box p { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.6; }
+  .modal-box input { width: 100%; border: 1px solid var(--border); padding: 10px 14px; font-family: 'DM Mono', monospace; font-size: 14px; margin-bottom: 16px; outline: none; }
+  .modal-box input:focus { border-color: #cc4444; }
+  .modal-actions { display: flex; gap: 10px; }
+  .modal-confirm { flex: 1; background: #cc4444; color: white; border: none; padding: 11px; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+  .modal-confirm:hover { background: #aa2222; }
+  .modal-cancel { flex: 1; background: none; border: 1px solid var(--border); padding: 11px; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+  .modal-cancel:hover { background: var(--off-white); }
+  .modal-error { color: #cc4444; font-size: 12px; margin-top: 8px; display: none; font-family: 'DM Mono', monospace; }
+
+  /* LOADING / TOAST */
+  .loading { text-align: center; padding: 60px; color: var(--text-muted); font-family: 'DM Mono', monospace; font-size: 13px; letter-spacing: 0.06em; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--black); color: white; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px; border-radius: 2px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100; max-width: 320px; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-area">
+    <img src="assets/logo.png" class="logo-img" alt="WEST">
+    <div class="logo-text">
+      <span class="logo-west">WEST</span>
+      <span class="logo-sep">|</span>
+      <span class="logo-scoring">Scoring.Live</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="index.html" style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#888;text-decoration:none;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">← westscoring.live</a>
+    <div class="admin-badge">Admin</div>
+  </div>
+</header>
+
+<!-- Login -->
+<div id="loginScreen">
+  <div class="login-card">
+    <h2>Admin Access</h2>
+    <p>Enter your password to manage shows</p>
+    <input type="password" id="passwordInput" placeholder="Password" onkeydown="if(event.key==='Enter')login()">
+    <button onclick="login()">Sign In</button>
+    <div class="login-error" id="loginError">Incorrect password</div>
+  </div>
+</div>
+
+<!-- Admin Screen -->
+<div id="adminScreen">
+
+  <!-- Control Panel -->
+  <div class="control-panel">
+
+    <!-- Scrape triggers -->
+    <div class="control-group">
+      <div class="control-label">Data Refresh</div>
+      <div class="control-btns">
+        <button class="ctrl-btn" id="btnHomepage" onclick="triggerHomepage()">↺ Scrape Homepage</button>
+        <button class="ctrl-btn" id="btnArchive" onclick="triggerArchive()">↺ Scrape Archive</button>
+        <button class="ctrl-btn" id="btnReload" onclick="loadShows()">↺ Reload Table</button>
+        <button class="ctrl-btn danger" id="btnClear" onclick="clearAndRescrape()">⚠ Clear &amp; Full Rescrape</button>
+        <button class="ctrl-btn danger" id="btnDeleteAll" onclick="openDeleteModal()">☠ Delete All Data</button>
+      </div>
+      <div class="scrape-status" id="scrapeStatus">Loading status…</div>
+      <div class="stub-progress" id="stubProgress" style="display:none">
+        <div class="progress-bar-wrap"><div class="progress-bar-fill" id="stubProgressBar" style="width:0%"></div></div>
+        <div class="progress-label" id="stubProgressLabel"></div>
+      </div>
+    </div>
+
+    <!-- Hide upcoming toggle -->
+    <div class="control-group" style="margin-left:auto;">
+      <div class="control-label">Global Settings</div>
+      <div class="toggle-row">
+        <input type="checkbox" class="big-toggle" id="hideUpcomingToggle" onchange="saveHideUpcoming(this.checked)">
+        <div>
+          <div class="toggle-label">Hide Upcoming Shows</div>
+          <div class="toggle-desc">Hides all upcoming shows from public view</div>
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top:12px;">
+        <input type="checkbox" class="big-toggle" id="showDifficultyToggle" onchange="saveDifficultyGauge(this.checked)">
+        <div>
+          <div class="toggle-label">Show Course Difficulty Gauge</div>
+          <div class="toggle-desc">Displays difficulty meter on class stats pages</div>
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top:12px;">
+        <input type="checkbox" class="big-toggle" id="pauseCronToggle" onchange="savePauseCron(this.checked)">
+        <div>
+          <div class="toggle-label" style="color:var(--red)">Pause Background Scraping</div>
+          <div class="toggle-desc">Stops all cron scraping — site serves existing data only</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Add Show Manually -->
+  <div class="add-show-panel">
+    <div class="control-group" style="flex:1;min-width:260px;">
+      <div class="control-label">Add Show Manually</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <input type="text" class="add-show-input" id="addShowUrl" placeholder="https://ryegate.live/West/2026/HITS/index.html" style="flex:1;min-width:260px;">
+        <input type="text" class="add-show-input" id="addShowName" placeholder="Display name (optional)" style="flex:0 0 200px;">
+        <button class="ctrl-btn" id="btnAddShow" onclick="addShowManually()">+ Add Show</button>
+      </div>
+      <div class="add-show-status" id="addShowStatus"></div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="admin-filters">
+    <input type="text" class="admin-search" id="adminSearch" placeholder="Search shows…" oninput="filterAdmin()">
+    <select id="adminYearSelect" class="year-sel-admin" onchange="filterAdmin()">
+      <option value="all">All Years</option>
+    </select>
+    <span class="show-count" id="adminCount"></span>
+  </div>
+
+  <div id="tableContainer" class="loading">Loading shows…</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Delete All Modal -->
+<div class="modal-backdrop" id="deleteModal">
+  <div class="modal-box">
+    <h3>☠ Delete All Data</h3>
+    <p>This permanently deletes <strong>all shows, overrides, and settings</strong> from the database. There is no undo.<br><br>Enter your admin password to confirm.</p>
+    <input type="password" id="deleteModalPassword" placeholder="Admin password" onkeydown="if(event.key==='Enter')confirmDeleteAll()">
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeDeleteModal()">Cancel</button>
+      <button class="modal-confirm" id="btnDeleteConfirm" onclick="confirmDeleteAll()">Delete Everything</button>
+    </div>
+    <div class="modal-error" id="deleteModalError">Incorrect password</div>
+  </div>
+</div>
+
+<script>
+const WORKER = 'https://ryegate-proxy.bill-acb.workers.dev';
+let password = '';
+let allShows = [];
+let overrides = {};
+
+function login() {
+  const pw = document.getElementById('passwordInput').value;
+  if (pw === 'ADMIN') {
+    password = pw;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('adminScreen').style.display = 'block';
+    loadShows();
+    loadSettings();
+    loadScrapeStatus();
+  } else {
+    document.getElementById('loginError').style.display = 'block';
+  }
+}
+
+async function loadShows() {
+  document.getElementById('tableContainer').innerHTML = '<div class="loading">Loading shows…</div>';
+  try {
+    const [showsRes, overridesRes] = await Promise.all([
+      fetch(`${WORKER}?action=getAdminData`),
+      fetch(`${WORKER}?action=getOverrides`)
+    ]);
+    allShows  = await showsRes.json();
+    overrides = await overridesRes.json();
+    renderTable();
+  } catch(e) {
+    document.getElementById('tableContainer').innerHTML = '<div class="loading">Failed to load — check worker is deployed</div>';
+  }
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch(`${WORKER}?action=getSettings`);
+    const settings = await res.json();
+    const toggle = document.getElementById('hideUpcomingToggle');
+    if (toggle) toggle.checked = !!settings.hideUpcoming;
+    const diffToggle = document.getElementById('showDifficultyToggle');
+    if (diffToggle) diffToggle.checked = !!settings.showDifficultyGauge;
+    const pauseToggle = document.getElementById('pauseCronToggle');
+    if (pauseToggle) pauseToggle.checked = !!settings.pauseCron;
+  } catch(e) {}
+}
+
+async function loadScrapeStatus() {
+  try {
+    const [qRes, sRes] = await Promise.all([
+      fetch(`${WORKER}?action=getQueueStatus`),
+      fetch(`${WORKER}?action=getStubStatus`)
+    ]);
+    const q = await qRes.json();
+    const s = await sRes.json();
+    const el = document.getElementById('scrapeStatus');
+    if (el) {
+      if (q.pending > 0) {
+        el.innerHTML = `<span style="color:var(--red)">⟳ Rescrape in progress — ${q.scraped} scraped, ${q.pending} pending</span>`;
+        setTimeout(loadScrapeStatus, 8000);
+      } else {
+        const pausedFlag = document.getElementById('pauseCronToggle') && document.getElementById('pauseCronToggle').checked;
+        // Fetch lastUpdated from getData
+        let lastUpdatedStr = '';
+        try {
+          const luRes = await fetch(`${WORKER}?action=getData`);
+          if (luRes.ok) {
+            const luData = await luRes.json();
+            if (luData.lastUpdated) {
+              const luDate = new Date(luData.lastUpdated);
+              lastUpdatedStr = ' &nbsp;·&nbsp; Last sync: ' + luDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ' ' + luDate.toLocaleDateString([], {month:'short', day:'numeric'});
+            }
+          }
+        } catch(e) {}
+        el.innerHTML = `${q.scraped} shows in database &nbsp;·&nbsp; Homepage: daily &nbsp;·&nbsp; Archive: weekly Sundays${pausedFlag ? ' &nbsp;·&nbsp; <span style="color:var(--red);font-weight:600;">⏸ Scraping paused</span>' : ''}${lastUpdatedStr}`;
+      }
+    }
+    // Update stub progress bar
+    const prog = document.getElementById('stubProgress');
+    const bar  = document.getElementById('stubProgressBar');
+    const lbl  = document.getElementById('stubProgressLabel');
+    if (prog && bar && lbl && s.total > 0) {
+      prog.style.display = '';
+      const pct     = Math.round((s.loaded / s.total) * 100);
+      const failPct = Math.round((s.failed / s.total) * 100);
+      bar.style.width = (pct + failPct) + '%';
+      if (s.failed > 0) {
+        bar.style.setProperty('--ok-pct', pct + '%');
+        bar.classList.add('has-failed');
+      } else {
+        bar.classList.remove('has-failed');
+      }
+      lbl.innerHTML = `<span class="ok">${s.loaded} loaded</span> &nbsp;·&nbsp; ${s.pending} pending` +
+        (s.failed > 0 ? ` &nbsp;·&nbsp; <span class="bad">${s.failed} failed</span>` : '') +
+        ` &nbsp;·&nbsp; ${s.total} total`;
+    }
+  } catch(e) {
+    const el = document.getElementById('scrapeStatus');
+    const pausedFlag2 = document.getElementById('pauseCronToggle') && document.getElementById('pauseCronToggle').checked;
+    if (el) el.innerHTML = 'Homepage: daily &nbsp;·&nbsp; Archive: weekly Sundays' + (pausedFlag2 ? ' &nbsp;·&nbsp; <span style="color:var(--red);font-weight:600;">⏸ Scraping paused</span>' : '');
+  }
+}
+
+async function refreshShowData(showUrl) {
+  const id  = idFor(showUrl);
+  const btn = document.getElementById('refreshbtn_' + id);
+  btn.textContent = 'Refreshing…';
+  btn.classList.add('loading');
+  try {
+    const res = await fetch(`${WORKER}?action=refreshShow&url=${encodeURIComponent(showUrl)}&password=${encodeURIComponent(password)}`);
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = 'Done ✓';
+      showToast('Show data refreshed!');
+      setTimeout(() => { btn.textContent = '↺ Refresh Data'; btn.classList.remove('loading'); }, 2000);
+      setTimeout(() => loadShows(), 1500);
+    } else {
+      btn.textContent = 'Error';
+      showToast('Error: ' + (data.error || 'Unknown error'));
+      setTimeout(() => { btn.textContent = '↺ Refresh Data'; btn.classList.remove('loading'); }, 2000);
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+    showToast('Fetch error');
+    setTimeout(() => { btn.textContent = '↺ Refresh Data'; btn.classList.remove('loading'); }, 2000);
+  }
+}
+
+async function savePauseCron(val) {
+  try {
+    await fetch(`${WORKER}?action=setSettings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, pauseCron: val })
+    });
+    showToast(val ? 'Background scraping paused' : 'Background scraping resumed');
+    loadScrapeStatus();
+  } catch(e) { showToast('Error saving setting'); }
+}
+
+async function saveDifficultyGauge(val) {
+  try {
+    await fetch(`${WORKER}?action=setSettings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, showDifficultyGauge: val })
+    });
+    showToast(val ? 'Difficulty gauge enabled' : 'Difficulty gauge hidden');
+  } catch(e) { showToast('Error saving setting'); }
+}
+
+async function refreshShowData(showUrl) {
+  const id  = idFor(showUrl);
+  const btn = document.getElementById('refreshbtn_' + id);
+  btn.textContent = 'Refreshing…';
+  btn.classList.add('loading');
+  try {
+    const res = await fetch(`${WORKER}?action=refreshShow&url=${encodeURIComponent(showUrl)}&password=${encodeURIComponent(password)}`);
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = 'Done ✓';
+      showToast('Show data refreshed!');
+      setTimeout(() => { btn.textContent = '↺ Refresh Data'; btn.classList.remove('loading'); }, 2000);
+      setTimeout(() => loadShows(), 1500);
+    } else {
+      btn.textContent = 'Error';
+      showToast('Error: ' + (data.error || 'Unknown error'));
+      setTimeout(() => { btn.textContent = '↺ Refresh Data'; btn.classList.remove('loading'); }, 2000);
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+    showToast('Fetch error');
+    setTimeout(() => { btn.textContent = '↺ Refresh Data'; btn.classList.remove('loading'); }, 2000);
+  }
+}
+
+async function savePauseCron(val) {
+  try {
+    await fetch(`${WORKER}?action=setSettings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, pauseCron: val })
+    });
+    showToast(val ? 'Background scraping paused' : 'Background scraping resumed');
+    loadScrapeStatus();
+  } catch(e) { showToast('Error saving setting'); }
+}
+
+async function saveDifficultyGauge(val) {
+  try {
+    await fetch(`${WORKER}?action=setSettings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, showDifficultyGauge: val })
+    });
+    showToast(val ? 'Difficulty gauge enabled' : 'Difficulty gauge hidden');
+  } catch(e) { showToast('Error saving setting'); }
+}
+
+async function saveHideUpcoming(val) {
+  try {
+    const res = await fetch(`${WORKER}?action=setSettings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, hideUpcoming: val })
+    });
+    if (res.ok) showToast(val ? 'Upcoming shows hidden from public' : 'Upcoming shows now visible');
+    else showToast('Error saving setting');
+  } catch(e) {
+    showToast('Error saving setting');
+  }
+}
+
+async function clearAndRescrape() {
+  if (!confirm('Clear & Full Rescrape will delete all shows and rebuild from scratch.\n\nYour overrides WILL be preserved.\n\nContinue?')) return;
+  if (!confirm('Are you sure? Shows will disappear from the public site for several minutes while re-scraping runs.')) return;
+  if (!confirm('Final confirmation — this cannot be undone. Proceed with full rescrape?')) return;
+
+  const btn = document.getElementById('btnClear');
+  btn.textContent = '⚠ Clearing…'; btn.classList.add('loading');
+  showToast('Clearing database and triggering full archive rescrape…');
+  try {
+    const res = await fetch(`${WORKER}?action=clearAndRescrape`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast('Rescrape queued! Shows will appear in batches — watch the status bar.');
+      btn.textContent = '⟳ Rescraping…';
+      loadScrapeStatus(); // start polling
+      // Reload table every 30s until queue is empty
+      const poll = setInterval(async () => {
+        const s = await fetch(`${WORKER}?action=getQueueStatus`).then(r=>r.json()).catch(()=>({pending:0}));
+        loadShows();
+        if (s.pending === 0) { clearInterval(poll); btn.textContent = '⚠ Clear & Full Rescrape'; btn.classList.remove('loading'); showToast('Rescrape complete!'); }
+      }, 30000);
+    } else {
+      showToast('Error: ' + (data.msg || 'Unknown error'));
+      btn.textContent = '⚠ Clear & Full Rescrape'; btn.classList.remove('loading');
+    }
+  } catch(e) {
+    showToast('Error triggering rescrape');
+    btn.textContent = '⚠ Clear & Full Rescrape'; btn.classList.remove('loading');
+  }
+}
+
+async function triggerHomepage() {
+  const btn = document.getElementById('btnHomepage');
+  btn.textContent = '↺ Scraping…'; btn.classList.add('loading');
+  showToast('Homepage scrape triggered — checking for new shows…');
+  try {
+    await fetch(`${WORKER}?action=refreshHomepage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    showToast('Homepage scraped! Reloading in 15s…');
+    setTimeout(() => { loadShows(); btn.textContent = '↺ Scrape Homepage'; btn.classList.remove('loading'); }, 15000);
+  } catch(e) {
+    showToast('Error triggering homepage scrape');
+    btn.textContent = '↺ Scrape Homepage'; btn.classList.remove('loading');
+  }
+}
+
+async function triggerArchive() {
+  const btn = document.getElementById('btnArchive');
+  btn.textContent = '↺ Scraping…'; btn.classList.add('loading');
+  showToast('Archive scrape triggered — this may take a minute…');
+  try {
+    await fetch(`${WORKER}?action=refreshArchive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    showToast('Archive scraped! Reloading in 60s…');
+    setTimeout(() => { loadShows(); btn.textContent = '↺ Scrape Archive'; btn.classList.remove('loading'); }, 60000);
+  } catch(e) {
+    showToast('Error triggering archive scrape');
+    btn.textContent = '↺ Scrape Archive'; btn.classList.remove('loading');
+  }
+}
+
+function renderTable() {
+  if (!allShows.length) {
+    document.getElementById('tableContainer').innerHTML = '<div class="loading">No shows found</div>';
+    return;
+  }
+
+  const currentYear = new Date().getFullYear();
+  const table = document.createElement('table');
+  table.className = 'shows-table';
+  table.innerHTML = `<thead><tr>
+    <th>Show</th>
+    <th>Auto-Detected Dates</th>
+    <th>Override Dates</th>
+    <th style="min-width:140px">Status</th>
+    <th style="text-align:center">Visible</th>
+    <th></th>
+  </tr></thead>`;
+  const tbody = document.createElement('tbody');
+
+  allShows.forEach(show => {
+    const override  = overrides[show.url] || {};
+    const hasOverride = override.startDate || override.endDate || override.name;
+    const status    = show.status || 'unknown';
+    const isVisible = override.hidden !== true;
+    const yearMatch = (show.url || '').match(/\/(\d{4})\//);
+    const showYear  = yearMatch ? parseInt(yearMatch[1]) : currentYear;
+    const source    = show.source || 'homepage';
+
+    let parsedName = show.name;
+    if (show.html) {
+      const doc = new DOMParser().parseFromString(show.html, 'text/html');
+      const cname = doc.querySelector('.CName');
+      if (cname) {
+        const lines = cname.textContent.split('\n').map(s => s.trim()).filter(Boolean);
+        if (lines[0]) parsedName = lines[0];
+      } else {
+        const hitStrong = doc.querySelector('.HITSTitle strong, .HITSTitle b');
+        if (hitStrong && hitStrong.textContent.trim()) parsedName = hitStrong.textContent.trim();
+        else { const t = doc.querySelector('title'); if (t && t.textContent.trim()) parsedName = t.textContent.trim(); }
+      }
+    }
+    const displayName = override.name || parsedName;
+
+    const row = document.createElement('tr');
+    row.dataset.name = (displayName || '').toLowerCase();
+    row.dataset.year = showYear;
+    row.innerHTML = `
+      <td>
+        <input type="text" class="name-input ${override.name ? 'overridden' : ''}"
+          id="name_${idFor(show.url)}" value="${escHtml(displayName)}"
+          placeholder="${escHtml(parsedName)}" onchange="markChanged(this)">
+        <div class="show-url-cell"><a href="${escHtml(show.url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='inherit'">${escHtml(show.url)}</a></div>
+        ${show.fetchedAt ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa;margin-top:2px;">Synced ${timeAgo(show.fetchedAt)}</div>` : ''}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:3px;">
+          <span class="status-badge status-${status}">${statusLabel(status)}</span>
+          <span class="show-source">${source === 'archive' ? 'archive' : source === 'homepage' ? 'homepage' : source}</span>
+          ${!show.html || show.html === '' ? (show.fetchFailed >= 3 ? '<span class="stub-badge stub-failed">failed</span>' : '<span class="stub-badge stub-pending">pending</span>') : '<span class="stub-badge stub-loaded">loaded</span>'}
+        </div>
+      </td>
+      <td>
+        <div class="parsed-dates">
+          Start: <span>${show.startDate || '—'}</span><br>
+          End: <span>${show.endDate || '—'}</span>
+        </div>
+      </td>
+      <td>
+        <div class="date-inputs">
+          <input type="date" id="start_${idFor(show.url)}" value="${override.startDate || ''}"
+            class="${override.startDate ? 'overridden' : ''}" onchange="markChanged(this)">
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:#aaa">to</span>
+          <input type="date" id="end_${idFor(show.url)}" value="${override.endDate || ''}"
+            class="${override.endDate ? 'overridden' : ''}" onchange="markChanged(this)">
+        </div>
+      </td>
+      <td>
+        <select class="status-select ${override.status && override.status !== 'auto' ? 'overridden' : ''}"
+          id="status_${idFor(show.url)}" onchange="markChanged(this)">
+          <option value="auto" ${!override.status || override.status === 'auto' ? 'selected' : ''}>Auto</option>
+          <option value="upcoming" ${override.status === 'upcoming' ? 'selected' : ''}>◷ Upcoming</option>
+          <option value="active" ${override.status === 'active' ? 'selected' : ''}>● Live</option>
+          <option value="completed" ${override.status === 'completed' ? 'selected' : ''}>✓ Completed</option>
+        </select>
+      </td>
+      <td class="visibility-cell">
+        <input type="checkbox" class="vis-toggle" id="vis_${idFor(show.url)}"
+          ${isVisible ? 'checked' : ''}
+          onchange="saveVisibility('${escHtml(show.url)}', this.checked)">
+      </td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="save-btn" id="savebtn_${idFor(show.url)}" onclick="saveOverride('${escHtml(show.url)}')">Save</button>
+          <button class="reset-btn" onclick="resetShow('${escHtml(show.url)}')">Reset</button>
+          <button class="rings-btn" id="ringsbtn_${idFor(show.url)}" onclick="toggleRingEditor('${escHtml(show.url)}')">◈ Rings</button>
+          <button class="refresh-show-btn" id="refreshbtn_${idFor(show.url)}" onclick="refreshShowData('${escHtml(show.url)}')">↺ Refresh Data</button>
+        </div>
+      </td>`;
+    tbody.appendChild(row);
+
+    // Ring editor expand row (hidden by default)
+    const ringRow = document.createElement('tr');
+    ringRow.id = 'ringrow_' + idFor(show.url);
+    ringRow.style.display = 'none';
+    ringRow.innerHTML = `<td colspan="6" class="ring-editor-cell"><div class="ring-editor" id="ringeditor_${idFor(show.url)}"></div></td>`;
+    tbody.appendChild(ringRow);
+  });
+
+  table.appendChild(tbody);
+  document.getElementById('tableContainer').replaceChildren(table);
+
+  // Auto-populate year dropdown
+  const years = [...new Set(
+    Array.from(document.querySelectorAll('#tableContainer tbody tr'))
+      .map(r => r.dataset.year).filter(Boolean)
+  )].sort((a, b) => b - a);
+  const aSel = document.getElementById('adminYearSelect');
+  const aCurrent = aSel ? aSel.value : String(currentYear);
+  if (aSel) {
+    const aDefault = years[0] || String(currentYear);
+    aSel.innerHTML = years.map(y =>
+      `<option value="${y}" ${y === aDefault ? 'selected' : ''}>${y}</option>`
+    ).join('') + '<option value="all">All Years</option>';
+    if ([...aSel.options].some(o => o.value === aCurrent)) aSel.value = aCurrent;
+    else aSel.value = aDefault;
+  }
+
+  filterAdmin();
+}
+
+function markChanged(input) { input.classList.add('overridden'); }
+
+async function saveOverride(showUrl) {
+  const id        = idFor(showUrl);
+  const btn       = document.getElementById('savebtn_' + id);
+  const startDate = document.getElementById('start_' + id).value || null;
+  const endDate   = document.getElementById('end_' + id).value || null;
+  const nameEl    = document.getElementById('name_' + id);
+  const origName  = nameEl ? nameEl.placeholder : null;
+  const nameVal   = nameEl ? nameEl.value.trim() : null;
+  const name      = nameVal || null;
+  const statusEl  = document.getElementById('status_' + id);
+  const statusVal = statusEl ? statusEl.value : 'auto';
+  const existing  = overrides[showUrl] || {};
+
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${WORKER}?action=setOverride`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        password, url: showUrl, startDate, endDate, name,
+        hidden: existing.hidden || false,
+        status: statusVal === 'auto' ? null : statusVal
+      })
+    });
+    if (res.ok) {
+      btn.textContent = 'Saved ✓'; btn.classList.add('saved');
+      overrides[showUrl] = { ...existing, startDate, endDate, name, status: statusVal === 'auto' ? null : statusVal };
+      if (nameEl && name) nameEl.classList.add('overridden');
+      setTimeout(() => { btn.textContent = 'Save'; btn.classList.remove('saved'); }, 2000);
+      showToast('Saved!');
+    } else {
+      btn.textContent = 'Error'; setTimeout(() => btn.textContent = 'Save', 2000);
+    }
+  } catch(e) {
+    btn.textContent = 'Error'; setTimeout(() => btn.textContent = 'Save', 2000);
+  }
+}
+
+async function saveVisibility(showUrl, visible) {
+  const existing = overrides[showUrl] || {};
+  try {
+    const res = await fetch(`${WORKER}?action=setOverride`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, url: showUrl, ...existing, hidden: !visible })
+    });
+    if (res.ok) {
+      overrides[showUrl] = { ...existing, hidden: !visible };
+      showToast(visible ? 'Show visible to public' : 'Show hidden from public');
+    }
+  } catch(e) { showToast('Error saving visibility'); }
+}
+
+async function resetShow(showUrl) {
+  if (!confirm('Reset this show to original Ryegate data? All overrides will be cleared.')) return;
+  const res = await fetch(`${WORKER}?action=setOverride`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, url: showUrl, startDate: null, endDate: null, name: null, hidden: false, status: null })
+  });
+  if (res.ok) { delete overrides[showUrl]; showToast('Show reset'); renderTable(); }
+  else showToast('Error resetting show');
+}
+
+function filterAdmin() {
+  const query = (document.getElementById('adminSearch').value || '').toLowerCase().trim();
+  const selectedYear = document.getElementById('adminYearSelect').value;
+  const rows = document.querySelectorAll('#tableContainer tbody tr');
+  let visible = 0;
+  rows.forEach(row => {
+    const name  = (row.dataset.name || '').toLowerCase();
+    const year  = String(row.dataset.year || '');
+    const isShowRow = !!row.dataset.name; // ring editor rows have no data-name
+    const words = query.split(/\s+/).filter(Boolean);
+    const ok    = (!query || words.every(w => name.includes(w))) && (selectedYear === 'all' || year === selectedYear);
+    if (!isShowRow) return; // ring editor rows managed separately by toggle
+    row.style.display = ok ? '' : 'none';
+    if (ok) visible++;
+    // If show row is hidden, also hide its ring editor row (always the next sibling)
+    if (!ok) {
+      const ringRow = row.nextElementSibling;
+      if (ringRow && !ringRow.dataset.name) ringRow.style.display = 'none';
+    }
+  });
+  const countEl = document.getElementById('adminCount');
+  if (countEl) countEl.textContent = `${visible} show${visible !== 1 ? 's' : ''}`;
+}
+
+async function addShowManually() {
+  const urlInput  = document.getElementById('addShowUrl');
+  const nameInput = document.getElementById('addShowName');
+  const btn       = document.getElementById('btnAddShow');
+  const status    = document.getElementById('addShowStatus');
+  const showUrlInput = urlInput.value.trim();
+  if (!showUrlInput) { status.textContent = 'Please enter a URL'; status.className = 'add-show-status err'; return; }
+  try {
+    const parts = new URL(showUrlInput).pathname.split('/').filter(Boolean);
+    const depthParts = parts.filter(p => !/\.(html?|php)$/i.test(p));
+    if (depthParts.length > 5) {
+      status.textContent = '✗ URL too deep — paste the show index page, not a class or ring URL';
+      status.className = 'add-show-status err';
+      return;
+    }
+  } catch(e) {
+    status.textContent = '✗ Invalid URL';
+    status.className = 'add-show-status err';
+    return;
+  }
+
+  btn.textContent = 'Adding…';
+  btn.classList.add('loading');
+  status.textContent = 'Fetching show…';
+  status.className = 'add-show-status';
+
+  try {
+    const trimmedName = nameInput.value.trim();
+    const res = await fetch(`${WORKER}?action=addShow&password=${encodeURIComponent(password)}&url=${encodeURIComponent(showUrlInput)}&name=${encodeURIComponent(trimmedName)}`, {
+      method: 'GET'
+    });
+    const data = await res.json();
+    if (data.ok) {
+      status.textContent = `✓ Added: ${data.name} (${data.status})`;
+      status.className = 'add-show-status ok';
+      urlInput.value = '';
+      nameInput.value = '';
+      setTimeout(() => loadShows(), 800);
+    } else {
+      status.textContent = '✗ ' + (data.error || 'Failed') + (data.detail ? ' — ' + data.detail : '');
+      status.className = 'add-show-status err';
+    }
+  } catch(e) {
+    status.textContent = '✗ Network error: ' + e.message;
+    status.className = 'add-show-status err';
+  }
+  btn.textContent = '+ Add Show';
+  btn.classList.remove('loading');
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '';
+  const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+function idFor(url) { return url.replace(/[^a-zA-Z0-9]/g, '_'); }
+function statusLabel(s) { return { active: '● Live', upcoming: '◷ Upcoming', completed: '✓ Completed', unknown: '? Unknown' }[s] || s; }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function openDeleteModal() {
+  document.getElementById('deleteModal').classList.add('open');
+  document.getElementById('deleteModalPassword').value = '';
+  document.getElementById('deleteModalError').style.display = 'none';
+  setTimeout(() => document.getElementById('deleteModalPassword').focus(), 50);
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('open');
+}
+
+async function confirmDeleteAll() {
+  const pw  = document.getElementById('deleteModalPassword').value;
+  const btn = document.getElementById('btnDeleteConfirm');
+  const err = document.getElementById('deleteModalError');
+  err.style.display = 'none';
+  btn.textContent = 'Deleting…';
+  try {
+    const res  = await fetch(`${WORKER}?action=deleteAll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+    if (res.status === 401) {
+      err.textContent = 'Incorrect password';
+      err.style.display = 'block';
+      btn.textContent = 'Delete Everything';
+      return;
+    }
+    if (res.ok) {
+      closeDeleteModal();
+      showToast('All data deleted.');
+      allShows = []; overrides = {};
+      document.getElementById('tableContainer').innerHTML = '<div class="loading">Database cleared — no shows.</div>';
+      document.getElementById('scrapeStatus').textContent = '0 shows in database';
+      document.getElementById('stubProgress').style.display = 'none';
+    } else {
+      err.textContent = 'Delete failed — try again';
+      err.style.display = 'block';
+      btn.textContent = 'Delete Everything';
+    }
+  } catch(e) {
+    err.textContent = 'Network error';
+    err.style.display = 'block';
+    btn.textContent = 'Delete Everything';
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+document.getElementById('deleteModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('deleteModal')) closeDeleteModal();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') login();
+});
+
+// ── RING LABEL EDITOR ─────────────────────────────────────────────────────────
+
+async function toggleRingEditor(showUrl) {
+  const id      = idFor(showUrl);
+  const row     = document.getElementById('ringrow_' + id);
+  const btn     = document.getElementById('ringsbtn_' + id);
+  const isOpen  = btn.classList.contains('open');
+
+  if (isOpen) {
+    row.style.display = 'none';
+    btn.classList.remove('open');
+    return;
+  }
+
+  btn.classList.add('open');
+  await loadRingEditor(showUrl);
+  row.style.display = '';
+}
+
+async function loadRingEditor(showUrl) {
+  const id      = idFor(showUrl);
+  const editor  = document.getElementById('ringeditor_' + id);
+
+  try {
+    // Fetch show index to get tsked links
+    console.log('[RingEditor] Fetching:', showUrl);
+    const res  = await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(showUrl)}`);
+    console.log('[RingEditor] Response status:', res.status);
+    if (!res.ok) throw new Error('fetch failed: ' + res.status);
+    const html = await res.text();
+    console.log('[RingEditor] HTML length:', html.length);
+
+    // Parse ALL tsked links from the index page — including sub-directory hrefs
+    // that point to tsked.php (handles both flat and nested show structures)
+    const doc   = new DOMParser().parseFromString(html, 'text/html');
+    const links = [];
+    const seen  = new Set();
+
+    // First pass: direct tsked.php links on this page
+    doc.querySelectorAll('a[href]').forEach(a => {
+      const href = a.getAttribute('href');
+      const text = a.textContent.trim();
+      if (!href || !href.includes('tsked.php') || !text) return;
+      let fullUrl;
+      if (href.startsWith('http')) { fullUrl = href; }
+      else { try { fullUrl = new URL(href, showUrl).href; } catch(e) { return; } }
+      if (!seen.has(fullUrl)) { seen.add(fullUrl); links.push({ label: text, url: fullUrl }); }
+    });
+    console.log('[RingEditor] Direct tsked links:', links.length);
+
+    // If no direct tsked links, look for sub-directory links and fetch them
+    if (!links.length) {
+      const subLinks = [];
+      doc.querySelectorAll('a[href]').forEach(a => {
+        const href = a.getAttribute('href');
+        const text = a.textContent.trim();
+        if (!href || href.startsWith('http') || href.startsWith('#') || !text) return;
+        if (/\.(html?|php|css|js|gif|png|jpg)$/i.test(href)) return;
+        let fullUrl;
+        try { fullUrl = new URL(href, showUrl).href; } catch(e) { return; }
+        if (!seen.has(fullUrl)) { seen.add(fullUrl); subLinks.push({ label: text, url: fullUrl }); }
+      });
+      console.log('[RingEditor] Sub-directory links:', subLinks.length, subLinks.map(s=>s.url));
+      // Fetch each sub-page and collect tsked links from it
+      for (const sub of subLinks.slice(0, 10)) {
+        try {
+          const subRes  = await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(sub.url)}`);
+          if (!subRes.ok) continue;
+          const subHtml = await subRes.text();
+          const subDoc  = new DOMParser().parseFromString(subHtml, 'text/html');
+          subDoc.querySelectorAll('a[href]').forEach(a => {
+            const href = a.getAttribute('href');
+            const text = a.textContent.trim();
+            if (!href || !href.includes('tsked.php') || !text) return;
+            let fullUrl;
+            if (href.startsWith('http')) { fullUrl = href; }
+            else { try { fullUrl = new URL(href, sub.url).href; } catch(e) { return; } }
+            if (!seen.has(fullUrl)) { seen.add(fullUrl); links.push({ label: sub.label + ' — ' + text, url: fullUrl }); }
+          });
+        } catch(e) {}
+      }
+    }
+
+    if (!links.length) {
+      editor.innerHTML = '<div class="ring-editor-loading">No rings found for this show.</div>';
+      return;
+    }
+
+    // Fetch existing ring label overrides
+    const labelsRes = await fetch(`${WORKER}?action=getRingLabels&showUrl=${encodeURIComponent(showUrl)}`);
+    const labels    = labelsRes.ok ? await labelsRes.json() : {};
+
+    let html2 = '<div class="ring-editor-title">Ring / Division Labels</div>';
+    links.forEach((link, i) => {
+      const existing   = labels[link.url] || '';
+      const overridden = existing ? 'overridden' : '';
+      html2 += `<div class="ring-label-row">
+        <div class="ring-label-url" title="${escHtml(link.url)}">${escHtml(link.label)}</div>
+        <input type="text" class="ring-label-input ${overridden}"
+          id="ringlabel_${id}_${i}"
+          value="${escHtml(existing)}"
+          placeholder="${escHtml(link.label)}"
+          data-tsked="${escHtml(link.url)}"
+          oninput="this.classList.add('overridden')">
+        <button class="ring-save-btn" id="ringsavebtn_${id}_${i}"
+          onclick="saveRingLabel('${escHtml(showUrl)}', '${escHtml(link.url)}', ${i})">Save</button>
+      </div>`;
+    });
+
+    editor.innerHTML = html2;
+  } catch(e) {
+    editor.innerHTML = '<div class="ring-editor-loading">Failed: ' + escHtml(e.message) + ' — ' + escHtml(e.stack ? e.stack.split('\n')[1] : '') + '</div>';
+  }
+}
+
+async function saveRingLabel(showUrl, tskedUrl, i) {
+  const id    = idFor(showUrl);
+  const input = document.getElementById(`ringlabel_${id}_${i}`);
+  const btn   = document.getElementById(`ringsavebtn_${id}_${i}`);
+  const label = input ? input.value.trim() : '';
+
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${WORKER}?action=setRingLabel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, showUrl, tskedUrl, label })
+    });
+    if (res.ok) {
+      btn.textContent = 'Saved ✓'; btn.classList.add('saved');
+      if (input) { input.classList.toggle('overridden', !!label); }
+      setTimeout(() => { btn.textContent = 'Save'; btn.classList.remove('saved'); }, 2000);
+      showToast('Ring label saved');
+    } else {
+      btn.textContent = 'Error'; setTimeout(() => btn.textContent = 'Save', 2000);
+    }
+  } catch(e) {
+    btn.textContent = 'Error'; setTimeout(() => btn.textContent = 'Save', 2000);
+  }
+}
+</script>
+</body>
+</html>

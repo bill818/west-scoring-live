@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body { background: var(--off-white); color: var(--text-body); font-family: 'Source Sans 3', sans-serif; min-height: 100vh; }
+
+/* HEADER */
+header { background: var(--black); border-bottom: 3px solid var(--red); }
+.header-inner { max-width: 1280px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; height: 56px; gap: 12px; }
+.back-btn { display: flex; align-items: center; gap: 6px; color: #fff; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .06em; text-decoration: none; min-width: 44px; min-height: 44px; padding: 0; background: none; border: none; cursor: pointer; flex-shrink: 0; white-space: nowrap; }
+.back-btn:hover { color: var(--red); }
+.header-crumb { flex: 1; font-family: 'DM Mono', monospace; font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.logo-tap { display: flex; align-items: center; gap: 8px; text-decoration: none; margin-left: auto; }
+.logo-img { height: 30px; width: auto; filter: invert(1); }
+.logo-west { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 20px; color: #fff; }
+.logo-sep { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); margin: 0 3px; }
+.logo-scoring { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); letter-spacing: .04em; }
+
+/* TITLE BAR */
+.title-bar { background: #fff; border-bottom: 1px solid var(--border); padding: 14px 16px 12px; }
+.title-main { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--black); line-height: 1.2; }
+.refresh-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.refresh-info { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); }
+.refresh-btn { background: none; border: 1px solid var(--border); border-radius: 5px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 5px 12px; cursor: pointer; }
+.refresh-btn:active { background: var(--black); color: #fff; border-color: var(--black); }
+
+/* DAY SECTIONS */
+.day-section { margin-top: 0; }
+.day-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 12px 16px 6px; background: var(--off-white); border-bottom: 1px solid var(--border); border-top: 1px solid var(--border); }
+
+/* CLASS ROWS */
+.class-row { display: flex; align-items: center; gap: 10px; padding: 0 16px; min-height: 56px; background: #fff; border-bottom: 1px solid var(--border); cursor: pointer; text-decoration: none; color: inherit; transition: background .1s; }
+.class-row:active, .class-row:hover { background: var(--off-white); }
+.class-num { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); min-width: 54px; flex-shrink: 0; }
+.class-info { flex: 1; min-width: 0; }
+.class-name { font-size: 15px; color: var(--text-body); line-height: 1.3; }
+.class-status { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.class-arrow { font-size: 16px; color: #ccc; flex-shrink: 0; }
+
+/* LIVE DOT */
+.live-dot { display: inline-block; width: 7px; height: 7px; background: var(--red); border-radius: 50%; margin-left: 7px; flex-shrink: 0; animation: blink 1.6s ease-in-out infinite; vertical-align: middle; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+.live-badge { display: inline-flex; align-items: center; gap: 4px; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; background: #fde8e8; color: var(--red); padding: 2px 6px; border-radius: 2px; font-weight: 600; }
+
+/* NOT STARTED STATE */
+.not-started { text-align: center; padding: 60px 20px; }
+.not-started-icon { font-size: 36px; margin-bottom: 16px; opacity: .4; }
+.not-started h2 { font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 8px; color: var(--black); }
+.not-started p { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+
+/* BREADCRUMBS */
+.breadcrumbs { background: #fff; border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; align-items: center; gap: 0; min-height: 40px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.breadcrumbs::-webkit-scrollbar { display: none; }
+.bc-home { display: inline-flex; align-items: center; gap: 5px; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: var(--red); text-decoration: none; padding: 10px 10px 10px 0; white-space: nowrap; flex-shrink: 0; }
+.bc-home:hover { color: var(--black); }
+.bc-sep { font-family: 'DM Mono', monospace; font-size: 11px; color: #ccc; padding: 0 6px; flex-shrink: 0; user-select: none; }
+.bc-link { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .04em; color: var(--red); text-decoration: none; padding: 10px 0; white-space: nowrap; flex-shrink: 0; border-bottom: 1px solid transparent; }
+.bc-link:hover { border-bottom-color: var(--red); }
+.bc-current { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .04em; color: var(--text-muted); padding: 10px 0; white-space: nowrap; flex-shrink: 0; }
+
+/* LOADING / ERROR */
+.state-box { text-align: center; padding: 60px 20px; }
+.spinner { width: 28px; height: 28px; border: 3px solid #e8e8e8; border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-lbl { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
+.error-box { margin: 16px; background: #fff8f8; border: 1px solid #ffd0d0; border-radius: 8px; padding: 32px 20px; text-align: center; }
+.error-box h2 { font-family: 'Playfair Display', serif; font-size: 20px; margin-bottom: 8px; }
+.error-box p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+.content-wrap { padding-bottom: 60px; }
+
+@media(min-width: 768px) {
+  .header-inner { height: 70px; padding: 0 clamp(16px,4vw,48px); }
+  .title-bar { padding: 18px clamp(16px,4vw,48px) 14px; }
+  .title-main { font-size: 26px; }
+  .day-label { padding: 12px clamp(16px,4vw,48px) 6px; }
+  .class-row { padding: 0 clamp(16px,4vw,48px); min-height: 60px; }
+  .class-name { font-size: 16px; }
+}
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+.ryegate-header-credit { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: #666; margin-left: auto; white-space: nowrap; }
+.ryegate-header-credit a { color: #555; text-decoration: none; }
+.ryegate-header-credit a:hover { color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <button class="back-btn" id="backBtn" onclick="goBack()">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="backLabel">Show</span>
+    </button>
+    <span class="ryegate-header-credit">via <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a></span>
+    <a class="logo-tap" href="index.html">
+      <img src="assets/logo.png" class="logo-img" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<nav class="breadcrumbs" id="breadcrumbs" style="display:none">
+  <a class="bc-home" href="index.html">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    All Shows
+  </a>
+  <span class="bc-sep">›</span>
+  <a class="bc-link" id="bcShow" href="#">Show</a>
+  <span class="bc-sep" id="bcRingSep" style="display:none">›</span>
+  <span class="bc-current" id="bcRing" style="display:none"></span>
+</nav>
+
+<div id="content">
+  <div class="state-box">
+    <div class="spinner"></div>
+    <div class="state-lbl">Loading Classes…</div>
+  </div>
+</div>
+
+<script>
+const WORKER  = 'https://ryegate-proxy.bill-acb.workers.dev';
+const params  = new URLSearchParams(location.search);
+const tskedUrl = params.get('url');
+const showName = params.get('show') || 'Show';
+const crumb    = params.get('crumb') || '';
+
+if (!tskedUrl) location.href = 'index.html';
+
+// Reconstruct show.html URL from the tsked URL
+function getShowUrl() {
+  try {
+    const u = new URL(tskedUrl);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const showIndexUrl = u.origin + '/' + parts.slice(0, 3).join('/') + '/index.html';
+    return 'show.html?url=' + encodeURIComponent(showIndexUrl) + '&name=' + encodeURIComponent(showName);
+  } catch(e) { return 'index.html'; }
+}
+
+function goBack() { location.href = crumb ? getShowUrl() : 'index.html'; }
+
+function buildBreadcrumbs() {
+  const showUrl = getShowUrl();
+  const bcShow  = document.getElementById('bcShow');
+  const bcRing  = document.getElementById('bcRing');
+  const bcRingSep = document.getElementById('bcRingSep');
+  bcShow.href        = showUrl;
+  bcShow.textContent = showName;
+  if (crumb) {
+    bcRing.textContent     = crumb;
+    bcRing.style.display   = '';
+    bcRingSep.style.display = '';
+  } else {
+    // No ring crumb — show name is the current page
+    bcShow.classList.remove('bc-link');
+    bcShow.classList.add('bc-current');
+    bcShow.removeAttribute('href');
+  }
+  document.getElementById('breadcrumbs').style.display = '';
+  document.getElementById('backLabel').textContent = showName;
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function baseUrl(url) { return url.substring(0, url.lastIndexOf('/')+1); }
+
+function parseTsked(html, pageUrl) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (/please\s+check\s+back\s+later/i.test(doc.body ? doc.body.textContent : html)) {
+    return { notReady: true, days: [] };
+  }
+  const days = [];
+  Array.from(doc.querySelectorAll('center')).forEach(center => {
+    const text = center.textContent.trim();
+    if (!/^\w+day,/.test(text)) return;
+    let node = center.nextSibling, tbl = null;
+    while (node && !tbl) {
+      if (node.nodeName === 'TABLE') tbl = node;
+      else if (node.querySelector) tbl = node.querySelector('table');
+      node = node.nextSibling;
+    }
+    if (!tbl) return;
+    const classes = [];
+    tbl.querySelectorAll('tr').forEach(row => {
+      const tds = row.querySelectorAll('td');
+      if (tds.length < 2) return;
+      const na = tds[0].querySelector('a');
+      if (!na || !na.getAttribute('href')) return;
+      const href = na.getAttribute('href');
+      const num  = na.textContent.trim();
+      const nameTd = tds[1];
+      const isLive = nameTd.innerHTML.toLowerCase().includes('live.jpg');
+      const name = (nameTd.querySelector('a') || nameTd).textContent.trim();
+      let fullUrl;
+      if (href.startsWith('http')) fullUrl = href;
+      else if (href.startsWith('?')) fullUrl = pageUrl.split('?')[0] + href;
+      else fullUrl = baseUrl(pageUrl) + href;
+      classes.push({ num, name, href: fullUrl, isLive });
+    });
+    if (classes.length) days.push({ label: text, classes });
+  });
+  return { notReady: false, days };
+}
+
+let refreshTimer = null;
+let lastUpdated  = null;
+
+function startRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => loadClasses(false), 5 * 60 * 1000);
+}
+
+function updateRefreshInfo() {
+  const el = document.getElementById('refreshInfo');
+  if (el && lastUpdated) {
+    el.textContent = 'Updated ' + lastUpdated.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ' · Auto-refreshes every 5 min';
+  }
+}
+
+async function loadClasses(showSpinner = true) {
+  if (showSpinner) {
+    document.getElementById('content').innerHTML = `<div class="state-box"><div class="spinner"></div><div class="state-lbl">Loading Classes…</div></div>`;
+  }
+  try {
+    const res = await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(tskedUrl)}`);
+    if (!res.ok) throw new Error('fetch failed');
+    const html = await res.text();
+    const parsed = parseTsked(html, tskedUrl);
+    lastUpdated = new Date();
+    renderClasses(parsed);
+    startRefresh();
+  } catch(e) {
+    document.getElementById('content').innerHTML = `
+      <div class="error-box">
+        <h2>Could Not Load</h2>
+        <p>Unable to fetch class schedule. <a href="#" onclick="loadClasses(true);return false;" style="color:var(--red)">Try again</a></p>
+      </div>`;
+  }
+}
+
+function renderClasses(parsed) {
+  document.title = (crumb || showName) + ' — WEST Scoring Live';
+
+  if (parsed.notReady) {
+    document.getElementById('content').innerHTML = `
+      <div class="title-bar">
+        <div class="title-main">${esc(crumb || showName)}</div>
+      </div>
+      <div class="not-started">
+        <div class="not-started-icon">🕐</div>
+        <h2>Not Started Yet</h2>
+        <p>The class schedule isn't posted yet.<br>Check back when the show begins.</p>
+      </div>`;
+    return;
+  }
+
+  if (!parsed.days.length) {
+    document.getElementById('content').innerHTML = `
+      <div class="title-bar">
+        <div class="title-main">${esc(crumb || showName)}</div>
+      </div>
+      <div class="not-started">
+        <div class="not-started-icon">📋</div>
+        <h2>No Classes Found</h2>
+        <p>No class schedule could be parsed for this ring.</p>
+      </div>`;
+    return;
+  }
+
+  let html = `
+    <div class="title-bar">
+      <div class="title-main">${esc(crumb || showName)}</div>
+      <div class="refresh-row">
+        <span class="refresh-info" id="refreshInfo"></span>
+        <button class="refresh-btn" onclick="loadClasses(false)">↺ Refresh</button>
+      </div>
+    </div>
+    <div class="content-wrap">`;
+
+  parsed.days.forEach(day => {
+    html += `<div class="day-section"><div class="day-label">${esc(day.label)}</div>`;
+    day.classes.forEach(cls => {
+      const resultsUrl = 'results.html?url=' + encodeURIComponent(cls.href)
+        + '&num=' + encodeURIComponent(cls.num)
+        + '&name=' + encodeURIComponent(cls.name)
+        + '&show=' + encodeURIComponent(showName)
+        + '&crumb=' + encodeURIComponent(crumb || '')
+        + '&tsked=' + encodeURIComponent(tskedUrl);
+      const liveDot = cls.isLive ? `<span class="live-dot" title="In the ring now"></span>` : '';
+      html += `<a class="class-row" href="${esc(resultsUrl)}">
+        <span class="class-num">${esc(cls.num)}</span>
+        <div class="class-info">
+          <div class="class-name">${esc(cls.name)}${liveDot}</div>
+        </div>
+        <span class="class-arrow">›</span>
+      </a>`;
+    });
+    html += `</div>`;
+  });
+
+  html += `</div>`;
+  document.getElementById('content').innerHTML = html;
+  updateRefreshInfo();
+}
+
+buildBreadcrumbs();
+loadClasses(true);
+</script>
+<footer>
+  <p>WEST Timing and Scoring &nbsp;·&nbsp; Results powered by <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a> &nbsp;·&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;·&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+</body>
+</html>

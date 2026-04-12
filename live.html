@@ -78,6 +78,14 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .oc-fault-vals td{font-size:16px;font-weight:600;color:var(--text-body);padding:0 8px;}
 .oc-fault-vals td:last-child{color:var(--red);}
 
+/* SHARED CLASS SPECS BAR (wcs-*) — class metadata under the header */
+.wcs-bar{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);padding:4px 0 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.wcs-type{color:var(--red);font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:10px;}
+.wcs-ta{color:var(--text-body);}
+.wcs-sponsor{color:var(--text-muted);font-style:italic;}
+.wcs-trophy{color:var(--gold);}
+.wcs-sep{color:var(--border);}
+
 /* SHARED ON-COURSE (woc-*) — light theme for live page */
 .woc-info{background:var(--off-white);border-radius:6px;padding:12px 14px;}
 .woc-data{background:var(--off-white);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;}
@@ -633,7 +641,7 @@ function render() {
     const entryRow = (ocCd && ocCd.entries) ? ocCd.entries.find(e => String(e.entryNum) === String(oc.entry)) : null;
     const hunterRound = inferHunterRound(entryRow, phase);
     let phaseLabel = 'On Course';
-    if (phase === 'INTRO') phaseLabel = 'In Gate';
+    if (phase === 'INTRO') phaseLabel = WEST.phaseLabel('INTRO');
     else if (phase === 'FINISH') phaseLabel = 'Finished';
 
     let rightCardHtml = '';
@@ -743,14 +751,16 @@ function render() {
     const ocClassLabel = sel
       ? 'Class ' + esc(sel.classNum) + (jCd && jCd.className ? ' — ' + esc(jCd.className) : '')
       : '';
-    const phaseLabel = (phase === 'INTRO' ? 'In Gate' : phase === 'CD' ? 'Countdown' : phase === 'FINISH' ? 'Finished' : 'On Course');
+    const phaseLabel = WEST.phaseLabel(phase);
 
     // ── SHARED ON-COURSE RENDERER — single source of truth ──
     const ocHtml = WEST.renderOnCourse(oc, jCd);
     WEST.setOcState(oc, jCd);
+    const classSpecs = WEST.renderClassSpecs(jCd);
 
     html += '<div class="oc-wrap">'
       + '<div class="oc-header"><div class="oc-title">' + esc(phaseLabel) + (ocClassLabel ? ' &mdash; ' + ocClassLabel : '') + '</div></div>'
+      + classSpecs
       + '<div class="oc-grid">' + ocHtml + '</div></div>';
   } else if (previousEntry && finishExpired) {
     // Previous entry card after FINISH expires

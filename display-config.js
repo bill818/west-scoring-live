@@ -382,6 +382,7 @@ WEST.jumper.methods = {
   '6':  { label: 'Optimum Time IV.1',  table: 'IV.1',  rounds: 1, hasJO: false, immediate: false, isOptimum: true,  isTwoPhase: false },
   '7':  { label: 'Timed Equitation',   table: 'Eq',    rounds: 1, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false },
   '9':  { label: 'Two-Phase',          table: 'II.2d', rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: true  },
+  '11': { label: 'Jumper II.2c',       table: 'II.2c', rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: true, clearsOnly: true },
   '13': { label: 'Jumper II.2b',       table: 'II.2b', rounds: 2, hasJO: true,  immediate: true,  isOptimum: false, isTwoPhase: false },
 };
 
@@ -390,11 +391,22 @@ WEST.jumper.getMethod = function(code) {
 };
 
 // ── ROUND LABELS ─────────────────────────────────────────────────────────────
+// Compact label — for standings/rounds block (tight column width)
 WEST.jumper.roundLabel = function(method, round) {
   var m = WEST.jumper.getMethod(method);
   if (m.isTwoPhase) return round === 1 ? 'PH1' : round === 2 ? 'PH2' : 'PH' + round;
   if (m.rounds === 3) return round === 1 ? 'R1' : round === 2 ? 'R2' : 'JO';
+  if (m.rounds === 1) return 'R1'; // single-round (II.1, Optimum, Timed Eq) — never JO
   return round === 1 ? 'R1' : round === 2 ? 'JO' : 'R' + round;
+};
+
+// Long label — for on-course banner (descriptive, has space)
+WEST.jumper.roundLabelLong = function(method, round) {
+  var m = WEST.jumper.getMethod(method);
+  if (m.isTwoPhase) return round === 1 ? 'Phase 1' : round === 2 ? 'Phase 2' : 'Phase ' + round;
+  if (m.rounds === 3) return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Jump Off';
+  if (m.rounds === 1) return 'Round 1'; // single-round — never Jump Off
+  return round === 1 ? 'Round 1' : round === 2 ? 'Jump Off' : 'Round ' + round;
 };
 
 // ── EQUITATION ENTRY NAME HELPER ─────────────────────────────────────────────
@@ -442,6 +454,110 @@ WEST.jumper.getEntryStatus = function(entry, scoringMethod) {
   );
 };
 
+// ── SHARED OOG / CLASS STATE HELPERS ────────────────────────────────────────
+// Centralized logic for "is this entry currently on course" and "is this
+// class complete." Used by all pages (live, display, stats, results) to
+// keep OOG rendering and on-course highlighting consistent.
+
+// Standardized phase labels — used by on-course banners on all pages.
+// Source of truth: one place, consistent across live/display/stats.
+WEST.phaseLabel = function(phase) {
+  var p = String(phase || '').toUpperCase();
+  if (p === 'INTRO') return 'Intro';
+  if (p === 'CD') return 'Countdown';
+  if (p === 'FINISH') return 'Finished';
+  if (p === 'ONCOURSE' || p === 'RIDE_START') return 'On Course';
+  return 'On Course'; // default for unknown phases
+};
+
+// Returns true ONLY when the given entry is actively on course.
+// A FINISH phase means the entry is done — not "on course" anymore.
+// This fixes the stats-page bug where a finished entry was still tagged "OC".
+WEST.isOnCourse = function(oc, entryNum) {
+  if (!oc || !entryNum) return false;
+  if (oc.phase === 'FINISH') return false;
+  return String(oc.entry) === String(entryNum);
+};
+
+// Returns true when a class should be considered complete.
+// Class is complete if:
+//   1. It's in recentClasses (CLASS_COMPLETE event fired), OR
+//   2. It's not in activeClasses AND not the selected class AND has results
+WEST.isClassComplete = function(liveData, classNum, hasResults) {
+  if (!liveData) return false;
+  if (liveData.recentClasses && liveData.recentClasses.some(function(r) {
+    return String(r.classNum) === String(classNum);
+  })) return true;
+  var isActive = liveData.activeClasses && liveData.activeClasses.some(function(a) {
+    return String(a.classNum) === String(classNum);
+  });
+  var isSelected = liveData.selected && String(liveData.selected.classNum) === String(classNum);
+  if (!isActive && !isSelected && hasResults) return true;
+  return false;
+};
+
+// ── SHARED CLASS SPECS RENDERER ──────────────────────────────────────────────
+// Returns a short string of class specs suitable for display next to the
+// class name — method label, all TAs (method-aware), sponsor.
+// Used by on-course banner (live, display, stats) and results page.
+//
+// Example outputs:
+//   "Jumper II.2c  |  PH1=30s, PH2=31s  |  Sponsor: Acme"
+//   "Two-Phase  |  PH1=30s, PH2=31s"
+//   "Jumper II.1  |  TA=30s"
+//   "Jumper (3 rounds)  |  R1=30s, R2=40s, JO=60s"
+//
+// classData is the per-class object from liveData.classData[classNum].
+// Returns '' if no class data.
+
+WEST.renderClassSpecs = function(classData) {
+  if (!classData) return '';
+  var esc = WEST.esc;
+  var sm = String(classData.scoringMethod || '');
+  var ct = (classData.classType || '').toUpperCase();
+
+  // Method label — use the methods table if we have it
+  var method = WEST.jumper.methods[sm];
+  var typeLabel = method ? method.label
+    : sm === '0' ? 'Faults Converted'
+    : (ct === 'J' || ct === 'T') ? 'Jumper'
+    : ct === 'H' ? 'Hunter' : '';
+
+  // TA string — method-aware labels
+  var r1 = parseFloat(classData.r1TimeAllowed || classData.timeAllowed1 || 0) || 0;
+  var r2 = parseFloat(classData.r2TimeAllowed || classData.timeAllowed2 || 0) || 0;
+  var r3 = parseFloat(classData.r3TimeAllowed || classData.timeAllowed3 || 0) || 0;
+  var taStr = '';
+  if (method) {
+    if (method.rounds === 1) {
+      if (r1 > 0) taStr = 'TA=' + r1 + 's';
+    } else if (method.isTwoPhase) {
+      if (r1 > 0) taStr = 'PH1=' + r1 + 's';
+      if (r2 > 0) taStr += (taStr ? ', ' : '') + 'PH2=' + r2 + 's';
+    } else if (method.rounds === 3) {
+      if (r1 > 0) taStr = 'R1=' + r1 + 's';
+      if (r2 > 0) taStr += (taStr ? ', ' : '') + 'R2=' + r2 + 's';
+      if (r3 > 0) taStr += (taStr ? ', ' : '') + 'JO=' + r3 + 's';
+    } else {
+      if (r1 > 0) taStr = 'R1=' + r1 + 's';
+      if (r2 > 0) taStr += (taStr ? ', ' : '') + 'JO=' + r2 + 's';
+    }
+  } else if (r1 > 0) {
+    taStr = 'TA=' + r1 + 's';
+  }
+
+  var sponsor = (classData.sponsor || '').trim();
+  var trophy = (classData.trophy || '').trim();
+
+  var parts = [];
+  if (typeLabel) parts.push('<span class="wcs-type">' + esc(typeLabel) + '</span>');
+  if (taStr) parts.push('<span class="wcs-ta">' + esc(taStr) + '</span>');
+  if (sponsor) parts.push('<span class="wcs-sponsor">Sponsor: ' + esc(sponsor) + '</span>');
+  if (trophy) parts.push('<span class="wcs-trophy">' + esc(trophy) + '</span>');
+
+  return parts.length ? '<div class="wcs-bar">' + parts.join('<span class="wcs-sep"> | </span>') + '</div>' : '';
+};
+
 // ── SHARED ON-COURSE RENDERER ────────────────────────────────────────────────
 // Single source of truth for the on-course banner/card across all pages.
 // All equitation rules, phase handling, fault display, entry name logic,
@@ -474,10 +590,7 @@ WEST.renderOnCourse = function(oc, classData, opts) {
 
   // ── Phase ──
   var phase = (oc.phase || 'ONCOURSE').toUpperCase();
-  var phaseLabel = phase === 'INTRO' ? 'In Gate'
-    : phase === 'CD' ? 'Countdown'
-    : phase === 'FINISH' ? 'Finished'
-    : 'On Course';
+  var phaseLabel = WEST.phaseLabel(phase);
 
   // ── Entry name (equitation-aware) ──
   var primary, secondary, tertiary;
@@ -491,10 +604,10 @@ WEST.renderOnCourse = function(oc, classData, opts) {
     tertiary = '';
   }
 
-  // ── Round label ──
+  // ── Round label (long form for the banner: "Round 1", "Phase 1", "Jump Off") ──
   var roundLabel = oc.label || '';
-  if (!roundLabel && oc.round && WEST.jumper && WEST.jumper.roundLabel) {
-    roundLabel = WEST.jumper.roundLabel(sm, oc.round);
+  if (!roundLabel && oc.round && WEST.jumper && WEST.jumper.roundLabelLong) {
+    roundLabel = WEST.jumper.roundLabelLong(sm, oc.round);
   }
 
   // ── Clock ──

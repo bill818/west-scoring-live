@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WEST Scoring Live</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body { background: var(--off-white); color: var(--text-body); font-family: 'Source Sans 3', sans-serif; min-height: 100vh; }
+
+/* HEADER */
+header { background: var(--black); border-bottom: 3px solid var(--red); }
+.header-inner { max-width: 1280px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; height: 56px; gap: 12px; }
+.back-btn { display: flex; align-items: center; gap: 6px; color: #fff; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .06em; text-decoration: none; min-width: 44px; min-height: 44px; padding: 0; background: none; border: none; cursor: pointer; flex-shrink: 0; }
+.back-btn:hover { color: var(--red); }
+.header-crumb { flex: 1; font-family: 'DM Mono', monospace; font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo-tap { display: flex; align-items: center; gap: 8px; text-decoration: none; margin-left: auto; }
+.logo-img { height: 30px; width: auto; filter: invert(1); }
+.logo-west { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 20px; color: #fff; }
+.logo-sep { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); margin: 0 3px; }
+.logo-scoring { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--red); letter-spacing: .04em; }
+
+/* SHOW TITLE BAR */
+.show-title-bar { background: #fff; border-bottom: 1px solid var(--border); padding: 16px 16px 14px; }
+.show-name { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--black); line-height: 1.2; }
+.show-meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.status-badge { display: inline-flex; align-items: center; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; font-weight: 600; }
+.status-active   { background: #e8f5e9; color: #2e7d32; }
+.status-upcoming { background: #e3f2fd; color: #1565c0; }
+.status-completed{ background: #f5f5f5; color: #757575; }
+.show-dates { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
+
+/* SECTION HEADER — week group label */
+.section-hdr { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 14px 16px 6px; background: var(--off-white); border-bottom: 1px solid var(--border); }
+
+/* NAV ROWS */
+.nav-list { padding-bottom: 60px; }
+.nav-row { display: flex; align-items: center; gap: 14px; padding: 0 16px; min-height: 60px; background: #fff; border-bottom: 1px solid var(--border); cursor: pointer; text-decoration: none; color: inherit; transition: background .1s; }
+.nav-row:active, .nav-row:hover { background: var(--off-white); }
+.nav-icon { color: var(--red); font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
+.nav-label { font-size: 17px; font-weight: 600; color: var(--black); flex: 1; line-height: 1.3; }
+.nav-sub { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.nav-arrow { font-size: 18px; color: #ccc; flex-shrink: 0; }
+
+/* LOADING / ERROR */
+.state-box { text-align: center; padding: 60px 20px; }
+.spinner { width: 28px; height: 28px; border: 3px solid #e8e8e8; border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-lbl { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
+.error-box { margin: 16px; background: #fff8f8; border: 1px solid #ffd0d0; border-radius: 8px; padding: 32px 20px; text-align: center; }
+.error-box h2 { font-family: 'Playfair Display', serif; font-size: 20px; margin-bottom: 8px; }
+.error-box p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+@media(min-width: 768px) {
+  .header-inner { height: 70px; padding: 0 clamp(16px,4vw,48px); }
+  .show-title-bar { padding: 20px clamp(16px,4vw,48px) 16px; }
+  .show-name { font-size: 28px; }
+  .section-hdr { padding: 14px clamp(16px,4vw,48px) 6px; }
+  .nav-row { padding: 0 clamp(16px,4vw,48px); min-height: 64px; }
+  .nav-label { font-size: 18px; }
+}
+footer{background:var(--black);padding:24px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em;color:#666;}
+footer a{color:#888;text-decoration:none;}
+footer a:hover{color:var(--red);}
+.ryegate-header-credit { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .06em; color: #666; margin-left: auto; white-space: nowrap; }
+.ryegate-header-credit a { color: #555; text-decoration: none; }
+.ryegate-header-credit a:hover { color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="back-btn" href="index.html">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Shows
+    </a>
+    <div class="header-crumb" id="headerCrumb"></div>
+    <span class="ryegate-header-credit">via <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a></span>
+    <a class="logo-tap" href="index.html">
+      <img src="assets/logo.png" class="logo-img" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+  </div>
+</header>
+
+<div id="titleBar" style="display:none" class="show-title-bar">
+  <div class="show-name" id="showName"></div>
+  <div class="show-meta">
+    <span class="status-badge" id="showStatus"></span>
+    <span class="show-dates" id="showDates"></span>
+  </div>
+</div>
+
+<div id="content">
+  <div class="state-box">
+    <div class="spinner"></div>
+    <div class="state-lbl">Loading…</div>
+  </div>
+</div>
+
+<script>
+const WORKER = 'https://ryegate-proxy.bill-acb.workers.dev';
+const params = new URLSearchParams(location.search);
+const showUrl = params.get('url');
+
+if (!showUrl) location.href = 'index.html';
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function fmtDate(d) { return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : ''; }
+
+function displayDates(show) {
+  if (!show.startDate) return '';
+  if (show.startDate && show.endDate && show.startDate !== show.endDate)
+    return fmtDate(show.startDate) + ' – ' + fmtDate(show.endDate);
+  return fmtDate(show.startDate);
+}
+
+// Count path segments between show root and tsked URL (excluding tsked.php itself)
+// e.g. show root = /West/2025/WRHS/, tsked = /West/2025/WRHS/r1/tsked.php → depth 1
+// e.g. show root = /West/2025/SaratogaJune/, tsked = /West/2025/SaratogaJune/wk1/ring1/tsked.php → depth 2
+function getTskedDepth(showRootUrl, tskedUrl) {
+  try {
+    const rootPath = new URL(showRootUrl).pathname.replace(/\/[^\/]+\.[^\/]+$/, '/').replace(/\/?$/, '/');
+    const tskedPath = new URL(tskedUrl).pathname;
+    const relative = tskedPath.replace(rootPath, '');
+    const segments = relative.split('/').filter(Boolean);
+    // Last segment is tsked.php itself — exclude it
+    return Math.max(0, segments.length - 1);
+  } catch(e) { return 1; }
+}
+
+// Extract the root path of the show (directory containing the index file)
+function showRoot(url) {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    // Remove filename if present (index.html etc)
+    if (parts[parts.length-1].includes('.')) parts.pop();
+    return u.origin + '/' + parts.join('/') + '/';
+  } catch(e) { return url; }
+}
+
+// Parse all tsked.php links from the show index HTML
+function parseTskedLinks(html, baseUrl) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const links = [];
+  doc.querySelectorAll('a[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    const text = a.textContent.trim();
+    if (!href || !href.includes('tsked.php') || !text) return;
+    let fullUrl;
+    if (href.startsWith('http')) {
+      fullUrl = href;
+    } else {
+      try { fullUrl = new URL(href, baseUrl).href; } catch(e) { return; }
+    }
+    links.push({ label: text, url: fullUrl });
+  });
+  return links;
+}
+
+// Group tsked links by first path segment relative to show root
+// Used when depth=2 to group by week
+function groupByFirstSegment(links, rootUrl) {
+  const root = showRoot(rootUrl);
+  const groups = new Map();
+  links.forEach(link => {
+    try {
+      const rel = new URL(link.url).pathname.replace(new URL(root).pathname, '');
+      const seg = rel.split('/').filter(Boolean)[0] || 'Other';
+      if (!groups.has(seg)) groups.set(seg, []);
+      groups.get(seg).push(link);
+    } catch(e) {
+      if (!groups.has('Other')) groups.set('Other', []);
+      groups.get('Other').push(link);
+    }
+  });
+  return groups;
+}
+
+// Format a segment key into a readable label e.g. "wk1" → "Week 1", "ring1" → "Ring 1"
+function segmentLabel(seg) {
+  return seg
+    .replace(/^wk(\d+)$/i, 'Week $1')
+    .replace(/^week(\d+)$/i, 'Week $1')
+    .replace(/^r(\d+)$/i, 'Ring $1')
+    .replace(/^ring(\d+)$/i, 'Ring $1')
+    .replace(/([a-z])(\d)/gi, '$1 $2')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderSingleLevel(links, showName) {
+  let html = '<div class="nav-list">';
+  links.forEach(link => {
+    const classesUrl = 'classes.html?url=' + encodeURIComponent(link.url)
+      + '&show=' + encodeURIComponent(showName)
+      + '&crumb=' + encodeURIComponent(link.label);
+    html += `<a class="nav-row" href="${esc(classesUrl)}">
+      <span class="nav-icon">◈</span>
+      <span class="nav-label">${esc(link.label)}</span>
+      <span class="nav-arrow">›</span>
+    </a>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderTwoLevel(groups, showName, rootUrl) {
+  let html = '<div class="nav-list">';
+  groups.forEach((links, seg) => {
+    const groupLabel = segmentLabel(seg);
+    html += `<div class="section-hdr">${esc(groupLabel)}</div>`;
+    links.forEach(link => {
+      const classesUrl = 'classes.html?url=' + encodeURIComponent(link.url)
+        + '&show=' + encodeURIComponent(showName)
+        + '&crumb=' + encodeURIComponent(link.label);
+      html += `<a class="nav-row" href="${esc(classesUrl)}">
+        <span class="nav-icon">◈</span>
+        <span class="nav-label">${esc(link.label)}</span>
+        <span class="nav-arrow">›</span>
+      </a>`;
+    });
+  });
+  html += '</div>';
+  return html;
+}
+
+async function init() {
+  // 1. Get show metadata from worker
+  let show = null;
+  try {
+    const res = await fetch(`${WORKER}?action=getData`);
+    const shows = await res.json();
+    // Normalise both URLs for comparison — strip trailing slash and index.html
+    const normalise = u => u.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/').toLowerCase();
+    const normShow = normalise(showUrl);
+    show = shows.find(s => normalise(s.url) === normShow);
+  } catch(e) {}
+
+  // 2. Set page title and show title bar
+  // nameParam may be parsed HTML title or admin override — show.name from KV is most authoritative
+  const nameParam = params.get('name') || '';
+  const showName = (show ? show.name : '') || nameParam || 'Show';
+  document.title = showName + ' — WEST Scoring Live';
+  document.getElementById('headerCrumb').textContent = showName;
+
+  if (show) {
+    document.getElementById('titleBar').style.display = '';
+    document.getElementById('showName').textContent = showName;
+    const statusEl = document.getElementById('showStatus');
+    const statusMap = { active: '● Live', upcoming: '◷ Upcoming', completed: '✓ Completed' };
+    const classMap  = { active: 'status-active', upcoming: 'status-upcoming', completed: 'status-completed' };
+    if (show.status && statusMap[show.status]) {
+      statusEl.textContent = statusMap[show.status];
+      statusEl.className = 'status-badge ' + (classMap[show.status] || '');
+    }
+    document.getElementById('showDates').textContent = displayDates(show);
+  }
+
+  // 3. Fetch show index HTML via worker proxy
+  let indexHtml = '';
+  try {
+    const res = await fetch(`${WORKER}?action=getResults&url=${encodeURIComponent(showUrl)}`);
+    if (!res.ok) throw new Error();
+    indexHtml = await res.text();
+  } catch(e) {
+    document.getElementById('content').innerHTML = `<div class="error-box"><h2>Could Not Load</h2><p>Unable to fetch show data. Please try again.</p></div>`;
+    return;
+  }
+
+  // 4. Parse tsked links
+  const tskedLinks = parseTskedLinks(indexHtml, showUrl);
+
+  // 5. No tsked links → this IS the tsked page (single shape) → redirect to classes
+  if (tskedLinks.length === 0) {
+    location.href = 'classes.html?url=' + encodeURIComponent(showUrl)
+      + '&show=' + encodeURIComponent(showName)
+      + '&crumb=';
+    return;
+  }
+
+  // 5b. Fetch ring label overrides and apply to link labels
+  try {
+    const labelsRes = await fetch(`${WORKER}?action=getRingLabels&showUrl=${encodeURIComponent(showUrl)}`);
+    if (labelsRes.ok) {
+      const labels = await labelsRes.json();
+      tskedLinks.forEach(link => {
+        if (labels[link.url]) link.label = labels[link.url];
+      });
+    }
+  } catch(e) {}
+
+  // 6. Calculate depth from first tsked link
+  const root = showRoot(showUrl);
+  const depth = getTskedDepth(showUrl, tskedLinks[0].url);
+
+  // 7. Render based on depth
+  let html = '';
+  if (depth <= 1) {
+    html = renderSingleLevel(tskedLinks, showName);
+  } else {
+    const groups = groupByFirstSegment(tskedLinks, showUrl);
+    html = renderTwoLevel(groups, showName, showUrl);
+  }
+
+  document.getElementById('content').innerHTML = html;
+}
+
+init();
+</script>
+<footer>
+  <p>WEST Timing and Scoring &nbsp;·&nbsp; Results powered by <a href="https://ryegate.live" target="_blank" rel="noopener">Ryegate.live</a> &nbsp;·&nbsp; <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> &nbsp;·&nbsp; <a href="admin.html">Admin</a></p>
+</footer>
+</body>
+</html>
