@@ -1,0 +1,70 @@
+WEST Scoring Live — Session 17 Notes
+2026-04-07
+
+═══════════════════════════════════════════════════════════════
+TARGET: HITS CULPEPER APRIL 15 — MVP LIVE SHOW DEPLOYMENT
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+NOTE: No dedicated memory file exists for session 17. These notes are
+reconstructed from references in session 18-19 summaries and commit history.
+Session 17 was the first major front-end build sprint following the watcher
+v2.2 and Worker v2.2 deployment in session 16.
+
+1. FRONT-END PAGES — INITIAL BUILD
+   After session 16 established the Worker endpoints and admin page,
+   session 17 focused on building the public-facing HTML pages:
+
+   - index.html — dynamic show list, year dropdown, show status badges
+   - classes.html — class list with live/complete badges, search bar
+   - results.html — class results display, ribbon rendering, elimination display
+   - live.html — live class view: on-course card, standings, OOG panel,
+     recent results strip
+
+   All pages follow the same poll-based pattern: fetch from Worker,
+   render HTML, repeat on interval.
+
+2. WATCHER BUG FIXES (from session 16 bug list)
+   - {17} numeric check: hunter {fr}=11 packets treat {17} as scoreboard
+     message text, not elapsed time. Only treat {17} as elapsed when
+     {fr}=1 (jumper) AND value is numeric. Prevents false RIDE_START fires.
+   - onCourse KV write: watcher now POSTs ON_COURSE event to Worker when
+     {fr}=11 fires, so live.html shows the horse going on course.
+
+3. STATS PAGE — INITIAL BUILD
+   - stats.html built: pre-show class stats, live strip with phase clock
+   - Three-tier poll cadence (fast during active class, slow otherwise)
+
+═══════════════════════════════════════════════════════════════
+STATE AT END OF SESSION
+═══════════════════════════════════════════════════════════════
+- Public pages functional for jumper classes
+- Hunter rendering limited: no multi-judge breakdown yet (flat/forced only)
+- Server-side computation not yet built — Worker returned raw .cls data,
+  clients did their own parsing (changed in session 18)
+- 2 Culpeper blockers: Cloudflare Pages connect + security hardening
+
+═══════════════════════════════════════════════════════════════
+REMAINING BUILD FOR APRIL 15
+═══════════════════════════════════════════════════════════════
+1. Server-side computation (move ranking logic to Worker)
+2. Hunter multi-judge / derby results rendering
+3. display.html — arena in-gate display page
+4. Connect GitHub repo to Cloudflare Pages
+5. Security hardening (passwords)
+6. End-to-end test on scoring computer
+
+═══════════════════════════════════════════════════════════════
+FILES IN REPO (at session end)
+═══════════════════════════════════════════════════════════════
+west-watcher.js    v2.2 — {17} numeric guard + ON_COURSE post
+west-worker.js     v2.2 — existing Worker endpoints
+index.html         NEW — show list
+classes.html       NEW — class list with live/complete badges
+results.html       NEW — class results
+live.html          NEW — live on-course + standings
+stats.html         NEW — pre-show stats, live strip
+admin.html         — from session 16

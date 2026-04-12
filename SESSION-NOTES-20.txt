@@ -1,0 +1,187 @@
+WEST Scoring Live — Session 20 Notes
+2026-04-10
+
+═══════════════════════════════════════════════════════════════
+TARGET: HITS CULPEPER APRIL 15 — HUNTER ROUNDS + PARITY
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+1. UNIVERSAL HUNTER GRID — ARCHITECTURE DECISION
+   One renderer path for all hunter formats. Class type (isDerby, isFlat,
+   isSpecial) is a header attribute, not a render branch.
+
+   WEST.hunter.renderJudgeGrid now:
+   - Loops 1..numRounds (accepts opts.numRounds + opts.roundLabels +
+     opts.compact)
+   - Backward compatible — defaults to 2 rounds
+   - renderScoresCol, renderEntry, renderPrecomputed, renderPrecomputedByJudge
+     all updated to loop rounds generically
+
+2. WORKER — HUNTER ROUNDS PLUMBING
+   Worker now emits:
+   - numRounds from H[3] (clamped 1-3)
+   - roundLabels from H[25-27] (Special only — null otherwise, defaults
+     handled in renderer)
+   - comp.currentRound from H[4] — which round tab operator has selected
+     (1/2/3 = R1/R2/R3, numRounds+1 = "Overall" view). Was previously
+     mislabeled "Ribbons".
+   - comp.roundCompleted = [n_R1, n_R2, n_R3] — evidence-based competed
+     count per round (score OR status, not raw hasGone flag)
+   - r3Ranks / r3OverallRank slots emitted for all hunter classes
+   - hasR3 helper added
+
+   Header field corrections from class 925 (Special) snapshot diff:
+   - H[3] = NumRounds — confirmed (1, 2, or 3; only Special allows 3)
+   - H[4] = CurrentRound — which round tab is active in Ryegate UI.
+     Previously mislabeled as "Ribbons".
+   - H[8] = RibbonCount — TRUE ribbon count (12 for derbies/Special,
+     8 standard). H[4] was wrong for this; corrected.
+
+   computeDerbyRankings honors "earlier rounds always hold" rule:
+   - R2/R3 EL/RT/WD does NOT null out the per-judge card total for R1
+   - See feedback_hunter_earlier_rounds_hold.md
+
+   Round count by class type (clarified):
+   - Over Fences (H[2]=0): 1 or 2 rounds
+   - Flat (H[2]=1): always 1 round
+   - Derby (H[2]=2): always 2 rounds
+   - Special (H[2]=3): always 3 rounds (only type with custom labels)
+
+3. PHASE B — R3 COLUMN EXTRACTION — COMPLETE
+   Decoded R3 column layout from class 925 Special test data:
+   - R3 judges = col[33+j] (clean +9 stride from R2)
+   - R3 total = col[44]
+   - R3 numStatus = col[48], HasGone R3 = col[51], R3 textStatus = col[54]
+
+   Watcher hunter parser reads R3 columns; sequential R3 judges array.
+   Worker computeHunterResults non-derby branch:
+   - Builds r3 phase array
+   - Computes combined as r1Total+r2Total+r3Total (col[45] unreliable
+     mid-class — only correct when operator views Overall in Ryegate)
+   - normalizeHunterStatus helper extracted, used by both derby + non-derby,
+     now includes r3StatusCode
+   - _shimJt passes through r3Ranks + r3OverallRank so (Nth) rank indicator
+     shows in R3 rows in renderPrecomputed/renderPrecomputedByJudge
+
+4. WATCHER FIXES
+   - fr=12 (regular hunter Display Scores) merged into fr=16 handler.
+     Both force a fresh .cls re-read + post FINISH event.
+   - Hunter entry parser now reads col[13] GoOrder so worker orderOfGo
+     populates for hunters (was jumper-only before).
+   - inferHunterRound restored using comp.currentRound from H[4] (was
+     suppressed earlier in session when it wasn't reliable). Live on-course
+     banner now labels the round.
+
+5. hasEvidence FILTER — RENDERER-LEVEL
+   WEST.hunter.derby.hasEvidence filters stuck-hasGone entries that have
+   no score AND no status code.
+   - Applied in renderPrecomputed and renderPrecomputedByJudge
+   - Prevents zero-score entries from appearing in results after class
+     reopens or operator navigates back
+
+6. ONCOURSE vs FINISH SCORE GATING
+   live.html and display.html both gate score rendering on FINISH phase.
+   ONCOURSE (fr=11) shows entry intro only — no scores.
+   FINISH (fr=12 regular / fr=16 derby) shows full grid.
+   - live.html FINISH branch routes through WEST.hunter.renderJudgeGrid
+     (compact mode) — matches display sidebar breakdown
+   - live.html standings: any hunter with pre-computed multi-judge data
+     routes through renderPrecomputed (was derby-only gate before)
+
+7. ROUND-RELATIVE COMPETED COUNTER
+   - display.html top bar shows "<round label> Competed: N/M" using
+     comp.currentRound + comp.roundLabels (Special) or R1/R2/R3 fallback
+   - live.html progress bar also round-relative
+   - Hidden entirely when currentRound is null (Overall view)
+
+8. DISPLAY + LIVE PAGE PARITY ADDITIONS
+   - live.html FINISH on-course banner: rank moved into "Finished" header
+     row, combined score in red
+   - live.html standings: per-round totals black, overall combined red
+   - display.html sidebar judge cards rewritten to be round-aware (loops
+     1..numRounds, dynamic grid template, custom Special labels supported)
+   - renderPrecomputedByJudge now uses centralized WEST.hunter.getStatusDisplay
+     (earlier-rounds-hold rule), R3 row support
+
+9. OTHER FIXES
+   - Split decision false-positive fix: only compare top-N where N = placed
+     entry count (was always top-3, falsely flagged when fewer than 3 placed)
+   - Display.html standings grid template: judge col auto, entry col flex
+   - Recent Results banner on live.html: red 3px border, larger fonts
+   - Admin: "Open Display" button per ring in Watcher Status card (opens
+     display.html?slug=&ring= in new tab)
+   - Renderer cosmetics: compact mode for narrow containers; round label
+     column auto-sizes for custom Special labels ("Gymnastics" ~80px vs
+     "R1" 22px); non-derby colW 95 at 1-4 judges, 55 at 5+
+
+═══════════════════════════════════════════════════════════════
+WHERE WE STOPPED
+═══════════════════════════════════════════════════════════════
+- Hunter universal grid in place. R1+R2 fully working for derby, non-derby
+  scored, and Special (1-round tested). R3 plumbing complete.
+- Live + display pages match for hunter on-course/finish behavior.
+- 2 Culpeper blockers still open (April 15): Cloudflare Pages connection
+  + admin security hardening.
+
+═══════════════════════════════════════════════════════════════
+KEY UNCERTAINTIES
+═══════════════════════════════════════════════════════════════
+- H[3] confirmed at 1 and 3 only. Still need to verify at value 2
+  (intermediate round count).
+- H[6] ScoreMethod still partially unknown — changes for H&G and Special.
+- Whether col[45] CombinedTotal includes R3 in 3-round classes — unverified.
+
+═══════════════════════════════════════════════════════════════
+OPEN ITEMS / NEXT SESSION
+═══════════════════════════════════════════════════════════════
+- BLOCKING (April 15): Cloudflare Pages git connect + admin security
+  hardening (remove hardcoded password from admin.html)
+- renderPrecomputedByJudge rename: drop .derby. namespace (not derby-only)
+- Display sidebar consolidation (deferred): kill inline per-judge card loop,
+  point at shared renderAllJudgeCards helper
+- Apply hasEvidence to legacy renderList/renderByJudgeList paths if reused
+- Clock stale guard on live.html (post-Culpeper)
+- Timed EQ rendering H[2]=7 (post-Culpeper)
+
+═══════════════════════════════════════════════════════════════
+COMMITS THIS SESSION
+═══════════════════════════════════════════════════════════════
+ea01ff4  Hunter rounds: R3 plumbing + earlier-rounds-hold + stuck-hasGone filter
+277da45  Live + display parity for hunter on-course/finish + watcher fr=12
+e86b38b  CLS-FORMAT: hunter UDP fr=12/14/16 active in pipeline
+64dda55  CLS-FORMAT: document fr=15 hunter standings frame (later corrected)
+265450f  CLS-FORMAT: fr=15 is JOG / STANDBY (not standings)
+b80c225  CLS-FORMAT: fr=13 is hunter STANDINGS frame
+dfdf414  Split decision: only compare top-N where N = placed entry count
+fb20067  H[4] is current round + H[8] is real ribbon count + R3 column map
+121904f  Phase B: R3 column extraction + judge card rounds parity
+6e5c441  Display top-bar counter is round-relative for hunter multi-round classes
+30bd178  Live page progress bar — round-relative for hunter multi-round classes
+b1dbb08  _shimJt R3 + bigger Recent Results banner
+
+═══════════════════════════════════════════════════════════════
+FILES CHANGED
+═══════════════════════════════════════════════════════════════
+display-config.js  — universal grid, N-round loops, compact mode, colW logic
+west-worker.js     — numRounds, roundLabels, currentRound, r3 plumbing,
+                     normalizeHunterStatus, roundCompleted, split fix
+west-watcher.js    — fr=12 merged, col[13] GoOrder, inferHunterRound restored
+live.html          — FINISH judge grid (compact), hunter standings routing,
+                     round-relative progress bar, parity with display
+display.html       — round-aware judge cards, round-relative top bar counter,
+                     grid template fix
+admin.html         — "Open Display" button per ring
+
+═══════════════════════════════════════════════════════════════
+REFERENCE: HUNTER UDP FRAME MAP (confirmed this session)
+═══════════════════════════════════════════════════════════════
+fr=11   INTRO / ON COURSE — post ON_COURSE to KV, no scores
+fr=12   Display Scores (regular O/F) — force .cls re-read, post FINISH
+fr=13   STANDINGS frame (not acted on)
+fr=14   (logged, not acted on)
+fr=15   JOG / STANDBY (not standings — earlier doc was wrong)
+fr=16   DERBY FINISH — force .cls re-read, post FINISH
+fr=0    Class reset / new class

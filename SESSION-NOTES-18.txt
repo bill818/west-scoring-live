@@ -1,0 +1,98 @@
+WEST Scoring Live — Session 18 Notes
+2026-04-08
+
+═══════════════════════════════════════════════════════════════
+TARGET: HITS CULPEPER APRIL 15 — MVP LIVE SHOW DEPLOYMENT
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+NOTE: No dedicated memory file exists for session 18. These notes are
+reconstructed from references in later session summaries and memory files
+that explicitly call out "Shipped Session 18 (2026-04-08)."
+
+1. SERVER-SIDE COMPUTATION ENGINE — SHIPPED
+   Moved all results computation from client to Worker. Previously pages
+   received raw .cls data and did their own parsing; now Worker pre-computes
+   everything and pages are thin render templates.
+
+   Architecture:
+   - Watcher POSTs parsed .cls data to Worker via /postClassData
+   - Worker runs computeClassResults() — dispatches to computeHunterResults()
+     or computeJumperResults() based on class type
+   - Pre-computed results stored in KV: results:slug:ring:classNum
+   - /getResults serves pre-computed object directly — cls_raw never sent
+     to client
+   - On CLASS_COMPLETE: frozen into D1 classes.final_results
+   - /getResults priority: KV pre-computed → D1 final_results →
+     computed-fallback → D1 raw entries
+
+   Covers:
+   - Hunter derby: per-judge phase cards, rankings, judge card totals,
+     movement arrows, split decision detection
+   - Hunter non-derby scored: per-judge scores, sequential layout, up to
+     7 judges
+   - Hunter forced/flat: place-only rendering
+   - Jumper all 16 scoring methods: round data + per-round stats
+   - Table III / Faults Converted: r1FinalTime = clock + jumpFaults +
+     penaltySeconds
+   - isFaultsConverted flag included in computed results
+
+2. MULTI-ROUND NON-DERBY HUNTER — SHIPPED
+   Non-derby scored hunter classes with multiple judges/rounds now route
+   through the same per-judge rendering as derbies.
+
+   Column maps confirmed:
+   - Non-derby scored: R1 = col[15+j], R2 = col[24+j] (sequential per
+     judge, up to 7 judges)
+   - Derby: hiopt/base/bonus interleaved (completely different layout)
+
+   Renderer auto-detects format from data shape:
+   - phase.base exists → derby format (show base + hiopt + bonus)
+   - phase.score exists → non-derby format (show score + phaseTotal)
+   - renderPhaseMath(), renderPrecomputed(), renderPrecomputedByJudge()
+     handle both formats
+   - Bonus/hi-opt columns suppressed for non-derby scored classes
+   - Per-judge ranks, judge card totals, movement arrows, split decision
+     detection all work for non-derby scored classes
+
+3. RESULTS PAGE ENHANCEMENTS
+   - Judge grid expand panel ("View Judges Cards") connected to Worker
+     pre-computed data
+   - renderPrecomputed() and renderPrecomputedByJudge() built and wired in
+   - Table III display: Jump Faults + Final Time for Faults Converted classes
+
+4. WORKER UPDATES
+   - computeHunterResults() handles both derby (H[2]='2') and non-derby
+     scored classes via unified path
+   - Class status improvements (status never flips back once complete)
+   - ETags added to high-traffic endpoints
+
+═══════════════════════════════════════════════════════════════
+STATE AT END OF SESSION
+═══════════════════════════════════════════════════════════════
+- Server-side computation fully operational for jumper + hunter
+- Hunter derby + non-derby scored rendering complete on results.html
+- display.html not yet built (arena/in-gate display — session 19 work)
+- Per-round stats (stats.r1/r2/r3) not yet added (session 19 work)
+- 2 Culpeper blockers remain: Cloudflare Pages connect + security hardening
+
+═══════════════════════════════════════════════════════════════
+REMAINING BUILD FOR APRIL 15
+═══════════════════════════════════════════════════════════════
+1. display.html — arena in-gate display page
+2. Show page stats + weather
+3. Connect GitHub repo to Cloudflare Pages
+4. Security hardening (passwords)
+5. End-to-end test on scoring computer
+
+═══════════════════════════════════════════════════════════════
+FILES IN REPO (at session end)
+═══════════════════════════════════════════════════════════════
+west-worker.js     — computeClassResults() engine, non-derby hunter path
+west-watcher.js    — postClassData with pre-parsed .cls fields
+results.html       — renderPrecomputed, renderPrecomputedByJudge, Table III
+live.html          — on-course + standings (uses pre-computed KV data)
+display-config.js  — NEW — shared helpers (renderPhaseMath, status helpers)

@@ -1,0 +1,173 @@
+WEST Scoring Live — Session 21 Notes
+2026-04-11 to 2026-04-12 (two-day session)
+
+═══════════════════════════════════════════════════════════════
+TARGET: HITS CULPEPER APRIL 15 — FINALIZE DETECTION + EQUITATION
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+1. CLASS FINALIZE DETECTION — EXHAUSTIVE INVESTIGATION (Day 1)
+   Spent full day investigating every possible file/network signal for
+   detecting when operator presses Upload Results / Finalize & Close.
+
+   Dead ends documented (don't re-explore):
+   - netstat TCP polling (68.178.203.100) — blind to HTTP keepalive
+   - typeperf per-process IO counters — Upload click blends into baseline
+   - log.txt scraping — error-only, not touched during uploads
+   - master.dat — entry list, not upload registry (false alarm)
+   - config.dat — changed from config activation, not upload
+   - Passive pcap from LAN — switched network, needs drivers
+
+   Working signals found:
+   - .tod file NEW = first-time class finalize (jumper, AlgeTimy/FDS)
+   - .tod file size delta = subsequent finalize with new data
+   - .cls size growth = score save (already in watcher)
+   - Hunter: Export/{N}.csv + tsked.csv S flag (existing)
+
+   Incidental discoveries:
+   - Ryegate uploads via HTTPS 443 (not FTP 21) to 68.178.203.100
+   - FDS field in config.dat = timer brand, not FTP label
+   - Old ryegate.com endpoint is LIVE production — don't decommission
+   - No background heartbeat — "periodic" was operator's click cadence
+
+2. RYEGATE.LIVE PEEK DETECTION (Day 2)
+   Discovered ryegate.live page structure for detecting class state:
+   - "Please Check Back Later" = NOT_STARTED
+   - "ON COURSE" + "PREVIOUS EXHIBITOR" = LIVE
+   - "X of Y Competed" = IN_PROGRESS
+   - "Order of Go" = ORDER_POSTED (new state)
+   - Bare results table (no indicators) = UPLOADED
+
+   Built peekClass() with randomized 15-30s polling interval.
+   Goes dormant on UNKNOWN/ERROR or test paths (NONWEST).
+   ORDER_POSTED event forwarded to Worker for OOG badge.
+
+3. 5-LAYER FINALIZE DETECTION HIERARCHY
+   All deduped via shouldCommit() with 5-min window:
+   1. 3× Ctrl+A — instant, manual operator signal
+   2. ryegate.live peek — universal, 15-30s latency
+   3. .tod size delta — instant, AlgeTimy/FDS only
+   4. log.txt nuclear — commented out, activate via bad config.dat path
+   5. 30-min idle timeout — safety net, resets on .cls write
+
+   Reopen flow: CLASS_SELECTED clears commit timestamp so class
+   can be re-committed after reopening.
+
+4. EQUITATION SUPPORT (Method 7)
+   Full implementation of timed equitation class support:
+
+   UDP Frame Differences:
+   - {14}=TIME, {15}=FLTS — text labels, not numeric values
+   - No {8} rank frame on normal FINISH
+   - {19}=SCORE on Display Scores frame
+   - {17} = equitation score (not elapsed) on score frames
+   - Ryegate swaps horse/rider in UDP (rider in {2}, {3} empty)
+
+   .cls Column Mapping:
+   - col[19] (r1JumpFaults) = equitation score (87 pts)
+   - col[20] (r1TotalFaults) = duplicate of score
+   - col[14] = placement (same as standard jumper)
+
+   Display Rules:
+   - During class: rider first + city/state, hide jump faults
+   - After pinned: show placement + "X pts", hide all time/fault data
+   - On-course banner: rider, city/state, horse lowlighted
+   - Equitation FINISH holds indefinitely (no 10s expiry)
+
+   Watcher:
+   - enrichFromCls() fixes swapped horse/rider from UDP
+   - Method 7 added to noJumpOff (no "Jump Off" label)
+   - Header-based type inference: U + method in H[2] → infer as T
+   - isScoreFrame ({19}=SCORE) re-fires FINISH with rank + eqScore
+   - Decimal FINISH metric for classes without rank frame
+
+5. SHARED ON-COURSE RENDERER
+   Built WEST.renderOnCourse() + WEST.tickOnCourse() in display-config.js.
+   Centralizes ALL on-course logic: phase detection, clock, faults,
+   equitation rules, optimum time, rank display.
+
+   Live page migrated to shared renderer.
+   Display + stats pages still use old code — PRIORITY 1 for migration.
+
+   Two-section HTML output (woc-info + woc-data) with woc-* CSS classes.
+   Each page defines its own CSS for theme (light/dark) and layout.
+
+6. WATCHER ROBUSTNESS
+   - Synthetic INTRO: catches missed intro frames
+   - Entry switch mid-run: preserves clock, posts correct phase
+   - INTRO always re-fires (KV TTL expiry protection)
+   - .cls FINISH metric: Farmtek fallback for manual time entry
+   - UDP value sanitization: text labels → '0'
+
+7. PAGE FIXES
+   - Stats: time faults tick (fixed 'on-course' vs 'ONCOURSE' bug)
+   - Stats: method-aware TA display
+   - Stats: bigger OOG rows with longer entry names
+   - Stats + Results: hide OOG on CLASS_COMPLETE
+   - Display: NaN guard, removed "JO" rank fallback
+   - Display: equitation score display on sidebar card
+   - Live: equitation FINISH with score holds indefinitely
+
+═══════════════════════════════════════════════════════════════
+FILES CHANGED (commit 0cb59cd)
+═══════════════════════════════════════════════════════════════
+display-config.js  +287 lines  Shared renderer, equitation helpers, method 7
+west-watcher.js    +615 lines  Finalize detection, peek, enrichment, equitation
+west-worker.js     +7 lines    city/state/eqScore passthrough in on-course KV
+live.html          -57 lines   Migrated to shared renderer
+display.html       +80 lines   Equitation display rules
+stats.html         +107 lines  Time faults tick, equitation, OOG hide
+results.html       +46 lines   Equitation, OOG hide
+
+═══════════════════════════════════════════════════════════════
+OPEN ITEMS / NEXT SESSION
+═══════════════════════════════════════════════════════════════
+- PRIORITY 1: Wire shared on-course renderer into display.html + stats.html
+- Install batch file for Culpeper scoring PC
+- Test remaining class types: II.2a, II.2b, 3-round, Optimum Time, Flat
+- Scored equitation: verify H[3] distinguishes forced vs scored
+- Suppress stats page for equitation classes
+- Equitation city/state on on-course banner (display page already done)
+
+═══════════════════════════════════════════════════════════════
+REFERENCE: FINALIZE DETECTION MATRIX
+═══════════════════════════════════════════════════════════════
+Signal                    Speed      Coverage
+.cls size grew            instant    score save (all shows)
+.tod NEW or size grew     instant    finalize (AlgeTimy/FDS)
+ryegate.live peek         15-30s     Upload Results (ALL shows)
+3× Ctrl+A                instant    manual operator close
+30-min idle               slow       universal safety net
+log.txt nuclear           instant    commented out (bad-path mode)
+
+═══════════════════════════════════════════════════════════════
+REFERENCE: EQUITATION METHOD 7 UDP FRAME MAP
+═══════════════════════════════════════════════════════════════
+Standard on-course:
+  {1}=entry {2}=rider(!) {3}=(empty) {6}=city,state
+  {13}=TA:30 {14}=TIME {15}=FLTS {17}=elapsed {24}=0
+
+Finish (no rank):
+  Same as above + {17}=decimal time (28.990)
+
+Display Scores:
+  {1}=entry {2}=rider {8}=RANK N {13}=TA:30
+  {17}=score(!) {19}=SCORE
+
+Note: {2} contains RIDER name (not horse) for equitation.
+      .cls enrichment corrects this to proper horse/rider.
+
+═══════════════════════════════════════════════════════════════
+REFERENCE: RYEGATE.LIVE PAGE STATES
+═══════════════════════════════════════════════════════════════
+NOT_STARTED:   /please\s+check\s+back/i
+ORDER_POSTED:  /order\s+of\s+go/i
+LIVE:          /ON COURSE/i
+IN_PROGRESS:   /\d+\s+of\s+\d+\s+Competed/i
+UPLOADED:      has <table> + CBody but none of the above
+
+URL pattern: https://ryegate.live/{path}/results.php?class={N}
+Path from config.dat col[4]: SHOWS/West/2026/Culpeper/wk1/ring1

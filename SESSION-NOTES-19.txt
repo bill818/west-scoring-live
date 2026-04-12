@@ -1,0 +1,181 @@
+WEST Scoring Live — Session 19 Notes
+2026-04-09 (long session)
+
+═══════════════════════════════════════════════════════════════
+TARGET: HITS CULPEPER APRIL 15 — MVP LIVE SHOW DEPLOYMENT
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+MAJOR ACCOMPLISHMENTS THIS SESSION
+═══════════════════════════════════════════════════════════════
+
+1. DISPLAY PAGE — BUILT (display.html)
+   Full arena/in-gate display page. Dark theme. Auto-polls, auto-scrolls.
+   No navigation — designed for unattended screen.
+
+   Layout (3-column, always same for jumper and hunter):
+   - Left:   OOG (Up Next / Competed split) or Competed-only list
+   - Center: Standings with auto-scroll
+   - Right:  On-course/finished card + class-type-specific content below
+
+   Top bar (2 rows):
+   - Row 1: WEST logo + class number + class name
+   - Row 2: Class type label, sponsor/trophy, per-round TAs with proper
+     labels (FR/JO/PH1/PH2), competed count + progress bar
+
+   Standings (center):
+   - Jumper: 4-col grid (Plc, #, Entry info with breeding/owner, Results
+     with stacked rounds)
+   - Hunter single-judge: 4-col grid (Plc, #, Entry info, Score)
+   - Hunter multi-judge derby: 4-col grid (Plc, #, Entry info, Judge grid
+     via renderJudgeGrid right-aligned)
+   - Gone filter: entries with no place AND no scores filtered out (prevents
+     zero-score on-course entries showing in standings)
+   - Competed count based on filtered gone array
+
+   Sidebar — JUMPER classes:
+   - On-course card: entry # + round label, horse/rider, live clock (whole
+     seconds), phase labels (IN GATE/COUNTDOWN/ON COURSE/PAUSED), jump/
+     time/total faults grid, rank, overtime in red
+   - Finished card: same layout, frozen
+   - Previous card: muted, entry + horse/rider + time + faults
+   - Class stats (pinned bottom): per-round stats from worker stats.r1/r2/r3
+
+   Sidebar — HUNTER classes:
+   - On-course/finished card: entry info + score
+   - Derby finished card: full renderJudgeGrid + "R1 total + R2 total =
+     Overall" or "R1 Total:" for single-round
+   - Per-judge leaderboard cards (scrollable):
+     - "Judge N Card" headers in gold
+     - Top 10 per judge, sorted by judge card total
+     - Status rules applied: R1 EL = dimmed; R2 RT = R1 holds, R2 shows status
+     - Gold #1 highlight
+
+   Auto-scroll:
+   - Standings: hold top 4s, scroll 2px/tick, hold bottom 5s, jump top
+   - Judge cards: separate slower cadence (1px/tick, 6s top, 7s bottom)
+   - Scroll position preserved across 4s poll re-renders
+
+   Entry history + session freeze:
+   - entryHistory array — add-only, survives FINISH
+   - Previous = second-to-last in history
+   - Last render cached in sessionStorage on CLASS_COMPLETE
+   - Survives 3x Ctrl+A + refresh — no blank screen on class change
+
+2. CENTRALIZED JUDGE GRID — WEST.hunter.renderJudgeGrid
+   Universal multi-judge renderer in display-config.js. One function for
+   all pages and all hunter formats.
+
+   - Loops judges; accepts opts.isDerby + opts.dark + opts.compact
+   - Derby: base + hiopt + bonus per judge per round
+   - Non-derby scored: score per judge per round
+   - Returns { header, row, gridCols }
+   - Status: R1 EL = single status in total position; R2 RT = R1 holds
+   - Column headers underlined
+   - Light and dark theme support
+
+   Used by: display.html standings, display.html finished card,
+   results.html expand panel ("View Judges Cards")
+
+   Per-judge sidebar cards use a SEPARATE single-judge layout (not
+   renderJudgeGrid — documented separately).
+
+3. WORKER — PER-ROUND STATS + DERBY STATUS CODES
+   Per-round stats added to server-side computation:
+   - stats.r1, stats.r2, stats.r3 — each a full stats object or null
+   - Each contains: total, eliminated, clearRounds, clearPct, avgFaults,
+     timeFaultCount, avgTime, avgClearTime, faultBuckets, fastest4Fault,
+     leaderboard
+   - Legacy top-level fields still map to R1 for backward compatibility
+   - display.html uses per-round stats from Worker (no client computation)
+
+   Derby status codes normalized:
+   - r1StatusCode / r2StatusCode / statusCode from r1TextStatus + r1NumericStatus
+   - Numeric map: 0=none, 1=DNS, 2=EL, 3=RT, 4=WD, 5=RF, 6=OC, 7=MR, 8=HC
+
+   Split decision logic:
+   - Compares each judge's top 3 (by card total) against overall combined
+     top 3 (by place)
+   - Tie-break by overall place when judge card totals are equal
+   - Only flags if the top 3 entry SET differs — not just ordering
+   - Class 1001 verified: 118/110 tied at 184 on Judge 2, tie-break by place
+     keeps 118 in top 3, matches overall → no split flag
+
+   Auto-close: reduced from 30 min to 15 min
+
+4. SHOW PAGE (show.html) — BUILT
+   - Rider/horse search with debounce + clear button (above rings)
+   - Show stats: total entries, total classes, classes complete,
+     entries per day cards
+   - Show weather: per-show-day from Open-Meteo, cached in D1
+     show_weather table, hidden until 3 days before show
+   - Current conditions inline in hero area (no 5-day forecast card)
+   - Leaderboards: Champions & Reserve (from cls_raw H[11], handles ties),
+     Top Riders, Top Horses, Prize Money
+   - All leaderboards collapsible accordions with preview line
+   - Championships excluded from blues count
+   - start_date/end_date added to /getShow response
+
+   New Worker endpoints: /searchShow, /getShowStats, /getShowWeather
+   New D1 table: show_weather
+
+5. OTHER ADDITIONS
+   - Table III on results.html (Jump Faults + Final Time)
+   - JO badge hidden when class complete
+   - Hunter UDP tracking (hunterSeen) with worker-side merge
+   - Equitation UDP discovery: {7}=rider, {6}=city/state (not {3})
+   - Classes page search bar (filter by name or number)
+   - Responsive logo (compass only below 480px) — all 6 pages
+   - Watcher auto-restart .bat (loop on crash, 5s delay)
+   - Results page "View Judges Cards" button renamed
+
+═══════════════════════════════════════════════════════════════
+WHERE WE STOPPED
+═══════════════════════════════════════════════════════════════
+- Display page functional for jumper and hunter derby classes
+- Judge cards sidebar auto-scroll needs testing with active class
+- Many class types untested on display page (see below)
+- 2 Culpeper blockers remain: Cloudflare Pages deploy + security hardening
+
+═══════════════════════════════════════════════════════════════
+UNTESTED CLASS TYPES ON DISPLAY PAGE
+═══════════════════════════════════════════════════════════════
+Jumper:  Two-phase (sm=9), Optimum (sm=6), 3-round (sm=3), Speed (sm=4),
+         Winning Round (sm=15), Table II (sm=8)
+Hunter:  Scored single-judge, Scored multi-judge non-derby, Flat (H[2]=1),
+         Championship, Forced over fences
+Multi:   Non-derby scored 2-judge, 3+ judge derby, 3+ judge non-derby,
+         split decision, movement arrows
+Other:   Judge cards auto-scroll, session freeze across class changes,
+         eq on display, hunterSeen fallback, OOG panel with real JO data
+
+═══════════════════════════════════════════════════════════════
+OPEN ITEMS / NEXT SESSION
+═══════════════════════════════════════════════════════════════
+- Hunter rounds plumbing: R3 for Special classes
+- Universal grid refactor: one renderer for all round counts
+- wire renderJudgeGrid into live.html judge expand panels
+- Clock stale guard on live.html
+- Connect GitHub repo to Cloudflare Pages (BLOCKING)
+- Security hardening: /admin/login endpoint, remove hardcoded password
+  from admin.html (BLOCKING)
+
+═══════════════════════════════════════════════════════════════
+COMMIT
+═══════════════════════════════════════════════════════════════
+fbd3cd7  Display arena page, universal judge grid, round plumbing,
+         show stats (mass commit of session 19 work)
+
+═══════════════════════════════════════════════════════════════
+FILES CHANGED
+═══════════════════════════════════════════════════════════════
+display.html       NEW — arena in-gate display, dark theme, 3-column
+display-config.js  — renderJudgeGrid, per-round stats, status helpers
+west-worker.js     — per-round stats, derby status codes, split decision,
+                     auto-close 15min, /getShowStats, /getShowWeather,
+                     /searchShow, show_weather D1 table
+show.html          NEW — hero, weather, leaderboards, search
+results.html       — Table III, "View Judges Cards" rename, judge expand
+classes.html       — search bar
+live.html          — hunterSeen, OOG JO badge hide on complete
+west-watcher.js    — auto-restart .bat, hunterSeen merge
