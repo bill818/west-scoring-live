@@ -510,41 +510,57 @@ WEST.isClassComplete = function(liveData, classNum, hasResults) {
 // classData is the per-class object from liveData.classData[classNum].
 // Returns '' if no class data.
 
+// Get the short type label for a class (uses methods table, falls back to classType).
+// e.g. "Jumper II.2c", "Hunter", "Faults Converted"
+WEST.getTypeLabel = function(classData) {
+  if (!classData) return '';
+  var sm = String(classData.scoringMethod || classData.scoring_method || '');
+  var ct = (classData.classType || classData.class_type || '').toUpperCase();
+  var method = WEST.jumper.methods[sm];
+  if (method) return method.label;
+  if (sm === '0') return 'Faults Converted';
+  if (ct === 'J' || ct === 'T') return 'Jumper';
+  if (ct === 'H') return 'Hunter';
+  return ct;
+};
+
+// Get the formatted TA string for a class, method-aware.
+// e.g. "PH1=30s, PH2=31s", "R1=30s, JO=60s", "TA=30s", "R1=30s, R2=40s, JO=60s"
+WEST.getTAString = function(classData) {
+  if (!classData) return '';
+  var sm = String(classData.scoringMethod || classData.scoring_method || '');
+  var method = WEST.jumper.methods[sm];
+  // Accept both shapes: parseCls (r1TimeAllowed) or precomputed (ta.r1)
+  var ta = classData.ta || classData._computed && classData._computed.ta;
+  var r1 = ta ? parseFloat(ta.r1) || 0 : (parseFloat(classData.r1TimeAllowed || classData.timeAllowed1 || 0) || 0);
+  var r2 = ta ? parseFloat(ta.r2) || 0 : (parseFloat(classData.r2TimeAllowed || classData.timeAllowed2 || 0) || 0);
+  var r3 = ta ? parseFloat(ta.r3) || 0 : (parseFloat(classData.r3TimeAllowed || classData.timeAllowed3 || 0) || 0);
+  var s = '';
+  if (method) {
+    if (method.rounds === 1) {
+      if (r1 > 0) s = 'TA=' + r1 + 's';
+    } else if (method.isTwoPhase) {
+      if (r1 > 0) s = 'PH1=' + r1 + 's';
+      if (r2 > 0) s += (s ? ', ' : '') + 'PH2=' + r2 + 's';
+    } else if (method.rounds === 3) {
+      if (r1 > 0) s = 'R1=' + r1 + 's';
+      if (r2 > 0) s += (s ? ', ' : '') + 'R2=' + r2 + 's';
+      if (r3 > 0) s += (s ? ', ' : '') + 'JO=' + r3 + 's';
+    } else {
+      if (r1 > 0) s = 'R1=' + r1 + 's';
+      if (r2 > 0) s += (s ? ', ' : '') + 'JO=' + r2 + 's';
+    }
+  } else if (r1 > 0) {
+    s = 'TA=' + r1 + 's';
+  }
+  return s;
+};
+
 WEST.renderClassSpecs = function(classData) {
   if (!classData) return '';
   var esc = WEST.esc;
-  var sm = String(classData.scoringMethod || '');
-  var ct = (classData.classType || '').toUpperCase();
-
-  // Method label — use the methods table if we have it
-  var method = WEST.jumper.methods[sm];
-  var typeLabel = method ? method.label
-    : sm === '0' ? 'Faults Converted'
-    : (ct === 'J' || ct === 'T') ? 'Jumper'
-    : ct === 'H' ? 'Hunter' : '';
-
-  // TA string — method-aware labels
-  var r1 = parseFloat(classData.r1TimeAllowed || classData.timeAllowed1 || 0) || 0;
-  var r2 = parseFloat(classData.r2TimeAllowed || classData.timeAllowed2 || 0) || 0;
-  var r3 = parseFloat(classData.r3TimeAllowed || classData.timeAllowed3 || 0) || 0;
-  var taStr = '';
-  if (method) {
-    if (method.rounds === 1) {
-      if (r1 > 0) taStr = 'TA=' + r1 + 's';
-    } else if (method.isTwoPhase) {
-      if (r1 > 0) taStr = 'PH1=' + r1 + 's';
-      if (r2 > 0) taStr += (taStr ? ', ' : '') + 'PH2=' + r2 + 's';
-    } else if (method.rounds === 3) {
-      if (r1 > 0) taStr = 'R1=' + r1 + 's';
-      if (r2 > 0) taStr += (taStr ? ', ' : '') + 'R2=' + r2 + 's';
-      if (r3 > 0) taStr += (taStr ? ', ' : '') + 'JO=' + r3 + 's';
-    } else {
-      if (r1 > 0) taStr = 'R1=' + r1 + 's';
-      if (r2 > 0) taStr += (taStr ? ', ' : '') + 'JO=' + r2 + 's';
-    }
-  } else if (r1 > 0) {
-    taStr = 'TA=' + r1 + 's';
-  }
+  var typeLabel = WEST.getTypeLabel(classData);
+  var taStr = WEST.getTAString(classData);
 
   var sponsor = (classData.sponsor || '').trim();
   var trophy = (classData.trophy || '').trim();

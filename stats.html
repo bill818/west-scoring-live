@@ -748,36 +748,17 @@ function renderClassInfoBar() {
   var bar = document.getElementById('classInfoBar');
   bar.style.display = '';
 
-  var ct = (classInfo.class_type || '').toUpperCase();
-  var sm = classInfo.scoring_method || '';
-  var typeLabel = sm === '9' ? 'Two-Phase'
-    : sm === '4' || sm === '6' ? 'Speed'
-    : sm === '2' ? 'Jumper II.2a'
-    : sm === '13' ? 'Jumper II.2b'
-    : sm === '3' ? 'Jumper (3 rounds)'
-    : (ct === 'J' || ct === 'T') ? 'Jumper'
-    : ct === 'H' ? 'Hunter' : ct;
-  var ciTa;
-  if (classInfo._computed && classInfo._computed.ta) {
-    ciTa = classInfo._computed.ta;
-  } else {
+  // Use shared helpers from display-config.js — consistent labels across pages
+  // Parse TA from cls_raw if not precomputed, then pass the classData to the helper
+  var ciData = classInfo;
+  if (!classInfo._computed || !classInfo._computed.ta) {
     var pr = parseClsRaw(classInfo.cls_raw);
-    ciTa = { r1: pr.r1TA, r2: pr.r2TA, r3: pr.r3TA };
+    ciData = Object.assign({}, classInfo, {
+      r1TimeAllowed: pr.r1TA, r2TimeAllowed: pr.r2TA, r3TimeAllowed: pr.r3TA,
+    });
   }
-  var taStr = '';
-  // Single-round methods (II.1 Speed, Optimum) — show just "TA" not "R1"
-  // Methods with JO — show "R1=Xs, JO=Ys"
-  // Two-phase — show "PH1=Xs, PH2=Ys"
-  var noJO = sm === '4' || sm === '6' || sm === '7';
-  var isTwoPhase = sm === '9';
-  if (ciTa.r1 > 0) {
-    if (noJO) taStr = 'TA=' + ciTa.r1 + 's';
-    else taStr = (isTwoPhase ? 'PH1=' : 'R1=') + ciTa.r1 + 's';
-  }
-  if (ciTa.r2 > 0 && !noJO) {
-    var r2Label = isTwoPhase ? 'PH2' : 'JO';
-    taStr += (taStr ? ', ' + r2Label + '=' : r2Label + '=') + ciTa.r2 + 's';
-  }
+  var typeLabel = WEST.getTypeLabel(ciData);
+  var taStr = WEST.getTAString(ciData);
 
   var totalEntries = (classInfo._computed ? (classInfo._computed.entries || []).length : 0) || rawEntries.length || 0;
   var watcherAlive = liveData && liveData.watcherAlive;
@@ -1147,8 +1128,12 @@ function renderAll() {
   html += renderEntrySummary(grouped, s);
 
   /* 5. FAULT DISTRIBUTION R1 — only when >=1 horse competed */
+  // Method-aware labels: "Phase 1" for two-phase, "Round 1" for others
+  var sm = classInfo && (classInfo.scoring_method || classInfo.scoringMethod) || '';
+  var r1Long = WEST.jumper.roundLabelLong(sm, 1);
+  var r2Long = WEST.jumper.roundLabelLong(sm, 2);
   if (s.starters >= 1) {
-    html += '<div class="section-label">Fault Distribution &mdash; Round 1</div>';
+    html += '<div class="section-label">Fault Distribution &mdash; ' + r1Long + '</div>';
     html += renderFaultSection(s.r1Buckets, s.starters);
   }
 
@@ -1183,16 +1168,16 @@ function renderAll() {
     html += '</div>';
   }
 
-  /* 8. JO STANDINGS + JO FAULT BREAKDOWN */
+  /* 8. R2/JO/PH2 STANDINGS + FAULT BREAKDOWN */
   if (s.hasJO && s.joWithGap.length > 0) {
-    html += '<div class="section-label">Jump Off Standings (' + s.joEntryCount + ' entries)</div>';
+    html += '<div class="section-label">' + r2Long + ' Standings (' + s.joEntryCount + ' entries)</div>';
     html += renderStandingsTable(s.joWithGap, 2);
-    html += '<div class="section-label">Fault Distribution &mdash; Jump Off</div>';
+    html += '<div class="section-label">Fault Distribution &mdash; ' + r2Long + '</div>';
     html += renderFaultSection(s.joBuckets, s.joEntryCount);
   }
 
-  /* 9. R1 STANDINGS */
-  var r1Label = s.hasJO ? 'Round 1 &mdash; Faults &amp; Time vs TA' : 'Round 1 Standings';
+  /* 9. R1 / PH1 STANDINGS */
+  var r1Label = s.hasJO ? r1Long + ' &mdash; Faults &amp; Time vs TA' : r1Long + ' Standings';
   html += '<div class="section-label">' + r1Label + ' (' + s.starters + ' starters)</div>';
   html += renderR1StandingsTable(s.r1WithGap, s.hasJO);
 

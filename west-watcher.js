@@ -1503,7 +1503,9 @@ function inferRound(entryNum, udpTa) {
     const parsed = parseCls(content, filename);
     if (parsed) {
       const sm = String(parsed.scoringMethod || '');
-      const isTwoPhase = sm === '9';
+      // Two-phase methods use Phase 1 / Phase 2 labels:
+      //   9 = II.2d (all advance), 11 = II.2c (clears only advance)
+      const isTwoPhase = sm === '9' || sm === '11';
       const isThreeRound = sm === '3';
       const isTeam = sm === '14';
       // Single-round methods with no jump-off: II.1 Speed (4), Optimum Time (6), Timed Equitation (7)
@@ -1654,17 +1656,32 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
       lastTa    = ta;
       // DON'T change lastPhase — keep clock running in correct phase
     } else {
-      // (B) New entry without prior INTRO — synthesize one
-      log(`[SYNTHETIC INTRO] #${entry} ${horse} — no intro received, synthesizing from ${phase} frame`);
-      fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: '', isHunter: false });
-      postToWorker('/postClassEvent',
-        { event: 'INTRO', entry, horse, rider, owner, city, state, ta: ta || '',
-          round: ri.round, label: ri.label,
-          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
-        `INTRO #${entry} (synthetic)`);
-      lastPhase = 'INTRO';
-      lastEntry = entry;
-      lastTa    = ta;
+      // (B) New entry without prior INTRO.
+      // If the incoming phase is CD, skip the synthetic INTRO — CD_START has
+      // all the data needed and firing both causes a race condition where
+      // INTRO can arrive at the Worker AFTER CD_START (both are fire-and-forget
+      // fetch()) and overwrite the countdown state with a 45s intro clock.
+      // For ONCOURSE, still synthesize INTRO so the banner shows entry info
+      // (ONCOURSE event doesn't include all metadata the page needs).
+      if (phase === 'CD') {
+        // Just update state — the main event block below will fire CD_START
+        // with the full entry data.
+        log(`[DIRECT TO CD] #${entry} ${horse} — no intro received, going straight to countdown`);
+        lastPhase = 'IDLE'; // forces the main block to fire CD_START (CD !== IDLE)
+        lastEntry = entry;
+        lastTa    = ta;
+      } else {
+        log(`[SYNTHETIC INTRO] #${entry} ${horse} — no intro received, synthesizing from ${phase} frame`);
+        fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: '', isHunter: false });
+        postToWorker('/postClassEvent',
+          { event: 'INTRO', entry, horse, rider, owner, city, state, ta: ta || '',
+            round: ri.round, label: ri.label,
+            faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+          `INTRO #${entry} (synthetic)`);
+        lastPhase = 'INTRO';
+        lastEntry = entry;
+        lastTa    = ta;
+      }
     }
   }
 
