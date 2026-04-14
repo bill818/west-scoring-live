@@ -1,0 +1,123 @@
+============================================================
+  SESSION 23 — 2026-04-14
+  RSServer port conflict + relay fix + v2.0 pcap draft
+============================================================
+
+THE BIG DISCOVERY
+-----------------
+At real scoring PCs, Ryegate's RSServer.exe holds UDP 29696
+exclusively (Windows SO_EXCLUSIVEADDRUSE — the default for many
+Winsock apps). Our watcher can never bind that port on a
+production machine. Every attempt returned EADDRINUSE.
+
+Early dev/test PCs didn't have RSServer running, which is why
+v1.0/v1.1.x appeared to work — we were binding an empty port.
+
+Timeline of attempts this session:
+  v1.1.2  reusePort:true — threw ENOTSUP (Linux-only flag)
+  v1.1.3  reuseAddr:true — still blocked by RSServer's exclusive
+  v1.1.4  degraded mode — swallow EADDRINUSE, continue without
+          UDP. File watchers still post schedule/classes/results.
+          WORKS but loses live on-course banner + clock.
+  v1.1.5  auto-detect RSServer, skip UDP bind if present. Issue:
+          on dev PCs with no RSServer, v1.1.4 would bind first
+          and BLOCK RSServer when it tried to start.
+  v1.1.6  hard-disable all UDP in v1 unconditionally.
+  v1.1.7  logs moved to c:\west\west_log.txt (was Desktop, broke
+          when OneDrive-synced Desktop existed).
+  v1.2.0  UDP RELAY — Bill's idea: change RSServer's listen port
+          to (scoreboard port + 1); watcher binds scoreboard
+          port, forwards every packet to 127.0.0.1:<port+1> for
+          RSServer. Back to full UDP, no npcap, no native deps.
+
+THE WINNING PLAN (v1.2.0)
+-------------------------
+Setup on the scoring PC:
+  - Configure RSServer's listen port to (Ryegate port + 1).
+    Default: Ryegate=29696, RSServer=29697.
+  - Leave Ryegate's scoreboard output at 29696 (unchanged).
+  - Start watcher → it binds 29696 and forwards each packet to
+    127.0.0.1:29697. RSServer reads 29697 like normal.
+
+Watcher adds ~15 lines: a second dgram socket for sending, and
+a hook on the existing scoreboard socket's 'message' event that
+copies the raw buffer to 127.0.0.1:(scoreboardPort + 1).
+
+Single config knob (Ryegate's scoreboard port in config.dat).
+Relay port always derives as +1.
+
+Tradeoff: watcher becomes a critical path for the scoreboard —
+if it crashes, RSServer stops receiving until start-watcher.bat
+auto-restarts it (~5 seconds). Mitigated by the auto-restart
+loop; acceptable for testing, fine for prod.
+
+V2.0 PCAP DRAFT
+---------------
+Separate approach using npcap packet capture so the watcher
+doesn't need to bind at all. Experimental folder at
+deploy/west-watcher-v2.0/. Status:
+
+  - cap@0.2.1 requires node-gyp compile (no prebuilt binaries)
+  - Needs Python 3.6+ AND Visual Studio Build Tools
+  - Bill's Python 3.11 install is broken (empty version strings)
+  - Impractical to ship to scoring PCs
+
+Next move for v2.0: rewrite to shell out to Wireshark's tshark
+as a subprocess. Zero npm deps, zero native compile. Wireshark
+is a one-click install and ships npcap automatically. Parked
+for now — v1.2.0 relay is the practical answer.
+
+SMALLER FIXES
+-------------
+Worker:
+  - /admin/createShow now accepts start_date / end_date (destructure
+    was dropping them)
+  - /admin/deleteShow with preview counts + cascade delete
+  - /admin/createShow auto-creates Ring 1
+  - overlayFinishStatus persists UDP finish statuses to D1
+  - autoCompleteShow no longer undoes manual "Set Active" clicks
+    (bumps end_date when admin reactivates)
+
+Frontend:
+  - classes.html: any class with scheduled_date shows; Hidden
+    toggle removes it from by-day view
+  - admin Delete Show with count preview; Watcher Status red
+    warning when 0 rings
+  - index.html Ring Live badge requires active class + watcher
+    alive
+  - Adaptive polling (1s active / 10s idle) with network-aware
+    slow-down on 2g/3g/Save-Data
+
+Watcher filesystem hardening:
+  - saveSnapshot auto-creates C:\west_snapshots/ dir
+  - TYPE HINT log spam de-duped (only logs once per class)
+  - Method label cleanup: 0 = Round 1 only, 14 = R1/R2/JO,
+    15 = R1/R2 (no JO), dropped unused 5 and 8
+
+Infrastructure:
+  - First Cloudflare Pages preview at preview.westscoring.pages.dev
+  - deploy-preview.bat one-command repeat-deploy
+  - Bare "deploy" pre-authorized for preview pushes (memory rule)
+  - Watcher version bumping + changelog on every batch
+    (memory rule, synced to both repo + OneDrive deploy folders)
+
+KEY LESSON
+----------
+Dev/test environments that don't mirror production-side apps
+(RSServer in our case) hide entire classes of problems. Any
+future "watcher also needs to receive port X" scenario is going
+to hit the same SO_EXCLUSIVEADDRUSE wall. The relay pattern is
+our portable answer; pcap/tshark remains the heavy-duty fallback.
+
+NEXT
+----
+- Test v1.2.0 relay end-to-end: watcher + RSServer + scoreboard
+- If 127.0.0.1 loopback doesn't reach RSServer (or any external
+  scoreboard hardware that expects broadcast), swap forward
+  target to 255.255.255.255 with socket.setBroadcast(true).
+  Ryegate itself broadcasts — we may need to mirror that.
+- If relay works reliably: scrap v2.0 pcap path entirely
+- Method 6 (Optimum Time IV.1) test — pending since yesterday
+- Security pass (admin password) before public launch
+- Scoring PC install script update to document RSServer port
+  reconfiguration step

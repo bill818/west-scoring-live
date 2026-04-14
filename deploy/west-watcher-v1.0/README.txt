@@ -158,6 +158,41 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.2.0  (2026-04-14)
+  + UDP RELAY: watcher binds Ryegate's scoreboard port directly,
+    then forwards every packet to 127.0.0.1:<port+1> so RSServer
+    still receives its feed. Solves the exclusive-bind conflict
+    without npcap / native deps.
+    REQUIRED ON SCORING PC:
+      - Configure RSServer's listen port to (Ryegate port + 1).
+        Example: Ryegate=29696, RSServer=29697.
+      - Ryegate's scoreboard output port stays unchanged.
+      - Start the watcher BEFORE RSServer if both are starting
+        fresh — watcher needs to bind the Ryegate port first.
+        If RSServer is already on the old port, stop it, start
+        watcher, then start RSServer (now on +1).
+  + Back to full UDP mode — v1.1.6 DEGRADED path no longer needed.
+
+v1.1.7  (2026-04-14)
+  + Logs write next to the watcher script (c:\west\west_log.txt
+    and c:\west\west_udp_log.txt) instead of the user's Desktop.
+    Fixes scoring PCs where Desktop is OneDrive-synced or
+    otherwise non-writable — you always know where to find
+    the log now.
+
+v1.1.6  (2026-04-14)
+  + v1 now runs DEGRADED unconditionally — UDP listeners are not
+    started at all. Prevents any chance of the watcher racing
+    RSServer.exe for port 29696. File watchers (.cls, tsked.csv,
+    config.dat) still post schedule + class data to the worker.
+    Use v2.0 (pcap) for live on-course / clock / finish events.
+
+v1.1.5  (2026-04-14)
+  + HOTFIX over v1.1.4: auto-detects RSServer.exe at startup and
+    skips the UDP bind when present. Prevents the watcher from
+    winning the port race and blocking RSServer on scoring PCs.
+    Dev machines without RSServer still bind UDP normally.
+
 v1.1.4  (2026-04-14)
   + DEGRADED MODE: when UDP ports 29696 / 31000 are held
     exclusively by RSServer.exe (Windows SO_EXCLUSIVEADDRUSE

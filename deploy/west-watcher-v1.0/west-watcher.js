@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.1.4';
+const WATCHER_VERSION = '1.2.0';
 
 const fs   = require('fs');
 const path = require('path');
@@ -29,7 +29,9 @@ process.on('unhandledRejection', (reason) => {
 const CLASSES_DIR   = 'C:\\Ryegate\\Jumper\\Classes';
 const TSKED_PATH    = 'C:\\Ryegate\\Jumper\\tsked.csv';
 const CONFIG_PATH   = 'C:\\Ryegate\\Jumper\\config.dat';
-let LOG_PATH        = (process.env.USERPROFILE || 'C:\\Users\\Public') + '\\Desktop\\west_log.txt';
+// Log next to the watcher script (c:\west\) — consistent across PCs,
+// no dependency on Desktop path / OneDrive-synced profile folders.
+let LOG_PATH        = path.join(__dirname, 'west_log.txt');
 const SNAPSHOTS_DIR = 'C:\\west_snapshots';
 
 // Track previous file states to detect changes
@@ -1267,10 +1269,10 @@ let UDP_LOG_PATH = null;
 
 function initUdpLog() {
   const candidates = [
+    path.join(__dirname, 'west_udp_log.txt'), // next to watcher (c:\west\)
+    'C:\\west_udp_log.txt',
     (process.env.USERPROFILE || '') + '\\Desktop\\west_udp_log.txt',
     'C:\\Users\\Public\\Desktop\\west_udp_log.txt',
-    'C:\\west_udp_log.txt',
-    path.join(path.dirname(process.execPath || ''), 'west_udp_log.txt'),
     'west_udp_log.txt',
   ];
   for (const candidate of candidates) {
@@ -2295,6 +2297,40 @@ udpLog(`WEST Scoring Live Watcher v${WATCHER_VERSION}`);
 udpLog(`Scoreboard port: ${scoreboardPort} | Class complete port: ${CLASS_COMPLETE_PORT}`);
 udpLog('═'.repeat(72));
 log(`WEST Scoring Live Watcher v${WATCHER_VERSION} starting`);
+
+// UDP RELAY MODE (v1.2.0+) — watcher binds Ryegate's scoreboard port,
+// forwards every packet to 127.0.0.1:<port+1> for RSServer to receive on
+// its new port. One config knob: Ryegate's port from config.dat col[1].
+// RSServer must be reconfigured to listen on (scoreboardPort + 1).
+//
+// Example: Ryegate scoreboard port = 29696
+//   → watcher binds 29696
+//   → watcher forwards each packet to 127.0.0.1:29697
+//   → RSServer listens on 29697
+const relayPort = scoreboardPort + 1;
+let relaySocket = null;
+try {
+  relaySocket = require('dgram').createSocket('udp4');
+  log(`[RELAY] Ryegate port ${scoreboardPort} → forwarding to 127.0.0.1:${relayPort} (RSServer must listen here)`);
+} catch (e) {
+  log(`[RELAY] failed to create relay socket: ${e.message}`);
+}
+
+// Wrap startUdpListener so the forward hook is attached each time the
+// scoreboard socket is (re-)created, including after a config.dat port
+// change triggers restartUdpListener.
+const _origStartUdpListener = startUdpListener;
+startUdpListener = function(port) {
+  _origStartUdpListener(port);
+  if (udpSocket && relaySocket) {
+    const rp = port + 1;
+    udpSocket.on('message', (msg) => {
+      try { relaySocket.send(msg, 0, msg.length, rp, '127.0.0.1'); }
+      catch (e) { /* drop on error, don't kill watcher */ }
+    });
+    log(`[RELAY] forwarding port ${port} → 127.0.0.1:${rp}`);
+  }
+};
 
 startUdpListener(scoreboardPort);
 startPort31000Listener();
