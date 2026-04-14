@@ -507,17 +507,21 @@ function renderShows(shows) {
 
       <div style="margin-top:12px;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px;background:var(--off-white);">
         <div class="card-title" style="margin-bottom:8px;">Watcher Status</div>
-        <div id="watcher-rings-${s.slug}">${Array.from({length:rc}, (_,i) => `
+        <div id="watcher-rings-${s.slug}">${s.rings_count > 0
+          ? Array.from({length:s.rings_count}, (_,i) => `
           <div class="watcher-status" id="watcher-status-${s.slug}-${i+1}" style="display:flex;align-items:center;gap:10px;">
             <div class="watcher-dot" id="watcher-dot-${s.slug}-${i+1}"></div>
             <div class="watcher-text" id="watcher-text-${s.slug}-${i+1}" style="flex:1;">Ring ${i+1} — checking...</div>
             <button class="btn-ghost btn-sm" onclick="window.open('display.html?slug=${s.slug}&ring=${i+1}', '_blank')">Open Display</button>
             <button class="btn-ghost btn-sm" onclick="exportWatcherConfig('${s.slug}', '${i+1}')">Export Config</button>
-          </div>`).join('')}
+          </div>`).join('')
+          : `<div style="border:1px solid var(--red);background:#fff5f5;color:var(--red);padding:10px 12px;border-radius:4px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;">
+               No watchers available — create a ring first (Rings section above).
+             </div>`}
         </div>
-        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:8px;line-height:1.5;">
+        ${s.rings_count > 0 ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:8px;line-height:1.5;">
           Export Config &rarr; download config.json for that ring. Drop it into <code>c:/west/</code> on that ring's scoring PC alongside <code>west-watcher.js</code>.
-        </div>
+        </div>` : ''}
       </div>
 
       <div style="margin-top:12px;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px;background:var(--off-white);">
@@ -806,10 +810,25 @@ async function clearLive(slug) {
 }
 
 async function deleteShow(slug) {
-  if (!confirm(`Delete ALL data for ${slug}? This cannot be undone.`)) return;
   try {
-    const r = await fetch(`${WORKER}/admin/clearShow?slug=${slug}`, {
-      method: 'DELETE', headers: headers()
+    // Step 1: preview — fetch counts for confirmation dialog
+    const pr = await fetch(`${WORKER}/admin/deleteShow`, {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify({ slug })
+    });
+    const pd = await pr.json();
+    if (!pd.ok) throw new Error(pd.error || 'preview failed');
+    const c = pd.counts || {};
+    const msg = `Delete "${slug}"?\n\n`
+      + `• ${c.classes || 0} classes\n`
+      + `• ${c.entries || 0} entries\n`
+      + `• ${c.results || 0} result rows\n\n`
+      + `This cannot be undone.`;
+    if (!confirm(msg)) return;
+    // Step 2: actually delete
+    const r = await fetch(`${WORKER}/admin/deleteShow`, {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify({ slug, confirm: true })
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error);

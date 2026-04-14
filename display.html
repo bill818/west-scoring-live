@@ -170,6 +170,9 @@ async function poll() {
     liveData = await r.json();
     render();
   } catch(e) {}
+  // Adaptive poll cadence — see WEST.getPollInterval (network-aware).
+  var active = (liveData && liveData.activeClasses || []).length > 0;
+  setTimeout(poll, WEST.getPollInterval(active, 1000, 10000));
 }
 
 function render() {
@@ -1069,9 +1072,8 @@ setInterval(function() {
   }
 }, 50);
 
-// Poll
+// Poll — self-scheduling via setTimeout inside poll() (adaptive cadence)
 poll();
-setInterval(poll, 4000);
 </script>
 </body>
 </html>

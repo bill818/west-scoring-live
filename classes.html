@@ -262,9 +262,13 @@ function renderClasses() {
   }
   // Filter: hide unscheduled and zero-entry classes
   const searchQ = (document.getElementById('classSearch') ? document.getElementById('classSearch').value : '').trim().toLowerCase();
+  // tsked.csv is the bible — if a class is on the schedule (has a
+  // scheduled_date), show it even before entries are imported.
+  // Admin "Hidden" toggle removes a class from the by-day view without
+  // deleting its data (stays in worker/D1 for historical purposes).
   const visible = allClasses.filter(c => {
-    if (!c.scheduled_date && c.entry_count <= 0 && c.schedule_flag !== 'JO') return false;
-    if (!(c.scheduled_date && (c.entry_count > 0 || c.schedule_flag === 'JO'))) return false;
+    if (!c.scheduled_date) return false;
+    if (c.hidden) return false;
     if (searchQ && !(
       (c.class_name || '').toLowerCase().includes(searchQ) ||
       (c.class_num || '').toLowerCase().includes(searchQ)

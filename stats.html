@@ -402,13 +402,17 @@ function computeStats(grouped) {
   });
   var starters = r1Entries.length + r1ElimEntries.length;
 
-  // JO entries (round 2)
+  // JO entries (round 2). Entries with NO time but a status (WD/RT/etc.)
+  // go into joElimEntries so their default-zero fault fields don't sort them
+  // ahead of real runs. Only entries with an actual time compete in the JO.
   var joEntries = [], joElimEntries = [];
   grouped.forEach(function(g) {
     var jo = g.rounds[2];
     if (!jo) return;
     var totalF = parseFloat(jo.total);
-    if (isNaN(totalF) || isElimStatus(jo.status_code)) { joElimEntries.push(g); }
+    var hasTime = !!jo.time;
+    var sc = (jo.status_code || '').toUpperCase();
+    if (!hasTime || isNaN(totalF) || sc) { joElimEntries.push(g); }
     else { joEntries.push(g); }
   });
   var hasJO = joEntries.length > 0 || joElimEntries.length > 0;
@@ -497,19 +501,30 @@ function computeStats(grouped) {
     return Object.assign({}, g, { gap: gap, gapClass: gapClass, sortPlace: i + 1, isJOQualifier: isJOQualifier });
   });
 
-  // JO sorted
-  var joSorted = joEntries.slice().sort(function(a, b) {
+  // JO sorted. Sort by Ryegate's place when present — a WD entry that
+  // Ryegate placed 1st (e.g. only clear qualifier) should appear 1st, not
+  // dumped to the bottom. Fall back to faults+time for entries without a
+  // place, and append any remaining place-less elim rows.
+  function joPlaceOf(g) {
+    var p = parseInt(g.rounds[2] && g.rounds[2].place);
+    if (!p || isNaN(p)) p = parseInt(g.place);
+    return (p && p > 0) ? p : 9999;
+  }
+  var joAll = joEntries.concat(joElimEntries);
+  var joSorted = joAll.slice().sort(function(a, b) {
+    var pa = joPlaceOf(a), pb = joPlaceOf(b);
+    if (pa !== pb) return pa - pb;
     var af = parseFloat(a.rounds[2].total) || 0, bf = parseFloat(b.rounds[2].total) || 0;
     if (af !== bf) return af - bf;
     return (parseFloat(a.rounds[2].time) || 0) - (parseFloat(b.rounds[2].time) || 0);
   });
-  joElimEntries.forEach(function(g) { joSorted.push(g); });
   var joLeader = joSorted[0] || null;
   var joWithGap = joSorted.map(function(g, i) {
     var jo = g.rounds[2];
-    if (!jo || isNaN(parseFloat(jo.total))) {
-      var sc = jo ? (jo.status_code || '').toUpperCase() : '';
-      return Object.assign({}, g, { gap: sc || 'ELIM', gapClass: 'fault-gap', sortPlace: i + 1 });
+    var joStatus = jo ? (jo.status_code || '').toUpperCase() : '';
+    // No time OR has any status → non-runner: show the status code in gap
+    if (!jo || !jo.time || isNaN(parseFloat(jo.total)) || joStatus) {
+      return Object.assign({}, g, { gap: joStatus || 'ELIM', gapClass: 'fault-gap', sortPlace: i + 1 });
     }
     var ef = parseFloat(jo.total) || 0;
     var et = parseFloat(jo.time) || 0;
@@ -595,7 +610,7 @@ function renderLiveStrip() {
   }
   if (total === 0 && orderOfGo.length > 0) total = orderOfGo.length;
 
-  if (!oc || (!oc.horse && !oc.rider)) {
+  if (!oc) {
     strip.innerHTML = '<div class="ls-waiting">Waiting for next horse&hellip;</div>'
       + (total > 0 ? '<div class="ls-progress"><div class="ls-progress-fill" style="width:' + (total > 0 ? Math.round(competed / total * 100) : 0) + '%"></div></div>' : '');
     return;
@@ -1027,12 +1042,13 @@ function renderStandingsTable(entries, roundNum) {
   entries.forEach(function(g, i) {
     var rd = g.rounds[roundNum];
     var faultVal = rd ? parseFloat(rd.total) : NaN;
-    var hasStatus = rd && rd.status_code && WEST.isElimStatus(rd.status_code);
-    var fCls = (isNaN(faultVal) || hasStatus) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
-    var fDisplay = hasStatus ? WEST.statusDisplayLabel(rd.status_code) : (isNaN(faultVal) ? 'ELIM' : String(faultVal));
-    var timeStr = hasStatus ? '\u2014' : (rd && rd.time ? fmtTimePrecision(rd.time) : '\u2014');
-    var gapStr = hasStatus ? WEST.statusDisplayLabel(rd.status_code) : g.gap;
-    var gapCls = hasStatus ? 'fault-gap' : g.gapClass;
+    var anyStatus = rd && rd.status_code && WEST.isAnyStatus(rd.status_code);
+    var noTime = !rd || !rd.time;
+    var fCls = (isNaN(faultVal) || anyStatus || noTime) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
+    var fDisplay = anyStatus ? WEST.statusDisplayLabel(rd.status_code) : (isNaN(faultVal) || noTime ? 'ELIM' : String(faultVal));
+    var timeStr = (anyStatus || noTime) ? '\u2014' : (rd.time ? fmtTimePrecision(rd.time) : '\u2014');
+    var gapStr = anyStatus ? WEST.statusDisplayLabel(rd.status_code) : g.gap;
+    var gapCls = anyStatus ? 'fault-gap' : g.gapClass;
 
     var stPrimary = isEqMethod ? g.rider : g.horse;
     var stSecondary = isEqMethod ? g.horse : g.rider;
@@ -1223,9 +1239,9 @@ async function loadResults() {
         // Pre-computed jumper entries have round data at top level — convert.
         rawEntries = [];
         (c.entries || []).forEach(function(e) {
-          if (e.r1TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state, round: 1, time: e.r1TotalTime, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, total: e.r1TotalFaults, place: e.place, status_code: e.r1StatusCode || '' });
-          if (e.r2TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 2, time: e.r2TotalTime, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, total: e.r2TotalFaults, place: e.place, status_code: e.r2StatusCode || '' });
-          if (e.r3TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 3, time: e.r3TotalTime, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, total: e.r3TotalFaults, place: e.place, status_code: '' });
+          if (e.r1TotalTime || e.r1StatusCode) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state, round: 1, time: e.r1TotalTime, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, total: e.r1TotalFaults, place: e.place, status_code: e.r1StatusCode || '' });
+          if (e.r2TotalTime || e.r2StatusCode) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 2, time: e.r2TotalTime, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, total: e.r2TotalFaults, place: e.place, status_code: e.r2StatusCode || '' });
+          if (e.r3TotalTime || e.r3StatusCode) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: 3, time: e.r3TotalTime, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, total: e.r3TotalFaults, place: e.place, status_code: e.r3StatusCode || '' });
           // If no rounds but has entry data, still include for OOG
           if (!e.r1TotalTime && !e.r2TotalTime) rawEntries.push({ entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner, country: e.country, round: null, time: null, total: null, place: e.place, status_code: e.statusCode || '' });
         });
@@ -1266,16 +1282,23 @@ async function init() {
 
 init();
 
-// Polling intervals
-setInterval(loadLiveClass, 3000);   // Live strip: 3s
+// Polling intervals — paid Workers plan, tuned for snappy transitions.
+// Live strip polls self-schedule via WEST.getPollInterval so mobile viewers
+// on slow networks (2g/3g) or with Save-Data dial back automatically.
+async function liveStripLoop() {
+  await loadLiveClass();
+  var active = !!(liveData && liveData.activeClasses && liveData.activeClasses.length);
+  setTimeout(liveStripLoop, WEST.getPollInterval(active, 1000, 5000));
+}
+liveStripLoop();
 
-// Results poll — 5s when class is live (watcher active), 15s otherwise
+// Results poll — 2s when class is live (watcher active), 15s active, 2min idle
 var resultsPollInterval = null;
 var lastPollRate = 0;
 function adjustResultsPoll() {
   var isLive = liveData && liveData.watcherAlive && liveData.selected && String(liveData.selected.classNum) === String(CLASS_NUM);
   var isActive = liveData && liveData.activeClasses && liveData.activeClasses.some(function(a) { return String(a.classNum) === String(CLASS_NUM); });
-  var rate = isLive ? 5000 : isActive ? 15000 : 120000; // 5s live, 15s active, 2min idle
+  var rate = isLive ? 2000 : isActive ? 15000 : 120000;
   if (rate !== lastPollRate) {
     if (resultsPollInterval) clearInterval(resultsPollInterval);
     resultsPollInterval = setInterval(loadResults, rate);
@@ -1283,7 +1306,7 @@ function adjustResultsPoll() {
   }
 }
 setInterval(adjustResultsPoll, 3000);
-resultsPollInterval = setInterval(loadResults, 5000); // start fast, adjusts after first live check
+resultsPollInterval = setInterval(loadResults, 2000); // start fast, adjusts after first live check
 
 // Clock tick: 1s
 clockInterval = setInterval(tickClock, 1000);

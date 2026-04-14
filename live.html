@@ -365,8 +365,6 @@ const classesUrl = 'classes.html?slug=' + encodeURIComponent(SLUG) + '&ring=' + 
 document.getElementById('backBtn').href = classesUrl;
 
 let liveData = {};
-let previousEntry = null; // stores last finished entry for "Previous" display
-let finishShownAt = 0;    // timestamp when FINISH phase was first seen
 let activeViews = {};     // classNum → 'results' or 'stats' — persists across renders
 
 var esc = WEST.esc;
@@ -425,7 +423,7 @@ function renderRecentSection(recentClasses) {
   html += '<div class="recent-header">Recent Results</div>';
 
   recentClasses.forEach(function(rc) {
-    var resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+    var resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(rc.classNum) + '&ring=' + encodeURIComponent(rc.ring || RING) + '&name=' + encodeURIComponent(SHOW_NAME);
     var ago = rc.completedAt ? timeAgo(rc.completedAt) : '';
 
     html += '<div class="recent-card">';
@@ -530,36 +528,11 @@ function render() {
 
   let html = '';
 
-  // Track FINISH timing for 10s hold → previous → waiting
-  if (oc && oc.phase === 'FINISH') {
-    if (!finishShownAt) finishShownAt = Date.now();
-    // Look up entry in class data for hunter round inference + rank snapshot
-    var ocCd = sel ? cdMap[sel.classNum] : null;
-    var ocEntryRow = null;
-    if (ocCd && ocCd.entries) {
-      ocEntryRow = ocCd.entries.find(function(e) { return String(e.entryNum) === String(oc.entry); });
-    }
-    var isHunterForPrev = !!(oc.isHunter || (ocCd && ocCd.classType === 'H'));
-    previousEntry = { entry: oc.entry, horse: oc.horse, rider: oc.rider,
-      elapsed: oc.elapsed, jumpFaults: oc.jumpFaults, timeFaults: oc.timeFaults,
-      hunterScore: oc.hunterScore, isHunter: isHunterForPrev,
-      rank: (ocEntryRow && ocEntryRow.place) || oc.rank || null,
-      hunterRound: ocEntryRow ? inferHunterRound(ocEntryRow, 'FINISH') : null };
-  }
-
-  // Infer hunter from the selected class when the oc payload doesn't carry the flag
-  // (watcher's fr=11 ON_COURSE payload currently omits isHunter — see follow-up)
+  // Hold FINISH state until a new ON_COURSE event replaces oc, or the
+  // worker's KV TTL expires the record. Matches display.html / stats.html.
   const ocIsHunterEarly = !!(oc && (oc.isHunter || (sel && cdMap[sel.classNum] && cdMap[sel.classNum].classType === 'H')));
+  const showOc = !!oc;
 
-  // After 10s showing FINISH, suppress the on-course block (jumpers only).
-  // Hunters and equitation score displays hold indefinitely — they only clear
-  // when a new ON_COURSE / CLEAR_ONCOURSE event replaces the oncourse record.
-  const hasEqScore = oc && oc.eqScore;
-  const finishExpired = !ocIsHunterEarly && !hasEqScore && oc && oc.phase === 'FINISH' && finishShownAt && (Date.now() - finishShownAt > 10000);
-  const showOc = oc && !finishExpired;
-
-  // Reset finish timer when a new horse appears
-  if (oc && oc.phase !== 'FINISH') { finishShownAt = 0; }
   if (!oc || oc.phase !== 'RESULTS') { _animatedHunterResults = {}; }
 
   // ── FLAT RESULTS — ribbons announced one at a time ──────────────────────────
@@ -762,30 +735,6 @@ function render() {
       + '<div class="oc-header"><div class="oc-title">' + esc(phaseLabel) + (ocClassLabel ? ' &mdash; ' + ocClassLabel : '') + '</div></div>'
       + classSpecs
       + '<div class="oc-grid">' + ocHtml + '</div></div>';
-  } else if (previousEntry && finishExpired) {
-    // Previous entry card after FINISH expires
-    let prevResult = '';
-    if (previousEntry.isHunter) {
-      const pScore = previousEntry.hunterScore || '—';
-      const pRank = previousEntry.rank ? '<div style="font-family:DM Mono,monospace;font-size:12px;color:var(--text-body);margin-top:4px;">Rank: <b>' + esc(previousEntry.rank) + '</b></div>' : '';
-      const pRound = previousEntry.hunterRound ? '<div class="oc-round-label" style="margin-bottom:4px;">' + esc(previousEntry.hunterRound) + '</div>' : '';
-      prevResult = pRound + '<div style="font-family:DM Mono,monospace;font-size:20px;font-weight:600;color:var(--red);">' + esc(pScore) + '</div>' + pRank;
-    } else if (previousEntry.elapsed) {
-      prevResult = '<div style="font-family:DM Mono,monospace;font-size:14px;color:var(--text-body);">' + esc(previousEntry.elapsed) + 's</div>'
-        + fmtFaultsHtml(previousEntry.jumpFaults, previousEntry.timeFaults);
-    }
-    html += '<div class="oc-wrap" style="border-bottom-color:var(--border);">'
-      + '<div class="oc-header"><div class="oc-title">Previous Entry</div></div>'
-      + '<div class="oc-grid">'
-      + '<div class="oc-card">'
-      + '<div class="oc-entry-num">#' + esc(previousEntry.entry) + '</div>'
-      + '<div class="oc-horse">' + esc(previousEntry.horse) + '</div>'
-      + '<div class="oc-rider">' + esc(previousEntry.rider) + '</div>'
-      + '</div>'
-      + '<div class="oc-card oc-clock-wrap">'
-      + prevResult
-      + '</div>'
-      + '</div></div>';
   } else {
     html += '<div class="oc-wrap" style="border-bottom-color:var(--border);">'
       + '<div class="oc-header"><div class="oc-title">Waiting for next horse&hellip;</div></div>'
@@ -804,11 +753,12 @@ function render() {
     const isJumper = cd && (cd.classType === 'J' || cd.classType === 'T');
     const isHunter = (cd && cd.classType === 'H') || seenList.length > 0;
     const type = cd ? typeLabel(cd.classType) : (seenList.length ? 'Hunter' : '');
-    const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME);
+    const resultsUrl = 'results.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + encodeURIComponent(ac.ring || RING) + '&name=' + encodeURIComponent(SHOW_NAME);
 
     // Class header
     var subLine = (cd && cd.sponsor) ? cd.sponsor : (cd && cd.trophy) ? cd.trophy : '';
-    var statsUrl = 'stats.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + RING + '&name=' + encodeURIComponent(SHOW_NAME) + '&embed=1';
+    var acRing = ac.ring || RING;
+    var statsUrl = 'stats.html?slug=' + encodeURIComponent(SLUG) + '&classNum=' + encodeURIComponent(ac.classNum) + '&ring=' + encodeURIComponent(acRing) + '&name=' + encodeURIComponent(SHOW_NAME) + '&embed=1';
     var classId = 'class-' + ac.classNum;
     html += '<div class="class-bar">'
       + '<div class="class-bar-num">Class ' + esc(ac.classNum) + (isCurrent ? ' &mdash; In Ring' : '') + '</div>'
@@ -898,6 +848,10 @@ function render() {
           const pa = parseInt(a.overallPlace || a.place || 999);
           const pb = parseInt(b.overallPlace || b.place || 999);
           if (pa !== pb) return pa - pb;
+          // Tiebreaker: R1 ride order (matches JO return order for II.2a/II.2b)
+          const ra = parseInt(a.rideOrder) || 9999;
+          const rb = parseInt(b.rideOrder) || 9999;
+          if (ra !== rb) return ra - rb;
           return (a.entryNum || a.entry_num || '').localeCompare(b.entryNum || b.entry_num || '');
         });
 
@@ -917,6 +871,9 @@ function render() {
           // inline render path was missing.
           const sm = cd.scoringMethod || '';
           const prec = cd.clockPrecision || 2;
+          // II.2a / II.2b JO-order overlay: JO-1..N for R1 clears before JO,
+          // "—" for pending clears once JO starts.
+          const joMap = WEST.jumper.computeJoPlaces(standSorted, sm);
 
           standSorted.forEach(e => {
             const entryNum = e.entryNum || e.entry_num || '';
@@ -926,7 +883,8 @@ function render() {
             // "elimination carries backwards" rule, method 9 r2CarryBack).
             const sd = WEST.jumper.getEntryStatus(e, sm);
             const isElimRow = sd && !sd.showPlace;
-            const placeText = isElimRow ? sd.label : place;
+            const joOverride = joMap[entryNum];
+            const placeText = isElimRow ? sd.label : (joOverride != null ? joOverride : place);
             const roundsHtml = WEST.jumper.renderRoundsBlock(e, sm, {
               clockPrecision: prec,
             });
@@ -1070,10 +1028,14 @@ async function poll() {
     if (r.ok) liveData = await r.json();
   } catch(e) {}
   render();
+  // Adaptive poll cadence — 1s active, 10s idle baseline. WEST.getPollInterval
+  // dials back further on slow-2g/2g/3g or when Save-Data is set, for mobile
+  // viewers in weak service areas.
+  const active = (liveData.activeClasses || []).length > 0;
+  setTimeout(poll, WEST.getPollInterval(active, 1000, 10000));
 }
 
 poll();
-setInterval(poll, 3000);
 setInterval(tickClock, 1000);
 </script>
 </body>

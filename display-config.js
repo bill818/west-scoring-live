@@ -317,9 +317,9 @@ WEST.statusDisplayLabel = function(code) {
 
 WEST.jumper = {};
 
-WEST.jumper.singleRound = { '0':1, '4':1, '5':1, '6':1, '7':1, '8':1 };
+WEST.jumper.singleRound = { '0':1, '4':1, '6':1, '7':1 };
 WEST.jumper.r2CarryBack = { '3':1, '9':1, '14':1 };
-WEST.jumper.r1Holds     = { '1':1, '2':1, '10':1, '11':1, '13':1, '15':1 };
+WEST.jumper.r1Holds     = { '2':1, '11':1, '13':1 };
 
 // Returns display rules for a status entry. null = no status, render normally.
 // { showPlace, rounds: { 1: show|hide|status, 2: ..., 3: ... }, label }
@@ -357,10 +357,6 @@ WEST.jumper.getStatusDisplay = function(sm, r1Status, r2Status, r3Status) {
 
   // JO (R3) status
   if (has3) {
-    if (s === '15') {
-      // Winning Round: JO is fresh start, JO status = no place
-      return { showPlace: false, showR1: false, showR2: false, showR3: false, label: WEST.statusDisplayLabel(r3) };
-    }
     if (WEST.jumper.r2CarryBack[s]) {
       // Carry-back: JO status = place on R1+R2
       return { showPlace: true, showR1: true, showR2: true, showR3: false, label: WEST.statusDisplayLabel(r3) };
@@ -384,10 +380,75 @@ WEST.jumper.methods = {
   '9':  { label: 'Two-Phase',          table: 'II.2d', rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: true  },
   '11': { label: 'Jumper II.2c',       table: 'II.2c', rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: true, clearsOnly: true },
   '13': { label: 'Jumper II.2b',       table: 'II.2b', rounds: 2, hasJO: true,  immediate: true,  isOptimum: false, isTwoPhase: false },
+  '14': { label: 'Team',               table: 'Team',  rounds: 3, hasJO: true,  immediate: false, isOptimum: false, isTwoPhase: false },
+  '15': { label: 'Winning Round',      table: 'WR',    rounds: 2, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false },
 };
 
 WEST.jumper.getMethod = function(code) {
   return WEST.jumper.methods[String(code)] || { label: 'Jumper', table: '', rounds: 1, hasJO: false, immediate: false, isOptimum: false, isTwoPhase: false };
+};
+
+// ── JO PLACE MAP (method 2 only) ─────────────────────────────────────────────
+// Applies to II.2a (method 2) only — R1 clears return for a separate Jump Off
+// in R1 ride order, with a gap between R1 and JO. II.2b (method 13) is an
+// immediate JO (rider does JO right after their clear R1), so places populate
+// progressively and no pre-JO overlay is needed. Returns a map
+//   { entryNum: 'JO-1' | 'JO-2' | ... | '—' | null }
+// null = no override, use the normal place column.
+//
+// States:
+//   A — no clear has r2 activity yet → show JO-1..N for clears in r1 ride order
+//   B — at least one clear has r2 activity → blank ("—") for clears still pending JO
+//       (place for entries with r2 comes from Ryegate's computed overallPlace)
+//
+// Non-clear entries (faults or elim) are never overridden — they keep their
+// normal R1 place / status.
+WEST.jumper.computeJoPlaces = function(entries, scoringMethod) {
+  var map = {};
+  var sm = String(scoringMethod || '');
+  if (sm !== '2') return map;
+  if (!entries || !entries.length) return map;
+
+  var hasR2Activity = function(e) {
+    if (e.r2TotalTime) return true;
+    if (e.r2TotalFaults && String(e.r2TotalFaults) !== '0') return true;
+    var sc = (e.r2StatusCode || '').toUpperCase();
+    // WD and DNS in JO = rider declined the jump off. Treat as no activity
+    // so they retain eligibility via their R1 clear placing.
+    if (sc && sc !== 'DNS' && sc !== 'WD') return true;
+    return false;
+  };
+  var isR1Clear = function(e) {
+    var tf = parseFloat(e.r1TotalFaults || 0);
+    if (tf !== 0) return false;
+    var sc = (e.r1StatusCode || e.statusCode || '').toUpperCase();
+    var elimSet = ['EL','RF','HF','OC','WD','DNS','DNF','SC','RT'];
+    if (elimSet.indexOf(sc) >= 0) return false;
+    return !!(e.r1TotalTime);
+  };
+
+  var clears = entries.filter(isR1Clear);
+  if (!clears.length) return map;
+
+  // Sort clears by R1 ride order (fallback to entry number if rideOrder missing)
+  clears.sort(function(a, b) {
+    var ra = parseInt(a.rideOrder) || 9999;
+    var rb = parseInt(b.rideOrder) || 9999;
+    if (ra !== rb) return ra - rb;
+    return String(a.entry_num || a.entryNum || '').localeCompare(String(b.entry_num || b.entryNum || ''));
+  });
+
+  // Only apply the JO-N overlay when JO has not started for anyone yet.
+  // Once any clear has r2 activity, stop overriding and let Ryegate's place
+  // flow through for every row — it's the source of truth on who's placed
+  // where, withdrew, etc., and our helper can't reliably reason about it.
+  var joStarted = clears.some(hasR2Activity);
+  if (joStarted) return map;
+  clears.forEach(function(e, i) {
+    var key = e.entry_num || e.entryNum;
+    map[key] = 'JO-' + (i + 1);
+  });
+  return map;
 };
 
 // ── ROUND LABELS ─────────────────────────────────────────────────────────────
@@ -397,6 +458,9 @@ WEST.jumper.roundLabel = function(method, round) {
   if (m.isTwoPhase) return round === 1 ? 'PH1' : round === 2 ? 'PH2' : 'PH' + round;
   if (m.rounds === 3) return round === 1 ? 'R1' : round === 2 ? 'R2' : 'JO';
   if (m.rounds === 1) return 'R1'; // single-round (II.1, Optimum, Timed Eq) — never JO
+  // Two-round: JO label only when the method actually has a JO (II.2a/II.2b).
+  // Winning Round (method 15) has two straight rounds — no JO.
+  if (!m.hasJO) return round === 1 ? 'R1' : round === 2 ? 'R2' : 'R' + round;
   return round === 1 ? 'R1' : round === 2 ? 'JO' : 'R' + round;
 };
 
@@ -406,6 +470,7 @@ WEST.jumper.roundLabelLong = function(method, round) {
   if (m.isTwoPhase) return round === 1 ? 'Phase 1' : round === 2 ? 'Phase 2' : 'Phase ' + round;
   if (m.rounds === 3) return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Jump Off';
   if (m.rounds === 1) return 'Round 1'; // single-round — never Jump Off
+  if (!m.hasJO) return round === 1 ? 'Round 1' : round === 2 ? 'Round 2' : 'Round ' + round;
   return round === 1 ? 'Round 1' : round === 2 ? 'Jump Off' : 'Round ' + round;
 };
 
@@ -461,6 +526,39 @@ WEST.jumper.getEntryStatus = function(entry, scoringMethod) {
 
 // Standardized phase labels — used by on-course banners on all pages.
 // Source of truth: one place, consistent across live/display/stats.
+// ── ADAPTIVE POLL INTERVAL ───────────────────────────────────────────────────
+// Returns milliseconds to wait before the next poll. Considers:
+//   1. Whether a class is active (fast) vs idle (slow)
+//   2. navigator.connection.effectiveType — slow-2g/2g → dial back to save
+//      battery/data in weak service areas at horse shows
+//
+// baseActive / baseIdle override the defaults when a page needs different
+// cadence (e.g. stats page polls results slower than the live strip).
+WEST.getPollInterval = function(active, baseActive, baseIdle) {
+  var fastMs = baseActive || 1000;
+  var idleMs = baseIdle || 10000;
+  // Connection-aware backoff for weak mobile signal
+  try {
+    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && conn.effectiveType) {
+      var t = conn.effectiveType;
+      if (t === 'slow-2g' || t === '2g') {
+        fastMs = Math.max(fastMs, 5000);
+        idleMs = Math.max(idleMs, 30000);
+      } else if (t === '3g') {
+        fastMs = Math.max(fastMs, 3000);
+        idleMs = Math.max(idleMs, 15000);
+      }
+    }
+    // Honor Save-Data hint if user has it set
+    if (conn && conn.saveData) {
+      fastMs = Math.max(fastMs, 3000);
+      idleMs = Math.max(idleMs, 15000);
+    }
+  } catch(e) {}
+  return active ? fastMs : idleMs;
+};
+
 WEST.phaseLabel = function(phase) {
   var p = String(phase || '').toUpperCase();
   if (p === 'INTRO') return 'Intro';
@@ -897,13 +995,15 @@ WEST.jumper.renderRoundsBlock = function(entry, scoringMethod, opts) {
   }
 
   // Build rounds list, highest first (JO/R3 → R2 → R1).
-  // Round shows up if there's a total time, even if 0 — operator may have
-  // entered explicit zero. Status-only rounds rendered separately below.
+  // Round shows up if there's a total time OR a status code (so a WD/RT with
+  // no time still renders as a status-only row via sd.showRn rules below).
   var rounds = [];
-  if (entry.r3TotalTime) {
+  var r3Sc = (entry.r3StatusCode || entry.r3TextStatus || '');
+  var r2Sc = (entry.r2StatusCode || entry.r2TextStatus || '');
+  if (entry.r3TotalTime || r3Sc) {
     rounds.push({ r: 3, faults: entry.r3TotalFaults, time: entry.r3TotalTime, jf: entry.r3JumpFaults });
   }
-  if (entry.r2TotalTime) {
+  if (entry.r2TotalTime || r2Sc) {
     rounds.push({ r: 2, faults: entry.r2TotalFaults, time: entry.r2TotalTime, jf: entry.r2JumpFaults });
   }
   if (entry.r1TotalTime) {

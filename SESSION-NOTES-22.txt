@@ -1,0 +1,146 @@
+============================================================
+  SESSION 22 — 2026-04-13
+  Pre-Culpeper hardening + v1.1.0 watcher + preview deploy
+============================================================
+
+SHOW LOCK / END-DATE
+- Root-caused a chronic "show is locked, worker rejected" loop:
+  hits-culpeper end_date was yesterday, autoCompleteShow flipped
+  status=complete on every watcher post, instantly undoing any
+  admin "Set Active" click.
+- Fix: /admin/updateShow now auto-bumps end_date to today when
+  admin sets status=active with a stale end_date. Manual patch
+  bumped end_date to 2026-04-20 for the current show.
+
+U→T INFERENCE OVERRIDE
+- Worker was preferring the raw .cls header's "U" type over the
+  watcher's inferred type, so class 809 (II.2a) kept stats-page-
+  ing as "U / Not a Jumper Class" even after the watcher flipped
+  U→T. Fixed to prefer body.classType when non-U.
+- Cascade bug: U-branch in computeClassResults didn't filter by
+  hasGone, so pending entries polluted standings. Added a
+  defensive filter.
+
+II.2A JO-N OVERLAY (method 2 only)
+- New WEST.jumper.computeJoPlaces helper: pre-JO, clears show
+  "JO-1, JO-2..." in R1 ride order instead of a bunch of tied
+  "1"s. Once any clear gets JO data, overlay drops out and
+  Ryegate's place flows through for every row.
+- Scoped to method 2. II.2b (13) excluded because its JO is
+  immediate — places populate progressively, no pre-JO gap.
+- Worker now ships rideOrder on computed entries so the sort
+  tiebreaker and overlay can reason about return order.
+
+WD / DECLINED-JO
+- Ryegate doesn't write text status (col[82]/col[83]) for a
+  rider who WDs from JO without riding. It DOES write the
+  numeric code (col[21] R1, col[28] R2) — confirmed 3=HF, 4=WD.
+- Watcher now has a numeric → text fallback so the .cls is
+  self-sufficient when the UDP finish frame is missed.
+- Worker overlayFinishStatus: on UDP FINISH events with a
+  status code, injects r{round}StatusCode into classData KV,
+  computed KV, AND D1 results row (so it survives KV expiry).
+- Sort on stats JO standings now uses Ryegate's place first —
+  a WD that was the only clear still shows 1st, not dumped to
+  the bottom.
+
+METHOD MAP CLEANUP
+- Dropped unused: methods 5, 8 (placeholders, never observed).
+- Corrected: method 14 (Team) = 3 rounds R1/R2/JO, method 15
+  (Winning Round) = 2 rounds R1/R2 (no JO). Previously swapped.
+- Method 0 (Table III) wasn't in watcher's noJumpOff list, so
+  on-course banner incorrectly said "Jump Off" for round 2 on a
+  single-round class. Fixed.
+
+CONFIG-DRIVEN TIMER DEFAULT
+- Watcher reads Ryegate's config.dat col[2] ("FARMTEK" vs "FDS"
+  etc.) at startup and on live change. On Farmtek setups it
+  defaults U→J for show-office-imported unformatted classes;
+  on TIMY/other it defaults U→T.
+- Removes the brittle hardcoded "always T" inference.
+
+HEADER / ROUNDS BLOCK
+- renderRoundsBlock now surfaces status-only rows (r2StatusCode
+  set but no r2 time/total) — lets WD in JO render as "JO WD".
+- Live standings no longer force FINISH state to flip to
+  "Previous Entry" card after 10s — holds the finish card
+  indefinitely until a new ON_COURSE event or KV TTL expires.
+  Matches display.html / stats.html behavior.
+
+STATS JO STANDINGS
+- rawEntries now pushes round 2 rows when r2StatusCode is set
+  (previously required r2TotalTime → WD-only rows dropped).
+- WD/RT/HC entries flow into joElimEntries so their zero-default
+  faults don't sort them artificially as "Leader".
+- Render uses WEST.isAnyStatus so faults/time/gap columns
+  consistently show WD/RT rather than a mix of ELIM and blank.
+
+RING-AWARE LINKS
+- Worker: active[] and recent[] KV arrays now carry the ring
+  number explicitly (belt-and-braces — was implicit in key).
+- live.html stats/results links use each class's own ring so a
+  stats page opened for a ring-2 class actually listens to
+  ring 2's watcher frames.
+
+SCHEDULE / CLASSES
+- classes.html relaxed visibility filter: any class with
+  scheduled_date now shows. Previously required entries>0 or
+  JO flag, so fresh empty classes (like 810 just added) were
+  hidden.
+- Added `hidden` respect: admin "Hidden" checkbox now also
+  removes a class from the by-day view. Data stays in D1.
+- Worker /admin/deleteShow (new, two-phase with count preview,
+  explicit cascade delete of classes/entries/results/rings/
+  activity/weather).
+- Worker /admin/createShow auto-creates Ring 1 on new shows.
+
+ADMIN UI
+- Watcher Status card shows a red warning ("No watchers
+  available — create a ring first") when a show has 0 rings,
+  instead of rendering a phantom Ring 1 "checking..." forever.
+- Delete Show button wired to new /admin/deleteShow with a
+  confirm dialog showing the exact counts to be deleted.
+
+POLLING CADENCE
+- live.html + display.html converted from setInterval to
+  self-scheduling setTimeout with adaptive rate:
+    - 1s active / 10s idle baseline on good networks (paid plan).
+    - WEST.getPollInterval dials back on slow-2g/2g/3g and
+      when Save-Data hint is set — mobile viewers in weak
+      service areas automatically get 3-5s polls.
+- stats.html: live strip 1s always, results 2s live / 15s
+  active / 2min idle.
+- Visible clock still ticks locally every 1s independent of
+  poll — smoothness isn't tied to network cadence.
+
+CLOUDFLARE PAGES PREVIEW
+- First preview deploy live at https://preview.westscoring.pages.dev.
+- deploy-preview.bat at repo root: stages frontend files,
+  pushes to preview branch, cleans up. westscoring.live
+  (production branch) is untouched.
+- Bare "deploy" is now pre-authorized for preview pushes.
+  "deploy to production" still requires explicit ask.
+
+WATCHER v1.1.0 SHIP
+- WATCHER_VERSION constant + startup log banner
+  ("WEST Scoring Live Watcher v1.1.0") so the scoring PC log
+  always shows which build is running.
+- Deploy folder: deploy/west-watcher-v1.0/ (holds current
+  shippable build — folder name kept stable, version lives in
+  the file and README).
+- README has a Version History section; going forward each
+  batch appends a vX.Y.Z block.
+
+MEMORY NOTES
+- feedback_watcher_versioning: bump version + README changelog
+  on each deploy-folder batch.
+- feedback_deploy_shortcut: bare "deploy" = preview push; prod
+  requires explicit confirmation.
+
+NEXT
+- Method 6 (Optimum Time IV.1) test
+- Security pass before westscoring.live goes public (admin
+  password + worker key out of admin.html source)
+- Auto-create Ring 1 already done server-side; admin UI rings-
+  count field still defaults to 1 on new shows — verify end to
+  end next session.

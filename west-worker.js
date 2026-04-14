@@ -194,8 +194,9 @@ export default {
           const idx = active.findIndex(a => String(a.classNum) === String(sel.classNum));
           if (idx >= 0) {
             active[idx].ts = new Date().toISOString();
+            active[idx].ring = ring;
           } else {
-            active.push({ classNum: sel.classNum, className: sel.className || '', ts: new Date().toISOString() });
+            active.push({ classNum: sel.classNum, className: sel.className || '', ring, ts: new Date().toISOString() });
             console.log(`[INTRO] ${sel.classNum} reinstated to active (horse on course)`);
           }
           await env.WEST_LIVE.put(activeKey, JSON.stringify(active), { expirationTtl: 7200 });
@@ -234,6 +235,17 @@ export default {
           ts: new Date().toISOString()
         }), { expirationTtl: 600 }); // 10 min — hunters hold finish display indefinitely on page, need long KV persistence
         console.log(`[FINISH] ${slug}:${ring} — #${body.entry} rank=${body.rank}`);
+        // If elapsed is a status code (WD/RT/EL/etc.), overlay it onto the
+        // entry's r{round}StatusCode in classData + computed KV so the
+        // standings row picks it up. Ryegate doesn't always write text
+        // statuses (col[82]/[83]) for declined rounds, so the UDP finish
+        // event is the only source for those cases.
+        const elap = String(body.elapsed || '').toUpperCase().trim();
+        const STATUS_SET = ['WD','RT','EL','RF','HF','OC','DNS','DNF','SC','DQ','RO','EX'];
+        const isStatusElapsed = elap && STATUS_SET.indexOf(elap) >= 0;
+        if (isStatusElapsed && body.entry) {
+          ctx.waitUntil(overlayFinishStatus(env, slug, ring, String(body.entry), parseInt(body.round) || 1, elap));
+        }
         return json({ ok: true, event: 'FINISH', entry: body.entry });
       }
 
@@ -352,8 +364,9 @@ export default {
         if (idx >= 0) {
           active[idx].ts = now;
           active[idx].className = className;
+          active[idx].ring = ring;
         } else {
-          active.push({ classNum, className, ts: now });
+          active.push({ classNum, className, ring, ts: now });
         }
         await env.WEST_LIVE.put(activeKey, JSON.stringify(active), { expirationTtl: 7200 });
         // Reopen class if it was marked complete — operator reopened it on scoring PC
@@ -387,7 +400,7 @@ export default {
         let recent = recentRaw ? JSON.parse(recentRaw) : [];
         // Remove if already present (re-complete), then add at top
         recent = recent.filter(r => String(r.classNum) !== String(classNum));
-        recent.unshift({ classNum, className, completedAt: new Date().toISOString() });
+        recent.unshift({ classNum, className, ring, completedAt: new Date().toISOString() });
         await env.WEST_LIVE.put(recentKey, JSON.stringify(recent), { expirationTtl: 1800 });
 
         // Mark class complete in D1
@@ -1111,6 +1124,21 @@ export default {
         const show = await env.WEST_DB.prepare(
           'SELECT * FROM shows WHERE slug = ?'
         ).bind(slug).first();
+        // Auto-create Ring 1 on new shows so the Watcher Status card has
+        // something to point at immediately. No-op if rings already exist.
+        if (show) {
+          const ringCount = await env.WEST_DB.prepare(
+            'SELECT COUNT(*) AS n FROM rings WHERE show_id = ?'
+          ).bind(show.id).first();
+          if (!ringCount || !ringCount.n) {
+            await env.WEST_DB.prepare(`
+              INSERT INTO rings (show_id, ring_num, ring_name, sort_order, status)
+              VALUES (?, '1', 'Ring 1', 0, 'active')
+              ON CONFLICT(show_id, ring_num) DO NOTHING
+            `).bind(show.id).run();
+            console.log(`[admin] Auto-created Ring 1 for new show ${slug}`);
+          }
+        }
         console.log(`[admin] Created show: ${slug}`);
         return json({ ok: true, show });
       } catch(e) { return err('DB error: ' + e.message); }
@@ -1132,6 +1160,18 @@ export default {
         if (allowed.includes(k)) { sets.push(`${k} = ?`); params.push(v); }
       }
       if (!sets.length) return err('No valid fields to update');
+      // If admin is explicitly setting status=active, bump end_date if it's in the past
+      // so autoCompleteShow doesn't immediately flip it back.
+      if (fields.status === 'active' && !('end_date' in fields)) {
+        const cur = await env.WEST_DB.prepare(
+          'SELECT end_date FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        const today = new Date().toISOString().split('T')[0];
+        if (cur && cur.end_date && cur.end_date < today) {
+          sets.push('end_date = ?');
+          params.push(today);
+        }
+      }
       sets.push('updated_at = ?');
       params.push(new Date().toISOString().replace('T', ' ').split('.')[0]);
       params.push(slug);
@@ -1143,6 +1183,49 @@ export default {
           'SELECT * FROM shows WHERE slug = ?'
         ).bind(slug).first();
         return json({ ok: true, show });
+      } catch(e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /admin/deleteShow ────────────────────────────────────────────────
+    // Cascade-delete a show and all its child data from D1. Pass
+    // `?confirm=1` or { confirm: true } to actually run — otherwise we
+    // return a preview of what would be deleted so the admin UI can show
+    // the user a count before they pull the trigger.
+    if (method === 'POST' && path === '/admin/deleteShow') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
+      const slug = body.slug;
+      const confirm = body.confirm === true || url.searchParams.get('confirm') === '1';
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB.prepare(
+          'SELECT id, name FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        const counts = await env.WEST_DB.prepare(`
+          SELECT
+            (SELECT COUNT(*) FROM classes WHERE show_id = ?) AS classes,
+            (SELECT COUNT(*) FROM entries WHERE class_id IN (SELECT id FROM classes WHERE show_id = ?)) AS entries,
+            (SELECT COUNT(*) FROM results WHERE class_id IN (SELECT id FROM classes WHERE show_id = ?)) AS results
+        `).bind(show.id, show.id, show.id).first();
+        if (!confirm) {
+          return json({ ok: true, preview: true, show, counts });
+        }
+        // Delete children first, then the show.
+        await env.WEST_DB.prepare(
+          'DELETE FROM results WHERE class_id IN (SELECT id FROM classes WHERE show_id = ?)'
+        ).bind(show.id).run();
+        await env.WEST_DB.prepare(
+          'DELETE FROM entries WHERE class_id IN (SELECT id FROM classes WHERE show_id = ?)'
+        ).bind(show.id).run();
+        await env.WEST_DB.prepare('DELETE FROM classes WHERE show_id = ?').bind(show.id).run();
+        await env.WEST_DB.prepare('DELETE FROM rings WHERE show_id = ?').bind(show.id).run();
+        await env.WEST_DB.prepare('DELETE FROM ring_activity WHERE show_id = ?').bind(show.id).run();
+        await env.WEST_DB.prepare('DELETE FROM show_weather WHERE show_id = ?').bind(show.id).run();
+        await env.WEST_DB.prepare('DELETE FROM shows WHERE id = ?').bind(show.id).run();
+        console.log(`[deleteShow] ${slug} — cascaded delete (classes=${counts.classes}, entries=${counts.entries}, results=${counts.results})`);
+        return json({ ok: true, deleted: true, show, counts });
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
@@ -1425,6 +1508,77 @@ async function activateShow(env, slug) {
   }
 }
 
+// ── OVERLAY UDP FINISH STATUS ON LIVE ENTRY ──────────────────────────────────
+// When a UDP FINISH event carries a non-time status (WD/RT/EL/…), Ryegate
+// doesn't always write the text status into the .cls file (cols[82]/[83]).
+// This overlay injects the status into the matching entry's
+// r{round}StatusCode on both the classData live KV and the computed KV so
+// the standings row renders the status label (e.g. "JO WD").
+async function overlayFinishStatus(env, slug, ring, entryNum, round, statusCode) {
+  try {
+    const selRaw = await env.WEST_LIVE.get(`selected:${slug}:${ring}`);
+    if (!selRaw) return;
+    const sel = JSON.parse(selRaw);
+    const classNum = String(sel.classNum || '');
+    if (!classNum) return;
+    const liveKey = `live:${slug}:${ring}:${classNum}`;
+    const resultsKey = `results:${slug}:${ring}:${classNum}`;
+    const roundStatusKey = `r${round}StatusCode`;
+    const [liveRaw, resultsRaw] = await Promise.all([
+      env.WEST_LIVE.get(liveKey), env.WEST_LIVE.get(resultsKey),
+    ]);
+    const writes = [];
+    if (liveRaw) {
+      const cd = JSON.parse(liveRaw);
+      if (cd && cd.entries) {
+        const e = cd.entries.find(x => String(x.entryNum) === entryNum);
+        if (e && e[roundStatusKey] !== statusCode) {
+          e[roundStatusKey] = statusCode;
+          e.statusCode = statusCode;
+          e.hasGone = true;
+          writes.push(env.WEST_LIVE.put(liveKey, JSON.stringify(cd), { expirationTtl: 7200 }));
+        }
+      }
+    }
+    if (resultsRaw) {
+      const comp = JSON.parse(resultsRaw);
+      if (comp && comp.entries) {
+        const e = comp.entries.find(x => String(x.entry_num) === entryNum);
+        if (e && e[roundStatusKey] !== statusCode) {
+          e[roundStatusKey] = statusCode;
+          e.statusCode = statusCode;
+          writes.push(env.WEST_LIVE.put(resultsKey, JSON.stringify(comp), { expirationTtl: 7200 }));
+        }
+      }
+    }
+    if (writes.length) {
+      await Promise.all(writes);
+      console.log(`[overlayFinishStatus] ${slug}:${ring} cls ${classNum} #${entryNum} r${round}=${statusCode}`);
+    }
+    // Persist to D1 so the status survives KV expiry (historical view).
+    try {
+      const classRow = await env.WEST_DB.prepare(
+        'SELECT c.id FROM classes c JOIN shows s ON c.show_id = s.id WHERE s.slug = ? AND c.class_num = ? AND c.ring = ?'
+      ).bind(slug, classNum, ring).first();
+      if (classRow && classRow.id) {
+        const entryRow = await env.WEST_DB.prepare(
+          'SELECT id FROM entries WHERE class_id = ? AND entry_num = ?'
+        ).bind(classRow.id, entryNum).first();
+        if (entryRow && entryRow.id) {
+          const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+          await upsertResult(env, entryRow.id, classRow.id, round,
+            '', '0', '0', '', '', statusCode, now);
+          console.log(`[overlayFinishStatus D1] cls ${classNum} #${entryNum} r${round}=${statusCode}`);
+        }
+      }
+    } catch(d1e) {
+      console.error(`[overlayFinishStatus D1 ERROR] ${d1e.message}`);
+    }
+  } catch(e) {
+    console.error(`[overlayFinishStatus ERROR] ${e.message}`);
+  }
+}
+
 // ── AUTO-COMPLETE SHOW AFTER END DATE ─────────────────────────────────────────
 // If end_date has passed and show is still active, auto-flip to complete
 async function autoCompleteShow(env, slug) {
@@ -1629,21 +1783,23 @@ async function writeToD1(env, body, slug, ring) {
       if (!entry) continue;
 
       // ── JUMPER results ────────────────────────────────────────────────────
-      // Watcher field names confirmed 2026-03-22 from live class 221
-      if (isJumper && e.r1TotalTime) {
+      // Watcher field names confirmed 2026-03-22 from live class 221.
+      // Also write status-only rows (e.g. WD in JO) so declined rounds
+      // persist to D1 where Ryegate would normally have recorded them.
+      if (isJumper && (e.r1TotalTime || e.r1StatusCode)) {
         await upsertResult(env, entry.id, cls.id, 1,
           e.r1TotalTime, e.r1JumpFaults, e.r1TimeFaults,
-          e.r1TotalFaults, e.overallPlace, e.statusCode, now);
+          e.r1TotalFaults, e.overallPlace, e.r1StatusCode || e.statusCode, now);
       }
-      if (isJumper && e.r2TotalTime) {
+      if (isJumper && (e.r2TotalTime || e.r2StatusCode)) {
         await upsertResult(env, entry.id, cls.id, 2,
           e.r2TotalTime, e.r2JumpFaults, e.r2TimeFaults,
-          e.r2TotalFaults, e.overallPlace, e.statusCode, now);
+          e.r2TotalFaults, e.overallPlace, e.r2StatusCode || e.statusCode, now);
       }
-      if (isJumper && e.r3TotalTime) {
+      if (isJumper && (e.r3TotalTime || e.r3StatusCode)) {
         await upsertResult(env, entry.id, cls.id, 3,
           e.r3TotalTime, e.r3JumpFaults, e.r3TimeFaults,
-          e.r3TotalFaults, e.overallPlace, e.statusCode, now);
+          e.r3TotalFaults, e.overallPlace, e.r3StatusCode || e.statusCode, now);
       }
 
       // ── HUNTER result ─────────────────────────────────────────────────────
@@ -2168,7 +2324,12 @@ function isSplitDecision(entries, judgeCount) {
 function computeClassResults(body) {
   const clsRaw = body.clsRaw || '';
   const h = parseClsHeader(clsRaw);
-  const classType = h[0] || body.classType || 'U';
+  // Watcher is authoritative on class type — it applies U→T inference from
+  // scoring method / UDP hints. Prefer body.classType over raw header when
+  // watcher has resolved a non-U type.
+  const bodyType = (body.classType || '').toUpperCase();
+  const headerType = (h[0] || '').toUpperCase();
+  const classType = (bodyType && bodyType !== 'U') ? bodyType : (headerType || 'U');
 
   // Build Order of Go from ALL entries (regardless of hasGone), sorted by ride order
   const oog = (body.entries || [])
@@ -2197,10 +2358,18 @@ function computeClassResults(body) {
   let result;
   if (classType === 'H') result = computeHunterResults(body, h, base);
   else if (classType === 'J' || classType === 'T') result = computeJumperResults(body, h, base);
-  else result = { ...base, label: 'Unformatted', entries: (body.entries || []).map(e => ({
-    entry_num: e.entryNum, horse: e.horse, rider: e.rider, owner: e.owner,
-    place: e.place || '', hasGone: e.hasGone,
-  })) };
+  else {
+    // Truly unformatted: watcher doesn't populate hasGone (no jumper/hunter
+    // parsing runs), so only apply the hasGone filter if at least one entry
+    // has it set. Otherwise fall through to showing all entries.
+    const allEntries = body.entries || [];
+    const anyGone = allEntries.some(e => e.hasGone);
+    const filtered = anyGone ? allEntries.filter(e => e.hasGone) : allEntries;
+    result = { ...base, label: 'Unformatted', entries: filtered.map(e => ({
+      entry_num: e.entryNum, horse: e.horse, rider: e.rider, owner: e.owner,
+      place: e.place || '', hasGone: e.hasGone,
+    })) };
+  }
 
   // Assign prize money per entry based on place
   if (prizes && result.entries) {
@@ -2404,6 +2573,7 @@ function computeJumperResults(body, h, base) {
     owner: e.owner || '', country: e.country || '',
     sire: e.sire || '', dam: e.dam || '', city: e.city || '', state: e.state || '',
     place: e.overallPlace || e.place || '',
+    rideOrder: parseInt(e.rideOrder) || 0,
     hasGone: e.hasGone, statusCode: e.statusCode || '',
     r1StatusCode: e.r1StatusCode || '', r2StatusCode: e.r2StatusCode || '',
     r1Time: e.r1Time || '', r1TotalTime: r1FinalTime,
