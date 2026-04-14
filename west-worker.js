@@ -1098,15 +1098,17 @@ export default {
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
-      const { slug, name, venue, dates, location, rings_count, stats_eligible } = body;
+      const { slug, name, venue, dates, location, rings_count, stats_eligible,
+              start_date, end_date } = body;
       if (!slug) return err('Missing slug');
       const now  = new Date().toISOString().replace('T', ' ').split('.')[0];
       const year = new Date().getFullYear();
       try {
         await env.WEST_DB.prepare(`
           INSERT INTO shows (slug, name, venue, dates, location, year, rings_count,
-                             stats_eligible, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                             stats_eligible, status, start_date, end_date,
+                             created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
           ON CONFLICT(slug) DO UPDATE SET
             name           = excluded.name,
             venue          = excluded.venue,
@@ -1114,11 +1116,14 @@ export default {
             location       = excluded.location,
             rings_count    = excluded.rings_count,
             stats_eligible = excluded.stats_eligible,
+            start_date     = excluded.start_date,
+            end_date       = excluded.end_date,
             updated_at     = excluded.updated_at
         `).bind(
           slug, name || '', venue || '', dates || '', location || '',
           year, rings_count || 1,
           stats_eligible !== false ? 1 : 0,
+          start_date || null, end_date || null,
           now, now
         ).run();
         const show = await env.WEST_DB.prepare(

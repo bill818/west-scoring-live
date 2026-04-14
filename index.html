@@ -216,6 +216,11 @@ async function loadData() {
     } catch(e) {}
 
     const watcherLive = liveData && liveData.watcherAlive;
+    const activeCountInRing = (liveData && liveData.activeClasses) ? liveData.activeClasses.length : 0;
+    // Show "Ring Live" badge only when the watcher is alive AND there's
+    // actually a class selected in the ring — otherwise it's misleading
+    // (watcher running but nothing happening).
+    const ringLive = watcherLive && activeCountInRing > 0;
     // Use D1 show status — set by admin, source of truth
     const dbStatus = showData ? showData.status : 'pending';
     let statusBadge = '';
@@ -227,12 +232,11 @@ async function loadData() {
       statusBadge = '<span class="status-badge status-pending">&#9719; Upcoming</span>';
     }
 
-    // LIVE pill only when watcher is actually sending data
-    const liveBadge = watcherLive
+    const liveBadge = ringLive
       ? '<span class="status-badge status-live"><span class="live-dot"></span> Ring Live</span>'
       : '';
 
-    if (watcherLive) activeCount++;
+    if (ringLive) activeCount++;
 
     // Preview: live class on top if active, then most recent 3 from schedule
     let previewHtml = '';

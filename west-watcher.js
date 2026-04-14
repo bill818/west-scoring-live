@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.1.0';
+const WATCHER_VERSION = '1.1.1';
 
 const fs   = require('fs');
 const path = require('path');
@@ -329,6 +329,9 @@ function logSeparator() {
 
 function saveSnapshot(filename, content, label) {
   try {
+    if (!fs.existsSync(SNAPSHOTS_DIR)) {
+      fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
+    }
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const snapName = `${ts}_${filename}`;
     const snapPath = path.join(SNAPSHOTS_DIR, snapName);

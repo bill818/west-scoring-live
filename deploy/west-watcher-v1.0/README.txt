@@ -158,6 +158,12 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.1.1  (2026-04-13)
+  + saveSnapshot now auto-creates C:\west_snapshots on first call.
+    Previously silently failed on fresh installs where the folder
+    didn't exist, so no tsked.csv / config.dat snapshots were
+    being saved.
+
 v1.1.0  (2026-04-13)
   + Config-driven timer default: reads config.dat col[2]
     ("FARMTEK" / "FDS") to pick U→J vs U→T on import-only classes.
