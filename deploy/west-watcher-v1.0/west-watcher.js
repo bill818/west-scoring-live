@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.1.1';
+const WATCHER_VERSION = '1.1.4';
 
 const fs   = require('fs');
 const path = require('path');
@@ -1338,11 +1338,16 @@ const port31000RecentlyCompleted = {}; // classNum -> timestamp ms
 
 function startPort31000Listener() {
   const dgram  = require('dgram');
-  const socket = dgram.createSocket('udp4');
+  const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
 
   socket.on('error', (err) => {
     log(`Port 31000 ERROR: ${err.message}`);
-    socket.close();
+    if (err.code === 'EADDRINUSE' || err.code === 'ENOTSUP') {
+      log(`[UDP] DEGRADED MODE — port 31000 unavailable (${err.code}). Class-complete detection disabled; .cls watcher still active.`);
+      try { socket.close(); } catch (e) {}
+      return; // continue without port 31000
+    }
+    try { socket.close(); } catch (e) {}
   });
 
   socket.on('listening', () => {
@@ -1915,13 +1920,29 @@ let currentScoreboardPort = null;
 
 function startUdpListener(scoreboardPort) {
   const dgram  = require('dgram');
-  const socket = dgram.createSocket('udp4');
+  // reuseAddr: rebind through Windows TIME_WAIT (cleanup after restart).
+  // (reusePort is Linux-only — would throw ENOTSUP on Windows.)
+  const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
   udpSocket = socket;
   currentScoreboardPort = scoreboardPort;
 
   socket.on('error', (err) => {
     udpLog(`ERROR: ${err.message}`);
-    socket.close();
+    log(`[UDP] bind error on port ${scoreboardPort}: ${err.message}`);
+    // EADDRINUSE on Windows when RSServer.exe (Ryegate scoreboard
+    // software) holds the port with SO_EXCLUSIVEADDRUSE. We can't
+    // coexist — run in DEGRADED MODE: no UDP events fire, but the
+    // .cls / tsked / config.dat watchers keep posting schedule + class
+    // data to the worker. Live pages lose on-course banners + clock
+    // but still get standings, schedule, and final results. Post-show
+    // fix is a pcap-based capture that bypasses the socket layer.
+    if (err.code === 'EADDRINUSE' || err.code === 'ENOTSUP') {
+      log(`[UDP] DEGRADED MODE — ${scoreboardPort} unavailable (${err.code}). File watchers still running; no live on-course events.`);
+      try { socket.close(); } catch (e) {}
+      if (udpSocket === socket) udpSocket = null;
+      return; // don't exit — keep the .cls / tsked watchers alive
+    }
+    try { socket.close(); } catch (e) {}
     if (udpSocket === socket) udpSocket = null;
   });
 

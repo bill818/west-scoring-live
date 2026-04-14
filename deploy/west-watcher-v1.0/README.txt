@@ -158,6 +158,32 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.1.4  (2026-04-14)
+  + DEGRADED MODE: when UDP ports 29696 / 31000 are held
+    exclusively by RSServer.exe (Windows SO_EXCLUSIVEADDRUSE
+    default), the watcher logs a warning and continues without
+    UDP instead of exiting. File watchers (.cls, tsked.csv,
+    config.dat) still post schedule + class data. Live pages
+    lose on-course banner + clock + finish events but keep
+    standings, schedule, and final results.
+  + Proper fix (npcap-based capture) is in the v2.0 WIP folder.
+
+v1.1.3  (2026-04-14)
+  + HOTFIX: removed reusePort flag (Linux-only) that was
+    causing ENOTSUP on Windows in v1.1.2. reuseAddr stays.
+  + Note: same-PC coexistence with RSServer.exe (which holds
+    UDP 29696 with SO_EXCLUSIVEADDRUSE) is not possible on
+    Windows. Run the watcher on a separate PC on the same LAN,
+    sharing C:\Ryegate\Jumper from the scoring PC over SMB.
+
+v1.1.2  (2026-04-14)
+  + UDP sockets now open with reuseAddr so a restart can rebind
+    the port immediately instead of hitting EADDRINUSE during
+    Windows TIME_WAIT.
+  + If EADDRINUSE still occurs (another watcher actually running),
+    watcher exits with code 1 so start-watcher.bat's restart
+    loop gets a clean slate after its 5s wait.
+
 v1.1.1  (2026-04-13)
   + saveSnapshot now auto-creates C:\west_snapshots on first call.
     Previously silently failed on fresh installs where the folder

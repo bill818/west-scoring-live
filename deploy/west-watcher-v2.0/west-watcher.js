@@ -1,16 +1,89 @@
 /**
- * WEST Scoring Live — Class File Watcher
- * Watches C:\Ryegate\Jumper\Classes for .cls file changes
- * Logs parsed data to west_log.txt
+ * WEST Scoring Live — Class File Watcher (pcap edition)
  *
- * Usage: node west-watcher.js
- * Requirements: Node.js LTS installed on scoring computer
+ * Watches C:\Ryegate\Jumper\Classes for .cls file changes,
+ * captures UDP scoreboard frames via npcap (bypasses Windows'
+ * SO_EXCLUSIVEADDRUSE that RSServer.exe holds on port 29696).
+ *
+ * Requirements on the scoring PC:
+ *   - Node.js LTS
+ *   - npcap driver (https://npcap.com/) — installs cleanly,
+ *     Wireshark ships it
+ *   - `npm install` in this folder to pull the `cap` binding
+ *   - Run as Administrator (pcap capture requires it)
  */
 
-const WATCHER_VERSION = '1.1.4';
+const WATCHER_VERSION = '2.0.0-draft1';
 
 const fs   = require('fs');
 const path = require('path');
+
+// ── PCAP CAPTURE (npcap on Windows, libpcap elsewhere) ───────────────────────
+// RSServer.exe exclusive-binds UDP 29696 on the scoring PC. Instead of
+// fighting for the socket, we tap the packet stream at the driver level.
+// Requires npcap installed (https://npcap.com — Wireshark ships it) and
+// the process running as Administrator.
+let Cap, decoders, PROTOCOL;
+try {
+  const capMod = require('cap');
+  Cap       = capMod.Cap;
+  decoders  = capMod.decoders;
+  PROTOCOL  = decoders.PROTOCOL;
+} catch (e) {
+  console.error('[PCAP] cap module not installed. Run "npm install" in this folder.');
+  console.error('       Also install npcap from https://npcap.com if not already present.');
+  process.exit(1);
+}
+
+// Capture UDP frames on `dstPort`, decode Eth+IPv4+UDP, call handler(payload).
+// Opens a capture on every non-loopback IPv4 device so we catch Ryegate
+// broadcasts regardless of which NIC is the primary.
+function startPcapListener(dstPort, handler, label) {
+  const devices = Cap.deviceList();
+  const filter  = `udp and dst port ${dstPort}`;
+  const bufSize = 10 * 1024 * 1024;
+  let opened = 0;
+
+  devices.forEach(dev => {
+    // Skip loopback + adapters without an IPv4 address
+    const hasIpv4 = (dev.addresses || []).some(a => a.addr && a.addr.indexOf('.') >= 0);
+    if (!hasIpv4) return;
+    if ((dev.flags || '').toLowerCase().indexOf('loopback') >= 0) return;
+
+    try {
+      const c        = new Cap();
+      const buffer   = Buffer.alloc(65535);
+      const linkType = c.open(dev.name, filter, bufSize, buffer);
+
+      c.on('packet', function (nbytes /*, trunc */) {
+        try {
+          if (linkType !== 'ETHERNET') return;
+          let r = decoders.Ethernet(buffer);
+          if (r.info.type !== PROTOCOL.ETHERNET.IPV4) return;
+          r = decoders.IPV4(buffer, r.offset);
+          if (r.info.protocol !== PROTOCOL.IP.UDP) return;
+          const udp = decoders.UDP(buffer, r.offset);
+          // udp.info.length INCLUDES the 8-byte UDP header
+          const payloadLen = udp.info.length - 8;
+          if (payloadLen <= 0) return;
+          const payload = Buffer.from(buffer.slice(udp.offset, udp.offset + payloadLen));
+          handler(payload);
+        } catch (err) {
+          // Log and continue — malformed frames shouldn't kill the listener.
+          try { console.error(`[PCAP ${label}] decode error: ${err.message}`); } catch(_) {}
+        }
+      });
+
+      opened++;
+      try { console.log(`[PCAP ${label}] capturing ${filter} on ${dev.description || dev.name}`); } catch(_) {}
+    } catch (err) {
+      try { console.error(`[PCAP ${label}] failed to open ${dev.name}: ${err.message}`); } catch(_) {}
+    }
+  });
+
+  if (!opened) throw new Error(`[PCAP ${label}] no devices opened — is npcap installed and are you Administrator?`);
+  return opened;
+}
 
 // ── CRASH PROTECTION ─────────────────────────────────────────────────────────
 // Catch any unhandled exceptions/rejections so the watcher never silently dies.
@@ -1337,24 +1410,15 @@ let port31000WindowTimer   = null;
 const port31000RecentlyCompleted = {}; // classNum -> timestamp ms
 
 function startPort31000Listener() {
-  const dgram  = require('dgram');
-  const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+  try {
+    const opened = startPcapListener(CLASS_COMPLETE_PORT, handlePort31000Packet, '31000');
+    log(`[PCAP] class-complete capture on ${opened} device(s)`);
+  } catch (err) {
+    log(`[PCAP] class-complete capture failed: ${err.message}`);
+  }
+}
 
-  socket.on('error', (err) => {
-    log(`Port 31000 ERROR: ${err.message}`);
-    if (err.code === 'EADDRINUSE' || err.code === 'ENOTSUP') {
-      log(`[UDP] DEGRADED MODE — port 31000 unavailable (${err.code}). Class-complete detection disabled; .cls watcher still active.`);
-      try { socket.close(); } catch (e) {}
-      return; // continue without port 31000
-    }
-    try { socket.close(); } catch (e) {}
-  });
-
-  socket.on('listening', () => {
-    log(`Port 31000 listener active — class complete detection ready`);
-  });
-
-  socket.on('message', (msg) => {
+function handlePort31000Packet(msg) {
     const raw = msg.toString('ascii').trim();
 
     // Log every packet to both logs
@@ -1434,13 +1498,6 @@ function startPort31000Listener() {
         udpLog(`[31000] Window expired for class ${classNum} — reset`);
       }, CLASS_COMPLETE_WINDOW);
     }
-  });
-
-  try {
-    socket.bind(CLASS_COMPLETE_PORT);
-  } catch(e) {
-    log(`Port 31000 bind ERROR: ${e.message}`);
-  }
 }
 
 let selectedClassNum = null; // tracks most recent Ctrl+A class for inferRound
@@ -1919,38 +1976,21 @@ let udpSocket = null;
 let currentScoreboardPort = null;
 
 function startUdpListener(scoreboardPort) {
-  const dgram  = require('dgram');
-  // reuseAddr: rebind through Windows TIME_WAIT (cleanup after restart).
-  // (reusePort is Linux-only — would throw ENOTSUP on Windows.)
-  const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-  udpSocket = socket;
   currentScoreboardPort = scoreboardPort;
+  // v2.0 pcap path — capture UDP off the wire instead of binding a socket.
+  // Works alongside RSServer.exe's exclusive bind on Windows.
+  try {
+    const opened = startPcapListener(scoreboardPort, handleScoreboardPacket, 'scoreboard');
+    udpLog(`Capturing scoreboard port ${scoreboardPort} via pcap on ${opened} device(s)`);
+  } catch (err) {
+    log(`[PCAP] scoreboard capture failed: ${err.message}`);
+    udpLog(`[PCAP] scoreboard capture failed: ${err.message}`);
+  }
+}
 
-  socket.on('error', (err) => {
-    udpLog(`ERROR: ${err.message}`);
-    log(`[UDP] bind error on port ${scoreboardPort}: ${err.message}`);
-    // EADDRINUSE on Windows when RSServer.exe (Ryegate scoreboard
-    // software) holds the port with SO_EXCLUSIVEADDRUSE. We can't
-    // coexist — run in DEGRADED MODE: no UDP events fire, but the
-    // .cls / tsked / config.dat watchers keep posting schedule + class
-    // data to the worker. Live pages lose on-course banners + clock
-    // but still get standings, schedule, and final results. Post-show
-    // fix is a pcap-based capture that bypasses the socket layer.
-    if (err.code === 'EADDRINUSE' || err.code === 'ENOTSUP') {
-      log(`[UDP] DEGRADED MODE — ${scoreboardPort} unavailable (${err.code}). File watchers still running; no live on-course events.`);
-      try { socket.close(); } catch (e) {}
-      if (udpSocket === socket) udpSocket = null;
-      return; // don't exit — keep the .cls / tsked watchers alive
-    }
-    try { socket.close(); } catch (e) {}
-    if (udpSocket === socket) udpSocket = null;
-  });
-
-  socket.on('listening', () => {
-    udpLog(`Listening on scoreboard port ${scoreboardPort}`);
-  });
-
-  socket.on('message', (msg) => {
+// Extracted from startUdpListener's socket.on('message', ...) so both the
+// dgram path (v1) and pcap path (v2) can feed the same logic.
+function handleScoreboardPacket(msg) {
     const raw  = msg.toString('ascii').trim();
     const tags = parseUdpPacket(msg);
     const fr = tags['fr'] || '';
@@ -2166,28 +2206,13 @@ function startUdpListener(scoreboardPort) {
     }
 
     detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, rankClean, hunterScore, isHunterScore, isScoreFrame, eqScore);
-  });
-
-  socket.bind(scoreboardPort);
 }
 
-// Restart the UDP listener on a new port. Closes the existing socket cleanly
-// then opens a new one. Used by the config.dat watcher when the operator
-// changes the scoreboard port in Ryegate's hardware settings.
+// pcap path doesn't support mid-flight port changes (would need to tear
+// down and reopen every device's capture). Log and ignore — operator
+// must restart the watcher if Ryegate's scoreboard port changes.
 function restartUdpListener(newPort) {
-  if (currentScoreboardPort === newPort) {
-    udpLog(`[CONFIG] scoreboard port unchanged (${newPort}), skipping restart`);
-    return;
-  }
-  udpLog(`[CONFIG] scoreboard port changing: ${currentScoreboardPort} -> ${newPort}, restarting UDP listener`);
-  if (udpSocket) {
-    try { udpSocket.close(); } catch(e) { udpLog(`[CONFIG] error closing old socket: ${e.message}`); }
-    udpSocket = null;
-  }
-  // Slight delay to make sure the OS releases the port
-  setTimeout(() => {
-    startUdpListener(newPort);
-  }, 200);
+  log(`[PCAP] scoreboard port change to ${newPort} — restart watcher to rebind capture filter`);
 }
 
 // Watch config.dat for changes. Ryegate flushes config.dat on hardware

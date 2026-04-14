@@ -1,0 +1,15 @@
+{
+  "name": "west-watcher",
+  "version": "2.0.0-draft1",
+  "description": "WEST Scoring Live watcher — pcap edition. Captures UDP via npcap so it coexists with Ryegate's RSServer.exe on the scoring PC.",
+  "main": "west-watcher.js",
+  "scripts": {
+    "start": "node west-watcher.js"
+  },
+  "dependencies": {
+    "cap": "^0.2.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
