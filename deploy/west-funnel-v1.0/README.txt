@@ -107,6 +107,22 @@ FAILURE MODES (KNOW BEFORE A SHOW)
 
 VERSION HISTORY
 ---------------
+v1.1.0  (2026-04-15)
+  + Optional running-tenth mode for the scoreboard-facing output
+    port: the funnel rewrites the elapsed field {17} to a one-
+    decimal value (e.g. 15.0 → 15.1 → 15.2) and synthesizes
+    interpolated frames at 10 Hz between Ryegate's 1 Hz real
+    frames. Other output port (watcher) stays byte-identical
+    pass-through always.
+  + Pause detection: if the next real frame repeats the previous
+    elapsed, the ticker stops and the scoreboard holds at
+    <elapsed>.0. Also stops on 1.5s silence.
+  + FINISH non-numeric elapsed (EL/RT status) stops tenth mode
+    and passes Ryegate's raw frame through.
+  + Config keys:
+      "runningTenth":     0/1   (default 0 = pure pass-through)
+      "runningTenthPort": N     (defaults to outputPorts[0])
+
 v1.0.0  (2026-04-15)
   Initial pass-through funnel. Pure observer-to-two-observers
   relay with crash hardening and 60s heartbeat logging.
