@@ -506,7 +506,12 @@ function render() {
 
   const recentClasses = liveData.recentClasses || [];
 
-  if (!active.length || !alive) {
+  // Only blank the page when there are genuinely no active classes. If the
+  // watcher went quiet (heartbeat missed on spotty network) but we still
+  // have class data cached, keep rendering it — classes only "close" when
+  // the watcher explicitly posts CLASS_COMPLETE and the worker removes
+  // them from the active array. Missing heartbeats get a banner instead.
+  if (!active.length) {
     let noLiveHtml = '<div class="no-live">'
       + '<div class="no-live-icon">&#9711;</div>'
       + '<h2>No Class in the Ring</h2>'
@@ -527,6 +532,11 @@ function render() {
   document.title = 'Live — ' + active.length + ' class' + (active.length !== 1 ? 'es' : '') + ' — WEST Scoring Live';
 
   let html = '';
+  if (!alive) {
+    html += '<div style="background:#fff4e5;border-left:3px solid #f59e0b;padding:8px 12px;margin:8px 12px;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.04em;color:#92400e;">'
+         +  'WATCHER OFFLINE — showing last known standings. Clock is frozen until connection restores.'
+         +  '</div>';
+  }
 
   // Hold FINISH state until a new ON_COURSE event replaces oc, or the
   // worker's KV TTL expires the record. Matches display.html / stats.html.
