@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.2.0';
+const WATCHER_VERSION = '1.3.0';
 
 const fs   = require('fs');
 const path = require('path');
@@ -2298,41 +2298,28 @@ udpLog(`Scoreboard port: ${scoreboardPort} | Class complete port: ${CLASS_COMPLE
 udpLog('═'.repeat(72));
 log(`WEST Scoring Live Watcher v${WATCHER_VERSION} starting`);
 
-// UDP RELAY MODE (v1.2.0+) — watcher binds Ryegate's scoreboard port,
-// forwards every packet to 127.0.0.1:<port+1> for RSServer to receive on
-// its new port. One config knob: Ryegate's port from config.dat col[1].
-// RSServer must be reconfigured to listen on (scoreboardPort + 1).
+// Watcher is a pure UDP observer again (v1.3.0+). On scoring PCs that
+// also run RSServer, launch the companion west-funnel process: it binds
+// Ryegate's scoreboard port and fans packets out to RSServer + the
+// watcher on separate loopback ports. The watcher never touches the
+// scoreboard path — if it crashes, the scoreboard is unaffected.
 //
-// Example: Ryegate scoreboard port = 29696
-//   → watcher binds 29696
-//   → watcher forwards each packet to 127.0.0.1:29697
-//   → RSServer listens on 29697
-const relayPort = scoreboardPort + 1;
-let relaySocket = null;
-try {
-  relaySocket = require('dgram').createSocket('udp4');
-  log(`[RELAY] Ryegate port ${scoreboardPort} → forwarding to 127.0.0.1:${relayPort} (RSServer must listen here)`);
-} catch (e) {
-  log(`[RELAY] failed to create relay socket: ${e.message}`);
+// config.json:
+//   "scoreboardListenPort": 29698   (optional — if set, the watcher
+//     binds this loopback port instead of Ryegate's scoreboard port.
+//     On a funneled scoring PC, set this to the watcher-facing output
+//     port of west-funnel/config.json. On dev PCs with no funnel, omit
+//     the key and the watcher binds Ryegate's port directly.)
+const scoreboardListenPort = parseInt(config.scoreboardListenPort) > 0
+  ? parseInt(config.scoreboardListenPort)
+  : scoreboardPort;
+if (scoreboardListenPort !== scoreboardPort) {
+  log(`[UDP] listening on funnel port ${scoreboardListenPort} (Ryegate output is ${scoreboardPort})`);
+} else {
+  log(`[UDP] listening directly on Ryegate port ${scoreboardPort} (no funnel)`);
 }
 
-// Wrap startUdpListener so the forward hook is attached each time the
-// scoreboard socket is (re-)created, including after a config.dat port
-// change triggers restartUdpListener.
-const _origStartUdpListener = startUdpListener;
-startUdpListener = function(port) {
-  _origStartUdpListener(port);
-  if (udpSocket && relaySocket) {
-    const rp = port + 1;
-    udpSocket.on('message', (msg) => {
-      try { relaySocket.send(msg, 0, msg.length, rp, '127.0.0.1'); }
-      catch (e) { /* drop on error, don't kill watcher */ }
-    });
-    log(`[RELAY] forwarding port ${port} → 127.0.0.1:${rp}`);
-  }
-};
-
-startUdpListener(scoreboardPort);
+startUdpListener(scoreboardListenPort);
 startPort31000Listener();
 watchConfigFile();
 

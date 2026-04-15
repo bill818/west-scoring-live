@@ -158,6 +158,19 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.3.0  (2026-04-15)
+  + Watcher is a pure UDP observer again. v1.2.0's in-process
+    relay is removed — that approach put the watcher in the
+    critical path for the physical scoreboard, which wasn't
+    the original fire-and-forget design.
+  + Added config.json key "scoreboardListenPort": on scoring
+    PCs that run the companion west-funnel v1.0 process, set
+    this to the watcher-facing output port configured in the
+    funnel (typical: 29698). On dev PCs with no funnel, leave
+    the key out and the watcher binds Ryegate's port directly.
+  + Port 31000 (class-complete) listener unchanged — it stays
+    a direct bind as before.
+
 v1.2.0  (2026-04-14)
   + UDP RELAY: watcher binds Ryegate's scoreboard port directly,
     then forwards every packet to 127.0.0.1:<port+1> so RSServer
