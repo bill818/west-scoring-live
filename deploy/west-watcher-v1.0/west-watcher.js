@@ -1530,6 +1530,7 @@ let lastTa      = '';
 let lastElapsed = '';
 let lastCd      = '';
 let lastJump    = '';
+let lastRank    = '';
 let clockStopTimer = null;
 let cdStopTimer    = null;
 
@@ -1813,13 +1814,15 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
 
   // Fire events on phase change, entry change, OR TA change (round switch).
   // INTRO always re-fires (explicit operator action, KV TTL may expire).
-  // FINISH re-fires when rank changes (Display Scores sends a second FINISH
-  // frame with the actual rank — e.g. equitation first FINISH has empty rank,
-  // then Display Scores adds "RANK 1" with the equitation score).
+  // FINISH re-fires when rank changes — Ryegate sends a first FINISH frame
+  // on timer stop with rank empty, then a second frame after the operator
+  // presses RANK with the actual placement. We need to forward both so the
+  // live page shows the final rank, not just the bare finish time.
   const isRepeatIntro = (phase === 'INTRO' && lastPhase === 'INTRO' && entry === lastEntry);
+  const isRankUpdate  = (phase === 'FINISH' && entry === lastEntry && rank !== lastRank);
   // Score frame ({19}=SCORE) = equitation Display Scores — always re-fire FINISH
   // with the actual rank and score, even though phase/entry haven't changed.
-  if (phase !== lastPhase || entry !== lastEntry || ta !== lastTa || isRepeatIntro || isScoreFrame) {
+  if (phase !== lastPhase || entry !== lastEntry || ta !== lastTa || isRepeatIntro || isScoreFrame || isRankUpdate) {
     if (phase === 'INTRO' && (lastPhase !== 'INTRO' || isRepeatIntro)) {
       const ri = inferRound(entry, ta);
       fireEvent('INTRO', { entry, horse, rider, ta, hunterScore: hunterScore || '', isHunter: !!isHunterScore });
@@ -1938,6 +1941,7 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
   lastEntry = entry;
   lastTa    = ta;
   lastJump  = jump;
+  lastRank  = rank || '';
 }
 
 // Module-scoped reference to the active scoreboard UDP socket so we can

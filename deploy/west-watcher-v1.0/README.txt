@@ -164,13 +164,20 @@ v1.5.0  (2026-04-15)
     rolling over into JO on method 13 II.2b or a mid-class
     operator TA edit), the round label could lag by one horse
     until the .cls header flushed the new TA value.
-  + New logic: if UDP TA matches a header r{N}TA → use that.
+    New logic: if UDP TA matches a header r{N}TA → use that.
     If UDP TA doesn't match any header value but differs from
     the last-seen UDP TA for this class → advance to the next
     round immediately. Label updates on the same frame.
-  + Per-class state (inferRoundState[classKey]) remembers the
+    Per-class state (inferRoundState[classKey]) remembers the
     last TA and last inferred round so the "TA changed"
     detection is stable across frames.
+  + FINISH re-fires on rank update. Ryegate sends a first
+    FINISH frame with rank empty on timer stop, then a second
+    after the operator presses RANK. Previously the second
+    frame was ignored (same phase/entry/TA as first), so the
+    rank icon never appeared on the live on-course card. Now
+    tracks lastRank and re-fires FINISH when rank changes on
+    the same entry.
 
 v1.4.0  (2026-04-15)
   + Watcher UDP port is now AUTO-DERIVED from Ryegate's
