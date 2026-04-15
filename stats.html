@@ -158,7 +158,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .standing-row{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);}
 .standing-row:last-child{border-bottom:none;}
 .standing-row:hover{background:var(--off-white);}
+.standing-row.elim{opacity:.72;}
 .s-place{width:32px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:12px;font-weight:500;color:var(--text-muted);}
+.s-place-status{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;color:var(--red);font-weight:600;}
 .s-entry{flex:1;min-width:0;}
 .s-horse{font-size:12px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .s-rider{font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -1079,14 +1081,27 @@ function renderR1StandingsTable(entries, hasJO) {
   entries.forEach(function(g, i) {
     var r1 = g.rounds[1];
     var faultVal = r1 ? parseFloat(r1.total) : NaN;
-    var fCls = isNaN(faultVal) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
-    var fDisplay = isNaN(faultVal) ? (r1 && r1.status_code ? r1.status_code.toUpperCase() : 'ELIM') : String(faultVal);
-    var timeStr = r1 && r1.time ? fmtTimePrecision(r1.time) : '\u2014';
-    var placeDisplay = (hasJO && g.isJOQualifier) ? '<span class="jo-tag">JO</span>' : String(i + 1);
+    // Any status code (RF/EL/OC/HF/WD/RT/etc.) means this row is NOT a
+    // valid R1 finish — hide the numeric place and show the status code
+    // in its spot. Centralized rule via WEST.isAnyStatus.
+    var anyStatus = r1 && r1.status_code && WEST.isAnyStatus && WEST.isAnyStatus(r1.status_code);
+    var fCls = (isNaN(faultVal) || anyStatus) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
+    var fDisplay = anyStatus ? String(r1.status_code).toUpperCase()
+                 : isNaN(faultVal) ? 'ELIM'
+                 : String(faultVal);
+    var timeStr = (anyStatus || !r1 || !r1.time) ? '\u2014' : fmtTimePrecision(r1.time);
+    var placeDisplay;
+    if (anyStatus) {
+      placeDisplay = '<span class="s-place-status">' + esc(String(r1.status_code).toUpperCase()) + '</span>';
+    } else if (hasJO && g.isJOQualifier) {
+      placeDisplay = '<span class="jo-tag">JO</span>';
+    } else {
+      placeDisplay = String(i + 1);
+    }
 
     var r1Primary = isEqMethod ? g.rider : g.horse;
     var r1Secondary = isEqMethod ? g.horse : g.rider;
-    html += '<div class="standing-row">'
+    html += '<div class="standing-row' + (anyStatus ? ' elim' : '') + '">'
       + '<span class="s-place">' + placeDisplay + '</span>'
       + '<div class="s-entry"><div class="s-horse">' + esc(r1Primary) + '</div><div class="s-rider">' + esc(r1Secondary) + '</div></div>'
       + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
