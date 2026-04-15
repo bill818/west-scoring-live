@@ -9,8 +9,16 @@
 
 const WATCHER_VERSION = '1.5.0';
 
-const fs   = require('fs');
-const path = require('path');
+const fs    = require('fs');
+const path  = require('path');
+const https = require('https');
+const http  = require('http');
+
+// Persistent connection pool for POSTs to the worker. Reusing a warm TCP/TLS
+// socket avoids the ~500-2000ms handshake tax per event on spotty networks.
+// One idle connection is kept open for keepAliveMsecs after the last POST.
+const HTTPS_AGENT = new https.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 4 });
+const HTTP_AGENT  = new http.Agent ({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 4 });
 
 // ── CRASH PROTECTION ─────────────────────────────────────────────────────────
 // Catch any unhandled exceptions/rejections so the watcher never silently dies.
@@ -277,34 +285,56 @@ function loadWorkerConfig() {
 // so a show-locked rejection triggers a retry on the next touch.
 function postToWorker(endpoint, body, label, onSuccess) {
   if (!WORKER_URL || !AUTH_KEY) return;
-  const url = WORKER_URL + endpoint;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 3000);
-  fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'X-West-Key': AUTH_KEY },
-    body:    JSON.stringify({ ...body, slug: SHOW_SLUG, ring: SHOW_RING }),
-    signal:  ctrl.signal,
-  })
-  .then(async r => {
-    clearTimeout(timer);
-    const text = await r.text().catch(() => '');
-    if (!r.ok) {
-      log(`[POST] ${label || endpoint} — HTTP ${r.status}: ${text.slice(0, 300)}`);
-      return;
-    }
-    let parsed = {};
-    try { parsed = JSON.parse(text); } catch {}
-    if (parsed.locked) {
-      log(`[POST] ${label || endpoint} — show is locked, worker rejected (will retry on next trigger)`);
-      return;
-    }
-    if (parsed.ok && onSuccess) onSuccess(parsed);
-  })
-  .catch(e => {
-    clearTimeout(timer);
-    if (e.name !== 'AbortError') log(`[POST] ${label || endpoint} failed: ${e.message}`);
+  let u;
+  try { u = new URL(WORKER_URL + endpoint); }
+  catch (e) { log(`[POST] bad URL: ${e.message}`); return; }
+  const isHttps = u.protocol === 'https:';
+  const payload = JSON.stringify({ ...body, slug: SHOW_SLUG, ring: SHOW_RING });
+  const opts = {
+    hostname: u.hostname,
+    port:     u.port || (isHttps ? 443 : 80),
+    path:     u.pathname + u.search,
+    method:   'POST',
+    agent:    isHttps ? HTTPS_AGENT : HTTP_AGENT,
+    headers: {
+      'Content-Type':   'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      'X-West-Key':     AUTH_KEY,
+    },
+  };
+  const req = (isHttps ? https : http).request(opts, (res) => {
+    let data = '';
+    res.setEncoding('utf8');
+    res.on('data',  (chunk) => { data += chunk; });
+    res.on('end',   () => {
+      if (res.statusCode !== 200) {
+        log(`[POST] ${label || endpoint} — HTTP ${res.statusCode}: ${data.slice(0,300)}`);
+        return;
+      }
+      let parsed = {};
+      try { parsed = JSON.parse(data); } catch (e) {}
+      if (parsed.locked) {
+        log(`[POST] ${label || endpoint} — show is locked, worker rejected (will retry on next trigger)`);
+        return;
+      }
+      if (parsed.ok && onSuccess) onSuccess(parsed);
+    });
+    res.on('error', (e) => log(`[POST] ${label || endpoint} response error: ${e.message}`));
   });
+  // 10s timeout — covers slow TCP/TLS setup + slow Cloudflare response on
+  // spotty cell networks (Culpeper-class conditions). keepAlive reuses warm
+  // sockets so only the first POST in a burst pays the handshake cost.
+  req.setTimeout(10000, () => {
+    req.destroy(new Error('timeout'));
+  });
+  req.on('error', (e) => {
+    // Swallow aborts (expected) and log real errors at a lower tone than
+    // the previous version — under bad network they're routine.
+    if (e.message === 'timeout' || e.code === 'ECONNRESET') return;
+    log(`[POST] ${label || endpoint} failed: ${e.message}`);
+  });
+  req.write(payload);
+  req.end();
 }
 
 // ── LOGGING ──────────────────────────────────────────────────────────────────

@@ -159,6 +159,17 @@ and send them. The logs tell us everything we need.
 VERSION HISTORY
 ---------------
 v1.5.0  (2026-04-15)
+  + postToWorker switched from fetch to native https.request with
+    a persistent keepAlive agent. First POST to the worker pays
+    the TCP+TLS handshake cost (~500ms-2s on spotty networks);
+    every subsequent POST reuses the warm connection and skips
+    straight to sending bytes. On Culpeper-class cell networks
+    this turns a per-event 2-3s handshake tax into a one-time
+    ~2s cost per idle period.
+  + POST timeout bumped from 3s → 10s. Previously events that
+    took 3-10s to deliver were aborted and lost; now they land
+    (late but complete). Trivial memory impact — at most a few
+    pending requests per minute during a total outage.
   + inferRound trusts UDP TA when the .cls header hasn't caught
     up yet. Previously, if Ryegate changed TA (e.g. round
     rolling over into JO on method 13 II.2b or a mid-class
