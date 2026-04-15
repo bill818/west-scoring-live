@@ -1,0 +1,215 @@
+============================================================
+  SESSION 24 — 2026-04-15
+  Architectural follow-up — fire-and-forget regression in the
+  v1.2.0 relay, and the split-relay proposal
+============================================================
+
+WRITTEN FOR THE NEXT CLAUDE INSTANCE
+------------------------------------
+This note is a targeted architectural analysis from a short
+conversation with Bill on Culpeper launch day (2026-04-15).
+Bill wanted to keep the session light and capture thinking, not
+write code. This note is the capture.
+
+This is NOT a post-mortem of the actual launch — Bill did not
+walk me through what happened at the show. Use this alongside
+SESSION-NOTES-23.txt as input for the next deeper session.
+(Next instance: ask Bill for the real failure list first.)
+
+
+THE BURNING QUESTION
+--------------------
+"What is the watcher truly failing on a fire-and-forget system?"
+
+The question is sharp because v1.2.0's UDP relay quietly broke
+one of the project's original design properties — and the word
+"fire-and-forget" was still being used to describe a system that
+no longer is one at the UDP layer.
+
+
+WHAT WAS ORIGINALLY FIRE-AND-FORGET
+-----------------------------------
+Two separate properties existed pre-v1.2.0:
+
+  1. HTTP posts to the Worker — postToWorker() uses a 3s timeout
+     and swallows all errors. Worker down / internet out →
+     watcher doesn't care, scoring continues locally.
+
+  2. UDP from Ryegate — watcher was a PASSIVE LISTENER alongside
+     RSServer. Watcher death meant: Ryegate keeps broadcasting,
+     RSServer keeps receiving, scoreboard at the show keeps
+     working. Watcher was a pure observer, never in the path.
+
+The Session 12 design goal — "local screens independent of
+internet" — rested on BOTH of these.
+
+
+WHAT v1.2.0 CHANGED
+-------------------
+v1.2.0 solved RSServer's SO_EXCLUSIVEADDRUSE problem by making
+the watcher a MAN-IN-THE-MIDDLE on UDP 29696:
+
+  Ryegate → watcher(29696) → forward to 127.0.0.1:29697 → RSServer
+
+Property #1 (HTTP fire-and-forget) is preserved.
+Property #2 (watcher death ≠ scoreboard death) is GONE.
+
+The watcher is now in the critical path for the physical
+scoreboard at the show. Language should reflect that: v1.2.0 is
+fire-and-forget for the website, NOT for the scoreboard.
+
+
+FAILURE-MODE INVENTORY (POST-v1.2.0)
+------------------------------------
+Ways the watcher can now take the scoreboard down:
+
+  a. Process crash — ~5s blank until start-watcher.bat auto-
+     restarts. Visible but tolerable.
+
+  b. Hang without crash — event loop stuck (GC pause, sync file
+     read on a large .cls, uncaught exception in an async
+     handler, etc.). Process stays alive so auto-restart does
+     NOT fire. Scoreboard dead until someone notices manually.
+     This is the scariest mode because it's silent.
+
+  c. 127.0.0.1 loopback not reaching RSServer — flagged in S23
+     as untested. If this is the failure mode it is instant and
+     total; nothing ever reaches the scoreboard.
+
+  d. Silent packet corruption — forward code mangles a buffer
+     (wrong slice, wrong length, truncated frame). Scoreboard
+     shows garbage. Looks like Ryegate's fault, debugging
+     misdirected.
+
+  e. Hardware scoreboards that expect broadcast — loopback
+     won't reach them. Fallback noted in S23: swap forward
+     target to 255.255.255.255 + setBroadcast(true).
+
+  f. Port-grab race at startup — probably fine but worth
+     verifying the watcher-first-then-RSServer assumption under
+     autostart / reboot conditions.
+
+
+PROPOSED NEXT STEP: SPLIT THE RELAY OUT OF THE WATCHER
+------------------------------------------------------
+Restore property #2 by pulling the relay into its own tiny
+dedicated process.
+
+Design:
+  - Relay process (~30 lines). Binds UDP 29696.
+    On every incoming packet, sends the raw buffer to BOTH:
+      • 127.0.0.1:29697  (RSServer)
+      • 127.0.0.1:29698  (watcher)
+  - Watcher no longer binds 29696. It binds 29698 and treats
+    packets identically to how it handled 29696 today — no
+    parsing changes needed.
+  - start-all.bat (or two separate .bat files) launches both
+    with independent auto-restart loops.
+  - Relay could be Node for consistency, or a tiny compiled
+    binary (Go/Rust) for maximum boring-reliability. Optional.
+
+Why this is the right move:
+  - Relay is tiny and state-free → near-zero bug surface,
+    minimal hang vectors. Can be soaked for days.
+  - Watcher crashes, hangs, leaks, or throws no longer affect
+    the physical scoreboard. Watcher is a pure observer again.
+  - Watcher updates can be deployed mid-show without dropping
+    the scoreboard (kill watcher, keep relay, start new watcher).
+  - Failure modes isolate cleanly: relay issue = scoreboard
+    problem; watcher issue = website problem. Different
+    ownership, different severity, different on-site response.
+
+Tradeoffs:
+  - Two processes to supervise (minor).
+  - Slightly more install friction (minor — still .bat + .js).
+  - Eventual .exe packaging path: relay becomes a spawned
+    subprocess — still OS-level process isolation, so the
+    property is preserved.
+
+Open questions:
+  - Does 127.0.0.1 actually reach RSServer in production? If
+    not, the split-relay design ALSO needs the broadcast variant.
+  - How does RSServer handle a brief gap if the relay restarts?
+    Almost certainly reconnects silently, but confirm.
+
+
+RELATIONSHIP TO THE v2.0 PCAP / TSHARK APPROACH
+-----------------------------------------------
+v2.0 already exists as an experimental draft at
+deploy/west-watcher-v2.0/ (see README there). It uses npcap via
+the `cap` npm package. Session 23 flagged that the `cap` package
+needs node-gyp / Python / VS Build Tools, and Bill's Python
+install is broken, so S23 proposed pivoting v2.0 to shell out
+to Wireshark's tshark as a subprocess. That pivot has not
+happened yet — the draft still uses `cap`.
+
+Head-to-head:
+
+  Split relay (proposed in this note):
+    - Watcher is observer; relay is the critical path.
+    - Relay is tiny and in our control — hardened arbitrarily.
+    - RSServer config change (+1 port) still required.
+    - Zero extra install dependencies.
+    - Smallest diff from v1.2.0.
+
+  v2.0 via `cap` (current draft):
+    - Pure passive capture; nothing in the scoreboard path.
+    - RSServer binds 29696 unchanged.
+    - No port math. No 127.0.0.1 vs broadcast question.
+    - Requires npcap driver install + Admin privileges.
+    - `cap` has node-gyp build pain — unresolved on Bill's box.
+
+  v2.0 via tshark subprocess (S23 proposed pivot):
+    - Same passive-capture benefits as `cap`.
+    - Zero npm native deps — just spawn tshark, parse stdout.
+    - Requires Wireshark installer on every scoring PC (ships
+      npcap automatically, one-click install).
+    - Parse latency and CPU overhead vs direct UDP — small, but
+      non-zero. Worth a load test during a busy class.
+    - Not yet prototyped.
+
+Verdict:
+  - Split relay is the cheaper incremental step. It fixes the
+    fire-and-forget regression without adding any install
+    friction. Good candidate for the next production iteration.
+  - v2.0 (via tshark) is the architecturally cleaner answer —
+    watcher has zero responsibility for the scoreboard path —
+    but pays for that with a Wireshark install on every show PC.
+  - If split-relay shows problems in practice (loopback
+    weirdness, hardware scoreboards that need broadcast,
+    auto-restart hiccups), that is the signal to commit to v2.0.
+
+
+OPEN ITEMS FOR THE NEXT INSTANCE
+--------------------------------
+  - First thing: ask Bill what actually happened on the Culpeper
+    launch. This note is theoretical; the real failure list is
+    what drives the next iteration.
+  - Decide: split-relay next, or pivot straight to v2.0 tshark.
+  - If split-relay:
+      • Prototype the ~30-line relay (separate process).
+      • Rename start-watcher.bat → start-all.bat, launch both
+        with independent restart loops.
+      • Change watcher UDP bind from 29696 → 29698.
+      • End-to-end test: Ryegate → relay → RSServer + watcher.
+      • Confirm 127.0.0.1 reaches RSServer (S23 open item).
+  - If v2.0 tshark pivot:
+      • Prototype tshark subprocess consumer.
+      • Parse tshark's -T json output into the existing packet
+        parsers.
+      • Load-test during a busy class (hundreds of frames/sec).
+      • Confirm Wireshark install is acceptable for show
+        operators.
+  - Either way: S23's 127.0.0.1 vs 255.255.255.255 loopback
+    question is still unresolved.
+
+
+STYLE / CONTEXT REMINDERS (SESSION 12 RULES — STILL BINDING)
+------------------------------------------------------------
+  - DISCUSS before coding. Wait for "ok do it."
+  - No unrequested features. Keep sessions light when Bill
+    asks for light.
+  - Time: whole seconds with decimals. Non-FEI 3 decimals,
+    FEI 2.
+  - No popups. Multi-page layout only.
+  - Claude instance name: "Skippy the Magnificent."
