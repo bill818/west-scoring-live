@@ -130,9 +130,14 @@ log('═'.repeat(60));
 //              elapsed text contains non-numeric chars (EL/RT/etc.)
 
 function isRyegateScoreFrame(msg) {
-  // Quick header check before any decoding
+  // Quick header check before any decoding. Some Ryegate packets carry
+  // a leading \r\n (or other control bytes) before the {RYESCR} marker —
+  // strip leading non-printable bytes before matching.
   if (msg.length < 10) return false;
-  const head = msg.slice(0, 9).toString('ascii');
+  let i = 0;
+  while (i < msg.length && msg[i] < 0x20) i++;
+  if (msg.length - i < 9) return false;
+  const head = msg.slice(i, i + 9).toString('ascii');
   return head === '{RYESCR}{';
 }
 
@@ -187,17 +192,15 @@ let baseTemplate = null;        // Buffer of the last real ONCOURSE packet (used
 let lastElapsed  = null;        // previous real elapsed — used to detect pause (same value = clock frozen)
 let interpolating = false;
 
-function stopInterpolation(reason) {
+function stopInterpolation(/* reason */) {
   if (!interpolating && !tenthTimer) return;
   if (tenthTimer) { clearInterval(tenthTimer); tenthTimer = null; }
   interpolating = false;
-  log(`[TENTH] stopped (${reason})`);
 }
 
 function startInterpolation() {
   if (interpolating) return;
   interpolating = true;
-  log(`[TENTH] started at elapsed=${baseElapsed}`);
   tenthTimer = setInterval(() => {
     try {
       if (!baseTemplate) return;
@@ -280,9 +283,19 @@ function openInSocket() {
       const t17 = extractTag(msg, '17');
       const t23 = extractTag(msg, '23');
       if (t17 !== null && t23 === null) {
-        const n = parseInt(t17, 10);
-        if (!isNaN(n)) { phase = 'oncourse'; elapsedNum = n; }
-        else           { phase = 'finish-status'; }   // non-numeric (EL/RT/etc.)
+        const trimmed = (t17 || '').trim();
+        if (trimmed.indexOf('.') >= 0) {
+          // Decimal = Ryegate's precise final time (e.g. "12.560") — a
+          // FINISH packet. Don't interpolate, don't rewrite; pass the real
+          // bytes through so the scoreboard shows the authoritative time.
+          phase = 'finish-time';
+        } else if (/^-?\d+$/.test(trimmed)) {
+          phase = 'oncourse';
+          elapsedNum = parseInt(trimmed, 10);
+        } else {
+          // Non-numeric (EL/RT/WD/etc.) — FINISH with status
+          phase = 'finish-status';
+        }
       } else if (t23 !== null) {
         phase = 'cd';
       } else {
@@ -304,8 +317,10 @@ function openInSocket() {
     // Tenth-mode state machine (only touches interpolation, not fan-out).
     if (!tenthCandidate) return;
 
-    if (phase === 'cd' || phase === 'other' || phase === 'finish-status') {
-      // Non-ONCOURSE or finish with status — stop any running ticker.
+    if (phase === 'cd' || phase === 'other' || phase === 'finish-status' || phase === 'finish-time') {
+      // Non-ONCOURSE → stop the ticker. The real Ryegate frame we just
+      // forwarded carries the correct state (countdown, final decimal
+      // time, EL status, etc.), so the scoreboard ends up showing it.
       stopInterpolation(`phase=${phase}`);
       lastElapsed = null;
       return;
