@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.4.0';
+const WATCHER_VERSION = '1.5.0';
 
 const fs   = require('fs');
 const path = require('path');
@@ -1533,6 +1533,13 @@ let lastJump    = '';
 let clockStopTimer = null;
 let cdStopTimer    = null;
 
+// inferRound state — tracks the most recent UDP TA we inferred a round for
+// and the round we decided on, per selected class. When UDP TA changes to
+// a value the .cls header doesn't know about yet (Ryegate hasn't flushed
+// the new round's TA), we advance the round based on the change rather
+// than waiting for the .cls to catch up.
+const inferRoundState = {}; // classNum -> { lastTa: number, lastRound: 1|2|3 }
+
 function fireEvent(type, data) {
   const event = { event: type, timestamp: new Date().toISOString(), ...data };
   udpEvents.push(event);
@@ -1640,12 +1647,9 @@ function inferRound(entryNum, udpTa) {
         };
       }
 
-      // ── PRIMARY: TA matching ────────────────────────────────────────────
-      // Each round has its own r{N}TimeAllowed. Whichever the UDP TA matches
-      // is unambiguously the round Ryegate is currently running. This works
-      // for any scoring method that has multiple rounds with different TAs,
-      // including two-phase (different TA per phase). Robust against parse
-      // races where parsed.entries might not contain the current entry yet.
+      // ── PRIMARY: UDP TA matches a known header TA ───────────────────────
+      // When the .cls header has all round TAs populated, matching against
+      // them is unambiguous. Works for every multi-round scoring method.
       const ta1 = parseFloat(parsed.r1TimeAllowed);
       const ta2 = parseFloat(parsed.r2TimeAllowed);
       const ta3 = parseFloat(parsed.r3TimeAllowed);
@@ -1653,27 +1657,49 @@ function inferRound(entryNum, udpTa) {
       const r2Match = taNum > 0 && taNum === ta2;
       const r3Match = taNum > 0 && taNum === ta3;
 
-      if (r1Match && !r2Match && !r3Match) return result(1);
-      if (r2Match && !r1Match && !r3Match) return result(2);
-      if (r3Match && !r1Match && !r2Match) return result(3);
+      const classKey = filename || 'unknown';
+      const prevState = inferRoundState[classKey] || null;
+
+      function remember(round) {
+        inferRoundState[classKey] = { lastTa: taNum, lastRound: round };
+        return result(round);
+      }
+
+      if (r1Match && !r2Match && !r3Match) return remember(1);
+      if (r2Match && !r1Match && !r3Match) return remember(2);
+      if (r3Match && !r1Match && !r2Match) return remember(3);
+
+      // ── UDP-TRUST PATH (no header match) ────────────────────────────────
+      // Ryegate's UDP carries the TA of the round currently being run. If
+      // it doesn't match any header value, the .cls header hasn't caught
+      // up yet (or operator changed TA mid-class). Trust the UDP:
+      //   - Same TA as last seen → same round as last time
+      //   - Different TA → round has advanced; step forward, capped at
+      //     maxRounds. If we've never inferred a round for this class yet,
+      //     start at round 1.
+      if (taNum > 0 && prevState) {
+        if (taNum === prevState.lastTa) return remember(prevState.lastRound);
+        const next = Math.min((prevState.lastRound || 1) + 1, maxRounds);
+        return remember(next);
+      }
 
       // ── FALLBACK 1: two-phase entry inspection ──────────────────────────
       // When TAs are ambiguous (e.g. r1TA == r2TA), use whether the entry
       // already has r2 data. If yes → on PH2, otherwise → on PH1.
       if (isTwoPhase) {
         const entry = parsed.entries.find(e => e.entryNum === entryNum);
-        if (entry && entry.r2TotalTime) return result(2);
-        return result(1);
+        if (entry && entry.r2TotalTime) return remember(2);
+        return remember(1);
       }
 
       // ── FALLBACK 2: roundsCompleted counter from class header ──────────
       // Cap at the method's max rounds so single-round classes (II.1, Optimum)
       // never advance to "round 2" / "Jump Off" after all entries have gone.
       const rc = parseInt(parsed.roundsCompleted) || 0;
-      if (rc === 0) return result(1);
-      if (rc >= maxRounds) return result(maxRounds);
-      if (rc === 1) return result(2);
-      return result(3);
+      if (rc === 0) return remember(1);
+      if (rc >= maxRounds) return remember(maxRounds);
+      if (rc === 1) return remember(2);
+      return remember(3);
     }
   }
 
@@ -2298,21 +2324,16 @@ udpLog(`Scoreboard port: ${scoreboardPort} | Class complete port: ${CLASS_COMPLE
 udpLog('═'.repeat(72));
 log(`WEST Scoring Live Watcher v${WATCHER_VERSION} starting`);
 
-// Watcher is a pure UDP observer (v1.3.0+). On scoring PCs that also
-// run RSServer, launch the companion west-funnel process: it binds
-// Ryegate's scoreboard port and fans packets out to RSServer + the
-// watcher on separate loopback ports. The watcher never touches the
-// scoreboard path — if it crashes, the scoreboard is unaffected.
-//
-// Auto-derived watcher UDP port (v1.4.0+):
+// Watcher is a pure UDP observer (v1.3.0+). UDP port is auto-derived
+// from Ryegate's scoreboard port:
 //   watcherUdpPort = 28000 + (ryegateScoreboardPort - 29696)
-// Funnel uses the same formula for its watcher-facing output, so
-// nothing has to be configured in config.json. If the operator changes
-// Ryegate's scoreboard port, watcher and funnel both shift in lockstep.
+// Funnel uses the same formula for its watcher-facing output. Nothing
+// to configure — operator only changes Ryegate's scoreboard port if at
+// all, everything else shifts in lockstep.
 //
-// On a dev PC with no funnel running, the watcher binds the same port
-// directly — same auto-derived number. Operator can run a tiny relay
-// or just point Ryegate's broadcast at 28000 instead.
+// Big-show setup (separate scoring + production PCs with no funnel) is
+// a follow-up: add an explicit override key when that case actually
+// comes up.
 const watcherUdpPort = 28000 + (scoreboardPort - 29696);
 log(`[UDP] watcher UDP port = ${watcherUdpPort} (auto-derived from Ryegate scoreboard port ${scoreboardPort})`);
 

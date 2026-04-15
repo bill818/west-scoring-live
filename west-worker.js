@@ -1438,6 +1438,22 @@ export default {
       } catch(e) { return err('DB error: ' + e.message); }
     }
 
+    // ── DELETE /admin/clearClassCache ─────────────────────────────────────────
+    // Delete the cached computed-results KV entry for a specific class so the
+    // next /getResults call rebuilds from D1. Used after a D1 patch to force a
+    // refresh without touching the watcher.
+    if (method === 'DELETE' && path === '/admin/clearClassCache') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug     = url.searchParams.get('slug');
+      const ring     = url.searchParams.get('ring') || '1';
+      const classNum = url.searchParams.get('classNum');
+      if (!slug || !classNum) return err('Missing slug or classNum');
+      await env.WEST_LIVE.delete(`results:${slug}:${ring}:${classNum}`);
+      await env.WEST_LIVE.delete(`live:${slug}:${ring}:${classNum}`);
+      console.log(`[admin] Cleared class cache: ${slug}:${ring}:${classNum}`);
+      return json({ ok: true, message: `Cache cleared for class ${classNum}` });
+    }
+
     // ── DELETE /admin/clearLive ───────────────────────────────────────────────
     if (method === 'DELETE' && path === '/admin/clearLive') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);

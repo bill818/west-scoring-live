@@ -158,6 +158,20 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.5.0  (2026-04-15)
+  + inferRound trusts UDP TA when the .cls header hasn't caught
+    up yet. Previously, if Ryegate changed TA (e.g. round
+    rolling over into JO on method 13 II.2b or a mid-class
+    operator TA edit), the round label could lag by one horse
+    until the .cls header flushed the new TA value.
+  + New logic: if UDP TA matches a header r{N}TA → use that.
+    If UDP TA doesn't match any header value but differs from
+    the last-seen UDP TA for this class → advance to the next
+    round immediately. Label updates on the same frame.
+  + Per-class state (inferRoundState[classKey]) remembers the
+    last TA and last inferred round so the "TA changed"
+    detection is stable across frames.
+
 v1.4.0  (2026-04-15)
   + Watcher UDP port is now AUTO-DERIVED from Ryegate's
     scoreboard port (config.dat col[1]):
