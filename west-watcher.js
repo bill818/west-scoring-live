@@ -724,25 +724,49 @@ function parseCls(content, filename) {
 
       // HasGone and StatusCode
       entry.hasGone       = cols[36] === '1';
-      // * Farmtek: col[39]. TIMY: col[82]=R1 status, col[83]=R2 status (updated 2026-04-03)
+      // Column layout (confirmed):
+      //   TIMY (T):    text status → col[82]=R1, col[83]=R2
+      //                numeric code → col[21]=R1, col[28]=R2 (fallback)
+      //   Farmtek (J): text status → col[38] (single field, any round)
+      //                numeric code → col[21]=R1, col[28]=R2 (same as TIMY)
+      // Numeric → text map (from live observations): 3=HF, 4=WD, others tentative.
+      const NUM_STATUS = { '1':'EL', '2':'RF', '3':'HF', '4':'WD', '5':'RT', '6':'DNS' };
       if (isFarmtek) {
-        entry.statusCode = cols[39] || '';
+        // Single text status field — if present, attribute it to the later
+        // round the rider actually attempted (r2 if they have r1 time AND
+        // are in a multi-round class, otherwise r1).
+        const textStatus = cols[38] || '';
+        entry.r1StatusCode = '';
+        entry.r2StatusCode = '';
+        // Numeric fallback for per-round status.
+        if (cols[21] && cols[21] !== '0') entry.r1StatusCode = NUM_STATUS[cols[21]] || '';
+        if (cols[28] && cols[28] !== '0') entry.r2StatusCode = NUM_STATUS[cols[28]] || '';
+        // If text status exists and numeric didn't pick a round, attribute
+        // by activity: r2 if they completed r1 (status came on JO),
+        // otherwise r1.
+        if (textStatus && !entry.r1StatusCode && !entry.r2StatusCode) {
+          if (entry.r1TotalTime) entry.r2StatusCode = textStatus;
+          else                   entry.r1StatusCode = textStatus;
+        } else if (textStatus) {
+          // Text is authoritative over numeric when both present.
+          if (entry.r2StatusCode) entry.r2StatusCode = textStatus;
+          else if (entry.r1StatusCode) entry.r1StatusCode = textStatus;
+        }
+        entry.statusCode = entry.r2StatusCode || entry.r1StatusCode || '';
       } else {
         entry.r1StatusCode = cols[82] || '';
         entry.r2StatusCode = cols[83] || '';
-        // Numeric status fallback — Ryegate writes numeric codes at
-        // col[21]=R1 status and col[28]=R2 status but often leaves the text
-        // columns (col[82]/[83]) blank for R2 declines like WD. Map numeric
-        // → text when text is empty so the .cls is self-sufficient even if
-        // the UDP finish frame is missed. Confirmed: 3=HF, 4=WD.
-        const NUM_STATUS = { '1':'EL', '2':'RF', '3':'HF', '4':'WD', '5':'RT', '6':'DNS' };
+        // Numeric status fallback — Ryegate writes numeric codes at col[21]
+        // and col[28] but often leaves the text columns blank for R2
+        // declines like WD. Map numeric → text when text is empty so the
+        // .cls is self-sufficient even if the UDP finish frame is missed.
         if (!entry.r1StatusCode && cols[21] && cols[21] !== '0') {
           entry.r1StatusCode = NUM_STATUS[cols[21]] || entry.r1StatusCode;
         }
         if (!entry.r2StatusCode && cols[28] && cols[28] !== '0') {
           entry.r2StatusCode = NUM_STATUS[cols[28]] || entry.r2StatusCode;
         }
-        entry.statusCode   = entry.r2StatusCode || entry.r1StatusCode || ''; // most recent round's status
+        entry.statusCode   = entry.r2StatusCode || entry.r1StatusCode || '';
       }
       // hasGone = evidence of actually competing.
       // Round time is the ultimate proof — if no time and no status, treat as not gone.

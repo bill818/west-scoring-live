@@ -1439,9 +1439,11 @@ export default {
     }
 
     // ── DELETE /admin/clearClassCache ─────────────────────────────────────────
-    // Delete the cached computed-results KV entry for a specific class so the
-    // next /getResults call rebuilds from D1. Used after a D1 patch to force a
-    // refresh without touching the watcher.
+    // Delete ONLY the cached computed-results KV entry for a specific class
+    // so the next /getResults call rebuilds from D1 (e.g. after a D1 patch).
+    // Does NOT delete the live:* class data KV — that has no D1 fallback
+    // and deleting it blanks the live page until the watcher re-posts, which
+    // is unsafe on a spotty scoring-PC network.
     if (method === 'DELETE' && path === '/admin/clearClassCache') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const slug     = url.searchParams.get('slug');
@@ -1449,9 +1451,8 @@ export default {
       const classNum = url.searchParams.get('classNum');
       if (!slug || !classNum) return err('Missing slug or classNum');
       await env.WEST_LIVE.delete(`results:${slug}:${ring}:${classNum}`);
-      await env.WEST_LIVE.delete(`live:${slug}:${ring}:${classNum}`);
-      console.log(`[admin] Cleared class cache: ${slug}:${ring}:${classNum}`);
-      return json({ ok: true, message: `Cache cleared for class ${classNum}` });
+      console.log(`[admin] Cleared results cache: ${slug}:${ring}:${classNum}`);
+      return json({ ok: true, message: `Results cache cleared for class ${classNum}` });
     }
 
     // ── DELETE /admin/clearLive ───────────────────────────────────────────────
