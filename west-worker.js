@@ -110,6 +110,26 @@ export default {
 
       // Write classData to per-class KV key — every active class gets its own live data
       const key = `live:${slug}:${ring}:${classNum}`;
+      // Preserve previously-set per-entry status codes across postClassData
+      // writes. Old watchers that don't read Farmtek col[38] correctly (or
+      // miss UDP overlays) leave r1/r2StatusCode empty in the body; previous
+      // overlays would be lost on every save. Only fill gaps — don't
+      // overwrite statuses the incoming body actually set.
+      try {
+        const prevRaw = await env.WEST_LIVE.get(key);
+        if (prevRaw && body && Array.isArray(body.entries)) {
+          const prev = JSON.parse(prevRaw);
+          const prevByEntry = {};
+          (prev.entries || []).forEach(pe => { if (pe && pe.entryNum) prevByEntry[pe.entryNum] = pe; });
+          body.entries.forEach(e => {
+            const p = prevByEntry[e.entryNum];
+            if (!p) return;
+            if (!e.r1StatusCode && p.r1StatusCode) e.r1StatusCode = p.r1StatusCode;
+            if (!e.r2StatusCode && p.r2StatusCode) e.r2StatusCode = p.r2StatusCode;
+            if (!e.statusCode   && p.statusCode)   e.statusCode   = p.statusCode;
+          });
+        }
+      } catch (e) { /* best-effort merge — ignore parse errors */ }
       await env.WEST_LIVE.put(key, JSON.stringify(body), { expirationTtl: 7200 });
 
       // Pre-compute results — runs once here instead of on every viewer's phone.
