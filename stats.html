@@ -360,10 +360,12 @@ function processData() {
   return Object.values(byEntry);
 }
 
+// Delegate to centralized rules in display-config.js. Any UPPERCASE status
+// code (EL/RF/OC/HF/EX/DQ/RO + WD/RT/HC + DNS) counts as "not a valid
+// finish" for standings/stats sorting purposes. Keeps TIMY and Farmtek on
+// the same elim rules.
 function isElimStatus(sc) {
-  if (!sc) return false;
-  var u = String(sc).toUpperCase();
-  return ['E', 'EL', 'ELIM', 'WD', 'RT', 'RET', 'MR', 'DQ'].indexOf(u) >= 0;
+  return WEST.isAnyStatus ? WEST.isAnyStatus(sc) : false;
 }
 
 function buildFaultBuckets(validEntries, getFaults, elimCount) {
