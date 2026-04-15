@@ -1101,12 +1101,14 @@ function renderR1StandingsTable(entries, hasJO) {
 
     var r1Primary = isEqMethod ? g.rider : g.horse;
     var r1Secondary = isEqMethod ? g.horse : g.rider;
+    var gapDisplay = anyStatus ? '\u2014' : g.gap;
+    var gapClass   = anyStatus ? 'fault-gap' : g.gapClass;
     html += '<div class="standing-row' + (anyStatus ? ' elim' : '') + '">'
       + '<span class="s-place">' + placeDisplay + '</span>'
       + '<div class="s-entry"><div class="s-horse">' + esc(r1Primary) + '</div><div class="s-rider">' + esc(r1Secondary) + '</div></div>'
       + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
       + '<span class="s-time">' + esc(timeStr) + '</span>'
-      + '<span class="s-gap ' + esc(g.gapClass) + '">' + esc(g.gap) + '</span></div>';
+      + '<span class="s-gap ' + esc(gapClass) + '">' + esc(gapDisplay) + '</span></div>';
   });
   html += '</div>';
   return html;
