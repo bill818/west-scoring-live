@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.3.0';
+const WATCHER_VERSION = '1.4.0';
 
 const fs   = require('fs');
 const path = require('path');
@@ -2298,28 +2298,25 @@ udpLog(`Scoreboard port: ${scoreboardPort} | Class complete port: ${CLASS_COMPLE
 udpLog('═'.repeat(72));
 log(`WEST Scoring Live Watcher v${WATCHER_VERSION} starting`);
 
-// Watcher is a pure UDP observer again (v1.3.0+). On scoring PCs that
-// also run RSServer, launch the companion west-funnel process: it binds
+// Watcher is a pure UDP observer (v1.3.0+). On scoring PCs that also
+// run RSServer, launch the companion west-funnel process: it binds
 // Ryegate's scoreboard port and fans packets out to RSServer + the
 // watcher on separate loopback ports. The watcher never touches the
 // scoreboard path — if it crashes, the scoreboard is unaffected.
 //
-// config.json:
-//   "scoreboardListenPort": 29698   (optional — if set, the watcher
-//     binds this loopback port instead of Ryegate's scoreboard port.
-//     On a funneled scoring PC, set this to the watcher-facing output
-//     port of west-funnel/config.json. On dev PCs with no funnel, omit
-//     the key and the watcher binds Ryegate's port directly.)
-const scoreboardListenPort = parseInt(config.scoreboardListenPort) > 0
-  ? parseInt(config.scoreboardListenPort)
-  : scoreboardPort;
-if (scoreboardListenPort !== scoreboardPort) {
-  log(`[UDP] listening on funnel port ${scoreboardListenPort} (Ryegate output is ${scoreboardPort})`);
-} else {
-  log(`[UDP] listening directly on Ryegate port ${scoreboardPort} (no funnel)`);
-}
+// Auto-derived watcher UDP port (v1.4.0+):
+//   watcherUdpPort = 28000 + (ryegateScoreboardPort - 29696)
+// Funnel uses the same formula for its watcher-facing output, so
+// nothing has to be configured in config.json. If the operator changes
+// Ryegate's scoreboard port, watcher and funnel both shift in lockstep.
+//
+// On a dev PC with no funnel running, the watcher binds the same port
+// directly — same auto-derived number. Operator can run a tiny relay
+// or just point Ryegate's broadcast at 28000 instead.
+const watcherUdpPort = 28000 + (scoreboardPort - 29696);
+log(`[UDP] watcher UDP port = ${watcherUdpPort} (auto-derived from Ryegate scoreboard port ${scoreboardPort})`);
 
-startUdpListener(scoreboardListenPort);
+startUdpListener(watcherUdpPort);
 startPort31000Listener();
 watchConfigFile();
 

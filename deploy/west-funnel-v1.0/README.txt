@@ -107,6 +107,20 @@ FAILURE MODES (KNOW BEFORE A SHOW)
 
 VERSION HISTORY
 ---------------
+v1.2.0  (2026-04-15)
+  + All UDP ports are now AUTO-DERIVED from Ryegate's
+    scoreboard port (config.dat col[1]):
+      INPUT     = ryegate port
+      RSServer  = ryegate port + 1            (Ryegate constraint)
+      Watcher   = 28000 + (ryegate port - 29696)
+    e.g. Ryegate 29696 → RSServer 29697, Watcher 28000.
+  + config.json simplified — only "runningTenth" remains.
+    "outputPorts" and "runningTenthPort" keys are gone.
+  + Companion west-watcher (v1.4.0+) computes the same
+    watcher port identically — no manual sync needed.
+  + Running tenth always operates on the RSServer-facing
+    output (the watcher output is always pure pass-through).
+
 v1.1.0  (2026-04-15)
   + Optional running-tenth mode for the scoreboard-facing output
     port: the funnel rewrites the elapsed field {17} to a one-

@@ -31,7 +31,7 @@
  * Requirements: Node.js LTS. No npm deps.
  */
 
-const FUNNEL_VERSION = '1.1.0';
+const FUNNEL_VERSION = '1.2.0';
 
 const fs   = require('fs');
 const path = require('path');
@@ -87,33 +87,33 @@ function detectInputPort() {
 }
 
 // ── LOAD CONFIG ─────────────────────────────────────────────────────────────
+// All UDP ports are auto-derived from Ryegate's scoreboard port (config.dat
+// col[1]). Single source of truth. Operators only flip the runningTenth flag
+// in config.json — never touch port numbers.
+//
+//   INPUT_PORT      = Ryegate's scoreboard port (e.g. 29696)
+//   RSSERVER_PORT   = INPUT_PORT + 1                  (e.g. 29697)
+//                     Ryegate's RSServer config must match this.
+//   WATCHER_PORT    = 28000 + (INPUT_PORT - 29696)     (e.g. 28000)
+//                     Watcher derives the same value identically.
 const cfg = readJson(CONFIG_JSON);
-const INPUT_PORT  = detectInputPort();
-let   OUTPUT_PORTS = Array.isArray(cfg.outputPorts) ? cfg.outputPorts.slice(0, 2) : [];
-OUTPUT_PORTS = OUTPUT_PORTS
-  .map(p => parseInt(p))
-  .filter(p => p > 0 && p < 65536 && p !== INPUT_PORT);
+const INPUT_PORT     = detectInputPort();
+const RSSERVER_PORT  = INPUT_PORT + 1;
+const WATCHER_PORT   = 28000 + (INPUT_PORT - 29696);
+const OUTPUT_PORTS   = [RSSERVER_PORT, WATCHER_PORT];
 
 const RUNNING_TENTH = cfg.runningTenth === 1 || cfg.runningTenth === true;
-const RUNNING_TENTH_PORT = (() => {
-  const cand = parseInt(cfg.runningTenthPort);
-  if (cand > 0 && cand < 65536 && OUTPUT_PORTS.indexOf(cand) >= 0) return cand;
-  return OUTPUT_PORTS[0] || null;
-})();
-
-if (!OUTPUT_PORTS.length) {
-  log(`[CONFIG] WARNING: no valid outputPorts in config.json — funnel will listen but drop every packet.`);
-}
+// Tenth interpolation always runs on the RSServer-facing output. The watcher
+// output stays byte-identical pass-through always (watcher expects raw
+// Ryegate frames).
+const RUNNING_TENTH_PORT = RSSERVER_PORT;
 
 log('═'.repeat(60));
 log(`WEST Scoring Live Funnel v${FUNNEL_VERSION}`);
-log(`Input port:  ${INPUT_PORT}  (from Ryegate config.dat)`);
-log(`Output ports: ${OUTPUT_PORTS.length ? OUTPUT_PORTS.join(', ') : '(none)'}`);
-if (RUNNING_TENTH && RUNNING_TENTH_PORT) {
-  log(`Running tenth: ENABLED on port ${RUNNING_TENTH_PORT} (other output is pass-through)`);
-} else {
-  log(`Running tenth: OFF (pure pass-through on all outputs)`);
-}
+log(`Input port:    ${INPUT_PORT}  (from Ryegate config.dat)`);
+log(`RSServer port: ${RSSERVER_PORT}  (Ryegate port + 1)`);
+log(`Watcher port:  ${WATCHER_PORT}  (28000 + Ryegate offset)`);
+log(`Running tenth: ${RUNNING_TENTH ? 'ENABLED on RSServer output (watcher always pass-through)' : 'OFF'}`);
 log('═'.repeat(60));
 
 // ── RYEGATE SCOREBOARD FRAME PARSER ─────────────────────────────────────────

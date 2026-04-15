@@ -158,6 +158,20 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.4.0  (2026-04-15)
+  + Watcher UDP port is now AUTO-DERIVED from Ryegate's
+    scoreboard port (config.dat col[1]):
+      watcherUdpPort = 28000 + (ryegateScoreboardPort - 29696)
+    e.g. Ryegate 29696 → watcher 28000.
+  + Companion west-funnel uses the same formula for its
+    watcher-facing output, so the two stay aligned with no
+    config edits.
+  + "scoreboardListenPort" config.json key removed (no longer
+    needed). config.json is back to just workerUrl / authKey /
+    slug.
+  + Operators only ever change Ryegate's scoreboard port —
+    everything else follows automatically.
+
 v1.3.0  (2026-04-15)
   + Watcher is a pure UDP observer again. v1.2.0's in-process
     relay is removed — that approach put the watcher in the
