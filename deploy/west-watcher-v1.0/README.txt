@@ -160,13 +160,14 @@ VERSION HISTORY
 ---------------
 v1.5.0  (2026-04-15)
   + Farmtek (J) text status was being read from col[39]; actual
-    position is col[38]. Fixed. Also added numeric-status
-    fallback for Farmtek (col[21]=R1, col[28]=R2) matching the
-    TIMY logic. And when only a single text status exists on a
-    Farmtek row, it's now attributed to r2 if the rider has r1
-    time (i.e. status came in during JO), r1 otherwise.
-    Historic effect: EL / OC / etc. from Farmtek shows caught
-    up by class reload; UDP overlay no longer required.
+    position is col[38]. Fixed. Farmtek numeric columns
+    (col[21]/col[28]) do NOT follow the TIMY 1-6 → text mapping
+    (observed: col[28]=3 means "OC" in Farmtek, "HF" in TIMY),
+    so Farmtek skips numeric fallback and only trusts the text
+    at col[38]. Status gets attributed to r2 if the rider has
+    an r1 time (status came on JO), r1 otherwise.
+    TIMY logic unchanged — still reads col[82]/[83] with
+    col[21]/col[28] numeric fallback as before.
   + postToWorker switched from fetch to native https.request with
     a persistent keepAlive agent. First POST to the worker pays
     the TCP+TLS handshake cost (~500ms-2s on spotty networks);

@@ -732,25 +732,21 @@ function parseCls(content, filename) {
       // Numeric → text map (from live observations): 3=HF, 4=WD, others tentative.
       const NUM_STATUS = { '1':'EL', '2':'RF', '3':'HF', '4':'WD', '5':'RT', '6':'DNS' };
       if (isFarmtek) {
-        // Single text status field — if present, attribute it to the later
-        // round the rider actually attempted (r2 if they have r1 time AND
-        // are in a multi-round class, otherwise r1).
+        // Farmtek writes a single text status field at col[38] (e.g. "EL",
+        // "OC", "WD"). Unlike TIMY, numeric columns (col[21]/col[28]) do
+        // not use the same 1-6 → text mapping — observed mismatch on class
+        // 216 entry 6266 where col[28]=3 coexists with text "OC", while
+        // on TIMY the same numeric 3 means "HF". So we skip numeric
+        // fallback for Farmtek and trust text only.
+        // Attribute the text status to whichever round the rider actually
+        // attempted: r2 if they have an r1 time (status came on JO),
+        // otherwise r1.
         const textStatus = cols[38] || '';
         entry.r1StatusCode = '';
         entry.r2StatusCode = '';
-        // Numeric fallback for per-round status.
-        if (cols[21] && cols[21] !== '0') entry.r1StatusCode = NUM_STATUS[cols[21]] || '';
-        if (cols[28] && cols[28] !== '0') entry.r2StatusCode = NUM_STATUS[cols[28]] || '';
-        // If text status exists and numeric didn't pick a round, attribute
-        // by activity: r2 if they completed r1 (status came on JO),
-        // otherwise r1.
-        if (textStatus && !entry.r1StatusCode && !entry.r2StatusCode) {
+        if (textStatus) {
           if (entry.r1TotalTime) entry.r2StatusCode = textStatus;
           else                   entry.r1StatusCode = textStatus;
-        } else if (textStatus) {
-          // Text is authoritative over numeric when both present.
-          if (entry.r2StatusCode) entry.r2StatusCode = textStatus;
-          else if (entry.r1StatusCode) entry.r1StatusCode = textStatus;
         }
         entry.statusCode = entry.r2StatusCode || entry.r1StatusCode || '';
       } else {
