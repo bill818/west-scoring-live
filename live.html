@@ -504,7 +504,11 @@ function render() {
 
   document.getElementById('livePill').style.display = (active.length && alive) ? 'flex' : 'none';
 
-  const recentClasses = liveData.recentClasses || [];
+  const activeNums = new Set(active.map(function(a) { return String(a.classNum); }));
+  const recentClasses = (liveData.recentClasses || []).filter(function(rc) {
+    if (activeNums.has(String(rc.classNum))) { delete _recentResultsCache[rc.classNum]; return false; }
+    return true;
+  });
 
   // Only blank the page when there are genuinely no active classes. If the
   // watcher went quiet (heartbeat missed on spotty network) but we still
