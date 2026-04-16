@@ -13,10 +13,13 @@ open issues to verify on the scoring PC.
 
 VERSIONS DEPLOYED (as of end of session)
 ----------------------------------------
-  Watcher:  v1.6.0+ (multiple in-session patches, not version-bumped)
-  Funnel:   v1.3.0
-  Worker:   deployed (1-hour auto-complete sweep)
-  Frontend: deployed to preview.westscoring.pages.dev
+  Watcher:  v1.6.0 constant in code — MULTIPLE patches added on top
+            without bumping past 1.6.0 (status scan, numeric fallback,
+            heartbeat clock, idle timer removal). NEEDS a version bump
+            to v1.7.0 before next formal release to scoring PCs.
+  Funnel:   v1.3.0 (holdTarget feature — config not yet enabled on scoring PC)
+  Worker:   deployed to Cloudflare via wrangler deploy ✓ (1-hour sweep live)
+  Frontend: deployed to preview.westscoring.pages.dev ✓
 
 
 SHIPPED THIS SESSION
@@ -76,8 +79,11 @@ Deploy infrastructure:
   - Admin page shows watcher version on status line
 
 Data patches (manual D1 fixes for Culpeper Day 1):
-  - Class 291: deleted orphaned row, re-uploaded, marked complete
-    (class didn't run, entry never competed)
+  - Class 291: RESOLVED. Orphaned row deleted via wrangler d1,
+    Bill re-uploaded, entry 6228 (ROSALINDE SPF) never competed
+    (hasGone=false, all-zero scores). Marked complete. The initial
+    partial-ingest was caused by the Day 1 Claude crash at 15:14 —
+    cls_raw stored but entries INSERT never completed.
   - Class 264: 4 WD entries patched, FINAL FOCUS Z OC→EL,
     FAHRENHEIT ADDICT phantom R1 data cleared + set RT
   - Class 212: NIKOLAAS RFB R2 WD added, SHUTTERFLY'S RT,
@@ -130,17 +136,43 @@ OPEN ITEMS FOR NEXT SESSION
 ----------------------------
   HIGH PRIORITY:
   - Farmtek two-phase transition detection — clock kept counting
-    through phase change. Need UDP log from a two-phase horse to
-    diagnose. Is it the watcher missing the signal, or bad internet
-    losing the POST? Check west_udp_log.txt on scoring PC.
+    through phase change on Day 2. Need UDP log from a two-phase
+    horse to diagnose. Key question: does Farmtek send a RANK signal
+    between phases? Or just a TA change after a pause? The Target
+    field {18} shows during countdown but disappears during on-course.
+    Check west_udp_log.txt on scoring PC around a two-phase horse.
+    TIMY sends explicit RANK signal; Farmtek may not.
+
   - Peek doesn't watch non-selected concurrent classes — classes
-    213, 236, 245 all missed. Bill proposed: re-peek stale active
-    classes after cooldown. If ryegate.live shows UPLOADED → close.
+    213, 236, 245 all missed on Day 2 because peek only polls
+    selectedClassNum. Bill's proposed fix:
+      • When a class has been active > N minutes (30? 60?) without
+        a CLASS_COMPLETE, do a one-shot peek of ryegate.live for
+        that class.
+      • If ryegate.live shows UPLOADED → fire CLASS_COMPLETE.
+      • Could run on a timer that checks ALL active classes, not
+        just the selected one.
+      • Implementation: add a periodic sweep (every 5 min?) that
+        iterates activeClasses, peeks any that aren't the currently-
+        selected class, and closes any that ryegate shows as done.
+      • This is separate from the main peek polling loop (which
+        stays tied to selectedClassNum for real-time detection).
+
   - Classes 216 + 220 still need Day 1 data patches (same WD/status
-    issues as 212/264)
-  - Verify numeric status codes on scoring PC (list above)
+    issues as 212/264). Pull Ryegate HTML, cross-reference, patch D1.
+
+  - Verify numeric status codes on scoring PC (entry list above).
+    Bill checks Ryegate at end of Day 2 and reports what status
+    Ryegate shows for each flagged entry.
+
   - holdTarget=1 needs to be set in c:\west-funnel\config.json on
-    the scoring PC to enable Target persistence
+    the scoring PC to enable Target field persistence on scoreboard.
+    Bill does this at next break or end of day.
+
+  - Watcher version bump needed — code says v1.6.0 but has multiple
+    unversioned patches on top (status scan, numeric fallback,
+    heartbeat clock, idle timer removal). Bump to v1.7.0 with
+    changelog before next formal scoring PC deployment.
 
   MEDIUM PRIORITY:
   - Phase 2 observability: audit_events + anomalies view (~3.5 hrs).
