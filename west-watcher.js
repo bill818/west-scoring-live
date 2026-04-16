@@ -1316,21 +1316,44 @@ log('Running — press Ctrl+C to stop');
 log('');
 
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
-// Sends alive signal to Worker every 60 seconds
-// Worker uses this to flip show status from pending → active
-setInterval(() => {
-  postToWorker('/heartbeat', {
-    version:       WATCHER_VERSION,
+// Adaptive heartbeat: 10s when a class is active (carries clock snapshot so
+// the website can self-correct on spotty internet), 60s when idle.
+const HEARTBEAT_ACTIVE_MS = 10000;
+const HEARTBEAT_IDLE_MS   = 60000;
+let heartbeatTimer = null;
+
+function buildHeartbeat() {
+  const hb = {
+    version:        WATCHER_VERSION,
     scoreboardPort: scoreboardPort || '',
-  }, 'heartbeat');
-}, 60000);
+  };
+  if (selectedClassNum && lastPhase && lastPhase !== 'IDLE') {
+    hb.clock = {
+      classNum:   selectedClassNum,
+      entry:      lastEntry   || '',
+      elapsed:    lastElapsed || '',
+      ta:         lastTa      || '',
+      phase:      lastPhase   || '',
+      jumpFaults: lastJump    || '0',
+      rank:       lastRank    || '',
+    };
+  }
+  return hb;
+}
+
+function scheduleHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  const interval = selectedClassNum ? HEARTBEAT_ACTIVE_MS : HEARTBEAT_IDLE_MS;
+  heartbeatTimer = setInterval(() => {
+    postToWorker('/heartbeat', buildHeartbeat(), 'heartbeat');
+  }, interval);
+}
+
+scheduleHeartbeat();
 
 // Send one immediately on startup
 setTimeout(() => {
-  postToWorker('/heartbeat', {
-    version:       WATCHER_VERSION,
-    scoreboardPort: scoreboardPort || '',
-  }, 'heartbeat (startup)');
+  postToWorker('/heartbeat', buildHeartbeat(), 'heartbeat (startup)');
   log('Heartbeat sent to Worker');
 }, 2000);
 
@@ -1578,7 +1601,9 @@ function handleClassSelected(classNum, className) {
   // Start ryegate.live peek polling for this class (randomized 15–30s interval)
   startPeekPolling(classNum);
 
-  // Start 30-minute idle timer — resets on every .cls write
+  // Switch heartbeat to 10s active cadence (carries clock snapshot)
+  scheduleHeartbeat();
+
   resetIdleTimer(classNum);
 
   // Re-post this class's current data 300ms later so the Worker's live: KV
@@ -1605,6 +1630,10 @@ function handleClassComplete(classNum, className) {
   // Stop peek polling and idle timer — class is done
   stopPeekPolling();
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+
+  // Switch heartbeat back to idle cadence (no clock snapshot)
+  selectedClassNum = null;
+  scheduleHeartbeat();
 
   // Force-read the .cls file and post fresh data BEFORE the CLASS_COMPLETE
   // event. For forced/flat hunter classes, the .cls may have just been written

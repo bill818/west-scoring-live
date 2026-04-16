@@ -1051,13 +1051,16 @@ function renderStandingsTable(entries, roundNum) {
     var fCls = (isNaN(faultVal) || anyStatus || noTime) ? 'elim' : faultVal === 0 ? 'clear' : 'faulted';
     var fDisplay = anyStatus ? WEST.statusDisplayLabel(rd.status_code) : (isNaN(faultVal) || noTime ? 'ELIM' : String(faultVal));
     var timeStr = (anyStatus || noTime) ? '\u2014' : (rd.time ? fmtTimePrecision(rd.time) : '\u2014');
-    var gapStr = anyStatus ? WEST.statusDisplayLabel(rd.status_code) : g.gap;
+    var gapStr = anyStatus ? '\u2014' : g.gap;
     var gapCls = anyStatus ? 'fault-gap' : g.gapClass;
 
     var stPrimary = isEqMethod ? g.rider : g.horse;
     var stSecondary = isEqMethod ? g.horse : g.rider;
-    html += '<div class="standing-row">'
-      + '<span class="s-place">' + (i + 1) + '</span>'
+    var placeDisplay = anyStatus
+      ? '<span class="s-place-status">' + esc(String(rd.status_code).toUpperCase()) + '</span>'
+      : String(i + 1);
+    html += '<div class="standing-row' + (anyStatus ? ' elim' : '') + '">'
+      + '<span class="s-place">' + placeDisplay + '</span>'
       + '<div class="s-entry"><div class="s-horse">' + esc(stPrimary) + '</div><div class="s-rider">' + esc(stSecondary) + '</div></div>'
       + '<span class="s-faults ' + fCls + '">' + esc(fDisplay) + '</span>'
       + '<span class="s-time">' + esc(timeStr) + '</span>'
