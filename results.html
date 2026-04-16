@@ -461,9 +461,9 @@ function renderResults() {
     // Pre-computed jumper: entries already have all round data inline
     entries.forEach(e => {
       const rounds = [];
-      if (e.r1TotalTime) rounds.push({ round: 1, time: e.r1TotalTime, total: e.r1TotalFaults, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, place: e.place });
-      if (e.r2TotalTime) rounds.push({ round: 2, time: e.r2TotalTime, total: e.r2TotalFaults, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, place: e.place });
-      if (e.r3TotalTime) rounds.push({ round: 3, time: e.r3TotalTime, total: e.r3TotalFaults, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, place: e.place });
+      if (e.r1TotalTime || e.r1StatusCode) rounds.push({ round: 1, time: e.r1TotalTime, total: e.r1TotalFaults, jump_faults: e.r1JumpFaults, time_faults: e.r1TimeFaults, place: e.place });
+      if (e.r2TotalTime || e.r2StatusCode) rounds.push({ round: 2, time: e.r2TotalTime, total: e.r2TotalFaults, jump_faults: e.r2JumpFaults, time_faults: e.r2TimeFaults, place: e.place });
+      if (e.r3TotalTime || e.r3StatusCode) rounds.push({ round: 3, time: e.r3TotalTime, total: e.r3TotalFaults, jump_faults: e.r3JumpFaults, time_faults: e.r3TimeFaults, place: e.place });
       byEntry[e.entry_num] = {
         entry_num: e.entry_num, horse: e.horse, rider: e.rider, owner: e.owner,
         country: e.country, sire: e.sire, dam: e.dam, city: e.city, state: e.state,
