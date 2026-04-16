@@ -542,6 +542,9 @@ function render() {
   // worker's KV TTL expires the record. Matches display.html / stats.html.
   const ocIsHunterEarly = !!(oc && (oc.isHunter || (sel && cdMap[sel.classNum] && cdMap[sel.classNum].classType === 'H')));
   const showOc = !!oc;
+  // Concurrent classes: Ryegate's `selected` can lag the horse actually on course,
+  // so attributing this entry to a specific class is unreliable. Hide the class tail.
+  const hideOcClass = active.length > 1;
 
   if (!oc || oc.phase !== 'RESULTS') { _animatedHunterResults = {}; }
 
@@ -553,8 +556,8 @@ function render() {
 
     html += '<div class="oc-wrap">'
       + '<div class="oc-header"><div class="oc-title">Results'
-      + (sel ? ' &mdash; Class ' + esc(sel.classNum) : '')
-      + (ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
+      + (!hideOcClass && sel ? ' &mdash; Class ' + esc(sel.classNum) : '')
+      + (!hideOcClass && ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
       + '</div></div>';
 
     // Reset animation tracking if the results list shrunk (new ceremony / new class)
@@ -588,8 +591,8 @@ function render() {
 
     html += '<div class="oc-wrap">'
       + '<div class="oc-header"><div class="oc-title">Flat Class in the Ring'
-      + (sel ? ' &mdash; Class ' + esc(sel.classNum) : '')
-      + (ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
+      + (!hideOcClass && sel ? ' &mdash; Class ' + esc(sel.classNum) : '')
+      + (!hideOcClass && ocClassName ? ' &mdash; ' + esc(ocClassName) : '')
       + '</div></div>';
 
     html += '<div class="flat-entries">';
@@ -618,7 +621,7 @@ function render() {
     // On FINISH: show score + projected rank from current class standings.
     const phase = oc.phase || 'ONCOURSE';
     const ocCd = sel ? cdMap[sel.classNum] : null;
-    const ocClassLabel = sel
+    const ocClassLabel = (!hideOcClass && sel)
       ? 'Class ' + esc(sel.classNum) + (ocCd && ocCd.className ? ' — ' + esc(ocCd.className) : '')
       : '';
     const entryRow = (ocCd && ocCd.entries) ? ocCd.entries.find(e => String(e.entryNum) === String(oc.entry)) : null;
@@ -731,7 +734,7 @@ function render() {
   } else if (showOc) {
     const phase = oc.phase || 'ONCOURSE';
     const jCd = sel ? cdMap[sel.classNum] : null;
-    const ocClassLabel = sel
+    const ocClassLabel = (!hideOcClass && sel)
       ? 'Class ' + esc(sel.classNum) + (jCd && jCd.className ? ' — ' + esc(jCd.className) : '')
       : '';
     const phaseLabel = WEST.phaseLabel(phase);
