@@ -22,7 +22,11 @@
  *   {
  *     "outputPorts":       [29697, 29698],
  *     "runningTenth":      0,          // optional, default 0 (pass-through)
- *     "runningTenthPort":  29697       // optional, defaults to outputPorts[0]
+ *     "runningTenthPort":  29697,      // optional, defaults to outputPorts[0]
+ *     "holdTarget":        0           // optional, default 0. When 1, persist
+ *                                      // the Target field {18} across frames.
+ *                                      // Farmtek drops {18} during on-course;
+ *                                      // this keeps it visible on the scoreboard.
  *   }
  *
  * Input port auto-detected from C:\Ryegate\Jumper\config.dat col[1]
@@ -31,7 +35,7 @@
  * Requirements: Node.js LTS. No npm deps.
  */
 
-const FUNNEL_VERSION = '1.2.0';
+const FUNNEL_VERSION = '1.3.0';
 
 const fs   = require('fs');
 const path = require('path');
@@ -108,12 +112,15 @@ const RUNNING_TENTH = cfg.runningTenth === 1 || cfg.runningTenth === true;
 // Ryegate frames).
 const RUNNING_TENTH_PORT = RSSERVER_PORT;
 
+const HOLD_TARGET = cfg.holdTarget === 1 || cfg.holdTarget === true;
+
 log('═'.repeat(60));
 log(`WEST Scoring Live Funnel v${FUNNEL_VERSION}`);
 log(`Input port:    ${INPUT_PORT}  (from Ryegate config.dat)`);
 log(`RSServer port: ${RSSERVER_PORT}  (Ryegate port + 1)`);
 log(`Watcher port:  ${WATCHER_PORT}  (28000 + Ryegate offset)`);
 log(`Running tenth: ${RUNNING_TENTH ? 'ENABLED on RSServer output (watcher always pass-through)' : 'OFF'}`);
+log(`Hold target:   ${HOLD_TARGET ? 'ENABLED — {18} persists through on-course frames' : 'OFF'}`);
 log('═'.repeat(60));
 
 // ── RYEGATE SCOREBOARD FRAME PARSER ─────────────────────────────────────────
@@ -168,6 +175,31 @@ function replaceTag17(msg, newValue) {
   const before = ascii.substring(0, start);
   const after  = ascii.substring(end);
   return Buffer.from(before + newValue + after, 'ascii');
+}
+
+// ── HOLD TARGET STATE ───────────────────────────────────────────────────────
+// When holdTarget is enabled, persist the last-seen {18} (Target) value so
+// frames that lack {18} (on-course) still carry it on the scoreboard output.
+// Reset when {8} (rank) appears — phase is done, next phase brings a new target.
+let heldTarget = null; // last-seen {18} value string, or null
+
+// Inject {18}value into a frame that doesn't already have it.
+// Appends before the trailing control bytes / end of payload.
+function injectTag18(msg, value) {
+  const ascii = msg.toString('ascii');
+  if (ascii.indexOf('{18}') >= 0) return msg; // already has it
+  // Insert before the last '}' group or at end
+  const injection = '{18}' + value;
+  // Find a good insertion point — after the last tag's value, before any trailing whitespace
+  const lastBrace = ascii.lastIndexOf('}');
+  if (lastBrace < 0) return msg; // not a valid frame
+  // Find end of the last tag's value
+  let insertAt = ascii.length;
+  // Trim trailing \r\n
+  while (insertAt > 0 && (ascii.charCodeAt(insertAt - 1) === 13 || ascii.charCodeAt(insertAt - 1) === 10)) insertAt--;
+  const before = ascii.substring(0, insertAt);
+  const after  = ascii.substring(insertAt);
+  return Buffer.from(before + injection + after, 'ascii');
 }
 
 // ── SOCKETS ─────────────────────────────────────────────────────────────────
@@ -303,14 +335,39 @@ function openInSocket() {
       }
     }
 
+    // Hold Target: track {18} and {8} on any Ryegate frame
+    let holdTargetInjected = null; // Buffer with {18} injected, for scoreboard port
+    if (HOLD_TARGET && isRyegateScoreFrame(msg)) {
+      const t18 = extractTag(msg, '18');
+      const t8  = extractTag(msg, '8');
+      if (t18 !== null) {
+        heldTarget = t18; // update held value from this frame
+      }
+      if (t8 !== null && t8.trim() !== '') {
+        heldTarget = null; // rank appeared — phase done, clear held target
+      }
+      // If frame is missing {18} but we have a held value, inject it
+      // (only for the scoreboard output — watcher gets raw)
+      if (t18 === null && heldTarget !== null) {
+        holdTargetInjected = injectTag18(msg, heldTarget);
+      }
+    }
+
     // Fan out to every output port, with the scoreboard-facing port
-    // getting the .0-decimal rewrite during ONCOURSE in tenth mode.
+    // getting the .0-decimal rewrite during ONCOURSE in tenth mode
+    // and/or {18} injection from holdTarget.
     for (const port of OUTPUT_PORTS) {
-      if (port === RUNNING_TENTH_PORT && phase === 'oncourse') {
-        if (!rewritten) rewritten = replaceTag17(msg, elapsedNum.toFixed(1));
-        sendTo(port, rewritten);
+      if (port === RSSERVER_PORT) {
+        let buf = msg;
+        if (holdTargetInjected) buf = holdTargetInjected;
+        if (phase === 'oncourse' && RUNNING_TENTH) {
+          if (!rewritten) rewritten = replaceTag17(buf, elapsedNum.toFixed(1));
+          sendTo(port, rewritten);
+        } else {
+          sendTo(port, buf);
+        }
       } else {
-        sendTo(port, msg);
+        sendTo(port, msg); // watcher always gets raw
       }
     }
 

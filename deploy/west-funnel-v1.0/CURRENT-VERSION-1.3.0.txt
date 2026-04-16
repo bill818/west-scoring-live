@@ -1,0 +1,1 @@
+Funnel v1.3.0 — see README.txt for changelog.
