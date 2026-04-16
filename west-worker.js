@@ -1647,7 +1647,7 @@ async function autoCompleteStaleClasses(env, slug) {
       UPDATE classes SET status = 'complete', updated_at = datetime('now')
       WHERE show_id = (SELECT id FROM shows WHERE slug = ? AND status != 'complete')
         AND status = 'active'
-        AND updated_at < datetime('now', '-15 minutes')
+        AND updated_at < datetime('now', '-60 minutes')
     `).bind(slug).run();
     if (result.meta.changes > 0) {
       console.log(`[autoComplete] ${slug} — ${result.meta.changes} class(es) auto-completed`);
