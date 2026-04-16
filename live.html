@@ -94,6 +94,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .woc-secondary{font-size:14px;color:var(--text-muted);margin-top:3px;}
 .woc-tertiary{font-size:12px;color:#aaa;font-style:italic;margin-top:2px;}
 .woc-clock{font-family:'DM Mono',monospace;font-size:42px;font-weight:500;color:var(--black);line-height:1;}
+.woc-stale{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;color:var(--text-muted);margin-top:2px;min-height:14px;}
+.woc-stale-warn{color:#e67e22;}
+.woc-stale-lost{color:var(--red);font-weight:600;}
 .woc-overtime{color:var(--red) !important;}
 .woc-countdown{color:var(--text-muted);}
 .woc-status{color:var(--red);}
@@ -1044,6 +1047,11 @@ async function poll() {
     const r = await fetch(WORKER + '/getLiveClass?slug=' + encodeURIComponent(SLUG) + '&ring=' + RING + '&_=' + Date.now());
     if (r.ok) liveData = await r.json();
   } catch(e) {}
+  // Heartbeat clock fallback — if the primary onCourse data is stale but the
+  // heartbeat's clock snapshot is fresh, use it to keep the clock ticking.
+  if (liveData.heartbeatClock && liveData.heartbeatTs) {
+    WEST.applyHeartbeatClock(liveData.heartbeatClock, liveData.heartbeatTs);
+  }
   render();
   // Adaptive poll cadence — 1s active, 10s idle baseline. WEST.getPollInterval
   // dials back further on slow-2g/2g/3g or when Save-Data is set, for mobile

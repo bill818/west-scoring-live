@@ -808,6 +808,7 @@ WEST.renderOnCourse = function(oc, classData, opts) {
   var data = '<div class="woc-data">';
   if (roundLabel) data += '<div class="woc-round">' + esc(roundLabel) + '</div>';
   data += '<div class="woc-clock ' + clockClass + '" id="woc-clock">' + clockVal + '</div>';
+  data += '<div id="woc-stale" class="woc-stale"></div>';
   data += '<div class="woc-phase-label">' + esc(phaseLabel) + '</div>';
 
   // Faults
@@ -892,6 +893,17 @@ WEST.tickOnCourse = function() {
     if (totEl) totEl.textContent = String(s.jf + tf);
   }
 
+  // Staleness badge — shows how old the data is so viewers know if their
+  // connection is lagging. Updates the woc-stale element if it exists.
+  var staleEl = document.getElementById('woc-stale');
+  if (staleEl) {
+    var ageSec = Math.floor(diff);
+    if (ageSec < 5)       { staleEl.textContent = ''; staleEl.className = 'woc-stale'; }
+    else if (ageSec < 30) { staleEl.textContent = ageSec + 's ago'; staleEl.className = 'woc-stale'; }
+    else if (ageSec < 90) { staleEl.textContent = ageSec + 's ago'; staleEl.className = 'woc-stale woc-stale-warn'; }
+    else                  { staleEl.textContent = 'signal lost'; staleEl.className = 'woc-stale woc-stale-lost'; }
+  }
+
   // Optimum distance
   if (s.isOpt && s.optTime > 0) {
     var optEl = document.getElementById('woc-opt-dist');
@@ -901,6 +913,35 @@ WEST.tickOnCourse = function() {
       optEl.textContent = sign + Math.floor(dist) + 's from opt';
     }
   }
+};
+
+// ── HEARTBEAT CLOCK FALLBACK ─────────────────────────────────────────────────
+// When the primary onCourse data is stale (watcher's ONCOURSE POSTs lost on
+// bad internet), the heartbeat's clock snapshot can provide a lower-resolution
+// but recent correction. Called by the page's poll handler when it detects
+// the heartbeat clock is fresher than the onCourse state.
+WEST.applyHeartbeatClock = function(hbClock, hbTs) {
+  if (!hbClock || !hbTs) return;
+  var s = WEST._ocState;
+  var hbTime = new Date(hbTs).getTime();
+  if (!hbTime || isNaN(hbTime)) return;
+  // Only apply if heartbeat is genuinely fresher than current state
+  if (s && s.ts >= hbTime) return;
+  var phase = (hbClock.phase || 'ONCOURSE').toUpperCase();
+  WEST._ocState = {
+    phase:     phase,
+    elapsed:   parseFloat(hbClock.elapsed) || 0,
+    ts:        hbTime,
+    paused:    phase === 'FINISH',
+    ta:        parseFloat(hbClock.ta) || (s ? s.ta : 0),
+    fpi:       s ? s.fpi : 1,
+    ti:        s ? s.ti : 1,
+    jf:        parseFloat(hbClock.jumpFaults) || 0,
+    countdown: s ? s.countdown : 45,
+    isEq:      s ? s.isEq : false,
+    isOpt:     s ? s.isOpt : false,
+    optTime:   s ? s.optTime : 0,
+  };
 };
 
 // ── UNIVERSAL JUMPER STANDINGS ROW (rounds block) ────────────────────────────

@@ -470,6 +470,7 @@ export default {
         version: body.version || '2.0',
         scoreboardPort: body.scoreboardPort || '',
       };
+      if (body.clock) payload.clock = body.clock;
       const key = `heartbeat:${slug}:${ring}`;
       await env.WEST_LIVE.put(key, JSON.stringify(payload), { expirationTtl: 120 });
       // Persistent last-seen — never expires, used when watcher goes offline
@@ -532,6 +533,7 @@ export default {
         watcherAlive:   !!heartbeatRaw,
         watcherVersion: heartbeatRaw ? JSON.parse(heartbeatRaw).version : (lastseenRaw ? JSON.parse(lastseenRaw).version : null),
         heartbeatTs:    heartbeatRaw ? JSON.parse(heartbeatRaw).ts : null,
+        heartbeatClock: heartbeatRaw ? JSON.parse(heartbeatRaw).clock || null : null,
         lastSeenTs:     lastseenRaw  ? JSON.parse(lastseenRaw).ts  : null,
       });
     }
