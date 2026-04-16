@@ -249,35 +249,12 @@ function stopPeekPolling() {
   if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
 }
 
-// ── IDLE TIMEOUT ─────────────────────────────────────────────────────────────
-// If no .cls changes occur for 30 minutes on the active class, fire
-// CLASS_COMPLETE as a final safety net. Resets on every .cls write.
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-let idleTimer = null;
-
-function resetIdleTimer(classNum) {
-  if (idleTimer) clearTimeout(idleTimer);
-  if (!classNum) return;
-
-  idleTimer = setTimeout(() => {
-    if (!selectedClassNum || selectedClassNum !== classNum) return;
-    if (!shouldCommit(classNum, '30-min idle')) return;
-
-    let className = '';
-    const clsContent = fileStates[classNum + '.cls'];
-    if (clsContent) {
-      try {
-        const parsed = parseCls(clsContent, classNum + '.cls');
-        if (parsed && parsed.className) className = parsed.className;
-      } catch(e) {}
-    }
-
-    logSeparator();
-    log(`★ CLASS COMPLETE — class ${classNum} via 30-minute idle timeout`);
-    logSeparator();
-    handleClassComplete(classNum, className);
-  }, IDLE_TIMEOUT_MS);
-}
+// ── IDLE TIMEOUT — REMOVED ──────────────────────────────────────────────────
+// The 30-minute idle timer was prematurely closing classes during long scoring
+// pauses. Primary signals (peek, Ctrl+A, .tod) handle class-complete detection;
+// the worker's 1-hour autoCompleteStaleClasses sweep is the safety net.
+// resetIdleTimer is now a no-op so call sites don't need to change.
+function resetIdleTimer() {}
 
 // ── WORKER CONFIG ─────────────────────────────────────────────────────────────
 // Loaded from config.json in same folder as this script
@@ -1343,7 +1320,7 @@ log('');
 // Worker uses this to flip show status from pending → active
 setInterval(() => {
   postToWorker('/heartbeat', {
-    version:       '2.2',
+    version:       WATCHER_VERSION,
     scoreboardPort: scoreboardPort || '',
   }, 'heartbeat');
 }, 60000);
@@ -1351,7 +1328,7 @@ setInterval(() => {
 // Send one immediately on startup
 setTimeout(() => {
   postToWorker('/heartbeat', {
-    version:       '2.2',
+    version:       WATCHER_VERSION,
     scoreboardPort: scoreboardPort || '',
   }, 'heartbeat (startup)');
   log('Heartbeat sent to Worker');
