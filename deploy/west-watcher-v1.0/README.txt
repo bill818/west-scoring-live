@@ -158,6 +158,37 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.6.0+  (2026-04-15 / 2026-04-16 patches)
+  NOTE: Multiple patches applied on top of v1.6.0 during Culpeper
+  Day 2 without bumping the version constant. All changes below
+  are in the current west-watcher.js. Version constant still reads
+  '1.6.0' — bump to v1.7.0 planned before next formal release.
+
+  + 30-minute idle timer REMOVED. Was prematurely closing classes
+    during scoring pauses. Primary close signals (peek, Ctrl+A,
+    .tod) plus the worker's 1-hour sweep are sufficient.
+  + Heartbeat adaptive: 10s when class active (carries clock
+    snapshot: classNum, entry, elapsed, ta, phase, jumpFaults,
+    rank), 60s when idle. Heartbeat sends real WATCHER_VERSION
+    (was hardcoded '2.2').
+  + Farmtek status scan: instead of reading a fixed column for the
+    text status code, scans cols[36]-[39] for any recognized code
+    (EL/RF/OC/HF/WD/RT/DNS/DQ/RO/EX/HC). Ryegate shifts the
+    column between entries — the scan handles it.
+  + Farmtek numeric status FALLBACK: when the text scan finds
+    nothing, checks col[21] (R1), col[28] (R2/JO), col[35] (R3)
+    for values 1-6 and maps to status codes:
+      1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS (>6 = scoring data).
+    This catches JO WDs (col[28]=4) that Farmtek writes numerically
+    but never as text — the gap that caused manual D1 patches on
+    Culpeper Day 1. See display-config.js WEST.numericStatusMap
+    for the authoritative table.
+  + Round label on live clock card uses oc.label from watcher's
+    UDP parser (e.g. "Jump Off") instead of computed.currentRound
+    which is often null with concurrent classes.
+  + selectedClassNum forward-declared before heartbeat init to fix
+    "Cannot access before initialization" crash on startup.
+
 v1.6.0  (2026-04-15)
   + Dedicated peek log file: c:\west\west_peek_log.txt. Every
     ryegate.live poll writes a full-detail line: classified
