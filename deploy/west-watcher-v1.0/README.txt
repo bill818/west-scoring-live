@@ -1,6 +1,6 @@
 ============================================================
   WEST Scoring Live — Scoring PC Watcher
-  Version 1.0.0
+  Version 1.6.0
 ============================================================
 
 WEB PAGES (PREVIEW)
@@ -158,6 +158,45 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.6.0  (2026-04-15)
+  + Dedicated peek log file: c:\west\west_peek_log.txt. Every
+    ryegate.live poll writes a full-detail line: classified
+    state, previous state, HTTP status, response bytes, response
+    ms, and counts for all eight classifier signals
+    (pleaseCheckBack, onCourse, prevExhibitor, orderOfGo,
+    nOfNCompeted, table, cbody, plc). Does NOT console.log —
+    kept out of main log to avoid drowning the timeline.
+    State transitions and CLASS_COMPLETE fires still go to the
+    main west_log.txt too.
+  + Unmissable startup logging: "[PEEK] READY class=N path=X
+    url=Y" when peek enables, "[PEEK] DISABLED class=N
+    reason=..." when it doesn't. No more silent-disabled peek.
+  + Classifier verified against real ryegate.live HTML (both
+    live and completed class samples captured 2026-04-15) and
+    the literal signals updated:
+      NOT_STARTED   — "Please Check Back"
+      ORDER_POSTED  — "Order of Go"
+      IN_PROGRESS   — ON COURSE  OR  PREVIOUS EXHIBITOR
+                      OR  N of N Competed
+      UPLOADED      — Plc column + CBody tables AND none of
+                      the above live signals
+    Added PREVIOUS EXHIBITOR — previously missed, was the
+    signal that sometimes left peek dormant when ON COURSE
+    cleared between horses.
+  + Transition trigger fix: now fires CLASS_COMPLETE on any
+    "* → UPLOADED" transition where the previous state wasn't
+    already UPLOADED. Previously required prev to be LIVE or
+    IN_PROGRESS, which missed:
+      null → UPLOADED       (watcher restart during show)
+      NOT_STARTED → UPLOADED (Ryegate publishes only at upload)
+      ORDER_POSTED → UPLOADED (fast class between 15-30s polls)
+    shouldCommit() 5-min dedup window and idempotent worker
+    markClassComplete keep restart-storms contained.
+  + Dormancy is now self-healing instead of session-killing.
+    3 consecutive ERRORs OR an UNKNOWN classification →
+    cooldown 5 min, THEN retry. A transient internet hiccup
+    at the show no longer disables peek for the whole day.
+
 v1.5.0  (2026-04-15)
   + Farmtek (J) text status was being read from col[39]; actual
     position is col[38]. Fixed. Farmtek numeric columns

@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.5.0';
+const WATCHER_VERSION = '1.6.0';
 
 const fs    = require('fs');
 const path  = require('path');
@@ -85,45 +85,66 @@ function buildPeekUrl(classNum) {
   return `https://ryegate.live/${livePath}/results.php?class=${classNum}`;
 }
 
+// Returns a rich result: { state, url, httpStatus, bytes, ms, signals, errorKind? }
+// Classifier matches real ryegate.live HTML verified 2026-04-15:
+//   NOT_STARTED   — "Please Check Back"
+//   ORDER_POSTED  — "Order of Go" in header
+//   IN_PROGRESS   — "ON COURSE" or "PREVIOUS EXHIBITOR" or "N of N Competed"
+//   UPLOADED      — has Plc column + CBody tables AND none of the above
+//   UNKNOWN       — page served but matched no rule (also 404 pages)
+//   ERROR         — network/timeout/exception
 async function peekClass(classNum) {
   const url = buildPeekUrl(classNum);
-  if (!url) return null;
+  if (!url) return { state: null, url: null, httpStatus: 0, bytes: 0, ms: 0, signals: {} };
 
+  const startMs = Date.now();
   try {
-    const https = require('https');
-    const http = require('http');
     const mod = url.startsWith('https') ? https : http;
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const req = mod.get(url, { timeout: 8000 }, (res) => {
         let body = '';
         res.on('data', chunk => body += chunk);
         res.on('end', () => {
-          if (/please\s+check\s+back/i.test(body))       return resolve('NOT_STARTED');
-          if (/ON COURSE/i.test(body))                    return resolve('LIVE');
-          if (/\d+\s+of\s+\d+\s+Competed/i.test(body))   return resolve('IN_PROGRESS');
-          // Order of Go posted — page has entries but no scores yet.
-          // Without this check, peek would see "no ON COURSE, no Competed,
-          // has table" and wrongly classify it as UPLOADED (final results).
-          if (/order\s+of\s+go/i.test(body))              return resolve('ORDER_POSTED');
-          // No live indicators and not an order of go — results have been uploaded
-          // Verify there's actually content (not an empty/error page)
-          if (/<table/i.test(body) && /class="CBody"/i.test(body)) return resolve('UPLOADED');
-          resolve('UNKNOWN');
+          const ms = Date.now() - startMs;
+          const signals = {
+            pleaseCheckBack:   (body.match(/please\s+check\s+back/i)        || []).length,
+            onCourse:          (body.match(/ON\s+COURSE/i)                   || []).length,
+            previousExhibitor: (body.match(/PREVIOUS\s+EXHIBITOR/i)          || []).length,
+            orderOfGo:         (body.match(/order\s+of\s+go/i)               || []).length,
+            nOfNCompeted:      (body.match(/\d+\s+of\s+\d+\s+Competed/i)     || []).length,
+            tableCount:        (body.match(/<table/gi)                       || []).length,
+            cbodyCount:        (body.match(/class\s*=\s*"CBody"/gi)           || []).length,
+            plcHeader:         (body.match(/>\s*Plc\s*</i)                   || []).length,
+          };
+          let state;
+          if (signals.pleaseCheckBack > 0)                           state = 'NOT_STARTED';
+          else if (signals.orderOfGo > 0)                            state = 'ORDER_POSTED';
+          else if (signals.onCourse + signals.previousExhibitor + signals.nOfNCompeted > 0)
+                                                                     state = 'IN_PROGRESS';
+          else if (signals.plcHeader > 0 && signals.cbodyCount > 0)  state = 'UPLOADED';
+          else                                                       state = 'UNKNOWN';
+          resolve({ state, url, httpStatus: res.statusCode, bytes: body.length, ms, signals });
         });
       });
-      req.on('error', (e) => resolve('ERROR'));
-      req.on('timeout', () => { req.destroy(); resolve('ERROR'); });
+      req.on('error', (e) => resolve({ state: 'ERROR', url, httpStatus: 0, bytes: 0, ms: Date.now() - startMs, signals: {}, errorKind: 'network:' + (e && e.code || e && e.message || 'unknown') }));
+      req.on('timeout', () => { req.destroy(); resolve({ state: 'ERROR', url, httpStatus: 0, bytes: 0, ms: Date.now() - startMs, signals: {}, errorKind: 'timeout' }); });
     });
   } catch(e) {
-    return 'ERROR';
+    return { state: 'ERROR', url, httpStatus: 0, bytes: 0, ms: Date.now() - startMs, signals: {}, errorKind: 'exception:' + (e && e.message || 'unknown') };
   }
 }
+
+// Cooldown used after 3 consecutive errors or an UNKNOWN classification.
+// Keeps the polling loop alive (self-healing) instead of killing peek for
+// the whole session on a transient network hiccup or odd page response.
+const PEEK_DORMANT_MS = 5 * 60 * 1000; // 5 minutes
 
 function startPeekPolling(classNum) {
   stopPeekPolling();
   if (!ryegateLivePath) {
-    log('[PEEK] No ryegate.live path configured — peek disabled');
+    log(`[PEEK] DISABLED class=${classNum} reason=no ryegate.live path in config.dat`);
+    peekLog(`DISABLED class=${classNum} reason=no ryegate.live path in config.dat`);
     return;
   }
   // Skip peek for test/nonexistent paths — NONWEST is the default test path
@@ -131,46 +152,58 @@ function startPeekPolling(classNum) {
   // SHOWS/West/2026/Culpeper/wk1/ring1 with at least 3 path segments.
   var segments = ryegateLivePath.replace(/^SHOWS\//i, '').split('/').filter(Boolean);
   if (segments.length < 3 || /^NONWEST$/i.test(segments[0])) {
-    log('[PEEK] Test path detected (' + ryegateLivePath + ') — peek disabled until real show configured');
+    log(`[PEEK] DISABLED class=${classNum} reason=test path (${ryegateLivePath})`);
+    peekLog(`DISABLED class=${classNum} reason=test path (${ryegateLivePath})`);
     return;
   }
   const url = buildPeekUrl(classNum);
-  log(`[PEEK] Starting poll for class ${classNum}: ${url}`);
-  peekLastState[classNum] = null; // reset
+  log(`[PEEK] READY class=${classNum} path=${ryegateLivePath} url=${url}`);
+  peekLog(`READY class=${classNum} path=${ryegateLivePath} url=${url}`);
+  peekLastState[classNum] = null;
+  peekErrorCount = 0;
 
-  function scheduleNext() {
-    // Randomized 15–30 second interval — no fixed cadence
-    const delay = 15000 + Math.floor(Math.random() * 15000);
+  function scheduleNext(delayMsOverride) {
+    // Randomized 15–30 second interval — no fixed cadence. Override used
+    // for cooldown after error/UNKNOWN.
+    const delay = delayMsOverride != null ? delayMsOverride
+                                          : (15000 + Math.floor(Math.random() * 15000));
     peekTimer = setTimeout(async () => {
       if (!selectedClassNum || selectedClassNum !== classNum) {
         log(`[PEEK] class ${classNum} no longer active — stopping`);
+        peekLog(`STOP class=${classNum} reason=class no longer active`);
         return;
       }
 
-      const state = await peekClass(classNum);
-      const prev = peekLastState[classNum];
+      const result = await peekClass(classNum);
+      const state  = result.state;
+      const prev   = peekLastState[classNum];
+      const sig    = result.signals || {};
+      const sigStr = `pleaseCheckBack=${sig.pleaseCheckBack||0} onCourse=${sig.onCourse||0} prevExhibitor=${sig.previousExhibitor||0} orderOfGo=${sig.orderOfGo||0} nOfNCompeted=${sig.nOfNCompeted||0} table=${sig.tableCount||0} cbody=${sig.cbodyCount||0} plc=${sig.plcHeader||0}`;
+      peekLog(`POLL class=${classNum} state=${state} prev=${prev||'(init)'} http=${result.httpStatus} bytes=${result.bytes} ms=${result.ms} ${sigStr}${result.errorKind?' err='+result.errorKind:''}`);
 
-      if (state === 'ERROR' || state === 'UNKNOWN' || state === null) {
-        // Can't get definitive proof — go dormant, let other signals handle it.
-        // Don't keep polling a page that returns garbage.
-        if (state === 'ERROR') {
-          // Network issue — retry a few more times then go dormant
-          peekErrorCount = (peekErrorCount || 0) + 1;
-          if (peekErrorCount >= 3) {
-            log(`[PEEK] class ${classNum}: 3 consecutive errors — going dormant`);
-            return; // stop polling
-          }
-          scheduleNext();
+      if (state === 'ERROR') {
+        peekErrorCount++;
+        if (peekErrorCount >= 3) {
+          log(`[PEEK] class ${classNum}: 3 consecutive errors — cooling down ${PEEK_DORMANT_MS/60000}min before retry`);
+          peekLog(`COOLDOWN class=${classNum} reason=3 consecutive errors delayMs=${PEEK_DORMANT_MS}`);
+          peekErrorCount = 0;
+          scheduleNext(PEEK_DORMANT_MS);
           return;
         }
-        // UNKNOWN or null — page exists but isn't a recognizable results page
-        log(`[PEEK] class ${classNum}: unrecognizable page — going dormant`);
-        return; // stop polling, other signals will handle detection
+        scheduleNext();
+        return;
+      }
+      if (state === 'UNKNOWN' || state === null) {
+        log(`[PEEK] class ${classNum}: UNKNOWN page — cooling down ${PEEK_DORMANT_MS/60000}min before retry`);
+        peekLog(`COOLDOWN class=${classNum} reason=UNKNOWN classification delayMs=${PEEK_DORMANT_MS}`);
+        scheduleNext(PEEK_DORMANT_MS);
+        return;
       }
       peekErrorCount = 0; // reset on any successful read
 
       if (state !== prev) {
         log(`[PEEK] class ${classNum}: ${prev || '(init)'} → ${state}`);
+        peekLog(`TRANSITION class=${classNum} ${prev || '(init)'} → ${state}`);
         peekLastState[classNum] = state;
       }
 
@@ -181,8 +214,11 @@ function startPeekPolling(classNum) {
           `ORDER_POSTED class ${classNum} (via peek)`);
       }
 
-      // Detect LIVE/IN_PROGRESS → UPLOADED transition
-      if (state === 'UPLOADED' && (prev === 'LIVE' || prev === 'IN_PROGRESS')) {
+      // Fire CLASS_COMPLETE on ANY transition INTO UPLOADED. shouldCommit()
+      // dedupes against other signals (5-min window) and the worker-side
+      // markClassComplete is idempotent, so a restart-storm on an already
+      // uploaded class stays contained.
+      if (state === 'UPLOADED' && prev !== 'UPLOADED') {
         if (shouldCommit(classNum, 'peek')) {
           let className = '';
           const clsContent = fileStates[classNum + '.cls'];
@@ -195,7 +231,10 @@ function startPeekPolling(classNum) {
           logSeparator();
           log(`★ CLASS COMPLETE — class ${classNum} via ryegate.live peek (UPLOADED detected)`);
           logSeparator();
+          peekLog(`★ CLASS_COMPLETE class=${classNum} prev=${prev||'(init)'} → UPLOADED`);
           handleClassComplete(classNum, className);
+        } else {
+          peekLog(`SKIP class=${classNum} reason=already committed via another signal`);
         }
       }
 
@@ -1350,6 +1389,42 @@ function udpLog(msg) {
   }
 }
 
+// ── PEEK LOGGING ──────────────────────────────────────────────────────────────
+// Dedicated log for the ryegate.live peek checker. Full per-poll detail so we
+// can diagnose "why didn't peek fire CLASS_COMPLETE at time T" after the fact.
+// Does NOT write to console — peek is verbose (every 15-30s) and would drown
+// the main log. State transitions and CLASS_COMPLETE fires still go through
+// the main log() too.
+
+let PEEK_LOG_PATH = null;
+
+function initPeekLog() {
+  const candidates = [
+    path.join(__dirname, 'west_peek_log.txt'),
+    'C:\\west_peek_log.txt',
+    (process.env.USERPROFILE || '') + '\\Desktop\\west_peek_log.txt',
+    'C:\\Users\\Public\\Desktop\\west_peek_log.txt',
+    'west_peek_log.txt',
+  ];
+  for (const candidate of candidates) {
+    try {
+      fs.writeFileSync(candidate, 'WEST Peek Log started: ' + new Date().toISOString() + '\r\n');
+      PEEK_LOG_PATH = candidate;
+      log('Peek log: ' + PEEK_LOG_PATH);
+      return;
+    } catch(e) {}
+  }
+  log('WARNING: Could not create peek log file');
+}
+
+function peekLog(msg) {
+  const ts   = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const line = `[${ts}] ${msg}`;
+  if (PEEK_LOG_PATH) {
+    try { fs.appendFileSync(PEEK_LOG_PATH, line + '\r\n'); } catch(e) {}
+  }
+}
+
 // ── UDP PACKET PARSER ─────────────────────────────────────────────────────────
 
 function parseUdpPacket(msg) {
@@ -2359,6 +2434,7 @@ function watchConfigFile() {
 // ── START UDP ─────────────────────────────────────────────────────────────────
 
 initUdpLog();
+initPeekLog();
 
 // Read scoreboard port + timer-system default from config.dat
 const configContent = safeRead(CONFIG_PATH);
