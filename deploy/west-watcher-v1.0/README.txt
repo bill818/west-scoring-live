@@ -1,6 +1,6 @@
 ============================================================
   WEST Scoring Live — Scoring PC Watcher
-  Version 1.6.0
+  Version 1.7.0
 ============================================================
 
 WEB PAGES (PREVIEW)
@@ -158,11 +158,7 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
-v1.6.0+  (2026-04-15 / 2026-04-16 patches)
-  NOTE: Multiple patches applied on top of v1.6.0 during Culpeper
-  Day 2 without bumping the version constant. All changes below
-  are in the current west-watcher.js. Version constant still reads
-  '1.6.0' — bump to v1.7.0 planned before next formal release.
+v1.7.0  (2026-04-16)
 
   + 30-minute idle timer REMOVED. Was prematurely closing classes
     during scoring pauses. Primary close signals (peek, Ctrl+A,

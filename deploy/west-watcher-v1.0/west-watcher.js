@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.6.0';
+const WATCHER_VERSION = '1.7.0';
 
 const fs    = require('fs');
 const path  = require('path');
