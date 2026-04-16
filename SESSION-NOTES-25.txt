@@ -143,9 +143,8 @@ OPEN ITEMS FOR NEXT SESSION
     the scoring PC to enable Target persistence
 
   MEDIUM PRIORITY:
-  - Phase 2 observability: audit_events table + anomalies view
-    (~3.5 hours). Schema + logAudit helper + 10 instrument points
-    + /admin/activity + /admin/anomalies + activity.html.
+  - Phase 2 observability: audit_events + anomalies view (~3.5 hrs).
+    Full spec below in PHASE 2 OBSERVABILITY SPEC section.
   - Linter rule expansion as new bug patterns surface
   - Smart scoreboard display (future exploration — separate process
     with custom phase layouts, animations, graphics)
@@ -156,6 +155,72 @@ OPEN ITEMS FOR NEXT SESSION
   - Visual regression testing
   - ORDER_POSTED HTML sample from ryegate.live (grab at next show
     when a class has OOG posted but hasn't started)
+
+
+PHASE 2 OBSERVABILITY SPEC (agreed 2026-04-15)
+-----------------------------------------------
+Goal: answer "was anything missed?" and "is the HTML the prob or
+the database?" without sitting and watching the website.
+
+Phase 1 (SHIPPED): scripts/lint-show.js — data-shape linter.
+  8 rules, catches partial ingests, missing class types, ghost
+  entries. Run: node scripts/lint-show.js --slug=<slug>
+
+Phase 2 (NOT YET BUILT — ~3.5 hours):
+
+  D1 SCHEMA — new table audit_events:
+    id          INTEGER PRIMARY KEY AUTOINCREMENT
+    show_id     INTEGER
+    slug        TEXT
+    ring        TEXT
+    class_num   TEXT
+    event_type  TEXT NOT NULL
+    event_source TEXT    -- 'watcher' | 'worker' | 'admin' | 'cron'
+    details_json TEXT
+    created_at  TEXT NOT NULL
+
+    CREATE INDEX idx_audit_slug_time ON audit_events(slug, created_at DESC);
+    CREATE INDEX idx_audit_class ON audit_events(slug, ring, class_num, created_at DESC);
+
+  EVENT TYPES to log (one row each):
+    class_created         — first cls upload for a class
+    class_selected        — CLASS_SELECTED UDP via watcher
+    results_posted        — postClassData (entry count, delta)
+    class_complete_fired  — markClassComplete (which signal: peek/Ctrl+A/.tod/admin)
+    class_auto_completed  — autoCompleteStaleClasses (staleness in minutes)
+    class_reopened        — reopenClassIfComplete
+    show_state_change     — activateShow / autoCompleteShow
+    admin_action          — /admin/* endpoints (action + args)
+    error                 — catch blocks in major endpoints
+
+  WORKER HELPER:
+    async function logAudit(env, { slug, ring, class_num,
+      event_type, event_source, details }) { ... }
+    ~15 lines. Fails silently. Called from ~10 instrument points.
+
+  ENDPOINTS:
+    GET /admin/activity?slug=X&limit=200
+      Raw timeline, newest first. Optional &ring=N&class_num=N.
+
+    GET /admin/anomalies?slug=X
+      Red-flag queries:
+      - Dangling active classes (no CLASS_COMPLETE, not auto-completed)
+      - class_complete fired but entry_count < cls_raw entry count
+        (partial ingest — the class 291 fingerprint)
+      - class_auto_completed rows (all primary signals missed)
+      - Watcher heartbeat gaps > 5 min during show hours
+      - Peek dormancy covering a class that later completed
+      - Excessive results re-posts (>3x in 10 min on same class)
+
+  UI PAGE:
+    activity.html — Timeline tab + Anomalies tab.
+    Linked from admin.html as "Activity" button.
+
+  RETENTION:
+    Prune events older than 90 days on insert.
+
+  MIGRATION:
+    CREATE TABLE + indexes via /admin/migrate (already exists).
 
 
 STYLE / CONTEXT REMINDERS (STILL BINDING)
