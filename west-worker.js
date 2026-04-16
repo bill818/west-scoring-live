@@ -530,6 +530,7 @@ export default {
         latestEvent:    eventRaw     ? JSON.parse(eventRaw)     : null,
         onCourse:       oncourseRaw  ? JSON.parse(oncourseRaw)  : null,
         watcherAlive:   !!heartbeatRaw,
+        watcherVersion: heartbeatRaw ? JSON.parse(heartbeatRaw).version : (lastseenRaw ? JSON.parse(lastseenRaw).version : null),
         heartbeatTs:    heartbeatRaw ? JSON.parse(heartbeatRaw).ts : null,
         lastSeenTs:     lastseenRaw  ? JSON.parse(lastseenRaw).ts  : null,
       });

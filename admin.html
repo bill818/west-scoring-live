@@ -658,6 +658,7 @@ async function checkWatcherRing(slug, ring) {
       dot.className = 'watcher-dot alive';
       const since = d.lastSeenTs ? timeSince(d.lastSeenTs) : '';
       let info = `Ring ${ring} — Online${since ? ' since ' + since : ''}`;
+      if (d.watcherVersion) info += ` · v${d.watcherVersion}`;
       const active = d.activeClasses || [];
       if (active.length) info += ` · ${active.length} class${active.length > 1 ? 'es' : ''} active`;
       if (d.selected) info += ` · selected: ${d.selected.classNum}`;
@@ -665,7 +666,8 @@ async function checkWatcherRing(slug, ring) {
     } else {
       dot.className = 'watcher-dot';
       const lastSeen = d.lastSeenTs ? fmtDateTime(d.lastSeenTs) : null;
-      text.textContent = lastSeen ? `Ring ${ring} — Offline · Last seen ${lastSeen}` : `Ring ${ring} — Never connected`;
+      const offlineVer = d.watcherVersion ? ` · v${d.watcherVersion}` : '';
+      text.textContent = lastSeen ? `Ring ${ring} — Offline${offlineVer} · Last seen ${lastSeen}` : `Ring ${ring} — Never connected`;
     }
   } catch(e) {
     dot.className = 'watcher-dot';

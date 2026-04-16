@@ -1343,7 +1343,7 @@ log('');
 // Worker uses this to flip show status from pending → active
 setInterval(() => {
   postToWorker('/heartbeat', {
-    version:       '2.2',
+    version:       WATCHER_VERSION,
     scoreboardPort: scoreboardPort || '',
   }, 'heartbeat');
 }, 60000);
@@ -1351,7 +1351,7 @@ setInterval(() => {
 // Send one immediately on startup
 setTimeout(() => {
   postToWorker('/heartbeat', {
-    version:       '2.2',
+    version:       WATCHER_VERSION,
     scoreboardPort: scoreboardPort || '',
   }, 'heartbeat (startup)');
   log('Heartbeat sent to Worker');
