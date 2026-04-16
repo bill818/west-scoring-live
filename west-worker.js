@@ -2376,11 +2376,16 @@ function computeClassResults(body) {
   const headerType = (h[0] || '').toUpperCase();
   const classType = (bodyType && bodyType !== 'U') ? bodyType : (headerType || 'U');
 
-  // Build Order of Go from ALL entries (regardless of hasGone), sorted by ride order
-  const oog = (body.entries || [])
-    .filter(e => parseInt(e.rideOrder) > 0)
-    .map(e => ({
-      order: parseInt(e.rideOrder) || 0,
+  // Build Order of Go from ALL entries (regardless of hasGone), sorted by ride order.
+  // Farmtek classes often have rideOrder=0 for all entries — fall back to .cls file
+  // order (the sequence entries appear in the file IS the ride order).
+  const allEntries = body.entries || [];
+  const hasRideOrder = allEntries.some(e => parseInt(e.rideOrder) > 0);
+  const oog = (hasRideOrder
+    ? allEntries.filter(e => parseInt(e.rideOrder) > 0)
+    : allEntries
+  ).map((e, idx) => ({
+      order: hasRideOrder ? (parseInt(e.rideOrder) || 0) : (idx + 1),
       entry_num: e.entryNum || '', horse: e.horse || '', rider: e.rider || '',
       owner: e.owner || '', country: e.country || '',
       city: e.city || '', state: e.state || '',
