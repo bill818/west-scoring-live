@@ -1923,6 +1923,27 @@ async function writeSchedule(env, slug, ring, schedClasses) {
       ).run();
     }
     console.log(`[writeSchedule] ${slug}:${ring} — ${schedClasses.length} classes updated`);
+
+    // Auto-recompute classes with JO flag — if the class has live KV data,
+    // re-run computeClassResults so the OOG populates immediately when the
+    // operator sets the JO flag in tsked. Without this, the OOG wouldn't
+    // show until the next .cls write.
+    const joClasses = schedClasses.filter(sc => (sc.flag || '').toUpperCase() === 'JO');
+    for (const sc of joClasses) {
+      try {
+        const liveKey = `live:${slug}:${ring}:${sc.classNum}`;
+        const raw = await env.WEST_LIVE.get(liveKey);
+        if (raw) {
+          const body = JSON.parse(raw);
+          const computed = computeClassResults(body);
+          if (computed.orderOfGo && computed.orderOfGo.length) {
+            const resultsKey = `results:${slug}:${ring}:${sc.classNum}`;
+            await env.WEST_LIVE.put(resultsKey, JSON.stringify(computed), { expirationTtl: 7200 });
+            console.log(`[writeSchedule] recomputed class ${sc.classNum} — OOG ${computed.orderOfGo.length} entries`);
+          }
+        }
+      } catch (e) { /* best-effort recompute */ }
+    }
   } catch(e) {
     console.error(`[writeSchedule ERROR] ${e.message}`);
   }
