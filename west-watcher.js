@@ -1329,6 +1329,7 @@ log('');
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
 // Adaptive heartbeat: 10s when a class is active (carries clock snapshot so
 // the website can self-correct on spotty internet), 60s when idle.
+let selectedClassNum = null;
 const HEARTBEAT_ACTIVE_MS = 10000;
 const HEARTBEAT_IDLE_MS   = 60000;
 let heartbeatTimer = null;
@@ -1586,7 +1587,7 @@ function startPort31000Listener() {
   }
 }
 
-let selectedClassNum = null; // tracks most recent Ctrl+A class for inferRound
+// selectedClassNum declared above (before heartbeat section) — assigned here
 let flatEntriesSeen = {};   // tracks entries seen in fr=11 rotation for flat classes — { entryNum: { entry, horse, rider } }
 let hunterResults = [];       // tracks placements from fr=14 results frames — [{ entry, horse, rider, place }] in announcement order
 
