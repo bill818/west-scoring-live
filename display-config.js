@@ -299,10 +299,10 @@ WEST.getClassTypeLabel = function(classInfo) {
 //   Numeric   Text    Confirmed from
 //   ───────   ────    ─────────────────────────────────
 //   1         EL      (tentative — not yet observed)
-//   2         RF      (tentative — not yet observed)
-//   3         OC      class 264 #6056 col[28]=3, Ryegate shows EL (OC=off course=eliminated)
+//   2         RT      class 212 #6318 col[21]=2, Ryegate shows RT ✓ (NOT RF — RF=Rider Fall is different)
+//   3         OC      class 264 #6056 col[28]=3, Ryegate shows EL (OC=off course=eliminated) ✓
 //   4         WD      class 264 #1959 col[28]=4, Ryegate shows WD ✓
-//   5         RT      (tentative — not yet observed)
+//   5         RF      (tentative — RF=Rider Fall, not yet observed numerically)
 //   6         DNS     (tentative — not yet observed)
 //   >6        --      NOT a status — scoring data (e.g. col[28]=9 = 9 JO faults)
 //
@@ -315,7 +315,7 @@ WEST.getClassTypeLabel = function(classInfo) {
 // live data, update the "Confirmed from" column. If a mapping is wrong,
 // the text-status scan takes priority — numeric is fallback only.
 
-WEST.numericStatusMap = { 1:'EL', 2:'RF', 3:'OC', 4:'WD', 5:'RT', 6:'DNS' };
+WEST.numericStatusMap = { 1:'EL', 2:'RT', 3:'OC', 4:'WD', 5:'RF', 6:'DNS' };
 
 // Status code categories
 WEST.elimStatuses   = ['EL','RO','RF','OC','HF','EX','DQ'];  // Eliminations

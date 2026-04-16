@@ -761,7 +761,7 @@ function parseCls(content, filename) {
         }
         // Numeric fallback — see WEST.numericStatusMap in display-config.js
         // for the authoritative mapping table. Values 1-6 only; >6 is scoring data.
-        const NUM_STATUS = { '1':'EL', '2':'RF', '3':'OC', '4':'WD', '5':'RT', '6':'DNS' };
+        const NUM_STATUS = { '1':'EL', '2':'RT', '3':'OC', '4':'WD', '5':'RF', '6':'DNS' };
         const r1Num = cols[21] || '0';
         const r2Num = cols[28] || '0';
         const r3Num = cols[35] || '0';
