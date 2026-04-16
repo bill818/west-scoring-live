@@ -695,9 +695,13 @@ function render() {
       const ocComp = (liveData.computed || {})[sel && sel.classNum];
       const currentRound = ocComp && ocComp.currentRound;
       let roundLabel = '';
-      if (currentRound) {
+      if (oc.label) {
+        roundLabel = oc.label;
+      } else if (currentRound) {
         const labels = (ocComp && ocComp.roundLabels) || ['R1', 'R2', 'R3'];
         roundLabel = labels[currentRound - 1] || ('R' + currentRound);
+      } else if (oc.round && oc.round > 1) {
+        roundLabel = 'R' + oc.round;
       }
       rightCardHtml = '<div class="oc-card oc-clock-wrap">'
         + (roundLabel ? '<div class="oc-round-label">' + esc(roundLabel) + '</div>' : '')
