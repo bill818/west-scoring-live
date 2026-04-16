@@ -262,9 +262,60 @@ WEST.getClassTypeLabel = function(classInfo) {
 };
 
 
-// ── ELIMINATION / STATUS DISPLAY RULES ───────────────────────────────────────
-// Central config. Change here = change everywhere.
-// Confirmed 2026-04-08 by reviewing every scoring method with Bill.
+// ── STATUS CODE TABLES ──────────────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH — watcher + worker + all frontend pages reference
+// these tables. Change here = change everywhere.
+//
+// TEXT CODES — the canonical set of status strings used site-wide.
+// Source: Ryegate .cls files (text fields in tail columns) and UDP frames.
+//
+//   Code   Meaning               Category
+//   ────   ────────────────────   ──────────
+//   EL     Eliminated             elim
+//   RO     Run Out                elim
+//   RF     Refusal                elim
+//   OC     Off Course             elim
+//   HF     Had Faults (retired)   elim
+//   EX     Excused                elim
+//   DQ     Disqualified           elim
+//   WD     Withdrawn              partial
+//   RT     Retired                partial
+//   HC     Hors Concours          partial
+//   DNS    Did Not Start          hide
+//
+// NUMERIC CODES — Farmtek .cls entry rows use numeric values 1-6 as
+// per-round status flags. Values > 6 are scoring data (e.g. faults),
+// not status codes. This mapping is observed from live Culpeper 2026
+// data cross-referenced against Ryegate's HTML output.
+//
+// ROUND COLUMNS (Farmtek J, 40-col entry rows):
+//   Round   Scoring block   Status flag column
+//   ─────   ─────────────   ──────────────────
+//   R1      cols[15-20]     col[21]
+//   R2/JO   cols[22-27]     col[28]
+//   R3      cols[29-34]     col[35]
+//
+// NUMERIC → TEXT MAPPING:
+//   Numeric   Text    Confirmed from
+//   ───────   ────    ─────────────────────────────────
+//   1         EL      (tentative — not yet observed)
+//   2         RF      (tentative — not yet observed)
+//   3         OC      class 264 #6056 col[28]=3, Ryegate shows EL (OC=off course=eliminated)
+//   4         WD      class 264 #1959 col[28]=4, Ryegate shows WD ✓
+//   5         RT      (tentative — not yet observed)
+//   6         DNS     (tentative — not yet observed)
+//   >6        --      NOT a status — scoring data (e.g. col[28]=9 = 9 JO faults)
+//
+// TEXT STATUS SCAN — Farmtek also writes a text status string (EL/RF/OC/WD
+// etc.) somewhere in cols[36]-[39], but the exact column shifts between
+// entries. The watcher scans the cluster for any recognized code. When
+// found, the text status takes priority over the numeric mapping.
+//
+// IMPORTANT: numeric codes 1,2,5,6 are tentative. As we observe them in
+// live data, update the "Confirmed from" column. If a mapping is wrong,
+// the text-status scan takes priority — numeric is fallback only.
+
+WEST.numericStatusMap = { 1:'EL', 2:'RF', 3:'OC', 4:'WD', 5:'RT', 6:'DNS' };
 
 // Status code categories
 WEST.elimStatuses   = ['EL','RO','RF','OC','HF','EX','DQ'];  // Eliminations

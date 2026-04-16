@@ -759,15 +759,28 @@ function parseCls(content, filename) {
           const val = (cols[si] || '').trim();
           if (val && KNOWN_STATUS.test(val)) { textStatus = val.toUpperCase(); break; }
         }
+        // Numeric fallback — see WEST.numericStatusMap in display-config.js
+        // for the authoritative mapping table. Values 1-6 only; >6 is scoring data.
+        const NUM_STATUS = { '1':'EL', '2':'RF', '3':'OC', '4':'WD', '5':'RT', '6':'DNS' };
+        const r1Num = cols[21] || '0';
+        const r2Num = cols[28] || '0';
+        const r3Num = cols[35] || '0';
         entry.r1StatusCode = '';
         entry.r2StatusCode = '';
+        entry.r3StatusCode = '';
         if (textStatus) {
-          const r1HasStatus = cols[21] && cols[21] !== '0';
-          const r2HasStatus = cols[28] && cols[28] !== '0';
+          // Text scan found something — attribute to round using numeric flags
+          const r1HasStatus = r1Num !== '0';
+          const r2HasStatus = r2Num !== '0';
           if (r2HasStatus) entry.r2StatusCode = textStatus;
           else             entry.r1StatusCode = textStatus;
+        } else {
+          // No text status — fall back to numeric codes (1-6 only)
+          if (NUM_STATUS[r1Num]) entry.r1StatusCode = NUM_STATUS[r1Num];
+          if (NUM_STATUS[r2Num]) entry.r2StatusCode = NUM_STATUS[r2Num];
+          if (NUM_STATUS[r3Num]) entry.r3StatusCode = NUM_STATUS[r3Num];
         }
-        entry.statusCode = entry.r2StatusCode || entry.r1StatusCode || '';
+        entry.statusCode = entry.r2StatusCode || entry.r1StatusCode || entry.r3StatusCode || '';
       } else {
         entry.r1StatusCode = cols[82] || '';
         entry.r2StatusCode = cols[83] || '';
