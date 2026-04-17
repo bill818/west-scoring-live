@@ -124,9 +124,16 @@ export default {
           body.entries.forEach(e => {
             const p = prevByEntry[e.entryNum];
             if (!p) return;
-            if (!e.r1StatusCode && p.r1StatusCode) e.r1StatusCode = p.r1StatusCode;
-            if (!e.r2StatusCode && p.r2StatusCode) e.r2StatusCode = p.r2StatusCode;
-            if (!e.statusCode   && p.statusCode)   e.statusCode   = p.statusCode;
+            // Only backfill status from previous KV if the incoming entry has
+            // NO status on ANY round. If the cls parser set a status on one
+            // round (e.g. r2=OC), that's the authoritative picture — don't
+            // pull stale statuses from a previous UDP overlay into other rounds.
+            const incomingHasStatus = !!(e.r1StatusCode || e.r2StatusCode || e.statusCode);
+            if (!incomingHasStatus) {
+              if (p.r1StatusCode) e.r1StatusCode = p.r1StatusCode;
+              if (p.r2StatusCode) e.r2StatusCode = p.r2StatusCode;
+              if (p.statusCode)   e.statusCode   = p.statusCode;
+            }
           });
         }
       } catch (e) { /* best-effort merge — ignore parse errors */ }

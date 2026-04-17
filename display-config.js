@@ -302,7 +302,7 @@ WEST.getClassTypeLabel = function(classInfo) {
 //   2         RT      class 212 #6318 col[21]=2, Ryegate shows RT ✓ (NOT RF — RF=Rider Fall is different)
 //   3         OC      class 264 #6056 col[28]=3, Ryegate shows EL (OC=off course=eliminated) ✓
 //   4         WD      class 264 #1959 col[28]=4, Ryegate shows WD ✓
-//   5         RF      (tentative — RF=Rider Fall, not yet observed numerically)
+//   5         RF      class 220 #6116 col[21]=3+text=RF, Ryegate confirms Rider Fall ✓
 //   6         DNS     (tentative — not yet observed)
 //   >6        --      NOT a status — scoring data (e.g. col[28]=9 = 9 JO faults)
 //
