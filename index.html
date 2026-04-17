@@ -236,7 +236,7 @@ async function loadData() {
       ? '<span class="status-badge status-live"><span class="live-dot"></span> Ring Live</span>'
       : '';
 
-    if (ringLive) activeCount++;
+    if (dbStatus === 'active') activeCount++;
 
     // Preview: live class on top if active, then most recent 3 from schedule
     let previewHtml = '';
