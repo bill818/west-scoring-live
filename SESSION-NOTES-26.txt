@@ -137,6 +137,28 @@ on the pre-restart watcher. Next II.2d class will be captured
 in the UDP + peek logs with prominent PHASE TRANSITION logging.
 
 
+LATE-NIGHT ADDITIONS (after show)
+----------------------------------
+  + Funnel v1.3.1: holdTarget persists through RANK instead of
+    flushing. {8} RANK and {18} TARGET share scoreboard space —
+    when RANK drops, target comes back. Only injects when both
+    {18} and {8} are absent.
+  + Watcher: post-FINISH lock (finishLockUntil) — 5s suppress
+    on false ONCOURSE re-fires after decimal FINISH. Farmtek
+    oscillates between decimal/integer after buzzer. Lock allows
+    phase transitions through (TA change bypass).
+  + Watcher: PHASE TRANSITION logging — prominent log lines when
+    same-entry TA changes detected (FINISH→ONCOURSE and
+    ONCOURSE→ONCOURSE paths). Will verify two-phase detection
+    on next II.2d class.
+  + Worker: status merge fix — cls is god. If incoming entry has
+    ANY status on any round, don't backfill stale UDP statuses.
+  + index.html: active shows count uses D1 status='active', not
+    ring liveness. Was showing 0 after hours when no classes live.
+  + All Day 1 data patches complete (212, 264, 216 verified)
+  + All numeric status codes verified on scoring PC
+
+
 OPEN ITEMS
 ----------
   HIGH:
