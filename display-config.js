@@ -893,10 +893,18 @@ WEST.setOcState = function(oc, classData) {
   if (!oc) { WEST._ocState = null; return; }
   var sm = classData ? String(classData.scoringMethod || '') : '';
   var ta = parseFloat(oc.ta) || 0;
+  // Use browser time when data CONTENT changes (elapsed/phase/entry differ from
+  // last state). Eliminates clock-skew between watcher PC and viewer's device.
+  var prev = WEST._ocState;
+  var dataChanged = !prev
+    || prev.elapsed !== (parseFloat(oc.elapsed) || 0)
+    || prev.phase !== (oc.phase || 'ONCOURSE').toUpperCase()
+    || prev._entry !== oc.entry;
   WEST._ocState = {
     phase: (oc.phase || 'ONCOURSE').toUpperCase(),
     elapsed: parseFloat(oc.elapsed) || 0,
-    ts: new Date(oc.ts).getTime() || Date.now(),
+    ts: dataChanged ? Date.now() : (prev ? prev.ts : Date.now()),
+    _entry: oc.entry,
     paused: !!oc.paused,
     ta: ta,
     fpi: parseFloat(oc.fpi) || 1,
@@ -976,8 +984,11 @@ WEST.applyHeartbeatClock = function(hbClock, hbTs) {
   var s = WEST._ocState;
   var hbTime = new Date(hbTs).getTime();
   if (!hbTime || isNaN(hbTime)) return;
-  // Only apply if heartbeat is genuinely fresher than current state
-  if (s && s.ts >= hbTime) return;
+  // Apply heartbeat when current state is stale (>15s old by browser clock).
+  // Can't compare watcher timestamps vs worker timestamps directly — different
+  // clocks with potential skew. Instead, trust the heartbeat if our local view
+  // is old enough that a correction would help.
+  if (s && (Date.now() - s.ts) < 15000) return;
   var phase = (hbClock.phase || 'ONCOURSE').toUpperCase();
   WEST._ocState = {
     phase:     phase,

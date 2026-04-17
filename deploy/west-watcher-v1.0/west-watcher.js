@@ -250,11 +250,53 @@ function stopPeekPolling() {
 }
 
 // ── IDLE TIMEOUT — REMOVED ──────────────────────────────────────────────────
-// The 30-minute idle timer was prematurely closing classes during long scoring
-// pauses. Primary signals (peek, Ctrl+A, .tod) handle class-complete detection;
-// the worker's 1-hour autoCompleteStaleClasses sweep is the safety net.
 // resetIdleTimer is now a no-op so call sites don't need to change.
 function resetIdleTimer() {}
+
+// ── STALE ACTIVE CLASS RE-PEEK ──────────────────────────────────────────────
+// Peek only watches selectedClassNum. Concurrent classes that never get Ctrl+A'd
+// miss peek detection entirely. This sweep runs every 5 min and one-shot peeks
+// any active class (from the worker's active array) that isn't currently selected.
+// If ryegate.live shows UPLOADED → fire CLASS_COMPLETE for that class.
+const STALE_PEEK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+async function stalePeekSweep() {
+  try {
+    const https = require('https');
+    const url = `${WORKER_URL}/getLiveClass?slug=${encodeURIComponent(SHOW_SLUG)}&ring=${SHOW_RING}`;
+    const mod = url.startsWith('https') ? https : require('http');
+    const body = await new Promise((resolve, reject) => {
+      const req = mod.get(url, { timeout: 10000, headers: { 'X-West-Key': AUTH_KEY } }, (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    });
+    const active = body.activeClasses || [];
+    if (!active.length) return;
+    for (const ac of active) {
+      if (selectedClassNum && String(ac.classNum) === String(selectedClassNum)) continue;
+      const result = await peekClass(ac.classNum);
+      if (result && result.state === 'UPLOADED') {
+        if (shouldCommit(ac.classNum, 'stale-peek-sweep')) {
+          logSeparator();
+          log(`★ CLASS COMPLETE — class ${ac.classNum} via stale-peek-sweep (UPLOADED on ryegate.live)`);
+          logSeparator();
+          peekLog(`★ STALE_SWEEP class=${ac.classNum} → UPLOADED → CLASS_COMPLETE`);
+          handleClassComplete(ac.classNum, ac.className || '');
+        }
+      } else if (result) {
+        peekLog(`STALE_SWEEP class=${ac.classNum} state=${result.state} (not UPLOADED, skipping)`);
+      }
+    }
+  } catch(e) {
+    log(`[STALE_SWEEP] error: ${e.message}`);
+  }
+}
+
+setInterval(stalePeekSweep, STALE_PEEK_INTERVAL);
 
 // ── WORKER CONFIG ─────────────────────────────────────────────────────────────
 // Loaded from config.json in same folder as this script
