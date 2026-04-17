@@ -335,20 +335,23 @@ function openInSocket() {
       }
     }
 
-    // Hold Target: track {18} and {8} on any Ryegate frame
-    let holdTargetInjected = null; // Buffer with {18} injected, for scoreboard port
+    // Hold Target: track {18} and {8} on any Ryegate frame.
+    // {8} RANK and {18} TARGET share the same scoreboard space — they can
+    // never display simultaneously. When RANK is showing, don't inject
+    // target. When RANK drops, target comes back. Target value persists
+    // until replaced by a new {18} from the next horse's intro/countdown.
+    let holdTargetInjected = null;
     if (HOLD_TARGET && isRyegateScoreFrame(msg)) {
       const t18 = extractTag(msg, '18');
       const t8  = extractTag(msg, '8');
       if (t18 !== null) {
         heldTarget = t18; // update held value from this frame
       }
-      if (t8 !== null && t8.trim() !== '') {
-        heldTarget = null; // rank appeared — phase done, clear held target
-      }
-      // If frame is missing {18} but we have a held value, inject it
-      // (only for the scoreboard output — watcher gets raw)
-      if (t18 === null && heldTarget !== null) {
+      // Don't clear heldTarget on RANK — target is still valid, just
+      // can't show at the same time. It'll come back when RANK drops.
+      // Only inject when BOTH {18} and {8} are absent.
+      const rankShowing = t8 !== null && t8.trim() !== '';
+      if (t18 === null && !rankShowing && heldTarget !== null) {
         holdTargetInjected = injectTag18(msg, heldTarget);
       }
     }
