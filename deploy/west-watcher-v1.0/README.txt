@@ -158,6 +158,37 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.7.0+  (2026-04-16 show-day patches)
+
+  + Stale active class re-peek sweep: every 5 min the watcher
+    checks ALL active classes against ryegate.live, not just the
+    selected one. Non-selected concurrent classes that Ryegate
+    shows as UPLOADED get CLASS_COMPLETE fired automatically.
+    Fixes the gap where classes 213/236/245 stayed active on
+    Day 1 because they were never Ctrl+A'd.
+  + Fixed idleTimer reference error in handleClassComplete — was
+    referencing removed variable, crashed with "Cannot access
+    'idleTimer' before initialization" on every CLASS_COMPLETE.
+  + Fixed ORDER_POSTED event handler — worker was returning 400
+    "Unknown event type" when peek forwarded ORDER_POSTED.
+  + OOG remaining entries: results.html now shows "On Deck" for
+    next horse, then -1, -2, -3... countdown. Collapses numbering
+    when entries compete (no gaps from original order).
+  + OOG auto-recompute: when tsked JO flag arrives, worker
+    automatically re-runs computeClassResults so OOG populates
+    immediately without waiting for next .cls write.
+  + OOG file-order fallback: Farmtek classes with rideOrder=0
+    now use .cls file order instead of filtering all entries out.
+  + Numeric status fallback: when .cls text-status scan (cols
+    [36]-[39]) finds nothing, falls back to col[21]/col[28]/
+    col[35] numeric codes (1-6 → status, >6 = scoring data).
+    Catches JO WDs (col[28]=4) that Farmtek writes numerically
+    but never as text.
+  + Numeric status map corrected: 2=RT (not RF), 5=RF (Rider
+    Fall). Confirmed from class 212 #6318 Ryegate data.
+  + Farmtek status scan: cols[36]-[39] cluster scan instead of
+    fixed col[38]. Ryegate shifts the column between entries.
+
 v1.7.0  (2026-04-16)
 
   + 30-minute idle timer REMOVED. Was prematurely closing classes
