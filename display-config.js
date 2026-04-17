@@ -957,9 +957,9 @@ WEST.tickOnCourse = function() {
   var staleEl = document.getElementById('woc-stale');
   if (staleEl) {
     var ageSec = Math.floor(diff);
-    if (ageSec < 5)       { staleEl.textContent = ''; staleEl.className = 'woc-stale'; }
-    else if (ageSec < 30) { staleEl.textContent = ageSec + 's ago'; staleEl.className = 'woc-stale'; }
-    else if (ageSec < 90) { staleEl.textContent = ageSec + 's ago'; staleEl.className = 'woc-stale woc-stale-warn'; }
+    if (ageSec < 5)       { staleEl.textContent = 'live'; staleEl.className = 'woc-stale'; }
+    else if (ageSec < 30) { staleEl.textContent = ageSec + 's'; staleEl.className = 'woc-stale woc-stale-warn'; }
+    else if (ageSec < 90) { staleEl.textContent = ageSec + 's'; staleEl.className = 'woc-stale woc-stale-warn'; }
     else                  { staleEl.textContent = 'signal lost'; staleEl.className = 'woc-stale woc-stale-lost'; }
   }
 
