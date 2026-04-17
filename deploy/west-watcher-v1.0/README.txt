@@ -1,6 +1,6 @@
 ============================================================
   WEST Scoring Live — Scoring PC Watcher
-  Version 1.7.0
+  Version 1.8.0
 ============================================================
 
 WEB PAGES (PREVIEW)
@@ -158,7 +158,7 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
-v1.7.0+  (2026-04-16 show-day patches)
+v1.8.0  (2026-04-16)
 
   + Stale active class re-peek sweep: every 5 min the watcher
     checks ALL active classes against ryegate.live, not just the

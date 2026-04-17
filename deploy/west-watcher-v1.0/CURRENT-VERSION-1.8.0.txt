@@ -1,0 +1,1 @@
+Watcher v1.8.0 — see README.txt for changelog.
