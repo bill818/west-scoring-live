@@ -429,6 +429,11 @@ export default {
         return json({ ok: true, event: 'CLASS_COMPLETE', classNum });
       }
 
+      if (event === 'ORDER_POSTED') {
+        console.log(`[ORDER_POSTED] ${slug}:${ring} class ${classNum} (via peek)`);
+        return json({ ok: true, event: 'ORDER_POSTED', classNum });
+      }
+
       return err('Unknown event type');
     }
 

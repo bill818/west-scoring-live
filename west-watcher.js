@@ -1641,7 +1641,7 @@ function handleClassComplete(classNum, className) {
 
   // Stop peek polling and idle timer — class is done
   stopPeekPolling();
-  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  resetIdleTimer(); // no-op — idle timer removed, but call kept for safety
 
   // Switch heartbeat back to idle cadence (no clock snapshot)
   selectedClassNum = null;

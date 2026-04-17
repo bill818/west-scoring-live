@@ -685,10 +685,10 @@ function renderResults() {
     if (remaining.length) {
       html += '<div style="padding:14px 16px 8px;font-family:DM Mono,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);margin-top:8px;">Remaining (' + remaining.length + ')</div>';
       html += '<div class="results-wrap" style="padding-bottom:20px;">';
-      remaining.forEach(function(e) {
+      remaining.forEach(function(e, i) {
         const flag = classInfo.show_flags ? countryFlag(e.country) : '';
         html += '<div class="result-entry"><div class="result-main">'
-          + '<div class="r-ribbon"><div class="r-place-txt" style="color:#bbb;">' + e.order + '</div></div>'
+          + '<div class="r-ribbon"><div class="r-place-txt" style="color:#bbb;font-size:' + (i === 0 ? '9px' : '14px') + ';">' + (i === 0 ? 'On Deck' : '-' + i) + '</div></div>'
           + (isJumper
               ? WEST.jumper.renderEntryName(e, sm, { flag: flag })
               : ('<div class="r-info"><div class="r-horse-rider">'
