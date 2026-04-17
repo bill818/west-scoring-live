@@ -1723,6 +1723,7 @@ let lastJump    = '';
 let lastRank    = '';
 let clockStopTimer = null;
 let cdStopTimer    = null;
+let finishLockUntil = 0;  // timestamp — suppress ONCOURSE re-fires after FINISH
 
 // inferRound state — tracks the most recent UDP TA we inferred a round for
 // and the round we decided on, per selected class. When UDP TA changes to
@@ -2033,30 +2034,54 @@ function detectEvents(phase, entry, horse, rider, ta, cd, elapsed, jump, time, r
         `CD_START #${entry}`);
     }
     if (phase === 'ONCOURSE' && lastPhase !== 'ONCOURSE') {
-      if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
-      if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
-      const ri = inferRound(entry, ta);
-      fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round: ri.round, label: ri.label });
-      postToWorker('/postClassEvent',
-        { event: 'ON_COURSE', entry, horse, rider, owner, city, state,
-          elapsed: parseInt(elapsed) || 0, ta: ta || '',
-          round: ri.round, label: ri.label,
-          faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
-        `ON_COURSE #${entry}`);
+      // Post-FINISH stabilization: after a decimal FINISH time, Farmtek may
+      // oscillate between integer (looks like ONCOURSE) and decimal (FINISH)
+      // for a few seconds — especially on buzzer/elimination. Suppress false
+      // ONCOURSE re-fires for the same entry UNLESS:
+      //   - The TA changed (legitimate phase transition — two-phase PH1→PH2)
+      //   - The entry changed (new horse)
+      //   - The lock expired (5s — long enough for buzzer noise to settle)
+      if (entry === lastEntry && ta === lastTa && Date.now() < finishLockUntil) {
+        // Buzzer noise — suppress. Don't fire RIDE_START.
+      } else {
+        if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
+        if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
+        const ri = inferRound(entry, ta);
+        const isPhaseTransition = entry === lastEntry && ta !== lastTa;
+        if (isPhaseTransition) {
+          logSeparator();
+          log(`PHASE TRANSITION: #${entry} ${horse} — TA ${lastTa}→${ta} elapsed=${elapsed} ${ri.label}`);
+          logSeparator();
+        }
+        fireEvent('RIDE_START', { entry, horse, rider, ta, jumpFaults: jump, timeFaults: time, round: ri.round, label: ri.label });
+        postToWorker('/postClassEvent',
+          { event: 'ON_COURSE', entry, horse, rider, owner, city, state,
+            elapsed: parseInt(elapsed) || 0, ta: ta || '',
+            round: ri.round, label: ri.label,
+            faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
+          isPhaseTransition ? `ON_COURSE #${entry} (PHASE TRANSITION: ${ri.label})` : `ON_COURSE #${entry}`);
+      }
     }
     // TA changed mid-run (two-phase: PH1→PH2) — re-post with new round/TA
     if (phase === 'ONCOURSE' && lastPhase === 'ONCOURSE' && ta !== lastTa && entry === lastEntry) {
       const ri = inferRound(entry, ta);
+      logSeparator();
+      log(`PHASE TRANSITION (mid-course): #${entry} ${horse} — TA ${lastTa}→${ta} elapsed=${elapsed} ${ri.label}`);
+      logSeparator();
       postToWorker('/postClassEvent',
         { event: 'ON_COURSE', entry, horse, rider, owner, city, state,
           elapsed: parseInt(elapsed) || 0, ta: ta || '',
           round: ri.round, label: ri.label,
           faultsPerInterval: ri.faultsPerInterval, timeInterval: ri.timeInterval, penaltySeconds: ri.penaltySeconds },
-        `ON_COURSE #${entry} (TA change: ${ri.label})`);
+        `ON_COURSE #${entry} (PHASE TRANSITION: ${ri.label})`);
     }
     if (phase === 'FINISH') {
       if (clockStopTimer) { clearTimeout(clockStopTimer); clockStopTimer = null; }
       if (cdStopTimer)    { clearTimeout(cdStopTimer);    cdStopTimer    = null; }
+      // Lock out false ONCOURSE re-fires for 5s. Farmtek oscillates between
+      // decimal (FINISH) and integer (looks like ONCOURSE) after buzzer/elim.
+      // The lock allows legitimate phase transitions through (TA change check).
+      finishLockUntil = Date.now() + 5000;
       const { round, label } = inferRound(entry, ta);
       if (isHunterScore) {
         fireEvent('FINISH', { entry, horse, rider, rank, hunterScore, isHunter: true, round, label });
