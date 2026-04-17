@@ -1,0 +1,166 @@
+============================================================
+  SESSION 26 — 2026-04-16
+  Culpeper Day 2 — live show-day fixes + status codes +
+  heartbeat clock + OOG + funnel holdTarget
+============================================================
+
+WRITTEN FOR THE NEXT CLAUDE INSTANCE
+------------------------------------
+Massive show-day session. Watcher went from v1.7.0 to v1.8.0+
+with multiple live patches during scoring. All verified against
+real Ryegate data from the scoring PC. Bill calls his Claude
+instance "Skippy the Magnificent."
+
+
+VERSIONS (end of session)
+-------------------------
+  Watcher:  v1.8.0+ (post-FINISH lock added on top)
+  Funnel:   v1.3.0 (holdTarget built, config set on OneDrive)
+  Worker:   deployed (status-merge fix, OOG auto-recompute,
+            ORDER_POSTED handler)
+  Frontend: deployed (staleness badge, OOG On Deck, clock-skew
+            fix, results.html status rendering)
+
+
+SHIPPED THIS SESSION
+--------------------
+Watcher:
+  - v1.7.0 version bump + heartbeat version fix (was '2.2')
+  - 30-min idle timer REMOVED (premature class closes)
+  - Heartbeat adaptive: 10s active (clock snapshot), 60s idle
+  - selectedClassNum forward-declared (hoisting crash fix)
+  - Farmtek status scan: cols[36]-[39] cluster instead of
+    fixed col[38] (Ryegate shifts column between entries)
+  - Farmtek numeric status FALLBACK: col[21]/[28]/[35] values
+    1-6 map to status codes when text scan finds nothing.
+    Catches JO WDs that Farmtek writes numerically only.
+  - Numeric map corrected: 2=RT, 5=RF (Rider Fall)
+  - Round label uses oc.label from UDP parser (not computed)
+  - v1.8.0: stale-peek sweep every 5 min — checks ALL active
+    classes against ryegate.live, not just selectedClassNum.
+    Catches concurrent classes that never got Ctrl+A'd.
+  - Post-FINISH lock: 5s suppress on false ONCOURSE re-fires
+    after decimal FINISH (buzzer oscillation). Allows phase
+    transitions through (TA change check).
+  - PHASE TRANSITION logging for Farmtek two-phase detection
+
+Funnel:
+  - v1.3.0: holdTarget feature — persists {18} Target field
+    through on-course frames. Config: "holdTarget": 1.
+    Business OneDrive config pre-set. Scoring PC needs drag.
+
+Worker:
+  - autoCompleteStaleClasses: 15 min → 1 hour
+  - Heartbeat stores clock snapshot, exposes in /getLiveClass
+  - Admin page shows watcher version on status line
+  - ORDER_POSTED event handler added to /postClassEvent
+  - OOG fallback to .cls file order when rideOrder=0 (Farmtek)
+  - OOG auto-recompute when tsked JO flag arrives
+  - Status merge fix: cls is god — if incoming entry has ANY
+    status on any round, don't backfill stale UDP statuses
+    from previous KV into other rounds. Fixes wrong-round
+    OC contamination (class 216 #6266).
+
+Frontend:
+  - Stats R2/JO: status badge in place col, em-dash gap, dimmed
+    row — mirrors R1 treatment
+  - results.html: entries with status codes but no time render
+    (RT/WD/EL entries no longer skipped)
+  - results.html: OOG remaining shows "On Deck" for next horse,
+    then -1, -2, -3 countdown. Collapses on compete.
+  - live.html: reactivated classes purged from recent section
+  - live.html: round label from oc.label (not computed)
+  - live.html: staleness badge bottom-right, no blink, shows
+    "live" when fresh. Clock-skew fix: tracks data content
+    changes by browser clock, not watcher timestamp.
+  - Heartbeat clock fallback: 15s browser-time threshold
+    instead of cross-clock timestamp comparison
+  - ORDER_POSTED HTML sample saved (ryegate-sample-oog.html)
+
+Data:
+  - Classes 213, 236, 245 manually closed (peek missed them)
+  - Class 216 #6266 R1 OC status cleared (was stale UDP, cls
+    shows col[21]=0)
+  - Day 2 numeric fallback confirmed working: classes 213,
+    236, 217, 415 all have correct WD/EL/OC status codes
+    automatically from the cls_raw numeric columns.
+
+Linter:
+  - Day 2 run: 21 classes, only class 291 flagged (known empty)
+
+
+NUMERIC STATUS CODE TABLE — VERIFIED
+-------------------------------------
+See display-config.js WEST.numericStatusMap for authoritative table.
+ALL entries verified against Ryegate on the scoring PC:
+
+  Num  Mapped  Confirmed from
+  ---  ------  ---------------
+  1    EL      tentative — not yet observed
+  2    RT      class 212 #6318 — Ryegate confirms Retired ✓
+  3    OC      class 264 #6056, class 216 #6266 — generic "eliminated"
+               flag, text field gives specific reason (OC/EL/RF) ✓
+  4    WD      multiple entries — CONFIRMED, Farmtek never writes WD
+               as text, numeric only ✓
+  5    RF      class 220 #6116 — Ryegate confirms Rider Fall ✓
+  6    DNS     tentative — not yet observed
+
+
+FARMTEK TWO-PHASE TRANSITION (from Bill's description)
+------------------------------------------------------
+Farmtek II.2d (method 9) two-phase pattern:
+  Phase 1: clock runs with TA:91 (or whatever)
+  Phase 1 finish: decimal time appears (FINISH)
+  Operator presses transition button: "RANK: " (empty)
+  ~5 second silence: NO UDP frames
+  Phase 2: UDP resumes at elapsed=5 (NOT 0!), TA swaps to
+           Phase 2 value (e.g. 59), clock continues 6,7,8...
+
+Key detection signals:
+  - Same entry (horse hasn't changed)
+  - elapsed drops dramatically (86→5)
+  - TA changes (91→59)
+  - Clock never resets to 0 — comes back wherever it is
+
+Watcher handles two paths:
+  1. FINISH→ONCOURSE (lastPhase='FINISH'): line 2046,
+     RIDE_START fires with inferRound detecting TA change
+  2. ONCOURSE→ONCOURSE TA change (FINISH missed): line 2063,
+     re-posts with new round info
+
+Post-FINISH lock (finishLockUntil) prevents buzzer noise from
+creating false ONCOURSE events. The lock allows legitimate phase
+transitions through because they have a TA change.
+
+No real two-phase UDP logs captured yet — morning classes ran
+on the pre-restart watcher. Next II.2d class will be captured
+in the UDP + peek logs with prominent PHASE TRANSITION logging.
+
+
+OPEN ITEMS
+----------
+  HIGH:
+  - Watcher swap on scoring PC — v1.8.0+ with stale-peek sweep
+    + FINISH lock + phase transition logging. Also drag funnel
+    v1.3.0 with holdTarget=1 config.
+  - Phase 2 observability (audit_events + anomalies) — ~3.5 hrs
+  - Capture real two-phase (II.2d) UDP log at next show with
+    method 9 classes. Verify PHASE TRANSITION logging fires.
+
+  MEDIUM:
+  - Linter rule expansion
+  - Security pass (admin password)
+
+  LOW / FUTURE:
+  - Watcher auto-download from website
+  - Smart scoreboard display (custom phase layouts)
+  - Two-phase clock: if Phase 2 UDP comes in at elapsed=5,
+    should the website show 5 or interpolate from 0? UX question.
+
+
+STYLE / CONTEXT REMINDERS (STILL BINDING)
+------------------------------------------
+  - DISCUSS before coding. Wait for "ok do it."
+  - "OneDrive" = business OneDrive deploy target
+  - Watcher version bump + changelog + marker + sync on every batch
+  - Claude instance name: "Skippy the Magnificent."
