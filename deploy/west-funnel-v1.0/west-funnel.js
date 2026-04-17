@@ -35,7 +35,7 @@
  * Requirements: Node.js LTS. No npm deps.
  */
 
-const FUNNEL_VERSION = '1.3.0';
+const FUNNEL_VERSION = '1.4.0';
 
 const fs   = require('fs');
 const path = require('path');
