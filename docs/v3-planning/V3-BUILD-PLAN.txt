@@ -1,0 +1,1184 @@
+============================================================
+  WEST-SCORING-LIVE 3.0 — DETAILED BUILD PLAN
+  Modular, centralized, push-based architecture
+  Step-by-step playbook, not an overview
+  Written 2026-04-18 for Bill
+============================================================
+
+
+HOW TO READ THIS DOC
+--------------------
+This is a DOING doc, not a THINKING doc. For the thinking
+see: WEBSOCKETS-OVERVIEW.txt, CENTRALIZED-JS-ARCHITECTURE.txt,
+STATS-MODULE-ADDENDUM.txt.
+
+Structure:
+  - 11 phases, sequenced
+  - Each phase: goal, files touched, concrete steps,
+    acceptance criteria ("how you know it's done"),
+    rollback plan, estimated sessions
+  - Don't start phase N+1 until phase N meets its
+    acceptance criteria
+  - Sessions are 2-4 hour focused blocks, not calendar days
+
+TOTAL SCOPE ESTIMATE: 25-35 sessions over 2-3 months of
+calm work between shows. Build realistic expectations —
+skipping phases or rushing merges is how this dies.
+
+
+============================================================
+  VERSIONING AND BRANCHING STRATEGY
+============================================================
+
+VERSION SCHEME:
+  Watcher: continues v1.x (independent, field-deployed)
+  Worker + frontend: jump from current (call it v2.x) to
+    v3.0.0 when all phases are complete and cut over.
+  During the rebuild, incremental tags: v2.5.0, v2.6.0, etc.,
+    one per phase that ships to production.
+
+BRANCH MODEL:
+  main — always shippable, always what's in production
+  v3-rebuild — the rebuild track. NEVER deploys to prod
+    directly; only merges back to main when a phase is
+    stable and verified in preview.
+  Short-lived feature branches per phase come off v3-rebuild.
+
+SAFETY RULE (HARD):
+  Never merge v3-rebuild → main during a show weekend.
+  Only merge to main on weekdays with a show-free cushion
+  of at least 3 days.
+
+
+============================================================
+  PHASE 0 — PREPARATION (1-2 SESSIONS)
+============================================================
+
+GOAL: Create the working environment, baselines, and
+safety nets before writing any rebuild code.
+
+STEPS:
+
+0.1 Tag current production as v2.x baseline
+    git tag v2.9.0-pre-rebuild
+    git push origin v2.9.0-pre-rebuild
+    This is the "known good" rollback point for the entire
+    rebuild effort.
+
+0.2 Create long-lived rebuild branch
+    git checkout -b v3-rebuild
+    git push -u origin v3-rebuild
+
+0.3 Set up a /js/ folder for the new modules
+    Empty placeholder files so import paths work from day 1:
+      /js/west-format.js
+      /js/west-rules.js
+      /js/west-clock.js
+      /js/west-display.js
+      /js/west-stats.js
+      /js/west-data.js
+    Each file starts with just:
+      (function() { window.WEST = window.WEST || {}; })();
+
+0.4 Add a v3-flag in the worker
+    A feature flag in west-worker.js so new endpoints can
+    be shipped behind it without affecting production.
+    const V3_ENABLED = url.searchParams.has('v3') ||
+                       env.V3_ENABLED === 'true';
+    This lets preview + staging test v3 paths while main
+    stays on v2.
+
+0.5 Set up a /tests/ folder + minimal test runner
+    Vitest is fastest to set up:
+      npm init -y
+      npm install --save-dev vitest
+      create /tests/sample.test.js that does
+        import { test, expect } from 'vitest'
+        test('sanity', () => expect(1+1).toBe(2))
+      Add to package.json:
+        "scripts": { "test": "vitest" }
+    Run: npm test — verify it works.
+
+0.6 Document the contract of each existing HTML page
+    Write a 1-page-each summary of what live.html, display.html,
+    stats.html, classes.html, index.html currently do, what
+    data they need, what the user can do on them. These
+    become the acceptance criteria when we rebuild them —
+    "does the new page still do everything this list says?"
+    Save to /docs/page-contracts/ in the repo.
+
+0.7 Create a realistic replay harness
+    Copy today's UDP log into /tests/fixtures/culpeper-day-1.log
+    Write a tiny Node script that can replay the log against
+    a local watcher or mock watcher, producing the same
+    sequence of /heartbeat, /postClassData, etc. POSTs.
+    This is how we test the rebuild without needing a real
+    show running.
+
+ACCEPTANCE CRITERIA:
+  [ ] v2.9.0-pre-rebuild tag exists on origin
+  [ ] v3-rebuild branch exists on origin
+  [ ] /js/ folder contains six empty stub files
+  [ ] npm test runs sample.test.js successfully
+  [ ] /docs/page-contracts/ has one file per page
+  [ ] Replay harness can produce a POST sequence from log
+
+ROLLBACK: N/A — this phase adds files, changes nothing.
+
+SESSIONS: 1-2
+
+
+============================================================
+  PHASE 1 — WEST-FORMAT.JS (1-2 SESSIONS)
+============================================================
+
+GOAL: Extract every time/number/label formatter scattered
+across pages into one tested module. No logic changes, just
+moving and consolidating.
+
+FILES TOUCHED:
+  + /js/west-format.js          (new)
+  + /tests/west-format.test.js  (new)
+  ~ every *.html that had local formatters (grep "fmtTime",
+    "toFixed", "formatTime", etc.)
+
+STEPS:
+
+1.1 Grep the codebase for formatting patterns:
+    grep -rn "toFixed(3)" *.html
+    grep -rn "toFixed(2)" *.html
+    grep -rn "function fmtTime" *.html *.js
+    grep -rn "statusDisplayLabel" *.html *.js
+    Write down every unique formatter you find.
+
+1.2 Populate /js/west-format.js with one canonical version
+    of each:
+      WEST.format.time(seconds, precision = 3)
+      WEST.format.rank(rankStr)
+      WEST.format.faults(jump, time)
+      WEST.format.entryNum(entry)
+      WEST.format.phase(phaseCode)
+      WEST.format.statusLabel(code)
+      WEST.format.money(cents)
+      WEST.format.duration(seconds)  // "1h 23m"
+
+1.3 Write tests for each function in west-format.test.js.
+    Test the edge cases: null input, negative numbers,
+    strings where numbers expected, missing precision arg.
+    Target: 100% branch coverage on this file. It's small
+    and pure — easy to fully cover.
+
+1.4 Add <script src="/js/west-format.js"></script> to
+    every HTML page, BEFORE display-config.js.
+
+1.5 Migrate one page at a time. Start with live.html.
+    Replace local fmtTime() calls with WEST.format.time().
+    Run the page in preview, verify nothing visually changed.
+
+1.6 After each page migrates, DELETE the local formatter.
+    Resist the temptation to leave it "just in case."
+
+ACCEPTANCE CRITERIA:
+  [ ] west-format.js has all formatters from grep list
+  [ ] west-format.test.js passes with full coverage
+  [ ] All *.html pages import west-format.js
+  [ ] All *.html pages use WEST.format.* for formatting
+  [ ] No local fmtTime / format* functions remain
+  [ ] Preview site visually identical to production
+
+MERGE BACK TO MAIN: Yes, tag as v2.10.0. This is a pure
+refactor, low risk, shippable. Everything after this merge
+is against "main with west-format extracted."
+
+ROLLBACK: git revert the merge commit if a page breaks.
+Each page migrated in its own commit for surgical reverts.
+
+SESSIONS: 1-2
+
+
+============================================================
+  PHASE 2 — WEST-RULES.JS (2-3 SESSIONS)
+============================================================
+
+GOAL: Centralize class type, scoring method, phase
+transition logic. Same extraction pattern as Phase 1,
+bigger surface area.
+
+FILES TOUCHED:
+  + /js/west-rules.js
+  + /tests/west-rules.test.js
+  ~ every *.html that checks classType or scoring method
+
+STEPS:
+
+2.1 Identify rules currently living in pages:
+    grep -rn "classType === 'J'" *.html *.js
+    grep -rn "scoring_method === '7'" *.html *.js
+    grep -rn "isHunter\|isJumper\|isEq\|isOpt" *.html *.js
+    grep -rn "oc.phase ===" *.html *.js
+
+2.2 Write the rules.js API:
+      WEST.rules.classType(cd) → {
+        isJumper, isHunter, isEq, isOpt,
+        isTwoPhase, isFaultsConverted,
+        layoutType, scoringMethod
+      }
+      WEST.rules.scoringMethod(method) → {
+        code, label, type,
+        primary,           // 'rider' or 'horse'
+        allowsTime, allowsFaults, allowsScore,
+        pinnedShowsScore,
+        roundLabels        // e.g. ['Phase 1', 'Phase 2']
+      }
+      WEST.rules.nextPhase(phase, trigger) → 'CD' | 'ONCOURSE' | ...
+      WEST.rules.phaseLabel(phase) → 'COUNTDOWN' etc.
+      WEST.rules.statusSort(a, b) → -1 | 0 | 1
+      WEST.rules.hunterIsEquitation(cd) → bool
+
+2.3 Write tests. Every scoring method (0-15) should have
+    at least one test case. Every phase transition should
+    be tested with its trigger conditions.
+
+2.4 Migrate pages one at a time. For each page:
+    - Find every rules-like check inline
+    - Replace with WEST.rules.* call
+    - Verify visual output unchanged
+    - Commit the page migration individually
+
+2.5 A common gotcha here: some pages have SLIGHTLY
+    different rules (e.g. display.html treats a certain
+    method type differently than live.html). When you hit
+    this, STOP. Ask: which behavior is right? Write that
+    one into rules.js. The other pages will now behave
+    consistently — which is what we want, but flag it to
+    Bill in case it's actually a regression.
+
+ACCEPTANCE CRITERIA:
+  [ ] west-rules.js implements the full API above
+  [ ] west-rules.test.js covers every scoring method
+  [ ] No remaining inline classType / scoring_method checks
+  [ ] Each divergent-behavior case between pages is
+      documented in the commit message as a deliberate
+      reconciliation
+  [ ] Preview site behaves identically (or consistently
+      better) than production
+
+MERGE BACK TO MAIN: Yes, tag v2.11.0.
+
+ROLLBACK: Per-page reverts as in Phase 1.
+
+SESSIONS: 2-3
+
+
+============================================================
+  PHASE 3 — WEST-CLOCK.JS (2-3 SESSIONS)
+============================================================
+
+GOAL: One clock implementation. Kill the three
+duplicates in live.html, display.html, stats.html.
+
+FILES TOUCHED:
+  + /js/west-clock.js
+  + /tests/west-clock.test.js
+  ~ live.html (migrate from display-config.js clock helpers)
+  ~ display.html (delete local tick)
+  ~ stats.html (delete local tickClock)
+  ~ display-config.js (move clock helpers out, clean up)
+
+STEPS:
+
+3.1 Create /js/west-clock.js with the v1.11-proven model:
+      WEST.clock.setState(state)
+        state = { phase, elapsed, countdown, ta, entry, paused }
+      WEST.clock.tick()
+        Called on setInterval. Reads state, writes DOM.
+      WEST.clock.bind(element, opts)
+        opts = { precision, showPhase, showFaults }
+      WEST.clock.applyAuthoritative(heartbeat)
+        Replaces current applyHeartbeatClock.
+
+3.2 Port the v1.11 logic from display-config.js verbatim.
+    This phase is NOT redesigning the clock — just moving
+    the working v1.11 code into its own module.
+
+3.3 Write tests. Clock tests are fiddly because of Date.now()
+    and setInterval. Use fake timers (Vitest has built-in
+    support). Test cases:
+    - setState → tick writes correct value
+    - Authoritative update resets interpolation base
+    - Phase-priority guard blocks regression
+    - Entry-match guard rejects stale entry data
+    - FINISH phase doesn't tick
+
+3.4 Migrate live.html first. Replace calls to
+    display-config.js clock helpers with WEST.clock.*.
+    The behavior should be IDENTICAL to today — we're just
+    relocating code.
+
+3.5 Migrate display.html. Its old tick() function had
+    100ms interval and different element IDs. Use
+    WEST.clock.bind('#liveClock', { ...opts }) to point
+    the shared clock at its DOM. Delete the local tick().
+
+3.6 Migrate stats.html same way. Delete local tickClock().
+
+3.7 Delete the clock helpers from display-config.js.
+    Anything they did that wasn't clock-related already
+    lives elsewhere.
+
+ACCEPTANCE CRITERIA:
+  [ ] /js/west-clock.js is the ONLY place a ticking
+      clock is computed
+  [ ] live.html / display.html / stats.html all use it
+  [ ] Their local clock functions are DELETED, not
+      commented out
+  [ ] west-clock.test.js passes
+  [ ] Preview: clock behavior on all three pages matches
+      (or consistently improves on) production
+  [ ] Tested against replay harness with Day 1 UDP log
+
+MERGE BACK TO MAIN: Yes, tag v2.12.0. This is the first
+phase where the "consolidation debt" is paid off for a
+specific subsystem.
+
+ROLLBACK: Per-page reverts. Clock rollback in particular
+needs careful verification since it's the most-used
+feature on a live page.
+
+SESSIONS: 2-3
+
+
+============================================================
+  PHASE 4 — WEST-DISPLAY.JS (3-5 SESSIONS)
+============================================================
+
+GOAL: Reusable UI building blocks. Biggest visual surface
+area, most room for disagreement about what "the same"
+means.
+
+FILES TOUCHED:
+  + /js/west-display.js
+  + /tests/west-display.test.js
+  ~ every page that renders standings, phase pills, etc.
+
+STEPS:
+
+4.1 Catalog the UI primitives. Go through every page and
+    list the recurring visual elements:
+    - On-course info card
+    - Standings row (jumper rounds, hunter score, eq, etc.)
+    - Phase pill (CD / ONCOURSE / FINISH)
+    - Status badge (EL / WD / RT / DNS)
+    - Staleness indicator
+    - Time/faults display
+
+4.2 Design the API. Each primitive is a function that takes
+    data + options and returns an HTML string:
+      WEST.display.standingsRow(entry, classRules, opts)
+      WEST.display.phasePill(phase, opts)
+      WEST.display.statusBadge(status, opts)
+      WEST.display.entryBlock(entry, classRules, opts)
+      WEST.display.stalenessBadge(ageMs)
+      WEST.display.faultDisplay(jf, tf, opts)
+      WEST.display.clockDisplay(state, opts)
+
+4.3 For each primitive:
+    a. Pick ONE page's version as the canonical starting
+       point. Usually the most complete version.
+    b. Write the function, returning HTML string that
+       matches that page's output exactly.
+    c. Write a snapshot test (input → expected HTML).
+    d. Migrate that page first. Verify visually identical.
+    e. Migrate other pages, reconciling differences.
+
+4.4 Key decision per primitive: what's page-specific CSS
+    vs what's shared? Rule: the HTML structure + semantic
+    classes are shared. The CSS rules per class can be
+    per-page if they differ.
+
+4.5 Create /css/west-display.css for shared primitive CSS.
+    Start with base classes (.jp-row, .jp-rounds, etc.).
+    Per-page tweaks stay in per-page CSS.
+
+ACCEPTANCE CRITERIA:
+  [ ] Every UI primitive has a WEST.display.* function
+  [ ] Snapshot tests pass for each
+  [ ] Every page uses the primitives; no inline HTML
+      for shared elements
+  [ ] /css/west-display.css exists and is linked
+  [ ] Preview matches production visually across all pages
+
+MERGE BACK TO MAIN: Yes, in pieces — merge primitive-by-
+primitive if possible. Tag final as v2.13.0.
+
+ROLLBACK: Granular per-primitive reverts.
+
+SESSIONS: 3-5 (biggest phase)
+
+
+============================================================
+  PHASE 5 — WEST-STATS.JS (LIVE HALF) (1-2 SESSIONS)
+============================================================
+
+GOAL: Extract live-stats calculations. Sync, pure functions.
+Sets up the skeleton for the async history half later.
+
+FILES TOUCHED:
+  + /js/west-stats.js
+  + /tests/west-stats-live.test.js
+  ~ index.html, classes.html, stats.html, display.html
+
+STEPS:
+
+5.1 Implement the WEST.stats.live.* functions from the
+    stats addendum:
+      classProgress(cd)
+      ringProgress(ringData)
+      faultDistribution(cd)
+      timeStats(cd)
+      showSummary(allActiveClasses)
+
+5.2 Write tests with realistic input fixtures (use actual
+    class data shapes from existing KV records).
+
+5.3 Migrate pages that compute these stats inline.
+    - stats.html is biggest consumer
+    - index.html shows aggregate "classes active today"
+    - classes.html shows per-class progress
+    - display.html shows class progress bar
+
+5.4 Reserve the WEST.stats.history.* namespace in the file
+    with TODO stubs. Will populate in Phase 9.
+
+ACCEPTANCE CRITERIA:
+  [ ] WEST.stats.live.* implemented and tested
+  [ ] Stats-like calculations removed from pages
+  [ ] WEST.stats.history.* stubs in place
+  [ ] No behavior changes visible on any page
+
+MERGE BACK TO MAIN: Yes, tag v2.14.0.
+
+SESSIONS: 1-2
+
+
+============================================================
+  PHASE 6 — WEST-DATA.JS (STILL POLLING) (2-3 SESSIONS)
+============================================================
+
+GOAL: Introduce the data abstraction layer. Implement it
+on TOP of polling first, so pages switch to the abstraction
+without any behavior change. The transport swap to
+WebSockets happens in Phase 8.
+
+FILES TOUCHED:
+  + /js/west-data.js
+  + /tests/west-data.test.js
+  ~ every page that has a poll() loop
+
+STEPS:
+
+6.1 Design the public API:
+      WEST.data.connect(slug, ring) → handle
+      WEST.data.subscribe(handle, event, callback) → unsub
+      WEST.data.unsubscribe(handle, event, cb)
+      WEST.data.disconnect(handle)
+      WEST.data.state                   // read-only cache
+      WEST.data.status → 'connecting' | 'live' | 'reconnecting' | 'dead'
+
+    Events to support:
+      'snapshot' — full state (on connect, on reconnect)
+      'clock'    — clock update
+      'event'    — UDP event fired (fault, finish, etc.)
+      'phase'    — phase change (CD → ONCOURSE etc.)
+      'standings' — standings changed
+
+6.2 Implement with polling underneath:
+    - On connect, start a 1s interval calling /getLiveClass
+    - Diff the response against cached state
+    - Fire 'snapshot' on first load + reconnect
+    - Fire 'clock' on elapsed change
+    - Fire 'event' on latestEvent.ts change
+    - Fire 'phase' on phase change
+    - Fire 'standings' on classData change
+
+6.3 Write tests with a mock fetch.
+
+6.4 Migrate pages. Replace inline poll() loops with
+    WEST.data.subscribe() calls. Each page becomes
+    thinner — the data lifecycle lives in west-data.js now.
+
+6.5 CRITICAL: One page at a time. live.html first because
+    it's the most complex. After each page migrates, run
+    the full replay harness against it and compare
+    behavior to pre-migration.
+
+ACCEPTANCE CRITERIA:
+  [ ] All pages use WEST.data for data fetching
+  [ ] No inline poll() loops or fetch() calls in pages
+  [ ] Behavior identical to before (still polling, just
+      abstracted)
+  [ ] Replay harness validates each page
+  [ ] Test suite passes
+
+MERGE BACK TO MAIN: Yes, tag v2.15.0. This is a BIG
+milestone — the frontend is now transport-agnostic. The
+next phase flips the transport.
+
+SESSIONS: 2-3
+
+
+============================================================
+  PHASE 7 — DURABLE OBJECT BACKEND (3-5 SESSIONS)
+============================================================
+
+GOAL: Build the RingRoom Durable Object. No frontend
+changes yet — this phase is pure backend infrastructure.
+
+FILES TOUCHED:
+  ~ west-worker.js
+  ~ wrangler.toml (add DO bindings)
+  + /tests/ring-room.test.js
+
+STEPS:
+
+7.1 Configure Durable Objects in wrangler.toml:
+      [[durable_objects.bindings]]
+      name = "RING_ROOMS"
+      class_name = "RingRoom"
+
+      [[migrations]]
+      tag = "v1"
+      new_classes = ["RingRoom"]
+
+7.2 Implement the RingRoom class in west-worker.js:
+    export class RingRoom {
+      constructor(state, env) {
+        this.state = state;
+        this.env = env;
+        this.sessions = [];
+        this.currentState = null;
+      }
+      async fetch(request) { ... }
+      async handleSession(ws) { ... }
+      broadcast(msg) { ... }
+    }
+
+7.3 Add new endpoints to the worker (behind V3_ENABLED flag):
+      POST /v3/update/{slug}/{ring}   — watcher pushes here
+      GET  /v3/connect/{slug}/{ring}  — spectator WS upgrade
+
+7.4 Dual-write from watcher path:
+    When the watcher posts to /heartbeat, /postUdpEvent, etc.,
+    the worker ALSO forwards the update to the appropriate
+    RingRoom DO. Existing KV writes continue unchanged.
+
+    This is the key safety pattern: DO gets the same data
+    the legacy system gets, but nothing reads from the DO
+    yet. Complete safety net.
+
+7.5 Write DO tests using Miniflare (the Cloudflare local
+    test runtime):
+    - Can accept connections
+    - Broadcasts to multiple clients
+    - Handles disconnects cleanly
+    - State persists in memory across requests
+    - Edge cases: connect during broadcast, simultaneous
+      disconnects, malformed messages
+
+7.6 Deploy to preview worker with v3 flag enabled. Verify:
+    - Watcher POST to /heartbeat reaches the DO
+    - Can manually open a WebSocket with wscat and see
+      messages stream
+    - Messages match the shape pages will expect
+
+ACCEPTANCE CRITERIA:
+  [ ] RingRoom class deployed on preview worker
+  [ ] Watcher traffic dual-writes to DO + KV
+  [ ] wscat can subscribe and see real messages during
+      live show data flow (or replay harness)
+  [ ] DO tests pass under Miniflare
+  [ ] KV path still works — production traffic unaffected
+
+MERGE BACK TO MAIN: PARTIAL — the DO code itself can merge
+behind the V3_ENABLED flag. The watcher dual-write also
+merges. Tag v2.16.0. Production behavior unchanged because
+nothing reads from DOs yet.
+
+ROLLBACK: Toggle V3_ENABLED flag to disable DO code path.
+
+SESSIONS: 3-5
+
+
+============================================================
+  PHASE 8 — WEBSOCKET CLIENT SWAP (2-3 SESSIONS)
+============================================================
+
+GOAL: Flip west-data.js from polling to WebSocket. This is
+the moment the architecture changes. Because of Phase 6's
+abstraction, pages don't change at all.
+
+FILES TOUCHED:
+  ~ /js/west-data.js
+
+STEPS:
+
+8.1 Implement WebSocket client inside west-data.js.
+    - Connect to /v3/connect/{slug}/{ring}
+    - Parse incoming JSON messages
+    - Dispatch to the existing event subscribers
+    - Handle disconnects with exponential backoff
+    - On reconnect, expect a fresh 'snapshot'
+    - Track status: 'connecting' | 'live' | 'reconnecting'
+
+8.2 Add feature flag:
+      const USE_WEBSOCKETS = localStorage.getItem('v3-ws') === '1'
+        || new URLSearchParams(location.search).has('ws');
+    Spectators opt in with ?ws query param. Lets you test
+    the WS path on live preview without disrupting others.
+
+8.3 Write tests with a WebSocket mock. Cover:
+    - Connection lifecycle
+    - Message parsing
+    - Reconnect with backoff
+    - Snapshot-on-reconnect resync
+    - Subscriber dispatch on each event type
+
+8.4 Shadow testing:
+    Run preview with ?ws=1 alongside production (no flag).
+    Use the replay harness to push data through both paths
+    simultaneously. Compare what each page displays every
+    second. Any divergence is a bug to fix.
+
+8.5 Gradual rollout inside preview:
+    After 1 week of shadow clean:
+    - Flip USE_WEBSOCKETS default to true in preview
+    - Leave ?poll=1 opt-out available for emergencies
+
+8.6 Production rollout:
+    After 2 weeks of preview as default:
+    - Merge to main
+    - Deploy to production with WS as default, polling
+      opt-out via ?poll=1
+    - Monitor error rates, reconnect rates, time-to-live
+
+ACCEPTANCE CRITERIA:
+  [ ] west-data.js has WebSocket implementation
+  [ ] Shadow comparison shows zero divergence for 1 week
+  [ ] Reconnect works on phone lock/wifi drop tests
+  [ ] Mobile Safari, iOS Chrome, Android Chrome, desktop
+      all verified
+  [ ] Preview default = WS for 2+ weeks with no incidents
+  [ ] Production cutover complete
+
+MERGE BACK TO MAIN: Yes. Tag v3.0.0-beta after production
+cutover. This is the architectural moment.
+
+ROLLBACK: ?poll=1 query param flips any single spectator
+back to polling. For emergency: revert west-data.js to
+Phase 6 state.
+
+SESSIONS: 2-3 (plus 3-4 weeks of calendar time for
+shadow + gradual rollout)
+
+
+============================================================
+  PHASE 9 — HISTORICAL STATS ENGINE (4-6 SESSIONS)
+============================================================
+
+GOAL: Build the database-backed stats the frontend can
+fetch. This is a separate track — could run in parallel
+with Phases 7-8 if another person is available, otherwise
+sequence it here.
+
+FILES TOUCHED:
+  ~ west-worker.js (stats endpoints)
+  + /worker/stats-engine.js (worker-side SQL module)
+  + D1 schema additions (rollup tables, rider_aliases)
+  ~ /js/west-stats.js (populate history.* namespace)
+  + /scripts/stats-rollup-cron.js
+  + /tests/stats-engine.test.js
+
+STEPS:
+
+9.1 Settle rider/horse identity (Alley 4 from stats addendum)
+    - Add a rider_aliases table to D1
+    - Canonical key = USEF ID where available, else
+      normalized_name + city
+    - Write migration script to backfill from existing entries
+    - Bill reviews the dedup results before committing
+
+9.2 Design rollup tables
+    - rider_season_stats (rider_id, season, classes, wins,
+      top3, earnings, updated_at)
+    - horse_season_stats (same shape for horses)
+    - show_summary_stats (slug, metrics, updated_at)
+    - class_leaderboard (class_type, season, rider_id, points)
+
+9.3 Implement stats-engine.js (worker-side)
+    - riderRecord(riderId, opts)
+    - horseRecord(horseId, opts)
+    - classLeaderboard(classType, season)
+    - showSummary(slug)
+    - headToHead(riderA, riderB)
+    Each queries rollup tables, not raw entries.
+
+9.4 Worker endpoints
+    - GET /api/stats/rider/{id}?season=YYYY
+    - GET /api/stats/horse/{id}
+    - GET /api/stats/leaderboard/{classType}
+    - GET /api/stats/show/{slug}/summary
+    Each with response caching (Cache API) keyed by
+    "active today?" flag.
+
+9.5 Rollup cron
+    - Runs nightly at 2am ET
+    - Rebuilds rider_season_stats, horse_season_stats
+      from raw entries
+    - During active show hours, also runs every 15 min
+      for actively-competing riders
+    - Uses Cloudflare Cron Triggers
+
+9.6 Frontend: populate WEST.stats.history.*
+    - Each function is an async wrapper around fetch()
+    - Built-in client-side cache with TTL
+    - Loading / error states handled gracefully
+
+9.7 Write tests with a seeded D1 fixture
+
+9.8 Privacy schema readiness (Alley 5)
+    - Add public_stats_rider, public_stats_horse boolean
+      columns now even though default is true — so opt-out
+      is possible later without schema change
+
+ACCEPTANCE CRITERIA:
+  [ ] Rollup tables exist and are populated
+  [ ] Cron runs on schedule
+  [ ] All stats endpoints return <500ms for typical query
+  [ ] WEST.stats.history.* works on any page
+  [ ] Rider identity reconciliation reviewed and accepted
+  [ ] Privacy flag columns in place (even if unused)
+
+MERGE BACK TO MAIN: Yes, tag v3.1.0.
+
+SESSIONS: 4-6
+
+
+============================================================
+  PHASE 10 — POLISH & CLEANUP (2-3 SESSIONS)
+============================================================
+
+GOAL: Remove scaffolding, retire legacy paths, document
+the v3 architecture for future contributors.
+
+STEPS:
+
+10.1 Remove V3_ENABLED feature flag everywhere.
+     v3 is now production. Flag is dead weight.
+
+10.2 Remove polling fallback code from west-data.js unless
+     you want to keep it as a permanent escape hatch
+     (probably do — ?poll=1 has rescued more than one
+     production incident for more than one team).
+     Mark it deprecated but not removed.
+
+10.3 Remove legacy endpoints from worker that nothing uses
+     anymore. Keep /getLiveClass as the ?poll=1 fallback.
+
+10.4 Write architecture docs in /docs/:
+     - ARCHITECTURE.md (the 30,000-ft view)
+     - MODULES.md (what each west-*.js does)
+     - DATA-FLOW.md (watcher → worker → DO → browser)
+     - DEPLOYMENT.md (how to deploy each layer)
+     - ROLLBACK.md (emergency procedures)
+
+10.5 Bill walks through a hypothetical 3am emergency with
+     the docs only. If he can't troubleshoot alone with
+     just the docs, revise.
+
+ACCEPTANCE CRITERIA:
+  [ ] No more V3_ENABLED references
+  [ ] /docs/ is complete and accurate
+  [ ] Bill confirms emergency runbook is usable
+
+MERGE BACK TO MAIN: Yes, tag v3.0.0 (final).
+
+SESSIONS: 2-3
+
+
+============================================================
+  PHASE 11 (ONGOING) — MAINTENANCE DISCIPLINE
+============================================================
+
+GOAL: Don't re-accrue consolidation debt.
+
+RULES GOING FORWARD:
+
+11.1 No new HTML page gets its own clock, formatter, or
+     rules logic. Uses the shared modules or you're adding
+     to the shared modules — nothing in between.
+
+11.2 Every PR that modifies a shared module must include
+     tests for the changed behavior.
+
+11.3 When in doubt about whether something goes in a shared
+     module or the page: ask "would a second page need this
+     in 6 months?" If maybe, shared. If no, page.
+
+11.4 Quarterly review — walk the codebase and check for
+     duplicated patterns that should have been extracted.
+     (This is the observability linter idea from S25-26.)
+
+11.5 Session-notes discipline — every substantial rebuild
+     session gets a SESSION-NOTES-NN.txt file so Claude
+     instances across sessions can pick up where the last
+     one left off.
+
+
+============================================================
+  TOTAL TIMELINE SUMMARY
+============================================================
+
+  Phase 0:  Preparation              1-2 sessions
+  Phase 1:  west-format.js           1-2 sessions
+  Phase 2:  west-rules.js            2-3 sessions
+  Phase 3:  west-clock.js            2-3 sessions
+  Phase 4:  west-display.js          3-5 sessions
+  Phase 5:  west-stats.js (live)     1-2 sessions
+  Phase 6:  west-data.js (polling)   2-3 sessions
+  Phase 7:  Durable Object backend   3-5 sessions
+  Phase 8:  WebSocket client swap    2-3 sessions + 3-4 weeks wait
+  Phase 9:  Historical stats engine  4-6 sessions
+  Phase 10: Polish & cleanup         2-3 sessions
+  ----------------------------------------------------
+  TOTAL:                             23-37 sessions
+
+Calendar estimate: 2-3 months of focused work between
+shows, assuming 2-3 sessions per week during non-show weeks
+and zero during show weeks.
+
+This is a realistic budget. Don't compress it. Don't skip
+phases. Don't merge to main during show weekends.
+
+
+============================================================
+  CRITICAL REMINDERS
+============================================================
+
+NEVER ship unproven code during a live show. Session 27's
+lesson is permanent.
+
+MAINTAIN v2 in production the entire rebuild. Every phase
+merges back to main only when stable in preview.
+
+THE WATCHER IS FIELD-DEPLOYED. Don't couple watcher versions
+to frontend versions. They evolve independently.
+
+SHADOW-RUN EVERY BIG CHANGE. Phase 8 especially — run WS
+and polling side-by-side in preview for weeks before
+cutover.
+
+BUDGET FOR UNKNOWNS. Every phase has a discovery that
+takes a session longer than planned. That's normal.
+
+"A LOT IS RIDING ON THIS WORKING." The rebuild is about
+reliability and maintainability, not novelty. Boring wins.
+
+
+============================================================
+  ADDENDUM A — .CLS AS SOURCE OF TRUTH
+  (NO MORE TRIAL-AND-ERROR)
+============================================================
+
+Bill's requirement: "I dont ever want to sit there and trial
+and error every class settings we need to take what we
+learned and apply it so we can streamline it." — clarified:
+"these class settings need to be read from the .cls files."
+
+THE KEY INSIGHT:
+The .cls file IS the source of truth. Farmtek writes it.
+Ryegate writes it. It describes the class — scoring method,
+time allowed, round structure, flags, everything. Our job
+is to READ it correctly, not to reinvent it in a hardcoded
+profile table.
+
+What trial-and-error usually comes from isn't "what should
+this class DO" — Farmtek already decided that. It's "which
+column in the .cls file holds this piece of information on
+this particular flavor of class." Ryegate shifts columns
+between class types. Numeric status codes mean different
+things in different rounds. Field meanings change based on
+scoring method. Those are PARSER quirks, not behavior choices.
+
+THE SOLUTION IN v3:
+Build ONE canonical .cls parser that understands every
+quirk of every class type Farmtek emits. The parser output
+is a complete, normalized CLASS DESCRIPTOR that every page
+can use without further interpretation.
+
+THE PARSER LIVES WHERE?
+On the worker, not the frontend. The frontend never sees
+raw .cls data. The worker parses .cls into a normalized
+descriptor, stores it in KV/D1, and serves it via
+/getLiveClass. Pages consume the normalized shape.
+
+west-rules.js on the frontend still exists — it helps pages
+INTERPRET the normalized descriptor for display purposes
+(e.g. "given this descriptor, should the row show jump
+faults or a hunter score?"). But it never touches .cls
+columns directly.
+
+NORMALIZED CLASS DESCRIPTOR SHAPE (what the parser outputs):
+  {
+    classNum: '296',
+    className: '$200 6 Year Old Jumper',
+
+    // Direct from .cls — canonical, no interpretation
+    scoringMethod: '2',
+    scoringMethodLabel: 'Jumper — Time First',
+    classType: 'J',
+    timeAllowed: 90,
+    faultsPerInterval: 1,
+    timeInterval: 1,
+    roundCount: 2,
+    rounds: [
+      { index: 1, label: 'Round 1', timeAllowed: 90 },
+      { index: 2, label: 'Jump Off', timeAllowed: 55 }
+    ],
+
+    // Flags from .cls — explicit, named, not magic columns
+    flags: {
+      isEquitation: false,
+      isOptimum: false,
+      isTwoPhase: false,
+      isHandy: false,
+      isFaultsConverted: false
+    },
+
+    // Derived fields the parser computes so pages don't have to
+    derived: {
+      optimumTime: null,
+      phase1TA: null,
+      phase2TA: null,
+      primaryIdentity: 'horse',  // vs 'rider' for eq
+      sortKey: 'time-then-rank'
+    },
+
+    // Parser metadata — which .cls version, any quirks
+    meta: {
+      clsVersion: 'Farmtek 4.2',
+      parseWarnings: []
+    }
+  }
+
+THE KNOWLEDGE WE CODIFY:
+Not "what method 7 does" — that's already decided by Farmtek.
+What WE codify is the PARSER's knowledge of Farmtek's quirks:
+
+  - "When scoringMethod is 7, read score from column 28
+     not column 21"
+  - "Numeric status codes in column 35 mean X for first
+     round, Y for jump-off"
+  - "When classType is H and hasEqFlag is true, treat
+     scoringMethod 7 as pinned equitation"
+  - "Two-phase classes (method 9) write time as TA:55 in
+     phase 2 even though phase 1 used TA:90"
+  - "Round labels come from cls[H12] not cls[H09]"
+  - [... every Ryegate quirk Bill has ever hit ...]
+
+Each quirk gets a NAMED, COMMENTED block in the parser
+with the real example that taught us the quirk.
+
+EXAMPLE PARSER SNIPPET (conceptual):
+  function parseCls(raw) {
+    const descriptor = { ... };
+
+    // Quirk: Ryegate shifts the numeric status column
+    // between cols 21/28/35 depending on which round is
+    // active. Learned 2026-04-16 from Culpeper Day 2 when
+    // JO WDs weren't appearing in standings.
+    descriptor.derived.statusColumn =
+      raw.scoringMethod === '9' && raw.activeRound === 2
+        ? 35
+        : raw.classType === 'H' ? 28 : 21;
+
+    // Quirk: Method 6 optimum classes compute optimum
+    // as TA minus 4 seconds, per FEI/USEF rules. Not in
+    // .cls directly.
+    if (raw.scoringMethod === '6' && raw.timeAllowed > 0) {
+      descriptor.derived.optimumTime = raw.timeAllowed - 4;
+    }
+
+    // ... every quirk codified with source and date
+    return descriptor;
+  }
+
+HOW WE FIND QUIRKS WE HAVEN'T MET YET:
+Same pattern as the old "profile library" idea:
+  1. Parser runs against every .cls
+  2. Fields that can't be interpreted log a parse warning
+     with full context (class metadata, raw .cls dump)
+  3. Bill reviews warnings after the show
+  4. Parser gains a new named quirk-handler
+  5. Next class of that type is handled automatically
+
+Parse warnings go into the stats_rebuild_log table (or its
+cousin) so they're queryable, not just ephemeral console logs.
+
+WHAT STAYS IN west-rules.js (FRONTEND):
+The frontend rules module is thin. It takes the normalized
+descriptor (already parsed) and helps pages decide layout:
+  WEST.rules.rowLayout(descriptor) → 'jumper' | 'hunter' | 'eq' | ...
+  WEST.rules.showsTimeFaults(descriptor) → bool
+  WEST.rules.roundLabels(descriptor) → ['Round 1', 'Jump Off']
+  WEST.rules.statusSort(descriptor) → sort function
+
+These are small wrapper functions that READ the descriptor's
+fields — they don't re-parse or re-derive. If a rule gets
+complicated, push the derivation back into the parser's
+"derived" block so it's done once per class, not once per
+spectator render.
+
+BUILD PLAN IMPACT:
+Phase 2 refocuses:
+  - PRIMARY deliverable: .cls parser on the worker with
+    the quirk catalog
+  - SECONDARY deliverable: west-rules.js frontend wrappers
+    that read the normalized descriptor
+
+Phase 2 session estimate: 3-5 sessions (same as before,
+split differently).
+
+WATCHER IMPLICATION:
+The watcher already parses .cls (it reads the file and
+extracts metadata). It currently posts /postClassData with
+whatever it extracts. The v3 plan moves the canonical
+parser to the WORKER so the browser and worker agree on
+interpretation.
+
+Short-term (during rebuild): watcher continues posting as
+today. Worker re-parses server-side to produce normalized
+descriptor. Eventually watcher could post raw .cls content
+to the worker and let it be the only parser — but that's
+optimization, not a rebuild blocker.
+
+TEST DISCIPLINE:
+Every quirk in the parser has a test case with a REAL
+.cls fixture that demonstrated the quirk. When Ryegate
+changes format (they will), the fixture test catches it.
+
+Quirks without fixtures = quirks we don't fully understand.
+Don't ship those — log the unknown case, gather real data,
+then write the handler with its real fixture.
+
+THE LONG VIEW:
+In 2 years, the parser should handle every .cls variation
+west-scoring-live has seen. New shows become zero-config.
+An operator setting up a show never opens a "class profile
+editor" because there isn't one. The .cls says what the
+class is. The parser knows what that means. The frontend
+just displays it.
+
+If a new Farmtek version ships with a new field, the
+parser catches it as a parse warning, Bill reviews it,
+codifies it as a named quirk. No trial and error.
+
+DISCIPLINE RULE:
+No page, no module, no worker endpoint reads raw .cls
+columns except the parser. If you ever find yourself
+doing raw[21] or similar outside parseCls(), that logic
+belongs IN the parser, as a named quirk with a comment.
+
+
+============================================================
+  ADDENDUM B — STATS DATABASE DECISION
+============================================================
+
+Bill's question: "do we need a secondary stats database or
+should that fold into the existing database?"
+
+THE ANSWER: Same D1 database, separate tables. Not a second DB.
+
+WHY ONE DATABASE:
+
+1. JOINS ACROSS ENTRIES + STATS
+   The rollup process needs to walk raw entries to
+   recompute stats. That's a query like:
+     SELECT rider_id, COUNT(*), SUM(earnings)
+     FROM entries
+     JOIN results ON ...
+     GROUP BY rider_id
+   Cross-database JOINs in D1 don't work cleanly — SQLite's
+   ATTACH isn't available in Workers' D1. Putting entries
+   and rollups in the same DB keeps queries simple.
+
+2. ONE BACKUP STORY
+   D1 backups are per-database. One database = one backup
+   procedure, one restore procedure, one retention policy.
+   Two databases doubles the operations story with no
+   operational benefit.
+
+3. ONE MIGRATION STORY
+   Schema changes happen in one place. When you add a
+   column to entries, you don't have to coordinate with a
+   separate stats DB's schema.
+
+4. WRITE CONTENTION ISN'T A REAL PROBLEM
+   Stats tables are read-mostly. Rollup cron writes to
+   them, and client requests only read. Entry writes go to
+   the entries tables. Different table = no contention.
+   You'd have the same isolation benefit without the
+   overhead of a second database.
+
+5. COST
+   D1 pricing is per-request + per-row. Two databases
+   means two billing entries. Not a big deal but it's
+   strictly worse than one.
+
+WHEN YOU WOULD WANT A SECOND DATABASE:
+  - If stats writes were so heavy they contended with
+    entries writes (they won't — rollups happen nightly/
+    15-min during shows, not per-entry)
+  - If stats had different durability requirements (they
+    don't — both are important)
+  - If you wanted per-database access controls (D1 doesn't
+    really support this at the table level anyway)
+
+None of these apply to west-scoring-live.
+
+TABLE STRUCTURE IN THE ONE DB:
+
+Existing (roughly — don't modify schema during rebuild):
+  entries, results, classes, shows, ...
+
+New tables for stats (added in Phase 9):
+  rider_aliases            — identity reconciliation
+  rider_season_stats       — rollup per rider per season
+  horse_season_stats       — rollup per horse per season
+  show_summary_stats       — per-show rollup
+  class_leaderboard        — per class-type season
+  stats_rebuild_log        — audit of rollup runs
+
+Name them with a prefix or suffix (stats_* maybe) so
+when you're looking at the schema it's obvious which
+tables are raw-data vs rollup.
+
+BUILD PLAN IMPACT:
+Phase 9 (Historical Stats Engine) stays in one database.
+D1 migrations add the stats_* tables. No second D1
+binding needed in wrangler.toml. One environment
+variable (WEST_DB) continues to be the only DB reference.
+
+ONE GOTCHA WORTH NOTING:
+D1 has per-database size limits (currently generous but
+not infinite — check current limits when you get to Phase 9).
+If historical data across 5+ seasons grows too large, the
+scaling answer isn't "split DBs" — it's archive cold data
+to R2 and keep only the last 2 seasons in D1.
+
+If you ever hit that wall, it's a good problem to have.
+Cross that bridge in 2028, not 2026.
+
+
+============================================================
+  END OF BUILD PLAN
+============================================================

@@ -1,0 +1,401 @@
+============================================================
+  WEST-SCORING-LIVE — STATS MODULE
+  Addendum to CENTRALIZED-JS-ARCHITECTURE.txt
+  Both live per-show stats AND historical database stats
+  Written 2026-04-18 for Bill to read on his phone
+============================================================
+
+
+TL;DR
+-----
+Stats is its OWN module (west-stats.js) because it has
+different inputs, different consumers, and different
+failure modes than the other modules. Fold it into rules.js
+or display.js at your peril.
+
+The module has two clearly separated halves:
+  WEST.stats.live.*    — computed from current ring state
+  WEST.stats.history.* — fetched from worker/D1 endpoints
+
+Neither half knows about the other. Pages pick what they
+need.
+
+
+
+PART 1 — WHY STATS DESERVES ITS OWN MODULE
+------------------------------------------
+
+The temptation is to put stats-like calculations into
+rules.js ("it's domain knowledge") or display.js ("it's
+used for rendering"). That's wrong because:
+
+1. STATS HAS DIFFERENT INPUTS.
+   rules.js operates on one entry or one class at a time.
+   display.js takes data and produces strings.
+   Stats operates on COLLECTIONS — all entries in a class,
+   all classes in a show, all shows a rider has entered.
+   Different shape of input = different module.
+
+2. STATS HAS EXPENSIVE INPUTS.
+   Live stats walk the current ring state (cheap).
+   Historical stats query D1 (slow, async, fallible).
+   Mixing "fast synchronous" and "slow async" logic in one
+   module makes both harder to reason about.
+
+3. STATS CAN FAIL SILENTLY.
+   If rules.js breaks, the whole page breaks — you notice.
+   If a stats query fails, a number is just missing or
+   stale. Different error handling, different retry
+   semantics, different telemetry needs.
+
+4. STATS IS WHERE FEATURE CREEP LIVES.
+   New features — rider leaderboards, prize money YTD,
+   "fastest time of the day" — all land in stats. Isolating
+   it means that creep stays contained.
+
+
+
+PART 2 — LIVE PER-SHOW STATS (the easy half)
+--------------------------------------------
+
+WEST.stats.live.* — pure functions, no network calls, no
+state. Give them current ring data, they give you numbers.
+
+CORE FUNCTIONS:
+
+  WEST.stats.live.classProgress(classData)
+    Returns: {
+      total: 42,
+      completed: 27,
+      onCourse: 1,
+      remaining: 14,
+      percentComplete: 64
+    }
+
+  WEST.stats.live.ringProgress(ringData)
+    Returns: {
+      classesTotal: 8,
+      classesComplete: 3,
+      classesActive: 1,
+      classesPending: 4,
+      currentClass: '296',
+      estimatedFinishTime: '15:42'
+    }
+    (estimatedFinish is based on avg time per class so far.
+    Rough but useful.)
+
+  WEST.stats.live.faultDistribution(classData)
+    Returns: {
+      clear: 8,
+      fourFaults: 12,
+      eightFaults: 5,
+      twelveFaults: 2,
+      eliminated: 1,
+      retired: 0,
+      wds: 1
+    }
+    Useful for the scoreboard "how's the class going" view.
+
+  WEST.stats.live.timeStats(classData)
+    Returns: {
+      fastestClear: { entry: '6055', time: 68.234 },
+      fastestAny: { entry: '6055', time: 68.234 },
+      averageRoundTime: 74.8,
+      overTA: 3,
+      ta: 90
+    }
+
+  WEST.stats.live.showSummary(allActiveClasses)
+    Returns: {
+      ringsActive: 3,
+      horsesOnCourseNow: 2,
+      classesCompleteToday: 11,
+      totalEntriesToday: 287
+    }
+    Front-page / index.html fodder.
+
+WHAT LIVES HERE vs WHAT LIVES IN RULES.JS:
+  rules.js answers "what IS this class/ride/round?"
+  stats.live answers "what's the AGGREGATE shape of a
+  collection of those things?"
+
+  Single ride classified = rules.
+  Summary of 40 rides = stats.
+
+
+
+PART 3 — HISTORICAL DATABASE STATS (the scary half)
+---------------------------------------------------
+
+WEST.stats.history.* — calls worker endpoints, returns
+promises. Backed by D1 queries on the worker side.
+
+CORE FUNCTIONS:
+
+  WEST.stats.history.riderRecord(riderId, opts)
+    Fetches: /api/stats/rider/{id}?season=2026
+    Returns (async): {
+      classes: 47,
+      wins: 6,
+      top3: 14,
+      earnings: 12400,
+      avgRank: 4.2,
+      bestDivisions: ['3ft Amateur', 'Low Child/Adult']
+    }
+
+  WEST.stats.history.horseRecord(horseId, opts)
+    Same shape but for a horse. Also includes things like
+    "classes this month" and "days since last show."
+
+  WEST.stats.history.classLeaderboard(classType, opts)
+    Circuit-level standings. Top riders across a series.
+
+  WEST.stats.history.showSummary(slug)
+    Post-show analytics: entry count, scratches, avg
+    classes per rider, clear rate by day, money paid out.
+    Useful for managers after the show ends.
+
+  WEST.stats.history.headToHead(riderA, riderB)
+    Just for fun. "These two have competed against each
+    other 11 times; A won 7 of them."
+
+EVERY FUNCTION:
+  - Returns a Promise
+  - Has a timeout (default 5s)
+  - Has a cache layer (same query in same minute = cached)
+  - Logs failures but doesn't throw (UI shows "—" not an error)
+  - Has a loading state convention the UI can hook into
+
+THIS IS CRITICAL — SEE PART 5 ON WHY.
+
+
+
+PART 4 — WHERE THE BACKEND LIVES
+--------------------------------
+
+The frontend WEST.stats.history.* module is JUST a fetch
+wrapper. The actual work happens on the worker.
+
+On the worker side there's a mirror module — let's call it
+stats-engine.js — that owns the SQL. When a historical
+stats endpoint is hit:
+
+  Worker /api/stats/rider/{id}
+    → stats-engine.riderRecord(id, opts)
+      → executes D1 query
+      → returns shaped result
+    → returns JSON to frontend
+
+This division matters because:
+- SQL should NEVER run in the browser (security, perf)
+- Query optimization happens once (on the worker)
+- Caching can happen at worker edge level (CF cache API)
+  not just client-side
+- If we ever need raw DB access from an admin UI, it goes
+  through the same worker endpoints, not a direct pipe
+
+
+
+PART 5 — THE ALLEY (what you might not see coming)
+--------------------------------------------------
+
+These are the decisions that will bite if you don't think
+about them up front.
+
+ALLEY 1: CACHE INVALIDATION
+  Historical stats don't change often — a rider's YTD
+  earnings don't move between morning and afternoon unless
+  they're competing today. So caching is obvious.
+
+  BUT: if they ARE competing today, their numbers update.
+  Cache for "too long" and the UI shows stale numbers.
+  Cache for "too short" and you hammer D1 on every page load.
+
+  MY RULE: 5-minute cache for non-competing riders, 30s
+  for active ones, 0s for their own currently-running class.
+  The cache key should include a "likely-fresh" hint from
+  the calling context.
+
+
+ALLEY 2: WHEN THE QUERY IS TOO SLOW
+  "Show me this rider's head-to-head with another rider"
+  looks like one request but is actually a JOIN across
+  years of entries. It can take seconds.
+
+  On polling, that's OK — the page can show a spinner.
+  On WebSockets + live pages, blocking for 3 seconds to
+  render a stat is unacceptable.
+
+  MY RULE: Anything that might take >500ms goes through
+  a PRE-COMPUTED stats table that gets refreshed nightly
+  (or hourly during active seasons). Real-time queries
+  are only for "fresh today" data. Historical deep dives
+  hit the pre-computed rollups.
+
+  This means adding a cron job that rebuilds the rollup
+  tables. Which is fine, but is NOT optional — design for
+  it from the start.
+
+
+ALLEY 3: STATS WRITTEN TO D1 FROM MULTIPLE PLACES
+  The watcher posts class results. The worker computes
+  standings. An admin UI might edit data. A nightly
+  cron rebuilds rollups.
+
+  If all four paths can write to the stats tables, you
+  get inconsistent state when two writes race.
+
+  MY RULE: D1 writes for stats-related tables go through
+  ONE function on the worker. Everything else calls that
+  function. Single writer = one concurrency model to
+  reason about.
+
+
+ALLEY 4: DEFINING "A RIDER" IS HARDER THAN YOU THINK
+  Ryegate reuses entry numbers. Rider names get
+  misspelled ("Kendra Pierce" vs "Kendra Peirce"). USEF
+  IDs aren't always available. Kids age up into adults.
+
+  Before the stats module can compute cross-show records,
+  somebody has to decide what the canonical "rider
+  identity" key is.
+
+  MY RULE: Pick a canonical key (probably USEF ID where
+  available, fallback to normalized name+city). Store a
+  "alias" table so we can merge mistakes later. Design the
+  rider/horse record tables so they're keyed on the
+  canonical ID, not on whatever the source spreadsheet
+  said.
+
+  If you skip this, every future stats feature inherits
+  the identity problem. It gets exponentially harder to
+  fix the longer you defer.
+
+
+ALLEY 5: PRIVACY / WHAT YOU SHOW
+  Once you have a rider records table, people will ask:
+  "can I see my own earnings?" "can I see so-and-so's?"
+  "can anyone?"
+
+  Today all the data is public (it's on Ryegate already).
+  But the moment you aggregate it, people notice in ways
+  they didn't before. Riders may have opinions about
+  seeing their career win rate on the front page.
+
+  MY RULE: Design the schema to support privacy flags
+  even if you don't enforce them day-one. A "public_stats:
+  boolean" column on the rider table costs nothing to
+  have and is painful to add later.
+
+
+ALLEY 6: COST OF D1 QUERIES
+  D1 is billed by rows read + rows written. A badly-
+  written stats query can scan a million rows and cost
+  real money.
+
+  MY RULE: Every stats query has an EXPLAIN'd plan before
+  it ships. Rollup tables have indexes on the columns the
+  UI actually filters by. Full-table scans for ad-hoc
+  reporting are OK; full-table scans in the hot path of
+  a page load are not.
+
+
+ALLEY 7: STATS LATENCY vs LIVE DATA LATENCY
+  The live clock ticks every second. The live stats ("how
+  many horses still to go") should update that fast too.
+  Historical stats ("YTD earnings") do not.
+
+  Don't let a slow historical query block the live view
+  from rendering. The page should render immediately with
+  whatever live data it has, and historical stats fill in
+  asynchronously.
+
+  MY RULE: WEST.stats.live.* calls are synchronous. WEST.
+  stats.history.* calls are always async and the UI must
+  handle the "not loaded yet" state gracefully (show "—"
+  or a skeleton, not nothing).
+
+
+
+PART 6 — WHERE STATS.HTML FITS
+------------------------------
+
+stats.html today is a mix of live and historical. In the
+rebuild it becomes much simpler:
+
+  const conn = WEST.data.connect(SLUG, RING);
+
+  WEST.data.subscribe('snapshot', async (state) => {
+    // Live stats — synchronous
+    const live = WEST.stats.live.classProgress(state.currentClass);
+    const fd = WEST.stats.live.faultDistribution(state.currentClass);
+    renderLiveStats(live, fd);
+
+    // Historical context — async, fills in when ready
+    const riderRecord = await WEST.stats.history.riderRecord(
+      state.onCourse.riderId
+    );
+    renderRiderContext(riderRecord);
+  });
+
+The page becomes a composition exercise, same as live.html.
+
+
+
+PART 7 — DOES IT SHIP IN PHASE 1?
+---------------------------------
+
+Honest answer: probably not fully.
+
+WEEK 1 extraction work should include:
+  - west-stats.js SKELETON with WEST.stats.live.* stubs
+  - Extract live-stats logic from stats.html into live.*
+    functions (pure, synchronous, easy)
+
+WEEKS 2-8 focus on the other modules + WebSocket rebuild.
+
+HISTORICAL STATS (WEST.stats.history.*) is its own
+multi-week project that comes AFTER the core rebuild. It
+requires:
+  - Deciding rider/horse identity (Alley 4)
+  - Building rollup tables + cron (Alley 2)
+  - Designing privacy/schema (Alley 5)
+  - Worker-side stats-engine.js with SQL
+  - D1 schema work
+
+Could run in parallel with the WebSocket work as a
+separate track if you want to split it. But if it's one
+person doing both, sequence it after.
+
+
+
+PART 8 — THE QUICK WIN
+----------------------
+
+If you want ONE thing from this doc that would be high
+value and low risk, it's this:
+
+Extract live-stats calculations (classProgress,
+faultDistribution, timeStats) into west-stats.js as the
+FIRST step of the rebuild, alongside west-format.js.
+
+Why: they're pure functions, they're already scattered
+across pages in various forms, pulling them together
+costs ~1 hour, and it immediately gives you a consistent
+"how's this class going" view across index.html, live.html,
+display.html, and classes.html. Plus it teaches the team
+the extraction pattern before you tackle the harder
+modules.
+
+
+
+END OF ADDENDUM
+---------------
+Takeaways:
+ - Stats is ITS OWN module (6 modules total now, not 5)
+ - Live stats (sync) vs history stats (async) are
+   strictly separated
+ - Real SQL lives on the worker, frontend just fetches
+ - Alleys 1-7 in PART 5 are the decisions that matter
+ - Historical stats is a separate multi-week project
+   from the core rebuild — don't try to do both at once

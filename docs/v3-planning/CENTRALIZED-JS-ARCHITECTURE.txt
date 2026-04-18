@@ -1,0 +1,469 @@
+============================================================
+  WEST-SCORING-LIVE — CENTRALIZED JS ARCHITECTURE
+  If you stripped the guts out of every page, what shared JS
+  files would you need? What goes in each? What does NOT.
+  Written 2026-04-17 for Bill to read on his phone
+============================================================
+
+
+THE QUESTION BEHIND THE QUESTION
+--------------------------------
+"Knowing what you don't know is more important than knowing
+what you do know." Right. So this doc is structured around
+three things:
+
+  1. What the shared JS modules should be (files + purpose)
+  2. What HAS to stay in pages (and why)
+  3. What you might not realize you're choosing — the
+     decisions that feel technical but are actually
+     architectural that will bite later if gotten wrong
+
+Read the whole thing before starting. The "gotchas" section
+at the end is where I'd focus if I only had 10 minutes.
+
+
+
+PART 1 — THE FIVE SHARED MODULES
+--------------------------------
+
+If I tore it all down and rebuilt, I'd create these five
+JavaScript files in a /js/ folder. Every page loads all of
+them. No other JS lives in pages except what's in this list
+or page-specific layout glue.
+
+
+FILE 1: west-format.js
+    PURPOSE: Pure formatting functions. No state, no DOM, no
+    network calls. Give it a number, it gives you a string.
+
+    WHAT'S IN IT:
+      WEST.format.time(seconds, precision)   e.g. 93.367 → "93.367"
+      WEST.format.rank(rank)                 e.g. "RANK 1" → "1"
+      WEST.format.faults(jumpF, timeF)       e.g. (4, 0) → "4"
+      WEST.format.entryNum(entry)            e.g. "6055" → "#6055"
+      WEST.format.phase(phaseCode)           e.g. "CD" → "Countdown"
+      WEST.format.statusLabel(code)          e.g. "EL" → "Eliminated"
+
+    WHY FIRST:
+      No dependencies. Easy to test. Every other module
+      builds on these. If this file is right, everything
+      downstream is consistent.
+
+
+FILE 2: west-rules.js
+    PURPOSE: Domain knowledge. "What does this class mean?
+    What are the rules for this scoring method? What phase
+    comes after what?"
+
+    WHAT'S IN IT:
+      WEST.rules.classType(cd)
+        Returns: { isJumper, isHunter, isEq, isOpt,
+                   isTwoPhase, isFaultsConverted }
+        Replaces every "cd.classType === 'J' || cd.classType
+        === 'T'" check scattered across pages.
+
+      WEST.rules.scoringMethod(method)
+        Returns layout/behavior rules for scoring method 0-15.
+        e.g. scoringMethod('7') → { type: 'equitation',
+             primary: 'rider', pinnedShowsScore: true }
+
+      WEST.rules.nextPhase(currentPhase, trigger)
+        e.g. ('CD', 'beam') → 'ONCOURSE'
+        Used by the watcher event interpreter AND the
+        frontend display logic. Same truth everywhere.
+
+      WEST.rules.roundLabel(round, method)
+        e.g. (2, 'two-phase') → "Phase 2"
+
+      WEST.rules.statusSort()
+        How status codes sort in standings (completed > EL
+        > WD > DNS, etc.)
+
+    WHY IT MATTERS:
+      Today these rules are duplicated across watcher,
+      worker, and every page that renders data. When Ryegate
+      changes something (adds a method, changes a status
+      code), today it's a 6-file change. With this file,
+      it's a 1-file change.
+
+
+FILE 3: west-clock.js
+    PURPOSE: The ticking clock. JUST the ticking clock.
+    Nothing else.
+
+    WHAT'S IN IT:
+      WEST.clock.setState(state)
+        Called when new authoritative clock data arrives.
+        state = { phase, elapsed, countdown, ta, jumpFaults }
+
+      WEST.clock.tick()
+        Called on setInterval (1000ms). Reads current state,
+        writes the DOM element. ONE DOM write per call.
+
+      WEST.clock.bind(element)
+        Tells the clock which DOM element to write into.
+        Lets pages use different element IDs without
+        hardcoding them.
+
+    WHY ISOLATED:
+      The clock is the most-broken, most-patched code in the
+      system. Isolating it means future clock fixes land in
+      ONE place. Today it's 3 places (live.html, display.html,
+      stats.html) plus helpers in display-config.js.
+
+
+FILE 4: west-display.js
+    PURPOSE: Reusable UI building blocks. Give it a data
+    shape, it returns an HTML string. No state, no direct
+    DOM manipulation outside the strings it returns.
+
+    WHAT'S IN IT:
+      WEST.display.standingsRow(entry, classRules, opts)
+        One row of a standings table. Handles all layouts:
+        jumper rounds, hunter score, eq pinned, two-phase
+        stacked, optimum time+distance. The big one.
+
+      WEST.display.phasePill(phase)
+        The colored "COUNTDOWN / ON COURSE / FINISH" badge.
+
+      WEST.display.statusBadge(status)
+        "EL / WD / RT / DNS" pill with color.
+
+      WEST.display.entryBlock(entry, classRules)
+        The horse/rider info card (varies for eq vs jumper).
+
+      WEST.display.stalenessBadge(lastUpdateMs)
+        "live / 5s / signal lost" indicator.
+
+    WHY STRING-BASED:
+      Pages compose these into their own layouts. Returning
+      strings (not DOM nodes) means pages innerHTML= them
+      into their structure without worrying about
+      attachment/detachment or React-style reconciliation.
+      Old-school but works and is debuggable.
+
+
+FILE 5: west-data.js
+    PURPOSE: The network layer. Pages don't know HOW data
+    arrives — they just subscribe and get updates.
+
+    WHAT'S IN IT:
+      WEST.data.connect(slug, ring)
+        Opens the WebSocket (or falls back to polling if WS
+        blocked). Returns a connection handle.
+
+      WEST.data.subscribe(event, callback)
+        Pages register for 'snapshot', 'clock', 'event',
+        'standings', 'phase-change', etc.
+
+      WEST.data.send(type, payload)
+        For admin pages only — pushes commands back to
+        the worker.
+
+      WEST.data.state
+        Read-only view of current ring state. What was
+        last received. Pages can read this anytime instead
+        of storing their own copy.
+
+    WHY LAST:
+      This is the layer that swaps most dramatically when
+      we go from polling → WebSockets. Pages that subscribe
+      through WEST.data don't change at all when the
+      underlying transport changes. Polling today,
+      WebSockets next month, something else in 5 years.
+
+
+
+PART 2 — WHAT STAYS IN THE PAGE
+-------------------------------
+
+The pages still exist. They're just thin. What they keep:
+
+PAGE-SPECIFIC LAYOUT
+    The structure — where the clock goes, where the
+    standings go, what header is at the top. live.html
+    is different from display.html is different from
+    stats.html for a REASON. That reason is layout.
+    That reason stays in the page.
+
+PAGE-SPECIFIC CSS
+    Colors, sizes, grid templates. Shared CSS moves to
+    a shared stylesheet (west-display.css), but per-page
+    tweaks stay in the page.
+
+TOGGLE STATE
+    Which tab is active, which view is selected, sort
+    order preferences, URL params. Stuff the user controls
+    on THIS page, not shared across pages.
+
+COMPOSITION GLUE
+    The code that says "call WEST.data.subscribe, then
+    for each update, build an HTML tree using
+    WEST.display.X functions, then innerHTML= it." That
+    glue is page-specific because each page composes the
+    primitives differently.
+
+Roughly: a page should be 100-300 lines of JS instead of
+today's 1000-2000. If it's still 1500 lines after the
+rebuild, something didn't get extracted properly.
+
+
+
+PART 3 — THE SHAPE OF A RIGHT-SIZED PAGE
+----------------------------------------
+
+Here's what live.html's entire JS section would look like
+after the rebuild (sketched — real version is longer, but
+this is the gist):
+
+    // Subscribe to ring 1 data
+    const conn = WEST.data.connect(SLUG, RING);
+
+    // Every time the full state updates, re-render the page
+    WEST.data.subscribe('snapshot', (state) => {
+      render(state);
+    });
+
+    // Clock updates separately so we don't re-render the
+    // whole page every second
+    WEST.data.subscribe('clock', (clock) => {
+      WEST.clock.setState(clock);
+    });
+
+    function render(state) {
+      const rules = WEST.rules.classType(state.currentClass);
+      const html =
+        WEST.display.entryBlock(state.onCourse, rules) +
+        WEST.display.phasePill(state.onCourse.phase) +
+        '<div id="woc-clock"></div>' +
+        WEST.display.standingsRow(state.leader, rules, {});
+      document.getElementById('app').innerHTML = html;
+      WEST.clock.bind(document.getElementById('woc-clock'));
+    }
+
+    // Tick the clock every second
+    setInterval(WEST.clock.tick, 1000);
+
+That's a live page. Forty lines of JS. The hard work is in
+the modules, not the page.
+
+
+
+PART 4 — WHAT YOU MIGHT NOT REALIZE YOU'RE CHOOSING
+---------------------------------------------------
+(This is the "alley" section. Read carefully.)
+
+
+CHOICE 1: GLOBAL NAMESPACE vs MODULES vs BUNDLER
+    The current stack uses a global namespace (WEST.) loaded
+    via script tags. No build step. Open a file, save, reload.
+
+    The "modern" way is ES modules with a bundler (webpack,
+    vite, esbuild). Cleaner imports, tree-shaking, TypeScript
+    option. Downside: adds a build step, a deploy step, and
+    a layer of complexity to debug.
+
+    MY OPINION FOR THIS PROJECT: Stay global. The global
+    namespace is fine for a project this size, it's what
+    you already have working, and it avoids introducing
+    tools that break CLI-only workflows. A bundler solves
+    problems you don't have.
+
+    THE ALLEY: If you bring someone in who expects modern
+    tooling (looking at you, Devon potentially), they may
+    push for ES modules. That's a legitimate conversation
+    but it's a conversation, not a given. Don't accept "we
+    need Webpack" without interrogating what problem it
+    solves.
+
+
+CHOICE 2: VIEW-MODEL OWNERSHIP
+    When data comes in from WEST.data, someone has to
+    translate "raw watcher event" into "what the UI needs."
+
+    OPTION A — rules.js owns the transform. Data flows:
+      raw data → WEST.rules.viewModel(raw) → page renders
+
+    OPTION B — page owns the transform. Data flows:
+      raw data → page builds VM inline → page renders
+
+    OPTION A is cleaner but risks making rules.js a dumping
+    ground. OPTION B keeps rules.js focused but duplicates
+    VM logic across pages.
+
+    MY OPINION: Split the difference. rules.js provides
+    helper functions (classType, scoringRules) but pages
+    build the final VM themselves using those helpers.
+    Page composition is page-specific; rules facts are
+    shared.
+
+    THE ALLEY: If you go all-in on "centralized VMs," the
+    rules file balloons into a 3000-line god-file and
+    becomes the new bottleneck. Resist.
+
+
+CHOICE 3: DELTA UPDATES vs FULL-SNAPSHOT UPDATES
+    With WebSockets you can send either:
+
+      DELTA: "elapsed changed to 14" — small, fast, but
+      requires client to maintain state and apply deltas
+      correctly.
+
+      SNAPSHOT: here's the complete current state of the
+      ring — larger, but simpler and self-correcting.
+
+    MY OPINION: Send snapshots for most things, deltas only
+    for the clock (which fires every second). If a spectator
+    reconnects after 30 seconds of dead wifi, one snapshot
+    message catches them up completely. No "apply these 30
+    deltas in order" fragility.
+
+    THE ALLEY: Optimizing too early toward deltas because
+    "snapshots are wasteful" leads to bugs where the client
+    drifts out of sync with the server and nobody can tell
+    why. Snapshots are cheap when they're small.
+
+
+CHOICE 4: RECONNECT STRATEGY
+    Phones lock, wifi drops, tabs suspend. WebSockets die
+    all the time. Reconnect is not optional — and what you
+    do on reconnect matters.
+
+    THE MINIMUM: exponential backoff (1s, 2s, 4s, 8s, cap
+    at 30s) + resync by requesting a fresh snapshot.
+
+    THE ALLEY: Ignoring reconnect and assuming "the
+    connection will stay up" will bite you within a week
+    of production deployment. Mobile Safari in particular
+    is ruthless about killing background WebSockets.
+
+
+CHOICE 5: LOGGING/OBSERVABILITY FROM DAY ONE
+    Today you have logs from the watcher. Great. After the
+    rebuild, you'll have state in a Durable Object that
+    clients connect to. If something goes wrong at 10am
+    Saturday, you need to be able to ask:
+      - Is the DO alive?
+      - How many connections does it have?
+      - What was the last message it broadcast?
+      - Did the watcher POST in the last minute?
+
+    MY OPINION: Build observability hooks into west-data.js
+    AND the DO from day one. Don't bolt it on later.
+    Specifically: a /health endpoint on each DO, a
+    connection counter, a "last broadcast at" timestamp,
+    and client-side logging of disconnect/reconnect events.
+
+    THE ALLEY: Shipping without observability and only
+    building it after a production incident. You'll rebuild
+    it under pressure and make it worse.
+
+
+CHOICE 6: TESTING WITH NO TEST SUITE
+    There is currently no automated test suite. For a
+    rebuild of this scope, that's a risk.
+
+    WHAT TO DO (not what to do perfectly): write unit tests
+    for west-format.js and west-rules.js during the rebuild.
+    These are pure functions — easiest possible testing
+    setup, zero infrastructure needed. Node + Vitest is
+    ~30 minutes to set up.
+
+    Integration tests for west-data.js require a WebSocket
+    mock. Worth it but bigger lift.
+
+    THE ALLEY: "We'll add tests later." You won't. The
+    right time is during the initial write of each module,
+    while you still remember how it was supposed to work.
+
+
+CHOICE 7: PRESERVING THE WATCHER INTERFACE
+    The watcher (v1.11) is its own codebase and its own
+    deploy cadence. It posts HTTP to the worker. That
+    contract should NOT change during the rebuild.
+
+    The new architecture — WebSockets, DOs, shared JS
+    modules — is ALL on the worker+frontend side. The
+    watcher keeps doing what it does, posting to the same
+    endpoints, and the worker routes those posts into the
+    right DO.
+
+    WHY THIS MATTERS: Two independent deploy cadences =
+    smaller blast radius. Watcher changes require field
+    installs (scoring PCs). Web changes don't. Coupling
+    them forces a field visit for every web change.
+
+    THE ALLEY: Getting seduced by "let's just make the
+    watcher a WebSocket client too" and realizing mid-rebuild
+    that you've now made every deploy require a scoring-PC
+    update. Don't.
+
+
+
+PART 5 — MIGRATION PATH (SAFELY)
+--------------------------------
+
+Doing all this at once = big-bang rewrite = disaster.
+
+SAFE PATH:
+
+WEEK 1: Create west-format.js and west-rules.js. Populate
+them by EXTRACTING (not rewriting) logic from existing
+pages. Each page keeps working; it just now calls
+WEST.format.time() instead of its local fmtTime().
+
+WEEK 2: Create west-clock.js. Migrate live.html to use it.
+display.html and stats.html still have their own clocks.
+Verify live.html unchanged in behavior.
+
+WEEK 3: Migrate display.html and stats.html to west-clock.js.
+Delete their local clock code. Verify nothing broke.
+
+WEEK 4: Create west-display.js. Start extracting common
+render patterns (standings row, phase pill). Migrate one
+page at a time.
+
+WEEK 5-6: Create west-data.js as a polling implementation
+first. Pages subscribe through it. Still polling under the
+hood, but now the pages don't know that.
+
+WEEK 7-8: Swap west-data.js internals from polling to
+WebSockets. This is the big change but because all pages
+already use the same interface, it's one file's worth of
+change, not five.
+
+WEEK 9+: Durable Object work. Worker rewrite. Shadow-run.
+
+This is ~2 months of calm, incremental work. No mid-show
+rewrites. Every week the system is shippable.
+
+
+
+PART 6 — THE HONEST THING NOBODY TELLS YOU
+------------------------------------------
+
+No rebuild ever goes as planned. There will be a week where
+you extract a function to rules.js and discover it behaves
+slightly differently on three pages for reasons nobody
+remembers. You'll have to decide which behavior is "right"
+and accept that one or two pages will change.
+
+Budget for that. Budget for 20% more time than the plan
+says. Budget for a week where "nothing shipped" because
+you were untangling something nobody saw coming.
+
+That's not failure. That's what every real rebuild looks
+like. The alternative (shipping patches on top of patches)
+is where you are now, and it costs MORE total time, it just
+spreads it out so nobody notices.
+
+
+
+END OF DOC
+----------
+If you re-read one section, re-read PART 4. Those are the
+six decisions that feel technical but actually determine
+whether the rebuild succeeds or becomes a new kind of mess.
+
+The five modules are the skeleton. The decisions are
+the DNA.

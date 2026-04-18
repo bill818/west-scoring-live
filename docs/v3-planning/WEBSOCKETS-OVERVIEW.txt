@@ -1,0 +1,358 @@
+============================================================
+  WEBSOCKETS + DURABLE OBJECTS
+  How push-based architecture would work for west-scoring-live
+  Written 2026-04-17 for Bill to read on his phone
+============================================================
+
+
+THE ONE-SENTENCE VERSION
+------------------------
+Instead of 500 spectators each asking "anything new?" once a
+second, they open one permanent connection and the server
+speaks whenever there's something to say. The clock ticks
+because the server is sending numbers, not because the browser
+is guessing.
+
+
+
+PART 1 — WHAT'S WRONG WITH WHAT WE HAVE
+---------------------------------------
+
+Right now every live page (live.html, display.html, stats.html,
+classes.html, index.html) works the same way:
+
+   Every 1 second:
+     Browser: "Hey worker, what's happening in ring 1?"
+     Worker:  "Class 296, horse #6055 on course, elapsed 14"
+     Browser: (displays it)
+
+   One second later:
+     Browser: "Hey worker, what's happening in ring 1?"
+     Worker:  "Class 296, horse #6055 on course, elapsed 15"
+     Browser: (displays it)
+
+This is called "polling." It works, but three things are bad
+about it:
+
+1. IT'S WASTEFUL. If 500 people are watching ring 1, that's
+   500 questions per second to the worker. Even when nothing
+   changes. The worker does the same database lookup 500
+   times in the same second to return the same answer.
+
+2. IT'S SLOW. If a fault happens at 2:15:00.100, the watcher
+   posts it by 2:15:00.300, but the next spectator won't see
+   it until THEIR poll fires — anywhere from 2:15:01.000 to
+   2:15:01.999. Up to a full second of lag, per viewer.
+
+3. THE CLOCK IS GUESSED. Since the server only answers once
+   per second, and the clock changes every second, the browser
+   has to GUESS what the clock is between polls. That guess
+   is why we've had flicker/drift/wrong-time problems. We
+   just spent Session 27 fighting this exact problem.
+
+Cost-wise, 500 spectators polling once a second for 8 hours
+across 5 rings is 72 million worker hits per day. Cloudflare
+paid tier handles it, but it scales linearly with viewership
+even when nothing is happening.
+
+
+
+PART 2 — WHAT WEBSOCKETS CHANGE
+-------------------------------
+
+A WebSocket is a persistent two-way connection. The browser
+opens one, it stays open, and either side can send messages
+at any time without asking.
+
+Think of polling as sending letters. Every question = a
+stamp + envelope + round trip. Think of WebSockets as a
+phone call. You dial once. Now you can just... talk.
+
+The new flow looks like this:
+
+   When spectator opens the page:
+     Browser: (opens WebSocket to worker)
+     Worker:  (sends initial snapshot of ring 1 state)
+     Browser: (displays it)
+
+   When watcher posts an update:
+     Watcher: "elapsed = 14"
+     Worker:  (pushes "elapsed=14" to all 500 connected browsers)
+     All 500 browsers: (display 14)
+
+   When watcher posts next update:
+     Watcher: "elapsed = 15"
+     Worker:  (pushes "elapsed=15" to all 500 connected browsers)
+     All 500 browsers: (display 15)
+
+Two magic changes:
+- 500 browsers don't ask anything. They just listen.
+- The worker sends ONCE, the message fans out to all 500
+  through a single broadcast.
+
+Worker hits per second during active class:
+   Old (polling):  500 hits per second
+   New (WebSocket): 1 message per second from watcher,
+                    broadcast to 500 via one operation
+   That's a 500x reduction.
+
+
+
+PART 3 — DURABLE OBJECTS (the Cloudflare piece)
+-----------------------------------------------
+
+Regular Cloudflare Workers are stateless. Each request wakes
+up a fresh instance, runs briefly, dies. They're perfect for
+HTTP but terrible for WebSockets because you need something
+that STAYS ALIVE to hold the connection open.
+
+Durable Objects are Cloudflare's answer to this. A Durable
+Object is like a tiny always-on server that:
+- Has a name (e.g. "hits-culpeper-april:1" for ring 1)
+- Keeps state in memory (current horse, elapsed, faults, etc.)
+- Holds a list of connected WebSockets
+- Can send to all of them with one line of code
+
+Cloudflare guarantees exactly ONE instance of each named DO
+exists worldwide at any time. So "hits-culpeper-april:1" is a
+single meeting point that all 500 spectators watching ring 1
+connect to, and that the watcher sends updates to.
+
+One DO per ring. 8 rings = 8 DOs. Each DO doesn't know or
+care about the others — completely independent.
+
+
+
+PART 4 — WHAT IT LOOKS LIKE IN CODE
+-----------------------------------
+
+(You don't need to read the code on your phone, it's just
+here so you know what the shape is.)
+
+On the server, the Durable Object class:
+
+   export class RingRoom {
+     constructor(state) {
+       this.sessions = [];  // connected WebSockets
+       this.clock = null;   // current state
+     }
+
+     async fetch(request) {
+       const url = new URL(request.url);
+
+       // A spectator is connecting
+       if (url.pathname === '/connect') {
+         const pair = new WebSocketPair();
+         pair[1].accept();
+         this.sessions.push(pair[1]);
+         // Send them the current state immediately
+         pair[1].send(JSON.stringify(this.clock));
+         return new Response(null, {
+           status: 101,
+           webSocket: pair[0]
+         });
+       }
+
+       // The watcher is posting an update
+       if (url.pathname === '/update') {
+         this.clock = await request.json();
+         this.broadcast(this.clock);
+         return new Response('ok');
+       }
+     }
+
+     broadcast(msg) {
+       const json = JSON.stringify(msg);
+       this.sessions.forEach(ws => {
+         try { ws.send(json); }
+         catch(e) { /* client gone, will clean up later */ }
+       });
+     }
+   }
+
+
+In the browser:
+
+   const ws = new WebSocket(
+     `wss://worker/live/${slug}/${ring}`
+   );
+
+   ws.onmessage = (ev) => {
+     const data = JSON.parse(ev.data);
+     // data = { phase: "ONCOURSE", elapsed: 14, entry: "6055" }
+     document.getElementById('woc-clock').textContent = data.elapsed;
+     // No interpolation. No timestamp math. Just display it.
+   };
+
+   ws.onclose = () => {
+     // Reconnect after a short delay
+     setTimeout(connectWebSocket, 1000);
+   };
+
+That's 80% of the whole thing. Everything else is error
+handling and protocol niceties.
+
+
+
+PART 5 — APPLIED TO WEST-SCORING-LIVE
+-------------------------------------
+
+The mapping is clean:
+
+WHAT THE WATCHER DOES:
+Currently posts HTTP to /postClassData, /postUdpEvent,
+/heartbeat, etc. In the new world it does the same POSTS
+but they go to the appropriate Durable Object instead of
+the general worker. No real change to the watcher.
+
+WHAT THE WORKER DOES:
+Gets simpler. The DO class holds ring state + connections.
+The "worker" that handles non-real-time stuff (loading the
+page, serving static files, history lookups) stays as-is.
+Real-time stuff moves to the DO.
+
+WHAT THE PAGES DO:
+Major simplification. Instead of every page polling
+/getLiveClass every second, each page opens ONE WebSocket
+when it loads, listens for messages, and updates the DOM.
+No more setTimeout(poll, 1000). No more clock interpolation.
+No more staleness badges (if the WebSocket is connected,
+you're live; if it's disconnected, we know).
+
+HOW THE CLOCK WORKS:
+The clock ticking problem completely disappears. The
+watcher shouts elapsed values 1/sec (like it does in v1.11).
+The DO relays each shout to all connected browsers in ~50ms.
+The browser displays the latest number. That's it.
+
+  No interpolation.
+  No two-function DOM writer fight.
+  No timestamp extrapolation.
+  No staleness gates.
+
+All the complexity we've been fighting for weeks was
+working around the fact that polling is stale by design.
+
+
+
+PART 6 — WHAT HAS TO CHANGE (roadmap)
+-------------------------------------
+
+Not a weekend hack. Not a mid-show patch. A real project,
+roughly 3-5 focused sessions:
+
+STEP 1 — CONSOLIDATE FIRST
+Before adding WebSockets, fix the fact that display.html,
+stats.html, and live.html each have their own clock
+implementation. Get all three calling the shared helpers
+in display-config.js. Same for class codes, status codes,
+display rules. This is the "audit" Bill called out.
+Why first? Because migrating one shared helper to
+WebSockets is easier than migrating three duplicates.
+
+STEP 2 — DURABLE OBJECT WORKER SKELETON
+Add a RingRoom class to west-worker.js. Define the
+message protocol (what does a "clock update" look like,
+what does a "fault" look like, what's a "snapshot"). Build
+it in parallel — existing HTTP endpoints stay live, new DO
+endpoints get added next to them.
+
+STEP 3 — WATCHER POSTS TO BOTH
+Watcher keeps posting the existing HTTP endpoints AND
+pushes to the DO. Belt and suspenders during migration.
+
+STEP 4 — PAGES MIGRATE ONE AT A TIME
+live.html gets a WebSocket client while keeping its
+polling as fallback. Run in preview for a week to watch
+it. If solid, turn off polling. Move to classes.html.
+Then display.html. Then stats.html.
+
+STEP 5 — RETIRE THE OLD PATH
+Once every page is on WebSockets, the worker's legacy
+polling endpoints can stay forever (harmless) or be
+cleaned up.
+
+STEP 6 — NEW FEATURES THAT WEBSOCKETS MAKE EASY
+Things that are hard on polling become trivial:
+  - "X people watching ring 2" live counter
+  - Instant fault announcements (no 1-sec lag)
+  - Live admin controls (pause a class, push a message)
+  - Cross-ring notifications ("ring 5 just finished")
+  - Chat or reactions if that ever becomes a thing
+
+
+
+PART 7 — COSTS AND RISKS (honest)
+---------------------------------
+
+Not a cost win. It's roughly the same money on Cloudflare
+(~$10-15/day during active shows). The win is:
+  - Latency drops from ~1 second to ~50ms
+  - Scales to 10x more spectators before breaking a sweat
+  - Clock bugs disappear structurally
+  - Foundation for features we can't build on polling
+
+Risks we have to plan for:
+  - Durable Objects are new surface area. First prod bug
+    in a DO is scarier than a worker bug because state
+    lives in memory. Bad deploy could lose in-flight state.
+    Mitigation: careful preview testing, state also
+    mirrored to KV so we can rebuild a DO from scratch.
+  - Some corporate wifi and mobile carriers block
+    WebSockets. Mitigation: SSE (Server-Sent Events)
+    fallback, or graceful polling fallback. ~95% of
+    users get WebSockets fine.
+  - Reconnect logic is real code. Phone locks, wifi
+    flakes, tabs suspend. Client needs exponential
+    backoff + resync on reconnect. Standard pattern,
+    but has to be written and tested.
+  - We can't test it by polling logs. Need a WebSocket
+    test client. Small tooling lift.
+
+Risks we DON'T have:
+  - Cloudflare scale. DO handles 30k WebSocket
+    connections per instance. 5 rings x a few thousand
+    spectators each is fine.
+  - Protocol maturity. WebSockets have been standard
+    for 10+ years. Every browser supports them natively.
+  - Vendor lock. The pattern (push architecture with a
+    per-ring stateful server) works on any cloud. We're
+    using CF's flavor but could port if needed.
+
+
+
+PART 8 — WHY NOW, NOT LATER
+---------------------------
+
+We just spent a full show day fighting a ticking clock
+problem that is structurally impossible under a push
+architecture. The v1.11 heartbeat fix keeps the lights
+on for this season but it's still polling underneath.
+Every session we spend polishing the polling-based
+design is session we could have spent building the
+thing that would make this class of bug impossible.
+
+The consolidation work (Step 1 above) we have to do
+anyway. Once that's done, Step 2 is small. Step 3 is
+small. Step 4 is tedious but low-risk because of the
+shadow-run pattern.
+
+Total work: real, but bounded. Payoff: permanent.
+
+
+
+END OF OVERVIEW
+---------------
+Questions that came up tonight that this doc answers:
+ - "Should we just show UDP data?" — yes, essentially,
+   but we wrap it in WebSockets so the client doesn't
+   have to interpolate or guess
+ - "What's the tax?" — higher write rate during shows,
+   but spectator reads drop 100-500x which is where
+   the real traffic is
+ - "Will we hit paid limits?" — no. Polling would
+   actually hit them sooner than WebSockets at scale
+ - "Is this really the most efficient?" — yes, for
+   this traffic shape (few writers, many readers,
+   real-time relay). Polling is the right answer for
+   some apps. This isn't one of them.
