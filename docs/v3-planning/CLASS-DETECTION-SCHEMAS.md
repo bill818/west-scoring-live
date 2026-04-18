@@ -381,7 +381,7 @@ These are decisions Bill should weigh in on before the v3 watcher/DO detection c
 ## Part 10 — References
 
 - `reference_ryegate_web_states.md` in Claude memory — authoritative 4-state classifier rules (Bill-confirmed 2026-04-15)
-- `CLS-FORMAT.md` at repo root — full .cls + tsked.csv column specs
+- `CLS-FORMAT.md` (sibling doc in this folder, moved here from repo root in Session 28) — full .cls + tsked.csv column specs
 - `SESSION-NOTES-22.txt` — tsked mode state machine introduced
 - `SESSION-NOTES-25.txt` — tsked gate rule for class-live + numeric status fallback
 - `SESSION-NOTES-26.txt` — FINISH_LOCK for two-phase transitions

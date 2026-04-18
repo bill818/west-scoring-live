@@ -14,7 +14,7 @@
 >
 > - If `classType == 'H'`: you're under the **hunter lens**. Only read the HUNTER sections.
 > - If `classType == 'J'` or `'T'`: you're under the **jumper lens**. Only read the JUMPER sections.
-> - If `classType == 'U'`: you have NO lens yet. Don't read column meanings until you resolve it (UDP hint, config default, or header shape). See `docs/v3-planning/CLASS-DETECTION-SCHEMAS.md`.
+> - If `classType == 'U'`: you have NO lens yet. Don't read column meanings until you resolve it (UDP hint, config default, or header shape). See `CLASS-DETECTION-SCHEMAS.md` (sibling doc).
 >
 > **The same column number means DIFFERENT things in different lenses.** `col[7]` = `numJudges` (hunter) or `r1FaultsPerInterval` (jumper). `col[10]` = `isEquitation` (hunter) or `r2FaultsPerInterval` (jumper). Never translate across.
 >

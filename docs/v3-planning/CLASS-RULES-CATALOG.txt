@@ -28,7 +28,7 @@ un-teach. See memory feedback_class_type_commandment.md.
 HOW TO READ THIS DOC
 --------------------
 This is the "behavior" side of the .cls story. For the
-"column position" side, see /CLS-FORMAT.md at the repo root
+"column position" side, see CLS-FORMAT.md (sibling doc in docs/v3-planning/)
 — that's the column-by-column specification and must stay
 in sync with the watcher parser.
 

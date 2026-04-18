@@ -28,7 +28,7 @@ This is the document v3's `.cls` parser + class descriptor codes against. When y
 
 Related docs:
 - `CLASS-RULES-CATALOG.txt` — broader behavioral rules by U/H/T/J
-- `/CLS-FORMAT.md` — column-level .cls spec (source of truth for field positions)
+- `CLS-FORMAT.md` (sibling doc in this folder, moved here from repo root in Session 28) — column-level .cls spec (source of truth for field positions)
 - `STATS-MODULE-ADDENDUM.txt` — how these methods power stats primitives
 
 ---
@@ -373,7 +373,7 @@ No patching parser code without updating this doc first.
 
 ## Sources consulted for this document
 
-- `/CLS-FORMAT.md` — lines 129-194 (method spec table), 227-239 (status-carry rules), 270-273 (Method 6 optimum), 388-427 (class 221 live data)
+- `CLS-FORMAT.md` (sibling doc) — lines 129-194 (method spec table), 227-239 (status-carry rules), 270-273 (Method 6 optimum), 388-427 (class 221 live data)
 - `SESSION-NOTES-20.txt` — FEI flag integration, hunter multi-round
 - `SESSION-NOTES-21.txt` — Method 7 Timed Equitation full implementation, UDP patterns
 - `SESSION-NOTES-22.txt` — Method 14/15 swap fix, Method 2 JO-N overlay, methods 5/8 dropped, class 809 Method 2 test

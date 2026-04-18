@@ -690,7 +690,7 @@ v3 parser emits this descriptor from the `.cls` header. Every page reads the des
 
 ## Related docs
 
-- `CLS-FORMAT.md` at repo root — column-level spec (source of truth for field positions)
+- `CLS-FORMAT.md` (sibling doc in this folder, moved here from repo root in Session 28) — column-level spec (source of truth for field positions)
 - `JUMPER-METHODS-REFERENCE.md` — companion reference, same structure
 - `CLASS-RULES-CATALOG.txt` — behavioral rules by U/H/T/J classType (part 2 covers hunters)
 - `CLASS-DETECTION-SCHEMAS.md` — hunter detection rules (.cls write-timing differs from jumper)

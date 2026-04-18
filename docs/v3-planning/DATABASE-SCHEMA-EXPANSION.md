@@ -248,7 +248,7 @@ Per-phase end-to-end verification:
 - `c:\Users\bwort\OneDrive\Documents\OneDrive\Desktop\westscoringrepo\west-scoring-live\docs\v3-planning\V3-BUILD-PLAN.txt` — Addendum B (same D1, new tables) authoritative
 - `c:\Users\bwort\OneDrive\Documents\OneDrive\Desktop\westscoringrepo\west-scoring-live\docs\v3-planning\STATS-MODULE-ADDENDUM.txt` — Alleys 1-7 drive every table design decision here
 - `c:\Users\bwort\OneDrive\Documents\OneDrive\Desktop\westscoringrepo\west-scoring-live\docs\v3-planning\CLASS-RULES-CATALOG.txt` — quirk taxonomy feeds `parse_warnings.warning_code`
-- `c:\Users\bwort\OneDrive\Documents\OneDrive\Desktop\westscoringrepo\west-scoring-live\CLS-FORMAT.md` — parser column spec, input to `class_descriptors`
+- `c:\Users\bwort\OneDrive\Documents\OneDrive\Desktop\westscoringrepo\west-scoring-live\docs\v3-planning\CLS-FORMAT.md` (moved here from repo root in Session 28) — parser column spec, input to `class_descriptors`
 
 ---
 
