@@ -329,13 +329,14 @@ function renderClasses() {
 function buildClassRow(c, activeNums) {
   const isLive = activeNums.includes(String(c.class_num));
   const isComplete = c.status === 'complete';
+  const neverRan = isComplete && !c.first_ride_at && c.competed_count === 0;
   const type = typeLabel(c.class_type);
   const entryInfo = c.entry_count > 0 ? c.entry_count + ' entries' : '';
   const meta = [type, entryInfo].filter(Boolean).join(' &middot; ');
   const dot = isLive ? '<span class="live-dot-inline"></span>' : '';
-  const completeBadge = isComplete ? '<span class="badge-complete">Complete</span>' : '';
+  const completeBadge = (isComplete && !neverRan) ? '<span class="badge-complete">Complete</span>' : '';
   const scoredBadge = ''; // Removed — "Scored" label not needed on class list
-  const joBadge = c.schedule_flag === 'JO' && !isComplete ? '<span class="badge-jo">Order of Go Posted</span>' : '';
+  const joBadge = c.schedule_flag === 'JO' && !completeBadge ? '<span class="badge-jo">Order of Go Posted</span>' : '';
 
   return '<a class="class-row" href="results.html?slug=' + esc(SLUG) + '&classNum=' + esc(c.class_num) + '&ring=' + esc(RING) + '&name=' + encodeURIComponent(SHOW_NAME) + '">'
     + '<span class="class-num">' + esc(c.class_num) + '</span>'

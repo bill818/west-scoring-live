@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.10.0';
+const WATCHER_VERSION = '1.9.0';
 
 const fs    = require('fs');
 const path  = require('path');
@@ -1129,11 +1129,6 @@ function logClass(parsed, changed) {
 // (new classes added by Ryegate) vs no-op touches (Upload Results mtime bumps).
 let lastTskedContent = '';
 
-// Track which classes are already in tsked.csv so we can detect new arrivals.
-// A class appearing in tsked.csv means the operator posted an OOG or intro'd
-// a horse — that's the signal to make the class live on the website (v1.9.0).
-let tskedKnownClasses = new Set();
-
 function readTsked(reason) {
   reason = reason || 'startup';
   const content = safeRead(TSKED_PATH);
@@ -1150,21 +1145,17 @@ function readTsked(reason) {
   log('TSKED FILE (' + reason + '):');
 
   const schedClasses = [];
-  const currentClasses = new Set();
   lines.forEach((line, i) => {
     const cols = parseCSVLine(line);
     if (i === 0) {
       log(`  Show: ${cols[0]} | Dates: ${cols[1]}`);
     } else {
       const classNum = (cols[0] || '').trim();
-      const className = (cols[1] || '').trim();
       const date     = (cols[2] || '').trim();
       const flag     = (cols[3] || '').trim();
-      log(`  Class ${classNum}: ${className} | Date: ${date} | Flag: ${flag}`);
+      log(`  Class ${classNum}: ${cols[1]} | Date: ${date} | Flag: ${flag}`);
 
       if (classNum && date) {
-        currentClasses.add(classNum);
-
         // Normalize date from M/D/YYYY to YYYY-MM-DD for D1
         let isoDate = '';
         const dm = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -1177,20 +1168,9 @@ function readTsked(reason) {
           order: i,
           flag: flag || ''
         });
-
-        // v1.9.0: Detect new classes — fire CLASS_SELECTED when a class
-        // appears in tsked.csv for the first time (not on startup scan).
-        if (reason !== 'startup' && !tskedKnownClasses.has(classNum)) {
-          logSeparator();
-          log(`★ CLASS ACTIVATED — class ${classNum} (${className}) appeared in tsked.csv`);
-          logSeparator();
-          activateClassFromTsked(classNum, className);
-        }
       }
     }
   });
-
-  tskedKnownClasses = currentClasses;
 
   // Post schedule to Worker. On startup, delay so initial .cls scan finishes first.
   // Cache content only after the Worker acks ok:true (via onSuccess callback).
@@ -1207,24 +1187,6 @@ function readTsked(reason) {
           log(`[TSKED] Posted ${schedClasses.length} class schedules to Worker (${reason}) — accepted`);
         });
     }, delay);
-  }
-}
-
-// Called when a new class appears in tsked.csv — this is the real "go live" signal.
-// Posts CLASS_SELECTED to the worker so the class shows up on the website.
-function activateClassFromTsked(classNum, className) {
-  postToWorker('/postClassEvent',
-    { event: 'CLASS_SELECTED', classNum, className },
-    `CLASS_SELECTED class ${classNum} (via tsked.csv)`);
-
-  // Re-post the .cls data so standings are available immediately
-  const filename = classNum + '.cls';
-  const content = fileStates[filename];
-  if (content) {
-    const parsed = parseCls(content, filename);
-    if (parsed) {
-      postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (tsked activation)`);
-    }
   }
 }
 
@@ -1614,7 +1576,6 @@ function buildHeartbeat() {
       classNum:   selectedClassNum,
       entry:      lastEntry   || '',
       elapsed:    lastElapsed || '',
-      countdown:  lastCd      || '',
       ta:         lastTa      || '',
       phase:      lastPhase   || '',
       jumpFaults: lastJump    || '0',
@@ -1873,16 +1834,15 @@ function handleClassSelected(classNum, className) {
   delete lastClassCommitted[classNum];
 
   logSeparator();
-  log(`CLASS SELECTED: class ${classNum} — ${className} (internal — waiting for tsked.csv)`);
+  log(`CLASS SELECTED: class ${classNum} — ${className}`);
+  log(`  Screens watching this class will refresh`);
   logSeparator();
 
-  // v1.9.0: Ctrl+A is internal bookkeeping only. CLASS_SELECTED is NOT posted
-  // to the worker here — the class doesn't go live on the website until it
-  // appears in tsked.csv (OOG posted or first horse intro'd). This prevents
-  // phantom "live" classes when the operator is just browsing/setting up.
-  // The tsked.csv watcher fires activateClassFromTsked() when a new class appears.
+  postToWorker('/postClassEvent',
+    { event: 'CLASS_SELECTED', classNum, className },
+    `CLASS_SELECTED class ${classNum}`);
 
-  // Start tsked.php ring-level poll — watches for badge transitions on ryegate.live.
+  // Start tsked.php ring-level poll (v1.9.0) — replaces blind per-class peek.
   tskedWakeUp('CLASS_SELECTED class ' + classNum);
 
   // Switch heartbeat to 10s active cadence (carries clock snapshot)
@@ -1890,8 +1850,8 @@ function handleClassSelected(classNum, className) {
 
   resetIdleTimer(classNum);
 
-  // Re-post this class's current data 300ms later so standings are fresh
-  // when the class eventually goes live via tsked.csv.
+  // Re-post this class's current data 300ms later so the Worker's live: KV
+  // gets populated with the right class immediately after selected: KV is set.
   setTimeout(() => {
     const filename = classNum + '.cls';
     const content = fileStates[filename];

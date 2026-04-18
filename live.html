@@ -1057,6 +1057,11 @@ async function poll() {
     WEST.applyHeartbeatClock(liveData.heartbeatClock, liveData.heartbeatTs);
   }
   render();
+  // Immediately tick the clock in the same JS frame as render(). render() does
+  // innerHTML= which recreates the woc-clock element. Without this, the browser
+  // paints renderOnCourse's value (slightly off) before tickOnCourse overwrites
+  // it on the next setInterval — causing a visible flicker every poll cycle.
+  WEST.tickOnCourse();
   // Adaptive poll cadence — 1s active, 10s idle baseline. WEST.getPollInterval
   // dials back further on slow-2g/2g/3g or when Save-Data is set, for mobile
   // viewers in weak service areas.

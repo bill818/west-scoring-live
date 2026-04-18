@@ -2435,6 +2435,7 @@ function computeClassResults(body) {
     sponsor: body.sponsor || '',
     trophy: body.trophy || '',
     orderOfGo: oog.length ? oog : null,
+    hasRealOrder: hasRideOrder,
     prizes: prizes,
   };
 

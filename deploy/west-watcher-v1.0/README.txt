@@ -1,6 +1,6 @@
 ============================================================
   WEST Scoring Live — Scoring PC Watcher
-  Version 1.8.0
+  Version 1.10.0
 ============================================================
 
 WEB PAGES (PREVIEW)
@@ -158,6 +158,34 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.10.0  (2026-04-17)
+
+  + tsked.csv gate: classes only go live on the website when they
+    appear in the local tsked.csv file (OOG posted or first horse
+    intro'd). Ctrl+A is internal bookkeeping only — prevents
+    phantom "live" classes when the operator is setting up.
+    CLASS_SELECTED fires from tsked.csv watcher, not Ctrl+A.
+  + Heartbeat now carries countdown value for CD phase. Full
+    heartbeat clock snapshot: phase, elapsed, countdown, ta,
+    jumpFaults, rank, entry. Browser has everything it needs
+    for every phase of the ride from the 10s heartbeat alone.
+
+v1.9.0  (2026-04-17)
+
+  + tsked.php ring-level peek — replaces per-class blind polling
+    and stale-peek sweep. One fetch of ryegate.live/tsked.php
+    covers every class in the ring. Detects badge transitions:
+    OrderOfGo.jpg (OOG posted), live.jpg (horses going), no badge
+    (class closed). Per-class peek only fires on demand when
+    tsked.php signals a transition. ~34% fewer requests to
+    ryegate.live, eliminates the 5-min stale sweep entirely.
+  + Active/idle mode: tsked polling starts on Ctrl+A / UDP / boot
+    and stops after 3 consecutive clean polls with no badges.
+    Zero ryegate.live requests when the ring is quiet.
+  + Class 417 detection: OOG badge → no badge (never went LIVE)
+    fires CLASS_COMPLETE automatically. Previously required
+    manual 3x Ctrl+A or 60-min auto-complete timeout.
+
 v1.8.0  (2026-04-16)
 
   + Stale active class re-peek sweep: every 5 min the watcher

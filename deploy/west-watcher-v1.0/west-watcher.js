@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.8.0';
+const WATCHER_VERSION = '1.10.0';
 
 const fs    = require('fs');
 const path  = require('path');
@@ -249,54 +249,234 @@ function stopPeekPolling() {
   if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
 }
 
-// ── IDLE TIMEOUT — REMOVED ──────────────────────────────────────────────────
-// resetIdleTimer is now a no-op so call sites don't need to change.
-function resetIdleTimer() {}
+// resetIdleTimer — repurposed as tsked wake-up trigger (v1.9.0).
+// Called from UDP processing and class events. Kicks tsked into ACTIVE mode
+// if it's idle, so UDP activity wakes up the ring-level poll.
+function resetIdleTimer() {
+  tskedWakeUp('UDP activity');
+}
 
-// ── STALE ACTIVE CLASS RE-PEEK ──────────────────────────────────────────────
-// Peek only watches selectedClassNum. Concurrent classes that never get Ctrl+A'd
-// miss peek detection entirely. This sweep runs every 5 min and one-shot peeks
-// any active class (from the worker's active array) that isn't currently selected.
-// If ryegate.live shows UPLOADED → fire CLASS_COMPLETE for that class.
-const STALE_PEEK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+// ── TSKED.PHP RING-LEVEL PEEK (v1.9.0) ─────────────────────────────────────
+// Replaces the stale-peek sweep. One fetch of tsked.php covers every class in
+// the ring — returns badge state (OrderOfGo.jpg = OOG, live.jpg = LIVE, none).
+// Per-class peek only fires on demand when tsked.php detects a transition.
+// Modes: IDLE (no polling, UDP socket listening) → ACTIVE (tsked poll ~45s).
 
-async function stalePeekSweep() {
+const TSKED_POLL_MS        = 45000;  // ~45s between tsked.php polls
+const TSKED_IDLE_THRESHOLD = 3;      // consecutive clean polls before going idle
+
+let tskedTimer      = null;
+let tskedBadgeMap   = {};    // classNum → 'OOG' | 'LIVE' | 'NONE'
+let tskedMode       = 'IDLE';  // 'IDLE' | 'ACTIVE'
+let tskedCleanPolls = 0;     // consecutive polls with zero badges
+let tskedErrorCount = 0;     // consecutive fetch errors
+
+function buildTskedUrl() {
+  if (!ryegateLivePath) return null;
+  const livePath = ryegateLivePath.replace(/^SHOWS\//i, '');
+  return `https://ryegate.live/${livePath}/tsked.php`;
+}
+
+// Fetch tsked.php and return raw HTML (or null on error).
+async function fetchTsked() {
+  const url = buildTskedUrl();
+  if (!url) return null;
+  const startMs = Date.now();
   try {
-    const https = require('https');
-    const url = `${WORKER_URL}/getLiveClass?slug=${encodeURIComponent(SHOW_SLUG)}&ring=${SHOW_RING}`;
-    const mod = url.startsWith('https') ? https : require('http');
-    const body = await new Promise((resolve, reject) => {
-      const req = mod.get(url, { timeout: 10000, headers: { 'X-West-Key': AUTH_KEY } }, (res) => {
-        let d = '';
-        res.on('data', c => d += c);
-        res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+    const mod = url.startsWith('https') ? https : http;
+    return new Promise((resolve) => {
+      const req = mod.get(url, { timeout: 10000 }, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          peekLog(`TSKED fetch url=${url} http=${res.statusCode} bytes=${body.length} ms=${Date.now() - startMs}`);
+          resolve(body);
+        });
       });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.on('error', (e) => {
+        peekLog(`TSKED fetch ERROR url=${url} ms=${Date.now() - startMs} err=${e.code || e.message}`);
+        resolve(null);
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        peekLog(`TSKED fetch TIMEOUT url=${url} ms=${Date.now() - startMs}`);
+        resolve(null);
+      });
     });
-    const active = body.activeClasses || [];
-    if (!active.length) return;
-    for (const ac of active) {
-      if (selectedClassNum && String(ac.classNum) === String(selectedClassNum)) continue;
-      const result = await peekClass(ac.classNum);
-      if (result && result.state === 'UPLOADED') {
-        if (shouldCommit(ac.classNum, 'stale-peek-sweep')) {
-          logSeparator();
-          log(`★ CLASS COMPLETE — class ${ac.classNum} via stale-peek-sweep (UPLOADED on ryegate.live)`);
-          logSeparator();
-          peekLog(`★ STALE_SWEEP class=${ac.classNum} → UPLOADED → CLASS_COMPLETE`);
-          handleClassComplete(ac.classNum, ac.className || '');
-        }
-      } else if (result) {
-        peekLog(`STALE_SWEEP class=${ac.classNum} state=${result.state} (not UPLOADED, skipping)`);
-      }
-    }
   } catch(e) {
-    log(`[STALE_SWEEP] error: ${e.message}`);
+    return null;
   }
 }
 
-setInterval(stalePeekSweep, STALE_PEEK_INTERVAL);
+// Parse tsked.php HTML → { classNum: 'OOG' | 'LIVE' | 'NONE' }
+// Each class row has: <a href="results.php?class=NNN">...</a>
+// Badge images: OrderOfGo.jpg → OOG, live.jpg → LIVE, no image → NONE.
+// The badge image appears right after the class link text on the same line.
+function parseTskedPage(html) {
+  const map = {};
+  // Split into lines and look for class links + nearby badge images.
+  // Pattern: results.php?class=NNN followed by optional badge image on same line.
+  const classPattern = /results\.php\?class=(\d+)/g;
+  const lines = html.split(/\n/);
+  for (const line of lines) {
+    let match;
+    classPattern.lastIndex = 0;
+    while ((match = classPattern.exec(line)) !== null) {
+      const classNum = match[1];
+      // Check for badge images on this line AFTER the class link
+      const afterMatch = line.slice(match.index);
+      if (/live\.jpg/i.test(afterMatch)) {
+        map[classNum] = 'LIVE';
+      } else if (/OrderOfGo\.jpg/i.test(afterMatch)) {
+        map[classNum] = 'OOG';
+      } else {
+        map[classNum] = 'NONE';
+      }
+    }
+  }
+  return map;
+}
+
+// Main tsked poll — fetch, diff, fire transitions.
+async function pollTsked() {
+  const html = await fetchTsked();
+  if (!html) {
+    tskedErrorCount++;
+    if (tskedErrorCount >= 3) {
+      log(`[TSKED] 3 consecutive errors — cooling down 5min`);
+      peekLog(`TSKED COOLDOWN reason=3 consecutive errors`);
+      tskedErrorCount = 0;
+      scheduleTskedPoll(5 * 60 * 1000);
+      return;
+    }
+    scheduleTskedPoll();
+    return;
+  }
+  tskedErrorCount = 0;
+
+  const newMap = parseTskedPage(html);
+  const allClasses = new Set([...Object.keys(tskedBadgeMap), ...Object.keys(newMap)]);
+  let anyBadge = false;
+
+  for (const classNum of allClasses) {
+    const prev = tskedBadgeMap[classNum] || 'NONE';
+    const curr = newMap[classNum] || 'NONE';
+    if (curr !== 'NONE') anyBadge = true;
+
+    if (prev === curr) continue; // no change
+
+    log(`[TSKED] class ${classNum}: ${prev} → ${curr}`);
+    peekLog(`TSKED TRANSITION class=${classNum} ${prev} → ${curr}`);
+
+    // ── OOG appeared — class opened, order posted ──
+    if (curr === 'OOG' && prev === 'NONE') {
+      // Informational — the class is open with OOG but not yet live.
+      // Don't fire CLASS_COMPLETE or CLASS_SELECTED — Ctrl+A handles that.
+      postToWorker('/postClassEvent',
+        { event: 'ORDER_POSTED', classNum },
+        `ORDER_POSTED class ${classNum} (via tsked)`);
+    }
+
+    // ── OOG → LIVE — first horse on course ──
+    if (curr === 'LIVE' && (prev === 'OOG' || prev === 'NONE')) {
+      // Trigger a per-class peek to get detailed state (IN_PROGRESS confirmation).
+      log(`[TSKED] class ${classNum} went LIVE — triggering per-class peek`);
+      triggerOneShotPeek(classNum);
+    }
+
+    // ── LIVE → NONE — class finished or closed ──
+    if (curr === 'NONE' && prev === 'LIVE') {
+      // Badge timer expired after last publish. Confirm with a per-class peek.
+      log(`[TSKED] class ${classNum} LIVE badge dropped — confirming with per-class peek`);
+      triggerOneShotPeek(classNum);
+    }
+
+    // ── OOG → NONE — class 417 case: opened, OOG posted, closed without running ──
+    if (curr === 'NONE' && prev === 'OOG') {
+      log(`[TSKED] class ${classNum} OOG → NONE — class opened and closed without running`);
+      peekLog(`TSKED class=${classNum} OOG→NONE — firing CLASS_COMPLETE (abandoned)`);
+      if (shouldCommit(classNum, 'tsked-oog-dropped')) {
+        logSeparator();
+        log(`★ CLASS COMPLETE — class ${classNum} via tsked (OOG dropped without going LIVE)`);
+        logSeparator();
+        handleClassComplete(classNum, '');
+      }
+    }
+  }
+
+  tskedBadgeMap = newMap;
+
+  // Idle detection — go idle after N consecutive polls with zero badges
+  if (anyBadge) {
+    tskedCleanPolls = 0;
+  } else {
+    tskedCleanPolls++;
+    if (tskedCleanPolls >= TSKED_IDLE_THRESHOLD) {
+      log(`[TSKED] ${TSKED_IDLE_THRESHOLD} clean polls — going IDLE`);
+      peekLog(`TSKED → IDLE (${TSKED_IDLE_THRESHOLD} clean polls, no badges)`);
+      setTskedMode('IDLE');
+      return; // don't schedule next poll
+    }
+  }
+
+  scheduleTskedPoll();
+}
+
+// One-shot per-class peek triggered by a tsked.php transition.
+// Checks the individual results page and fires CLASS_COMPLETE if UPLOADED.
+async function triggerOneShotPeek(classNum) {
+  const result = await peekClass(classNum);
+  if (!result || !result.state) return;
+  const prev = peekLastState[classNum];
+  peekLog(`ONE_SHOT class=${classNum} state=${result.state} prev=${prev||'(none)'}`);
+
+  if (result.state !== prev) {
+    peekLastState[classNum] = result.state;
+    log(`[PEEK] class ${classNum}: ${prev || '(init)'} → ${result.state}`);
+  }
+
+  if (result.state === 'UPLOADED') {
+    if (shouldCommit(classNum, 'tsked-oneshot-peek')) {
+      logSeparator();
+      log(`★ CLASS COMPLETE — class ${classNum} via tsked-triggered peek (UPLOADED)`);
+      logSeparator();
+      handleClassComplete(classNum, '');
+    }
+  }
+}
+
+function scheduleTskedPoll(delayOverride) {
+  if (tskedTimer) { clearTimeout(tskedTimer); tskedTimer = null; }
+  const delay = delayOverride != null ? delayOverride : TSKED_POLL_MS;
+  tskedTimer = setTimeout(pollTsked, delay);
+}
+
+function stopTskedPoll() {
+  if (tskedTimer) { clearTimeout(tskedTimer); tskedTimer = null; }
+}
+
+function setTskedMode(mode) {
+  if (mode === tskedMode) return;
+  tskedMode = mode;
+  log(`[TSKED] mode → ${mode}`);
+  if (mode === 'ACTIVE') {
+    tskedCleanPolls = 0;
+    tskedErrorCount = 0;
+    // Immediate first poll, then scheduled
+    pollTsked();
+  } else {
+    stopTskedPoll();
+  }
+}
+
+// Wake-up: called by CLASS_SELECTED, UDP activity, config.dat change.
+function tskedWakeUp(reason) {
+  if (tskedMode === 'ACTIVE') return; // already running
+  if (!ryegateLivePath) return;
+  log(`[TSKED] wake-up: ${reason}`);
+  peekLog(`TSKED WAKE_UP reason=${reason}`);
+  setTskedMode('ACTIVE');
+}
 
 // ── WORKER CONFIG ─────────────────────────────────────────────────────────────
 // Loaded from config.json in same folder as this script
@@ -949,6 +1129,11 @@ function logClass(parsed, changed) {
 // (new classes added by Ryegate) vs no-op touches (Upload Results mtime bumps).
 let lastTskedContent = '';
 
+// Track which classes are already in tsked.csv so we can detect new arrivals.
+// A class appearing in tsked.csv means the operator posted an OOG or intro'd
+// a horse — that's the signal to make the class live on the website (v1.9.0).
+let tskedKnownClasses = new Set();
+
 function readTsked(reason) {
   reason = reason || 'startup';
   const content = safeRead(TSKED_PATH);
@@ -965,17 +1150,21 @@ function readTsked(reason) {
   log('TSKED FILE (' + reason + '):');
 
   const schedClasses = [];
+  const currentClasses = new Set();
   lines.forEach((line, i) => {
     const cols = parseCSVLine(line);
     if (i === 0) {
       log(`  Show: ${cols[0]} | Dates: ${cols[1]}`);
     } else {
       const classNum = (cols[0] || '').trim();
+      const className = (cols[1] || '').trim();
       const date     = (cols[2] || '').trim();
       const flag     = (cols[3] || '').trim();
-      log(`  Class ${classNum}: ${cols[1]} | Date: ${date} | Flag: ${flag}`);
+      log(`  Class ${classNum}: ${className} | Date: ${date} | Flag: ${flag}`);
 
       if (classNum && date) {
+        currentClasses.add(classNum);
+
         // Normalize date from M/D/YYYY to YYYY-MM-DD for D1
         let isoDate = '';
         const dm = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -988,9 +1177,20 @@ function readTsked(reason) {
           order: i,
           flag: flag || ''
         });
+
+        // v1.9.0: Detect new classes — fire CLASS_SELECTED when a class
+        // appears in tsked.csv for the first time (not on startup scan).
+        if (reason !== 'startup' && !tskedKnownClasses.has(classNum)) {
+          logSeparator();
+          log(`★ CLASS ACTIVATED — class ${classNum} (${className}) appeared in tsked.csv`);
+          logSeparator();
+          activateClassFromTsked(classNum, className);
+        }
       }
     }
   });
+
+  tskedKnownClasses = currentClasses;
 
   // Post schedule to Worker. On startup, delay so initial .cls scan finishes first.
   // Cache content only after the Worker acks ok:true (via onSuccess callback).
@@ -1007,6 +1207,24 @@ function readTsked(reason) {
           log(`[TSKED] Posted ${schedClasses.length} class schedules to Worker (${reason}) — accepted`);
         });
     }, delay);
+  }
+}
+
+// Called when a new class appears in tsked.csv — this is the real "go live" signal.
+// Posts CLASS_SELECTED to the worker so the class shows up on the website.
+function activateClassFromTsked(classNum, className) {
+  postToWorker('/postClassEvent',
+    { event: 'CLASS_SELECTED', classNum, className },
+    `CLASS_SELECTED class ${classNum} (via tsked.csv)`);
+
+  // Re-post the .cls data so standings are available immediately
+  const filename = classNum + '.cls';
+  const content = fileStates[filename];
+  if (content) {
+    const parsed = parseCls(content, filename);
+    if (parsed) {
+      postToWorker('/postClassData', { ...parsed, clsRaw: content }, `postClassData ${filename} (tsked activation)`);
+    }
   }
 }
 
@@ -1071,6 +1289,7 @@ function readConfig() {
     ryegateLivePath = (cols[4] || '').trim();
     if (ryegateLivePath) {
       log('  Peek URL:     https://ryegate.live/' + ryegateLivePath.replace(/^SHOWS\//i, '') + '/results.php?class=...');
+      log('  Tsked URL:    ' + buildTskedUrl());
     }
 
     // Slug comes from config.json only — Ryegate col[24] is ignored
@@ -1368,6 +1587,15 @@ startWatcher();
 log('Running — press Ctrl+C to stop');
 log('');
 
+// Cold-start tsked.php check — see if anything is already live on ryegate.live.
+// Delayed 3s so config is fully loaded.
+setTimeout(() => {
+  if (ryegateLivePath) {
+    log('[TSKED] Cold-start check...');
+    tskedWakeUp('cold-start');
+  }
+}, 3000);
+
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
 // Adaptive heartbeat: 10s when a class is active (carries clock snapshot so
 // the website can self-correct on spotty internet), 60s when idle.
@@ -1386,6 +1614,7 @@ function buildHeartbeat() {
       classNum:   selectedClassNum,
       entry:      lastEntry   || '',
       elapsed:    lastElapsed || '',
+      countdown:  lastCd      || '',
       ta:         lastTa      || '',
       phase:      lastPhase   || '',
       jumpFaults: lastJump    || '0',
@@ -1644,24 +1873,25 @@ function handleClassSelected(classNum, className) {
   delete lastClassCommitted[classNum];
 
   logSeparator();
-  log(`CLASS SELECTED: class ${classNum} — ${className}`);
-  log(`  Screens watching this class will refresh`);
+  log(`CLASS SELECTED: class ${classNum} — ${className} (internal — waiting for tsked.csv)`);
   logSeparator();
 
-  postToWorker('/postClassEvent',
-    { event: 'CLASS_SELECTED', classNum, className },
-    `CLASS_SELECTED class ${classNum}`);
+  // v1.9.0: Ctrl+A is internal bookkeeping only. CLASS_SELECTED is NOT posted
+  // to the worker here — the class doesn't go live on the website until it
+  // appears in tsked.csv (OOG posted or first horse intro'd). This prevents
+  // phantom "live" classes when the operator is just browsing/setting up.
+  // The tsked.csv watcher fires activateClassFromTsked() when a new class appears.
 
-  // Start ryegate.live peek polling for this class (randomized 15–30s interval)
-  startPeekPolling(classNum);
+  // Start tsked.php ring-level poll — watches for badge transitions on ryegate.live.
+  tskedWakeUp('CLASS_SELECTED class ' + classNum);
 
   // Switch heartbeat to 10s active cadence (carries clock snapshot)
   scheduleHeartbeat();
 
   resetIdleTimer(classNum);
 
-  // Re-post this class's current data 300ms later so the Worker's live: KV
-  // gets populated with the right class immediately after selected: KV is set.
+  // Re-post this class's current data 300ms later so standings are fresh
+  // when the class eventually goes live via tsked.csv.
   setTimeout(() => {
     const filename = classNum + '.cls';
     const content = fileStates[filename];
@@ -1681,9 +1911,9 @@ function handleClassComplete(classNum, className) {
   log(`CLASS COMPLETE: class ${classNum} — ${className}`);
   logSeparator();
 
-  // Stop peek polling and idle timer — class is done
+  // Stop per-class peek — class is done. tsked.php poll keeps running
+  // (other classes may still be active in the ring).
   stopPeekPolling();
-  resetIdleTimer(); // no-op — idle timer removed, but call kept for safety
 
   // Switch heartbeat back to idle cadence (no clock snapshot)
   selectedClassNum = null;
