@@ -1,0 +1,677 @@
+============================================================
+  WEST-SCORING-LIVE — CLASS RULES CATALOG
+  Every behavioral rule + .cls permutation we've learned
+  Organized by classType: U / H / T / J
+  Living reference for the v3 rebuild
+============================================================
+
+
+HOW TO READ THIS DOC
+--------------------
+This is the "behavior" side of the .cls story. For the
+"column position" side, see /CLS-FORMAT.md at the repo root
+— that's the column-by-column specification and must stay
+in sync with the watcher parser.
+
+This doc answers the question "given that we've parsed the
+.cls correctly, what do we DO with it for each class type?"
+
+LABELS:
+  U  = Unformatted        (classType column empty or unknown)
+  H  = Hunter             (classType = 'H')
+  T  = TIMY Jumper        (classType = 'T' — vendor: TIMY)
+  J  = Farmtek Jumper     (classType = 'J' — vendor: Farmtek)
+
+Rule prefix shows which class types it applies to:
+  [U]    — Unformatted only
+  [H]    — Hunter only
+  [T]    — TIMY Jumper only
+  [J]    — Farmtek Jumper only
+  [T|J]  — Both jumper flavors
+  [H|U]  — Hunter or Unformatted
+  [ALL]  — All class types
+
+When adding a new rule, put it in the right section AND
+add the label prefix so greps find it.
+
+
+============================================================
+  PART 1 — CLASS TYPE DETECTION (U → H/T/J)
+============================================================
+
+THE PROBLEM:
+Ryegate writes classType in .cls row 0, col[0]. But for
+"unopened" classes (imported from show office, never touched
+in Ryegate), classType is empty → falls through to 'U'.
+
+U classes are not a final type — they're a transition state
+that must be RESOLVED to H, T, or J before display can work.
+
+
+[U] DETECTION STEP 1 — UDP TYPE HINT
+    If a UDP frame has been received for this class number,
+    the first jumper frame (tag-23 countdown present) or
+    hunter frame (tag-11 judge score present) gives an
+    authoritative type hint. Watcher logs:
+      [TYPE HINT] class NNN = J|T|H (first jumper|hunter UDP frame)
+    Applied in the parser BEFORE the isJumperHeader branch
+    runs so scoringMethod and TA get extracted.
+
+    SOURCE: west-watcher.js line ~708-715
+    Learned: early sessions (S14-S16) when U classes showed
+    as "Unformatted" in the UI even though they were running.
+
+
+[U] DETECTION STEP 2 — HEADER-BASED INFERENCE
+    If still U after Step 1 AND cols[2] is numeric (0-15),
+    this is a formatted-but-unopened jumper/eq class. Infer
+    classType from config.dat's defaultJumperType (T or J
+    depending on vendor setup).
+    Watcher logs:
+      [TYPE INFER] class NNN U -> J|T (scoring method N + config.dat timer default)
+
+    SOURCE: west-watcher.js line ~722-732
+
+
+[U] DETECTION STEP 3 — FALL THROUGH TO 'Unformatted'
+    If neither hint nor header gives a type, class stays U.
+    UI renders it as "Unformatted" badge — tells operator
+    the class exists but hasn't been opened in Ryegate yet.
+
+    CONSEQUENCE: no scoring method, no TA, no round count.
+    Do NOT attempt to render standings for U classes. Show
+    only class number + name + "Unformatted" status.
+
+
+============================================================
+  PART 2 — HUNTER CLASS RULES [H]
+============================================================
+
+Hunter is the most variant class type. Method + flags combine
+to produce 10+ distinct display behaviors.
+
+
+[H] CORE DETECTION FIELDS (from .cls row 0):
+    classMode (cols[2])       — 0=OverFences, 1=Flat, 2=Derby, 3=Special
+    numRounds (cols[3])       — 1, 2, or 3
+    scoringType (cols[5])     — 0=Forced, 1=Scored, 2=HiLo
+    numJudges (cols[7])       — 1 to 7+ (see per-judge column layout)
+    isEquitation (cols[10])   — True/False — equitation flag
+    isChampionship (cols[11]) — True/False
+    isJogged (cols[12])       — True/False (jog after to confirm placings)
+    derbyType (cols[37])      — 0-8 (derby variants)
+
+
+[H] WRITE TIMING — .cls AUTHORITATIVE:
+    File does NOT write when horse goes on course.
+    File DOES write when score is posted.
+    CONSEQUENCE: the {fr}=11 UDP INTRO frame is our ONLY
+    on-course signal for hunters. .cls changes = score posted.
+    No need to parse FINISH UDP for hunters — the .cls tells
+    you definitively who scored and what.
+
+    SOURCE: CLS-FORMAT.md header, confirmed 2026-03-29.
+
+
+[H] MODE BEHAVIORS:
+
+    [H] OVER FENCES (classMode='0') — standard hunter
+        - Judge scores at cols[15+j] for R1, [24+j] for R2, [33+j] for R3
+          (j = 0 to numJudges-1)
+        - Up to 7 judges confirmed in field testing (S20)
+        - Total scores at cols[42]/[43]/[44] for R1/R2/R3
+        - Combined at cols[45]
+        - Display primary: horse
+
+    [H] FLAT (classMode='1') — hunter under saddle / flat class
+        - No rounds, pure judged placings
+        - Score is THE answer, no time involved
+        - Numeric judge scores less relevant — placings are final
+        - Display: strip time/faults entirely
+
+    [H] DERBY (classMode='2') — hunter derby
+        - Different column layout from over-fences!
+        - R1: col[15]=hiopt, col[16]=J1base, col[17]=hiopt mirror, col[18]=J2base
+        - R2: col[24]=hiopt, col[25]=J1base, col[26]=J1bonus,
+              col[27]=hiopt mirror, col[28]=J2base, col[29]=J2bonus
+        - High option + handy bonus displayed
+        - derbyType (cols[37]) further discriminates derby variants
+        - Display: show base score + handy bonus stacked
+
+    [H] SPECIAL (classMode='3') — catchall for championships, etc.
+        - Similar column layout to over-fences
+        - Often used with isTeam flag for team competitions
+        - Phase weights (cols[22]/[23]/[24]) may be !=100
+
+
+[H] SCORING TYPES:
+
+    [H] FORCED (scoringType='0')
+        - No judge scores shown — only placings
+        - hasGone evidence: entry has a PLACE (not a score)
+        - Display: rank only, no numeric score
+        - Common in championships and low-level classes
+
+    [H] SCORED (scoringType='1')
+        - Judge scores are shown publicly
+        - hasGone evidence: any judge score > 0
+        - Display: numeric score per judge + total
+
+    [H] HI-LO (scoringType='2')
+        - Drop highest + lowest judge score, average the rest
+        - Requires numJudges >= 3 to make sense
+        - Display: show all judges + "effective" average
+
+
+[H] EQUITATION FLAG (isEquitation):
+    When isEquitation=True on ANY hunter class, primary
+    identity flips to RIDER, not horse.
+    - Display: rider name large, horse small/secondary
+    - Works with any classMode + scoringType combination
+    - "Pinned" equitation = final placings shown as scores
+    - This is orthogonal to scoringMethod '7' on jumpers
+      (see [T|J] section below)
+
+    GOTCHA: Ryegate sometimes sends hunter equitation UDP
+    (tag-11) with slightly different structure vs regular
+    hunter. See CLS-FORMAT.md UDP section.
+
+
+[H] TIE-BREAK RULES:
+    r1TieBreak (cols[18]) — 0=LeaveTied, 1-N=ByJudgeN
+    r2TieBreak (cols[19])
+    r3TieBreak (cols[20])
+    overallTieBreak (cols[21]) — 0=LeaveTied, 20=ByOverallScore
+
+    CONSEQUENCE: standings sort isn't just "score desc" —
+    must respect tie-break by judge preference.
+
+
+[H] STATUS CODES:
+    Text status in cols[52]/[53]/[54] for R1/R2/R3
+    Numeric status fallback in cols[46]/[47]/[48]
+    Numeric map: 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS
+    (from west-watcher.js line ~986 — authoritative for hunters too)
+
+    Known text codes observed in the wild:
+      EL, RF, OC, HF, WD, RT, DNS, DQ, RO, EX, HC
+
+    PER-ROUND STATUS:
+    Hunter can have R1=completed and R2=WD — both valid,
+    display must show "R1 72 score, R2 WD" not overwrite R1.
+
+
+[H] HAS-GONE LOGIC:
+    Don't trust cols[49]/[50]/[51] (hasGoneR1/R2/R3 flags) —
+    they can get stuck from Ryegate testing mode.
+    Evidence-based:
+      - Has score = competed
+      - Has place = competed (for Forced classes this is
+        the ONLY evidence — no score)
+      - Has status code other than DNS = competed
+      - DNS = did not start, not competed
+
+    SOURCE: west-watcher.js line ~918-924
+
+
+[H] RUN-OFF (runOff cols[30]):
+    When True, ties at top are resolved by a timed round.
+    Currently not specially handled in display — just
+    another round with jumper-like timing rules.
+    OPEN QUESTION (v3): does this deserve its own class type
+    or a sub-flag on [H]?
+
+
+[H] PHASE WEIGHTS (cols[22]/[23]/[24]):
+    For multi-round classes where each round counts for a
+    different percentage (e.g. 60%/40% or 50%/25%/25%).
+    Phase weights apply to score calculation, not display.
+    Display should show raw scores, let the weighted total
+    be the sort key.
+
+
+============================================================
+  PART 3 — JUMPER (SHARED RULES) [T|J]
+============================================================
+
+Both TIMY and Farmtek produce .cls files with nearly the
+same jumper layout (entry rows). They DIFFER in:
+  - Vendor metadata
+  - How hasGone / status is signaled
+  - UDP cadence and frame structure (see CLS-FORMAT.md)
+
+
+[T|J] WRITE TIMING — .cls CHANGES:
+    File writes AFTER each round is scored (R1, R2/JO, R3).
+    Does NOT write during the horse being on course.
+    CONSEQUENCE: on-course state comes from UDP {fr}=1 frames,
+    NOT from .cls. The .cls is truth AFTER the buzzer.
+
+
+[T|J] CORE HEADER FIELDS:
+    scoringMethod (cols[2])    — 0-15, determines rule family
+    scoringModifier (cols[3])  — sub-variant within method
+    roundsCompleted (cols[4])  — 0→1→2→3
+    clockPrecision (cols[5])   — 0=.001, 1=.01, 2=whole
+    immediateJO (cols[6])      — 1=immediate JO (methods 2b/2c/2d),
+                                  0=all clears return for JO
+    r1/r2/r3 timeAllowed       — TA per round (0 = no TA, top score)
+    r1/r2/r3 faultsPerInterval — time fault rate (often 1/1)
+    californiaSplit (cols[17]) — Cali format (splits into sections)
+    isFEI (cols[18])           — FEI rules apply (2-decimal precision)
+    sponsor (cols[19])         — sponsor name
+    penaltySeconds (cols[22])  — typically 6 (refusal penalty)
+    noRank (cols[23])          — suppress ranking (training classes)
+
+
+[T|J] SCORING METHODS — AUTHORITATIVE MAP:
+
+    [T|J] METHOD 0 — Jumper Faults Converted
+        - Faults converted into time using TA
+        - TA=0 indicates conversion is in effect
+        - Display: faults + raw time, computed "converted time"
+        - r1FaultsPerInterval = 0 also indicates top-score variant
+
+    [T|J] METHOD 2 — Jumper Table II (Time First)
+        - Faults + time, fastest clear wins
+        - Most common jumper method
+        - Display: faults, time, total
+        - scoringModifier differentiates II.1 / II.2a / II.2b / II.2c / II.2d
+
+    [T|J] METHOD 3 — Jumper Table II.1 (with Jump Off)
+        - Round 1 for fault qualification, JO for placings
+        - Only clears return for JO (unless immediateJO=1)
+        - Display: R1 separate from JO, both shown
+
+    [T|J] METHOD 4 — Jumper Table II.2a (no JO, one-round)
+        - Fastest clear wins outright, no jump-off
+        - Display: single round table
+
+    [T|J] METHOD 5 — Top Score
+        - Score points for jumps cleared, not faults
+        - Time doesn't matter (or tie-break only)
+        - Display: score (not faults)
+        - SPECIAL: isTopScore flag set
+
+    [T|J] METHOD 6 — Optimum Time Jumper
+        - Target time is TA - 4 seconds (FEI/USEF convention)
+        - Score = |actual_time - optimum_time| as penalty
+        - Closest to optimum wins
+        - Display: show optimum time + distance from it
+        - isOptimum = true
+
+    [T|J] METHOD 7 — Timed Equitation (Jumper-side Eq)
+        - Equitation scored on a jumper course
+        - Score is primary, time is tie-break only
+        - Display: primary = RIDER (like hunter eq), show score
+        - Pinned version shows final rider placing as a "score"
+        - isTimedEq = true
+
+    [T|J] METHOD 9 — Two-Phase (Table II.2d)
+        - Phase 1 AND Phase 2 on the same course, no stop
+        - Phase 1 TA (cols[8]) usually ~90, Phase 2 TA usually ~55
+        - Clock DOES NOT RESET between phases — continues
+          ticking (learned S26-27 from real log)
+        - Phase transition: UDP goes silent briefly, then
+          resumes with new TA and continued elapsed
+        - Display: show Phase 1 time, then Phase 2 time when present
+        - See watcher FINISH_LOCK logic — suppresses false
+          ONCOURSE re-fire during phase transition
+
+    [T|J] METHOD 13 — Accumulator / Progressive Power
+        - Points accumulate per jump cleared
+        - Usually timed
+        - Display: points + time
+
+    [T|J] METHOD 14 — Team Classes
+        - Multiple horses per team, combined scoring
+        - isTeam = true
+        - Display: team standings, individual standings optional
+
+    [T|J] METHODS 1, 8, 10-12, 15 — Rare or unused
+        - Not verified in field testing
+        - Default display = method 2 behavior
+        - LOG as unknown method in v3 parser
+
+
+[T|J] ROUND COUNT AND LABELS:
+    roundsCompleted tracks progress (0=none, 1=R1 done, etc.)
+    For methods with JO, "R2" is labeled "Jump Off" in UI
+    For two-phase (method 9), phase 2 is labeled "Phase 2"
+    For 3-round classes (rare), R3 is second jump-off
+
+    GOTCHA: round label comes from UDP parser's oc.label,
+    NOT from computed round number. See S25-26 fix.
+
+
+[T|J] FEI FLAG (isFEI cols[18]):
+    FEI classes use 2-decimal precision, not 3.
+    Display: format time with precision=2 for FEI.
+    See feedback_style.md memory — user-facing rule.
+
+
+[T|J] NO-RANK CLASSES:
+    When noRank=True, suppress "RANK N" in display.
+    Training / schooling classes use this.
+
+
+[T|J] NUMERIC STATUS FALLBACK (both T and J):
+    Both vendors write numeric codes at:
+      col[21] for R1
+      col[28] for R2
+      col[35] for R3
+    Numeric map: 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS
+    (v2 had 2=RT, 5=RF corrected; monitor for further shifts)
+
+    See feedback_numeric_status_watch.md — Bill wants
+    monitoring for false positives since mapping is not
+    100% confirmed for 3 and 5.
+
+
+============================================================
+  PART 4 — TIMY JUMPER ONLY [T]
+============================================================
+
+
+[T] VENDOR: TIMY
+    Sold by TIMY AG, competes with Farmtek.
+    Different hardware + different .cls conventions.
+
+
+[T] RIDE ORDER COLUMN:
+    rideOrder comes from cols[13] (NOT [35] like Farmtek).
+    Watcher: entry.rideOrder = isTIMY ? (cols[13] || '') : (cols[35] || '');
+
+
+[T] HAS-GONE SIGNAL:
+    cols[36] === '1' = has competed (flag-based)
+    BUT: don't trust alone — combine with time/status evidence.
+
+
+[T] TEXT STATUS CODES:
+    Text status at cols[82] (R1) and cols[83] (R2).
+    Different location from Farmtek (which uses a tail-scan).
+
+    SOURCE: west-watcher.js line ~1007-1008
+
+
+[T] NUMERIC STATUS FALLBACK:
+    Same as Farmtek: col[21]=R1, col[28]=R2.
+    When text status is empty (e.g. R2 WD), read numeric.
+
+
+[T] UDP FRAME DIFFERENCES:
+    TIMY scoreboards emit UDP with same tag structure but
+    different timing. Some tags missing that Farmtek always
+    sends. See CLS-FORMAT.md UDP section for specifics.
+
+
+[T] DEFAULT ASSUMPTION:
+    config.dat in watcher specifies defaultJumperType — set
+    to 'T' at TIMY-based shows, 'J' at Farmtek-based shows.
+    Used only as fallback for U→Jumper inference.
+
+
+============================================================
+  PART 5 — FARMTEK JUMPER ONLY [J]
+============================================================
+
+
+[J] VENDOR: FARMTEK
+    Older / more common in US shows.
+    Different hardware, different .cls tail conventions.
+
+
+[J] RIDE ORDER COLUMN:
+    rideOrder comes from cols[35] (NOT [13] like TIMY).
+    cols[13] is always '0' for Farmtek classes.
+
+
+[J] HAS-GONE SIGNAL:
+    cols[36] === '1' = has competed (same as TIMY).
+    Same caveat: confirm with time/status evidence.
+
+
+[J] TEXT STATUS CODES — TAIL SCAN:
+    Ryegate is INCONSISTENT about which column holds the
+    status text. Observed at col[37] on some entries,
+    col[38] on others, col[39] occasionally.
+    SOLUTION: scan cols[36]-[39] for any recognized status
+    code (EL|RF|OC|HF|WD|RT|DNS|DQ|RO|EX|HC).
+
+    SOURCE: west-watcher.js line ~976-983
+    Learned: Session 26 when JO WDs weren't appearing
+    because col[38] was empty but the code was at col[37].
+
+
+[J] NUMERIC STATUS FALLBACK:
+    Same as TIMY: col[21]=R1, col[28]=R2, col[35]=R3.
+
+
+[J] STATUS → ROUND ATTRIBUTION:
+    When text scan finds a status code, attribute it to a
+    round based on numeric flags:
+      - If cols[28] != '0' → status belongs to R2
+      - Else → status belongs to R1
+    This matters for displaying "R1 clear, R2 WD" correctly.
+
+    SOURCE: west-watcher.js line ~994-998
+
+
+[J] FARMTEK-SPECIFIC QUIRKS TO WATCH:
+    - col[37] sometimes holds legacy ride-order data
+    - cols[35]/[39] shift based on roundsCompleted state
+    - During active round change, values can flicker
+    - TRUST .cls AFTER roundsCompleted increments — not during
+
+
+============================================================
+  PART 6 — CROSS-CUTTING RULES [ALL]
+============================================================
+
+
+[ALL] PHASE TRANSITIONS (UDP-driven):
+    INTRO → CD → ONCOURSE → FINISH → RANK → (next INTRO)
+
+    Phase detection:
+      INTRO    = {fr}=1, no countdown, no elapsed
+      CD       = {fr}=1, tag-23 countdown present
+      ONCOURSE = {fr}=1, tag-17 elapsed present
+      FINISH   = {fr}=1, tag-17 with decimal (e.g. 93.367)
+      RANK     = {fr}=1, tag-8 rank text (arrives ~5s after FINISH)
+
+    Phase ordering for the clock authority logic:
+      INTRO < CD < ONCOURSE < FINISH
+    Never allow a lower phase to overwrite a higher phase
+    from a delayed/out-of-order heartbeat.
+
+
+[ALL] HUNTER UDP DIFFERENCE:
+    Hunter INTRO = {fr}=11 (not {fr}=1)
+    Hunter FINISH = .cls change (NOT a UDP frame)
+    Scoring happens via judge score input in Ryegate UI.
+
+
+[ALL] STATUS CODE SEMANTICS:
+    EL   = Eliminated
+    RF   = Rider Fall
+    HF   = Horse Fall
+    WD   = Voluntary Withdrawal
+    RT   = Retired
+    DNS  = Did Not Start
+    DQ   = Disqualified
+    RO   = Rule-Out (rare)
+    EX   = Excused
+    HC   = Hors Concours (exhibition)
+    OC   = On Course (transitional, rarely seen in final .cls)
+
+    DISPLAY COLOR SEMANTIC:
+      Green  = clear (no faults, no status)
+      Red    = fault or elimination
+      Gray   = WD / DNS / scratched
+      Gold   = active on course
+      Amber  = pending / in-progress
+
+
+[ALL] STATUS SORT ORDER (standings):
+    1. Placed entries (sorted by place)
+    2. Competed-but-unplaced (EL, RT, RF, HF, DQ)
+    3. Declined (WD, EX, HC, RO)
+    4. Not started (DNS)
+    5. Not yet gone (no status, no score, no time)
+
+
+[ALL] FEI vs USEF TIME PRECISION:
+    FEI: 2 decimals (e.g. 72.32)
+    Non-FEI: 3 decimals (e.g. 72.325)
+    See feedback_style.md — this is a hard user rule.
+
+
+[ALL] RANK STRIPPING:
+    UDP sends "RANK 1" as string. Display shows just "1".
+    Worker stores as raw. Frontend format strips "RANK ".
+    WEST.format.rank("RANK 1") → "1"
+
+
+============================================================
+  PART 7 — QUIRKS NOT YET FULLY UNDERSTOOD
+  (Flag these in v3 parser as warnings, not crashes)
+============================================================
+
+
+[T|J] NUMERIC STATUS 3 MEANING
+    Originally mapped to HF (Horse Fall). Later observation
+    suggested OC (On Course) in some contexts. Keep an eye
+    out — if a live horse suddenly gets HF displayed during
+    ONCOURSE, the numeric mapping is wrong.
+
+    TODO: run a full show's UDP log through a script that
+    correlates numeric status appearances with known text
+    outcomes. Build a 100%-verified map.
+
+
+[J] COL[38] vs COL[37] STATUS POSITION
+    Current solution (tail scan cols[36]-[39]) works but
+    doesn't explain WHY Ryegate shifts. Theories:
+      a) Related to JO active vs completed state
+      b) Related to Farmtek firmware version
+      c) Just buggy
+    If we ever figure it out, the tail-scan can become a
+    deterministic lookup.
+
+
+[H] DERBY TYPE VARIANTS (derbyType 1-8)
+    Known variants exist but not all field-tested.
+    Most derbys seen = type 2 or 3. Types 5-8 unknown.
+    v3 parser: log derbyType > 3 as unknown variant.
+
+
+[H] IHSA FLAG (ihsa cols[38])
+    Intercollegiate Horse Show Association — special scoring
+    rules. Flag exists in parser but display behavior
+    unconfirmed.
+
+
+[T|J] CALIFORNIA SPLIT (californiaSplit cols[17])
+    Class divided into sections (e.g. junior/amateur).
+    caliSplitSecs cols[21] specifies time gap between sections.
+    Display implications unclear — treat as one class for now,
+    visible to operator via sponsor field flag.
+
+
+[T|J] METHOD 9 PHASE 2 CLOCK BEHAVIOR
+    Verified 2026-04-17 from real UDP log: clock continues
+    across phase transition (doesn't reset to 0). Elapsed
+    keeps incrementing, TA swaps to phase 2 value. Watcher
+    FINISH_LOCK (5s) suppresses false ONCOURSE re-fire.
+    Open UX question: display Phase 2 starting at current
+    elapsed (what actually happens) or interpolate to 0
+    (what people might expect)? LOW priority.
+
+
+[ALL] UDP FRAME LOSS
+    Today's logs show 0 missed UDP frames in 3MB of data.
+    v1.11 heartbeat-at-1Hz handles occasional drops by
+    being the fallback authority.
+    If we ever see sustained UDP loss: fall back to .cls
+    polling for the affected class.
+
+
+[H] HASSTATE STUCK FLAGS
+    cols[49]/[50]/[51] hasGoneR1/R2/R3 can get stuck at 1
+    from Ryegate testing mode. Don't rely on them alone.
+    (Already codified in watcher — noted here for v3 parser.)
+
+
+============================================================
+  PART 8 — v3 PARSER RESPONSIBILITIES
+============================================================
+
+Given all of the above, the v3 .cls parser (worker-side)
+must produce a NORMALIZED descriptor that:
+
+  1. Resolves U → final type (using UDP hint + inference)
+  2. Flags UNRESOLVED U classes explicitly ("classType": "U",
+     "resolvedType": null, "reason": "no UDP, no scoring method")
+  3. Extracts all scoring-method-driven rules into named
+     flags (isOptimum, isTwoPhase, isTimedEq, isTopScore,
+     isFaultsConverted, isTeam)
+  4. Normalizes status codes (numeric → text mapping done once)
+  5. Computes derived fields (optimumTime, phase1TA/phase2TA,
+     primaryIdentity) so the frontend doesn't re-derive
+  6. Logs parse WARNINGS (not crashes) for unknown combinations
+  7. Includes parser version + cls source signature in meta
+     so changes can be audited
+
+Parser tests must include at least one FIXTURE per:
+  - Each scoring method (0, 2, 3, 4, 5, 6, 7, 9, 13, 14)
+  - Each hunter classMode (0, 1, 2, 3)
+  - Each scoringType (0, 1, 2)
+  - U → J, U → T, U → H resolution paths
+  - Each known status code (EL, RF, HF, WD, RT, DNS, etc.)
+  - Two-phase method 9 mid-phase-transition
+  - Derby variants 1, 2, 3
+  - isEquitation + OverFences, isEquitation + Flat
+  - 1-judge, 3-judge, 7-judge hunter layouts
+
+Fixtures live in /tests/fixtures/cls/ organized by type:
+  /tests/fixtures/cls/H/
+  /tests/fixtures/cls/T/
+  /tests/fixtures/cls/J/
+  /tests/fixtures/cls/U/
+
+
+============================================================
+  PART 9 — HOW THIS DOC EVOLVES
+============================================================
+
+This catalog is a LIVING document. Rules change when:
+  1. Ryegate ships a new version (behaviors shift)
+  2. A new class type appears in the wild (new rules needed)
+  3. A quirk gets fully understood (moves from Part 7 to
+     the right type section)
+  4. A rule gets codified into the parser (add source line
+     reference for future lookup)
+
+RULES FOR EDITS:
+  - Every rule has a prefix label ([H], [T], [J], etc.)
+  - Every rule has a SOURCE (code line, session number,
+    log date, or "verified YYYY-MM-DD from show X")
+  - When a rule is codified, add a watcher/worker line
+    reference so future Claude instances can cross-check
+  - When Part 7 is updated, also update the related type
+    section if a quirk gets resolved
+
+WHEN TO ADD A NEW RULE:
+  - During a live show: save to session notes, DO NOT edit
+    this doc mid-show
+  - After the show in a calm session: add to the right
+    section with full citation
+  - If multiple sessions find the same quirk: that's a
+    signal it deserves first-class codification in the v3
+    parser, not just a doc note
+
+
+============================================================
+  END OF CATALOG
+============================================================
