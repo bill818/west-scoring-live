@@ -23,15 +23,28 @@ Applied per method below in each "Stack model" line.
 
 ---
 
-## Status-Carry Rule Families
+## Status-Carry: the "Ladder" Model
 
-Methods fall into one of three status-carry patterns. Every method below tags which family it belongs to.
+Bill's ladder rule (train metaphor extension):
 
-**SINGLE-ROUND** — class has only one round. Any status (EL, RT, WD, DNS) hides all data for the entry.
+> **A ladder exists between two rounds ONLY when their faults are added together (cumulative scoring). At a ladder, you can be kicked off — later-round elim voids the earlier result. Above the last ladder, you're secure. Stacks never demote — you either hold your tier or are removed from placings entirely.**
 
-**R1-HOLDS** — R1 status hides everything; R2/JO placement is still valid on the R1 result. Used where R1 is a qualifier and the JO doesn't erase R1's outcome.
+This replaces the older "status-carry family" classification because it's more precise: the question isn't "what family is the whole method in," it's "for each pair of adjacent rounds, are their faults summed?"
 
-**CARRY-BACK** — R1 status hides all; R2 status wipes R1 and all downstream (shows only status). Used where the whole "ride" is semantically one thing and later failure voids earlier success.
+**Per-adjacency rule:**
+- `cumulative: true` → ladder between those rounds → later-round EL/RT/WD erases earlier result
+- `cumulative: false` → no ladder → earlier result is secured even if later round fails
+
+**Examples:**
+- Method 3 (2-round + JO): R1→R2 is `cumulative: true` (ladder). R2→JO is `cumulative: false` (no ladder — once in JO you can't be demoted).
+- Method 9 (II.2d): PH1→PH2 is `cumulative: true` (ONE ride scored as a sum — ladder exists even though it's one physical ride).
+- Method 2 (II.2a): R1→JO is `cumulative: false` (JO is a separate competition from R1, no ladder).
+- Method 15 (Winning Round): R1→R2 is `cumulative: false` (R1 faults wiped entirely for R2 — no ladder).
+
+**Universal guarantees regardless of method:**
+- Monotonic stacks — an entry's tier (max stack depth reached) never decreases during scoring
+- EL at any ladder = entry removed from placings entirely, NOT demoted to a lower tier
+- Single-round classes have no ladders possible — any status hides everything
 
 ---
 
@@ -58,7 +71,10 @@ Other methods: H[03]=0 only, no modifier.
 - **FEI:** Yes — FEI Table C article.
 - **Stack model:** 1 container max. No stacking possible.
 - **In noJumpOff list:** Yes (confirmed SESSION-22). Watcher previously mislabeled "Jump Off" for this method — fixed.
-- **Verified:** Spec only. Not extensively tested live.
+- **Live examples:**
+  - Test show (`hits-culpeper`, TOD): class 811 "Table III", class 900 "New Class with OOG"
+  - Culpeper April (`hits-culpeper-april`, Farmtek): class 417 "$5,000 STX Open Speed - 1.20m" — LIVE 2026-04-17, ran successfully
+- **Verified:** Live + spec.
 
 ---
 
@@ -71,7 +87,10 @@ Other methods: H[03]=0 only, no modifier.
 - **FEI:** Yes — FEI Art 220.2.1.2 / USEF Article 220.2.1.2.
 - **Stack model:** 2 containers max. Everyone who competed gets R1 container. Zero-fault R1s get JO container stacked on top. Render: JO placings on top, then R1 clears who didn't JO (shouldn't happen in 2a but edge cases), then R1 faulters, then non-starters.
 - **JO-N overlay (SESSION-22):** Pre-JO display shows "JO-1, JO-2, ..." instead of tied "1"s in R1 ride order, scoped to method 2 only. Excluded from immediate-JO methods.
-- **Verified:** Class 809 live — U→T inference, OOG working.
+- **Live examples:**
+  - Test show (TOD): class 9 "$25,000 DEVON FALL CLASSIC 1.35-1.40m II.2a", class 38 "$7,500 SJHF 1.35M JUNIOR/AMATEUR JUMPER II.2a", class 809 "NEW II2a Class"
+  - Culpeper April: none — this show didn't run any II.2a classes in ring 1
+- **Verified:** Class 809 tested live through OOG + type inference; classes 9, 38 are real operational classes named with II.2a in title.
 
 ---
 
@@ -83,7 +102,11 @@ Other methods: H[03]=0 only, no modifier.
 - **Status-carry:** CARRY-BACK. R1 status hides all. R2 status wipes all (shows R1 for context per spec but display may vary). JO status shows R1+R2.
 - **FEI:** Yes — FEI Art 221.4.1 (H[03]=0) and 221.4.2 (H[03]=1).
 - **Stack model:** 3 containers max. Everyone gets R1 container. Those who ride R2 get R2 stacked. Top cumulative-fault tier gets JO stacked on R2. Render top-down.
-- **Verified:** Class 221 at Devon — 3-round data (R1+R2+JO), 6 entries, faults + times, column layout fully confirmed (TIMY cols 13-35). Extensively documented in CLS-FORMAT.md lines 388-427.
+- **Live examples:**
+  - Test show (TOD): none — no explicit Method 3 class in the test show catalog
+  - Culpeper April (Farmtek): none — no Method 3 class in ring 1
+  - Historical reference: class 221 at Devon Fall Classic — parsed the 3-round data that established the column layout
+- **Verified:** Column layout confirmed from Devon class 221 data (CLS-FORMAT.md lines 388-427). No clean method-3 live run in the two shows surveyed here — worth flagging: the column structure was verified, but whether the full JO logic works end-to-end at a 2026 show is not in our data.
 
 ---
 
@@ -96,7 +119,10 @@ Other methods: H[03]=0 only, no modifier.
 - **FEI:** Yes — FEI Art 220.1.1.1 (Time First Round).
 - **Stack model:** 1 container max.
 - **Contrast with Method 6:** Both are single-round, but Method 4 is fastest-time; Method 6 is closest-to-optimum.
-- **Verified:** Spec. Not named in notes.
+- **Live examples:**
+  - Test show (TOD): EXTENSIVELY tested — classes 2, 4, 8, 19, 22, 25, 28, 34, 40, 49, 50, 51, 52, 53, 54, 55, 56, 804, 812 (all named "II.1" in title including "$10,000 SPEED STAKE 1.40m II.1")
+  - Culpeper April (Farmtek): classes 214, 218, 222, 266, 267, 270, 285 — these are the "speed" counterparts at each division (ran live 2026-04-17)
+- **Verified:** Live at both shows. Heaviest-tested method after 13.
 
 ---
 
