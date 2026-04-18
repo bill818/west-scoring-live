@@ -5,6 +5,25 @@
   Living reference for the v3 rebuild
 ============================================================
 
+⚠️  ARTICLE 1 — classType IS THE GATEKEEPER  ⚠️
+--------------------------------------------------
+classType at col[0] of row 0 determines the LENS for
+reading the ENTIRE rest of the file.
+
+   H  → Hunter lens      (see HUNTER-METHODS-REFERENCE.md)
+   J  → Farmtek Jumper   (see JUMPER-METHODS-REFERENCE.md)
+   T  → TOD Jumper       (see JUMPER-METHODS-REFERENCE.md)
+   U  → No lens yet      (see CLASS-DETECTION-SCHEMAS.md Part 1)
+
+A .cls file is STRICTLY TYPED. Hunter and jumper data NEVER
+coexist. If you see col[7] on a file, its meaning depends
+ENTIRELY on which lens classType has put you under.
+
+Never translate field meanings across lenses. Every new Claude
+has done this and it's the single most infuriating bug to
+un-teach. See memory feedback_class_type_commandment.md.
+--------------------------------------------------
+
 
 HOW TO READ THIS DOC
 --------------------

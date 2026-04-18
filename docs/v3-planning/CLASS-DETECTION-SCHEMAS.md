@@ -1,6 +1,25 @@
 # Class Detection Schemas — v3
 ### The logic for knowing when a class is live, when to peek, how to classify state
 
+---
+
+> # ⚠️ ARTICLE 1 — classType IS THE GATEKEEPER (applies to ALL .cls parsing, including detection)
+>
+> **Before any detection logic runs, the parser reads `classType` at col[0] of row 0. That value — `H`, `J`, `T`, or `U` — determines the LENS for every subsequent field read.**
+>
+> - `H` → Hunter lens. Go to `HUNTER-METHODS-REFERENCE.md` for field meanings.
+> - `J` → Farmtek Jumper lens. Go to `JUMPER-METHODS-REFERENCE.md` for field meanings.
+> - `T` → TOD Jumper lens. Same field meanings as J, different hardware quirks.
+> - `U` → No lens yet. See Part 1 below for resolution logic.
+>
+> A .cls is STRICTLY TYPED by classType. Hunter data and jumper data NEVER coexist in the same file. Any detection rule that reads a .cls field must first commit to a lens via classType.
+>
+> If you catch yourself (or another Claude) saying "col[10] usually means X" without specifying the lens — stop. Ask: what's the classType? Then apply the correct lens.
+>
+> See memory `feedback_class_type_commandment.md` for the full rationale.
+
+---
+
 v2 built up a complex class-lifecycle detection system across ~10 sessions. Every rule was earned from observation — classes appearing as live when they weren't, classes disappearing from live when they still were, phantom on-courses, buzzer noise, phase transitions fooling the watcher. **All of it must carry into v3.**
 
 This doc catalogs every detection trigger, every state transition, every "when to peek" rule, and the reasoning behind each. v3's push architecture changes nothing about class detection — it all happens on the watcher, driven by filesystem watches + UDP events + periodic HTTP peeks. What changes is the DELIVERY of detected events (they publish to a Durable Object instead of the worker's KV).

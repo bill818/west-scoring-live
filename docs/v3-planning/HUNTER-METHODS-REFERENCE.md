@@ -1,5 +1,23 @@
 # Hunter Methods — Authoritative Reference
 
+---
+
+> # ⚠️ ARTICLE 1 — classType IS THE GATEKEEPER
+>
+> **This entire document is written for the HUNTER LENS. `classType == 'H'` in col[0] of row 0.**
+>
+> Every field reference in this doc (col[2], col[7], col[10], etc.) means its HUNTER value. Those same column numbers mean DIFFERENT things under the jumper lens. **Do not translate hunter field meanings to jumper contexts or vice versa.**
+>
+> If you are looking at a .cls where col[0] is `J`, `T`, or `U` — **stop reading this doc**. Go to `JUMPER-METHODS-REFERENCE.md` (for J/T) or `CLASS-DETECTION-SCHEMAS.md` Part 1 (for U resolution).
+>
+> A .cls file is STRICTLY TYPED by classType. You never mix hunter and jumper lenses on the same file.
+>
+> If you've ever been tempted to say "wait, doesn't col[7] mean TimeAllowed?" — no. Under the hunter lens (this doc), col[7] means `numJudges`. Under the jumper lens (other doc), col[7] means `r1FaultsPerInterval`. Both are right, IN THEIR OWN LENSES. Never both at once.
+>
+> See memory `feedback_class_type_commandment.md` for the full rationale.
+
+---
+
 ## Purpose
 
 Per-class-kind reference for HUNTER classes. The v3 `.cls` parser + class descriptor codes against this doc. Companion to `JUMPER-METHODS-REFERENCE.md`.

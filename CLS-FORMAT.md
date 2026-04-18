@@ -6,6 +6,24 @@
 
 ---
 
+> # ⚠️ ARTICLE 1 — classType IS THE GATEKEEPER
+>
+> **BEFORE READING ANY COLUMN MEANING IN THIS DOC: check classType at col[0] of row 0.**
+>
+> This doc documents BOTH lenses side by side. That's dangerous if you read without committing to one first.
+>
+> - If `classType == 'H'`: you're under the **hunter lens**. Only read the HUNTER sections.
+> - If `classType == 'J'` or `'T'`: you're under the **jumper lens**. Only read the JUMPER sections.
+> - If `classType == 'U'`: you have NO lens yet. Don't read column meanings until you resolve it (UDP hint, config default, or header shape). See `docs/v3-planning/CLASS-DETECTION-SCHEMAS.md`.
+>
+> **The same column number means DIFFERENT things in different lenses.** `col[7]` = `numJudges` (hunter) or `r1FaultsPerInterval` (jumper). `col[10]` = `isEquitation` (hunter) or `r2FaultsPerInterval` (jumper). Never translate across.
+>
+> A .cls is strictly typed. Hunter and jumper data never coexist in the same file. If it ever seems to, the file is corrupt (and Ryegate wouldn't read it either).
+>
+> This commandment has been THE most expensive misconception for new Claude instances on this project. See memory `feedback_class_type_commandment.md` for the full story.
+
+---
+
 ## FILE TYPES
 
 ### .cls — Live Class File (PRIMARY DATA SOURCE)

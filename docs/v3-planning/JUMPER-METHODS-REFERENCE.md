@@ -1,5 +1,23 @@
 # Jumper Scoring Methods — Authoritative Reference
 
+---
+
+> # ⚠️ ARTICLE 1 — classType IS THE GATEKEEPER
+>
+> **This entire document is written for the JUMPER LENS. `classType == 'J'` (Farmtek) or `'T'` (TOD) in col[0] of row 0.**
+>
+> Every field reference in this doc (col[2], col[5], col[8], col[18], etc.) means its JUMPER value. Those same column numbers mean DIFFERENT things under the hunter lens. **Do not translate jumper field meanings to hunter contexts or vice versa.**
+>
+> If you are looking at a .cls where col[0] is `H` — **stop reading this doc**. Go to `HUNTER-METHODS-REFERENCE.md`. If col[0] is `U`, go to `CLASS-DETECTION-SCHEMAS.md` Part 1 for the lens-resolution rules.
+>
+> A .cls file is STRICTLY TYPED by classType. You never mix hunter and jumper lenses on the same file.
+>
+> If you've ever been tempted to say "wait, doesn't col[10] mean isEquitation?" — not under this lens. Under the jumper lens (this doc), col[10] means `r2FaultsPerInterval`. Under the hunter lens (other doc), col[10] means `isEquitation`. Both are right, IN THEIR OWN LENSES. Never both at once.
+>
+> See memory `feedback_class_type_commandment.md` for the full rationale.
+
+---
+
 ## Purpose
 
 One canonical page per jumper scoring method. For each: the official name, scoring rules, round structure, status-carry behavior, train-stack model, known quirks, and source citations from prior sessions / CLS-FORMAT.md.
