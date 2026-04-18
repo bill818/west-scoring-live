@@ -7,7 +7,7 @@
  * Requirements: Node.js LTS installed on scoring computer
  */
 
-const WATCHER_VERSION = '1.10.0';
+const WATCHER_VERSION = '1.11.0';
 
 const fs    = require('fs');
 const path  = require('path');
@@ -1597,10 +1597,11 @@ setTimeout(() => {
 }, 3000);
 
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
-// Adaptive heartbeat: 10s when a class is active (carries clock snapshot so
-// the website can self-correct on spotty internet), 60s when idle.
+// Adaptive heartbeat: 1s when a class is active — carries the clock snapshot
+// every second so the website is authoritative on {phase, elapsed, countdown}
+// without cross-clock timestamp extrapolation. 60s when idle.
 let selectedClassNum = null;
-const HEARTBEAT_ACTIVE_MS = 10000;
+const HEARTBEAT_ACTIVE_MS = 1000;
 const HEARTBEAT_IDLE_MS   = 60000;
 let heartbeatTimer = null;
 

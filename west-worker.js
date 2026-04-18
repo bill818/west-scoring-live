@@ -485,10 +485,13 @@ export default {
       if (body.clock) payload.clock = body.clock;
       const key = `heartbeat:${slug}:${ring}`;
       await env.WEST_LIVE.put(key, JSON.stringify(payload), { expirationTtl: 120 });
-      // Persistent last-seen — never expires, used when watcher goes offline
-      await env.WEST_LIVE.put(`lastseen:${slug}:${ring}`, JSON.stringify(payload));
+      // Persistent last-seen — never expires. Only refresh every ~10s to avoid
+      // pounding a never-expiring key when watcher heartbeats at 1/sec.
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (nowSec % 10 === 0) {
+        await env.WEST_LIVE.put(`lastseen:${slug}:${ring}`, JSON.stringify(payload));
+      }
       ctx.waitUntil(activateShow(env, slug));
-      console.log(`[heartbeat] ${key}`);
       return json({ ok: true });
     }
 

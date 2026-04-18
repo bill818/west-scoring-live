@@ -974,36 +974,30 @@ WEST.tickOnCourse = function() {
   }
 };
 
-// ── HEARTBEAT CLOCK FALLBACK ─────────────────────────────────────────────────
-// When the primary onCourse data is stale (watcher's ONCOURSE POSTs lost on
-// bad internet), the heartbeat's clock snapshot can provide a lower-resolution
-// but recent correction. Called by the page's poll handler when it detects
-// the heartbeat clock is fresher than the onCourse state.
-WEST.applyHeartbeatClock = function(hbClock, hbTs) {
-  if (!hbClock || !hbTs) return;
+// ── HEARTBEAT CLOCK (AUTHORITY) ──────────────────────────────────────────────
+// Watcher posts the clock snapshot every 1s during active phases. This is the
+// AUTHORITATIVE value for {phase, elapsed, countdown} — no timestamp
+// extrapolation across clocks. Local tick (tickOnCourse) fills sub-second gaps
+// between heartbeats for smoothness, always snapping to this value when it
+// arrives. Entry-match prevents flashing back to a previous horse's data.
+WEST.applyHeartbeatClock = function(hbClock) {
+  if (!hbClock) return;
   var s = WEST._ocState;
-  var hbTime = new Date(hbTs).getTime();
-  if (!hbTime || isNaN(hbTime)) return;
-  // Apply heartbeat when current state is stale (>15s old by browser clock).
-  // Can't compare watcher timestamps vs worker timestamps directly — different
-  // clocks with potential skew. Instead, trust the heartbeat if our local view
-  // is old enough that a correction would help.
-  if (s && (Date.now() - s.ts) < 15000) return;
-  var phase = (hbClock.phase || 'ONCOURSE').toUpperCase();
-  WEST._ocState = {
-    phase:     phase,
-    elapsed:   parseFloat(hbClock.elapsed) || 0,
-    ts:        hbTime,
-    paused:    phase === 'FINISH',
-    ta:        parseFloat(hbClock.ta) || (s ? s.ta : 0),
-    fpi:       s ? s.fpi : 1,
-    ti:        s ? s.ti : 1,
-    jf:        parseFloat(hbClock.jumpFaults) || 0,
-    countdown: s ? s.countdown : 45,
-    isEq:      s ? s.isEq : false,
-    isOpt:     s ? s.isOpt : false,
-    optTime:   s ? s.optTime : 0,
-  };
+  if (!s) return; // setOcState hasn't run yet — nothing to correct
+  // Only apply if heartbeat is about the horse currently on course.
+  if (hbClock.entry && s._entry && String(hbClock.entry) !== String(s._entry)) return;
+  var phase = (hbClock.phase || s.phase).toUpperCase();
+  // Phase priority: don't let a stale heartbeat regress a newer phase.
+  var order = { INTRO: 0, CD: 1, ONCOURSE: 2, FINISH: 3 };
+  if (order[phase] != null && order[s.phase] != null && order[phase] < order[s.phase]) return;
+  s.phase   = phase;
+  s.paused  = phase === 'FINISH';
+  if (hbClock.elapsed   !== undefined && hbClock.elapsed   !== '') s.elapsed   = parseFloat(hbClock.elapsed) || 0;
+  if (hbClock.countdown !== undefined && hbClock.countdown !== '') s.countdown = Math.abs(parseInt(hbClock.countdown) || 45);
+  if (hbClock.jumpFaults !== undefined) s.jf = parseFloat(hbClock.jumpFaults) || 0;
+  // Reset interpolation base to NOW — the local tick fills the ~1s gap until
+  // the next heartbeat using browser time, never cross-clock math.
+  s.ts = Date.now();
 };
 
 // ── UNIVERSAL JUMPER STANDINGS ROW (rounds block) ────────────────────────────

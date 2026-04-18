@@ -158,6 +158,18 @@ and send them. The logs tell us everything we need.
 
 VERSION HISTORY
 ---------------
+v1.11.0  (2026-04-17)
+
+  + Active heartbeat cadence 10s → 1s. Watcher posts the full
+    clock snapshot (phase + elapsed/countdown + entry) every
+    second while a class is active. Browser uses this as the
+    AUTHORITY for the ticking clock instead of extrapolating
+    from a single timestamp. Fixes the flicker/drift that
+    plagued Session 27 — eliminates cross-clock math entirely.
+    Idle heartbeat unchanged (60s).
+  + Worker lastseen write throttled to every ~10s (prevents
+    pounding a never-expiring KV key at 1/sec cadence).
+
 v1.10.0  (2026-04-17)
 
   + tsked.csv gate: classes only go live on the website when they
