@@ -1,0 +1,295 @@
+============================================================
+  SESSION 27 — 2026-04-17
+  Culpeper Day 3 — ticking clock saga, watcher v1.11,
+  log-driven architecture pivot, consolidation directive
+============================================================
+
+WRITTEN FOR THE NEXT CLAUDE INSTANCE
+------------------------------------
+This was a two-act session. Act 1 was a mid-show clock rewrite
+that broke accuracy badly and had to be reverted. Act 2 was a
+log-driven re-evaluation late at night that produced watcher
+v1.11 (heartbeat-as-authority, 1/sec cadence) for Culpeper Day 4.
+
+Key new context: Bill promoted the WebSocket/Durable Object
+rebuild from "future/winter" to "this month" — "i cant wait a
+year." He also gave a clear architectural directive: all the
+shared behavior (clocks, class codes, ELM/status codes, UDP
+event shape, display rules) should live in ONE shared spot
+and pages should just call helpers. A lot of that was NOT
+true, which is how display.html and stats.html ended up with
+their own duplicate clock implementations.
+
+And the biggest framing shift: "a lot is riding on this
+working." This platform is business-critical, not a hobby
+project. That context now lives in project_stakes.md and is
+pinned at the top of MEMORY.md.
+
+Bill calls this Claude instance "Skippy the Magnificent."
+
+
+VERSIONS (end of session)
+-------------------------
+  Watcher:  v1.11.0 (on OneDrive, NOT yet installed on
+            scoring PC — Bill installs morning of 2026-04-18)
+            v1.10.0 archived as west-watcher-v1.10.0.js for
+            rollback in same folder.
+  Funnel:   v1.3.1 (unchanged from Session 26)
+  Worker:   deployed (lastseen KV write throttle added)
+  Frontend: deployed to PREVIEW only. live.html uses new
+            heartbeat-authority pattern. Production unchanged.
+
+
+ACT 1 — THE REWRITE THAT FAILED (mid-show)
+------------------------------------------
+The on-course ticking clock (#woc-clock on live.html) had a
+long-standing visible flicker: render() and tickOnCourse()
+both wrote to the same DOM element every poll with slightly
+different interpolated values, ~1s apart, using mismatched
+timestamps (worker time vs browser time).
+
+Morning attempt: full heartbeat-as-authority rewrite of
+tickOnCourse/setOcState/applyHeartbeatClock. It went sideways:
+
+  1. render() replaces innerHTML every poll — destroyed
+     tick's written number between frames
+  2. Heartbeat applied without entry-match → flashed the
+     previous horse's clock after a horse swap
+  3. Heartbeat stomped the whole _ocState object instead of
+     just adjusting interpolation base
+  4. FINISH — tick overwrote render's real decimal ("78.001")
+     with integer from heartbeat ("78.000")
+  5. Null state between horses never cleared the DOM
+
+Each fix made something else worse. Classic mid-show trap.
+Around noon Bill called it: "this clock is really broken.. it's
+wrong more than it's right at this point."
+
+RESOLUTION: git reset display-config.js and live.html to HEAD,
+kept ONE line — WEST.tickOnCourse() called synchronously after
+render() in the poll loop. Same JS frame, no paint between,
+tick's value is the only thing the user sees.
+
+That one-line fix shipped as commit 4d45066, pushed before
+dinner. Show finished on reverted code with visible-flicker-
+but-accurate behavior.
+
+
+ACT 2 — LOG-DRIVEN REDESIGN (late night)
+-----------------------------------------
+Bill pulled the three log files from the scoring PC's
+OneDrive folder and asked for an evaluation:
+
+  west_log.txt       (257 KB, watcher activity)
+  west_peek_log.txt  (76 KB, classifier)
+  west_udp_log.txt   (3.0 MB, raw UDP feed — 30k lines)
+
+THE KEY FINDING: The UDP source is a clean 1-Hz stream.
+
+  CD:       -45, -44, -43, -42... every 1.00s
+  ONCOURSE: el=1, el=2, el=3... every 1.00s
+  FINISH:   el=93 → el=93.367 in the same second
+  RANK:     arrives as separate frame ~5s after FINISH
+
+Zero missed frames across hours of riding. Zero jitter.
+
+This completely invalidates the original architectural
+assumption. The "timestamp + browser-side interpolation"
+design was built to avoid "jerky 1,4,7,10 UDP counting" —
+but the UDP doesn't do that. It never did. The source is
+already a perfect clock, and every design decision that
+flowed from the jerky-UDP assumption was solving a
+non-problem while creating real ones.
+
+Second finding: heartbeat was firing but invisible. Only
+one "Heartbeat sent to Worker" log line at startup, because
+postToWorker is silent on success. Actual 10s interval was
+firing the whole time, nobody could tell from logs whether
+the worker was receiving them.
+
+Third finding: everything else in the watcher is healthy.
+tsked/peek classifier clean, phase transitions clean, no
+buzzer noise in the log, FINISH→RANK two-phase working.
+
+
+THE v1.11 DESIGN (shipped)
+--------------------------
+Heartbeat is the authority. Every 1s it carries the full
+clock snapshot {phase, elapsed, countdown, entry, ta,
+jumpFaults, rank}. Browser trusts the heartbeat absolutely.
+Local tick runs at 1Hz only to fill sub-second visual gaps
+between polls — it never extrapolates from cross-clock
+timestamps. When a heartbeat arrives, local tick snaps to
+the authoritative value and resumes.
+
+The analogy Bill liked: "the watcher shouts the number once
+a second — 12!, 13!, 14! — the browser also counts quietly
+between shouts just to fill the silence. If a shout is
+missed, no one notices. If two arrive fast, browser just
+resyncs silently."
+
+SHIPPED THIS SESSION
+--------------------
+Watcher (v1.11.0):
+  - HEARTBEAT_ACTIVE_MS: 10000 → 1000 (one-line change)
+  - Idle cadence unchanged (60s)
+  - Heartbeat payload already carried {phase, elapsed,
+    countdown, entry} from Session 26 work — just turning
+    the dial from 10s → 1s
+  - v1.10.0 archived as rollback, same OneDrive folder
+
+Worker:
+  - Accepts 1/sec /heartbeat rate as-is (per-key KV rate
+    is fine with multiple rings, each a different key)
+  - lastseen:slug:ring write throttled to nowSec % 10 === 0
+    — prevents pounding a never-expiring key at 1/sec
+  - Deployed to production
+
+Frontend (PREVIEW ONLY — production untouched):
+  - applyHeartbeatClock rewritten as AUTHORITY (was a
+    stale-gate fallback, gated by 15s)
+  - Entry-match guard (heartbeat only applies if about the
+    current on-course horse) — prevents horse-swap flash
+  - Phase-priority guard (INTRO < CD < ONCOURSE < FINISH)
+    — prevents buzzer-noise regression
+  - Only updates clock fields on _ocState; preserves
+    metadata (ta/fpi/ti/jf/isOpt) from setOcState
+  - Resets s.ts = Date.now() so local tick uses browser
+    time only — no cross-clock math
+  - Poll order in live.html: render → applyHeartbeatClock
+    → tickOnCourse, all in same JS frame, single paint
+
+NOT SHIPPED THIS SESSION (deliberate)
+-------------------------------------
+display.html — own clock implementation, uses #liveClock,
+  extrapolates from oc.ts (worker timestamp). Ticks at 100ms.
+  Same cross-clock problem v1.11 fixes for live.html.
+  Consolidation debt — see below.
+
+stats.html — same story as display.html. Own tickClock(),
+  own extrapolation. Bill initially thought it matched
+  live.html. It doesn't.
+
+Leaving both alone for now was deliberate: don't introduce
+new variables the night before a show. Migrate in a calm
+session.
+
+
+BILL'S ARCHITECTURAL DIRECTIVE (important)
+------------------------------------------
+Late-night realization: the consolidation Bill thought had
+already happened, hadn't. display.html and stats.html
+duplicate the clock logic that lives in display-config.js
+helpers. That's the symptom. The root is that prior
+sessions added new pages without migrating to (or extending)
+the shared helpers.
+
+Bill's directive for the rebuild:
+  "display rules, the class codes, the ELM codes, the
+   clocks, the UDP — this should all be located in one or
+   two pages that drives the website and just uses those
+   functions at different points and formats them different
+   client side but the heavy lifting is done from one spot
+   so its uniform"
+
+Concrete audit targets (saved to memory):
+  1. Clocks — tickOnCourse + setOcState + applyHeartbeatClock
+  2. Class codes — type/scoring-method resolution
+  3. Status/ELM codes — label, color, sort order
+  4. UDP event schema — canonical shape shared across
+     watcher/worker/frontend
+  5. Display rules — precision, phase labels, color semantics
+
+Saved as project_consolidation_audit.md.
+
+
+THE BIGGER PIVOT
+----------------
+When the consolidation came up, Bill said he wanted to "rip
+down the whole thing and build it back using that model." I
+pushed back on "two rewrites" — suggested pairing it with the
+WebSocket/DO rebuild so there's ONE clean teardown, not two.
+
+Bill's response: "its going to be a this month thing... i may
+not tear it all down but im going to find time to work on this"
+
+And then: "a lot is riding on this working."
+
+That last line reset the weight of the whole conversation. This
+isn't a cleanup project — it's business-critical infrastructure
+for Bill's company, visible to paying show managers and hundreds
+of spectators. Failure is a credibility hit on a live stage.
+
+New memory file: project_stakes.md, pinned at top of MEMORY.md.
+Rules that fall out:
+  - Never ship unproven code mid-show (S27's lesson, permanent)
+  - Reliability > cleverness when tied on correctness
+  - Every rollback path is a feature, not overkill
+  - Shadow-run the WebSocket rebuild, migrate page by page
+  - Treat reliability concerns as the signal they are
+
+WebSocket/DO rebuild promoted from "future" → "ACTIVE,
+starting April/May 2026" in memory. Approach: consolidate
+shared logic FIRST (the audit), then layer push architecture
+on top, page by page, with polling as fallback during
+migration. Bill wants Devon co-leading.
+
+
+TOMORROW (Culpeper Day 4, 2026-04-18)
+-------------------------------------
+Bill's deploy checklist:
+  1. Copy west-watcher.js from OneDrive over C:\west\west-watcher.js
+  2. Restart watcher
+  3. Watch live.html preview (preview.westscoring.pages.dev)
+  4. If clock is clean: promote preview to production
+  5. If clock misbehaves: drag west-watcher-v1.10.0.js over
+     west-watcher.js, restart — instant rollback
+
+display.html and stats.html will exhibit the old flicker
+behavior regardless of watcher version — they don't use the
+new pathway.
+
+
+OPEN THREADS (for Session 28+)
+-------------------------------
+  1. Migrate display.html + stats.html to shared
+     tickOnCourse/applyHeartbeatClock (project_clock_pages_inventory.md)
+  2. Full consolidation audit across clocks, class codes,
+     status codes, UDP schema, display rules
+     (project_consolidation_audit.md)
+  3. WebSocket/DO rebuild — start design work this month
+     (project_websocket_rebuild.md)
+  4. Staleness-from-last-change-event (vs. staleness from
+     last heartbeat) — Bill mentioned wanting "true live"
+     staleness. Deferred during v1.11 work.
+  5. Funnel integration with push architecture — currently
+     polling, should become a WebSocket client
+  6. Phase 2 observability (audit_events + anomalies view)
+     still open from S25-26
+
+
+MEMORY FILES UPDATED THIS SESSION
+---------------------------------
+  project_ticking_clock.md           — v1.11 shipped details
+  project_clock_pages_inventory.md   — NEW, display/stats debt
+  project_consolidation_audit.md     — NEW, Bill's directive
+  project_websocket_rebuild.md       — NEW then promoted
+                                       winter → active
+  project_stakes.md                  — NEW, "a lot is riding"
+  MEMORY.md                          — indexed all of above
+
+
+COMMITS
+-------
+  4d45066  Session 27: revert + tick-after-render one-liner
+           (shipped during the show as the escape hatch)
+  b4a598d  watcher v1.11: heartbeat-as-authority clock
+           (1/sec cadence) — the real fix, preview-only
+
+
+END OF SESSION 27
+------------------
+Long day. Clock whack-a-mole in the morning, log-driven
+re-architecture at night, memory restructured to reflect
+that this is a business-critical platform with a serious
+rebuild starting this month.
