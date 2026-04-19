@@ -335,7 +335,8 @@ TRANSPORT:
   Signals (determined by press count and timing):
     1× Ctrl+A                → CLASS_SELECTED event
     3× Ctrl+A within 2s      → CLASS_COMPLETE event
-    Every On Course click     → fires simultaneously with {fr}=11
+    On Course click (HUNTER) → fires simultaneously with {fr}=11
+    On Course click (JUMPER) → DOES NOT RELIABLY FIRE on 31000
 
   Watcher behavior:
     - Tracks press count and timing window
@@ -345,11 +346,32 @@ TRANSPORT:
       accidental re-open (4th press ignored)
     - Posts events to worker for KV/D1 state updates
 
-  NOTE: Port 31000 fires on EVERY On Course click too, not
-  just Ctrl+A. The watcher uses the coincidence of port 31000
-  + {fr}=11 to confirm class selection during live scoring.
+  HUNTER vs JUMPER On Course behavior on port 31000 (Bill,
+  Session 28):
+    - HUNTER:  On Course click reliably produces a 31000 packet
+               alongside the scoreboard-port {fr}=11 INTRO frame.
+               Port 31000 IS a reliable on-course / focus
+               indicator for hunter classes.
+    - JUMPER:  On Course click does NOT reliably fire on 31000.
+               Port 31000 is NOT a reliable focus indicator for
+               jumpers — DO NOT rely on 31000 traffic to detect
+               jumper on-course events. Use scoreboard-port
+               {fr}=1 ONCOURSE frames instead.
 
-  Confirmed: 2026-03-22, cooldown added S16
+  Port 31000 history / ambiguity status:
+    Port 31000 has been a mess of ambiguity in v2. We've used it
+    for class opening (CLASS_SELECTED) and tried to use it for
+    class closing (3× Ctrl+A). The signal set is partially
+    overloaded with On Course traffic but only for hunters, and
+    the semantics are not cleanly documented in Ryegate itself.
+    The v3 engine may need a full redesign of what it uses 31000
+    for — at minimum, disambiguate Ctrl+A presses from hunter
+    On Course clicks via scoreboard-port correlation. FLAG as
+    an area that needs exploration before v3 locks its 31000
+    handling.
+
+  Confirmed: 2026-03-22, cooldown added S16, hunter/jumper
+  split clarified Session 28.
 
 
 ============================================================
