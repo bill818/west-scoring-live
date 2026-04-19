@@ -480,11 +480,17 @@ HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
   PART 6 — ELECTRON ENGINE (project_electron_engine.md)
 ============================================================
 
+14 Electron decisions LOCKED in Session 28 — see
+ENGINE-ELECTRON-DECISIONS.md for full decision record with
+rationale per choice. Summary of what remains as uncertainty:
+
 [ ] dgram fan-out synchronous INSIDE Electron main process
     Architecture assumes we can receive UDP packet + immediately
-    forward to RSServer port+1 synchronously with no await. Has
-    not been prototyped.
-    How to close: 50-line spike Electron app with:
+    forward to RSServer port+1 synchronously with no await. Decision
+    locked as "synchronous, forward before parse" — but the PATTERN
+    has not yet been prototyped in an actual Electron app.
+    How to close: 50-line spike Electron app (see Step B in
+    ENGINE-ELECTRON-DECISIONS.md):
       - dgram listener on port 29696 (or test port)
       - dgram sender forwarding every packet to port 29697 (synchronous)
       - measure latency receive→send in microseconds
@@ -492,30 +498,45 @@ HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
     Acceptance: packet-to-forward latency stays under 1ms 99%+ of time.
     RSServer doesn't notice the engine exists.
     Priority: HIGH (entire v3 engine architecture depends on this)
+    Scheduled: deferred to "another day" per Bill Session 28
 
-[ ] electron-updater from OneDrive distribution
-    Plan is to auto-update engines on scoring PCs via electron-updater
-    reading from OneDrive-hosted releases. Never tested.
-    How to close: set up GitHub Releases or a local release server,
-    configure electron-updater, push a v0.0.2 update to a v0.0.1 test
-    install, confirm auto-update flow.
+[ ] electron-updater from GitHub Releases (private repo)
+    Plan locked: auto-update via electron-updater reading GitHub API.
+    Never tested.
+    How to close: after spike, configure electron-updater in the
+    build config, push a v0.0.2 release, confirm v0.0.1 auto-updates.
     Priority: MEDIUM (can be done after Electron spike proves core)
 
-[ ] Code-signing workflow for Windows
-    Estimated ~$200/year for cert. Haven't confirmed vendor, haven't
-    walked through signing process.
-    How to close: research EV Code Signing cert vendors
-    (DigiCert, Sectigo, SSL.com), pick one, purchase, set up
-    signing in electron-builder config, confirm signed binary
-    passes Windows SmartScreen.
-    Priority: MEDIUM (can defer until public distribution)
+[X] Code-signing decision — DEFERRED explicitly
+    Locked Session 28: unsigned for now, revisit before public
+    distribution. Not a technical uncertainty, a scheduling choice.
+    [x] resolved by explicit deferral
 
-[ ] nodeIntegration quirks for optional status window
-    If we add a renderer status window that uses Node APIs directly,
-    Electron security config needs attention (contextIsolation etc).
-    How to close: decide status window scope, configure preload
-    properly, test.
-    Priority: LOW (can ship without status window initially)
+[X] nodeIntegration decision — LOCKED true
+    Internal tool, trusted content, no public-facing renderer.
+    Decision made Session 28.
+    [x] resolved
+
+[X] Installer format decision — LOCKED NSIS + portable dual build
+    [x] resolved
+
+[X] Auto-start on login — LOCKED yes with install-time toggle
+    [x] resolved
+
+[X] Single-instance lock — LOCKED yes (one engine per PC)
+    [x] resolved
+
+[X] Config path — LOCKED c:\west\config.json (v2 compat)
+    [x] resolved
+
+[X] Log path — LOCKED c:\west\west_log.txt (v2 pattern)
+    [x] resolved
+
+[X] Tray icon / status window design — LOCKED
+    Tray icon color-coded (green/amber/red/gray), hover tooltip,
+    right-click menu with Open/Logs/Pause/Restart/Quit, left-click
+    opens optional always-on-top status window.
+    [x] resolved
 
 
 ============================================================
