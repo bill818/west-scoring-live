@@ -31,7 +31,18 @@ DO NOT close items by speculation. Close by evidence.
 
 
 ============================================================
+  ARTICLE 1 REMINDER — classType is the lens
+============================================================
+Every item below that references col[N] is ONLY meaningful under
+its stated lens (jumper: J/T classType, hunter: H classType). The
+same column number can mean different things under different lenses.
+Never cross-reference columns between jumper and hunter sections.
+See memory feedback_class_type_commandment.md.
+
+
+============================================================
   PART 1 — JUMPER METHODS (JUMPER-METHODS-REFERENCE.md)
+  LENS: classType = 'J' (Farmtek) or 'T' (TOD)
 ============================================================
 
 [ ] METHOD 1 — completely unknown
@@ -114,6 +125,17 @@ DO NOT close items by speculation. Close by evidence.
     How to close: grep D1 class names for "power and speed",
     cross-check scoring_method column.
     Priority: LOW (nomenclature sanity check)
+
+[ ] METHOD 0 missing from WEST.jumper.methods web label map
+    display-config.js:426-435 has entries for methods 2, 3, 4, 6,
+    7, 9, 11, 13, 14, 15 — but NOT method 0 (Table III). Live method
+    0 classes (3 in D1: class 417 Culpeper, plus 2 test classes)
+    currently fall through to the generic "Jumper" label on-site
+    via the fallback at line 439. Method 0 shows up as scored and
+    renders correctly, but without a proper method label on page UI.
+    How to close: v3 adds method 0 to the web label map:
+      '0': { label: 'Table III', table: 'III/Table C', rounds: 1, hasJO: false, isFaultsConverted: true, ...}
+    Priority: LOW (cosmetic — scoring is correct, label is generic)
 
 
 ============================================================
@@ -386,6 +408,72 @@ HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
     Worker maps '7' → 'MR' but acronym unknown.
     How to close: observe live, ask at show, research USEF codes.
     Priority: LOW
+
+
+============================================================
+  ADDITIONAL NOOKS — found during Session 28 deeper audit
+============================================================
+
+[ ] col[03] always empty — purpose unknown (both J/T AND H lens)
+    Identity block col[03] is always empty in all observed entries
+    across all class types. Not needed for display/scoring but
+    legacy field that might carry data we don't know about.
+    How to close: note if ever populated. Observe and document.
+    Priority: VERY LOW
+
+[ ] col[47] "small number on classics" — hunter entry, unknown field
+    CLS-FORMAT.md still-unknown list: "col[47]: small number on
+    classics — unknown." Under HUNTER LENS only.
+    How to close: observe value in various hunter classic classes,
+    correlate with any visible display or scoring output.
+    Priority: LOW
+
+[ ] TIMY/TOD col[84] R3 status — unconfirmed
+    display-config.js:1200 comment: "TIMY (T): col[82]=R1 status,
+    col[83]=R2 status, col[84]=R3 (unconfirmed)." Under T (TOD) lens
+    in jumper context.
+    How to close: find/fixture a TOD 3-round jumper class with an R3
+    status (EL/WD/RT/etc), verify col[84] carries the status code.
+    Priority: LOW (3-round jumpers rare on TOD hardware)
+
+[ ] UDP tags {6}-{7} — may appear in specific class types
+    CLS-FORMAT.md UDP section notes {6}-{7} as unknown — "may appear
+    in specific class types." Not seen in current data.
+    How to close: capture UDP across broader range of class types
+    (equitation, derby, championship, team), document if observed.
+    Priority: LOW
+
+[ ] H[06] label for WCHR Derby Spec (H[37]=8)
+    CLS-FORMAT.md: "H[06] — changes for H&G and Special, label
+    unknown (possibly IsHuntAndGo)." H[06]=1 observed only on
+    WCHR Derby Spec.
+    How to close: test H[06] across all derby sub-types and
+    non-derby classes, see if label is actually "IsHuntAndGo" or
+    something else. Ryegate toggle cycling may reveal the field's
+    GUI label.
+    Priority: LOW
+
+[ ] Stats UI R2/JO standings — elim/WD treatment mirror
+    From project_open_threads.md memory (2026-04-15): "R2/JO
+    standings in stats.html still use the old generic
+    renderStandingsTable — the R1 elim/WD treatment (status badge
+    in place column, em-dash gap, dimmed row) needs to be mirrored
+    over. Discussed but not yet shipped."
+    How to close: in v3 stats.html port, ensure R2/JO uses same
+    elim/WD rendering as R1. Acceptance: a R2 WD entry shows status
+    badge in place column, em-dash gap to next place, dimmed row —
+    identical to R1 behavior.
+    Priority: MEDIUM (v2 UX inconsistency; v3 chance to fix)
+
+[ ] Ryegate web state "ORDER_POSTED" exact HTML — not yet sampled
+    reference_ryegate_web_states.md memory: "ORDER_POSTED | 'Order
+    of Go' in header area (exact HTML not yet sampled)." The peek
+    classifier has the state enumerated but hasn't validated the
+    exact DOM it's looking for.
+    How to close: fetch ryegate.live for a class at the moment an
+    OOG is posted, save the HTML, update the classifier's match
+    pattern.
+    Priority: MEDIUM (peek reliability depends on this)
 
 
 ============================================================
