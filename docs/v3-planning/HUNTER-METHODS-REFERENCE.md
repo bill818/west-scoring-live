@@ -576,49 +576,533 @@ From production data at the time of this writing:
 
 ---
 
-## KNOWN GAPS (NOT FULLY VERIFIED IN v2)
+## WHAT v2 ALREADY BUILT (HUNTER WORK THAT CARRIES INTO v3)
 
-Bill said: "we may not have flushed out every bug." These are the gaps:
+**Bill, Session 28 correction:** an earlier version of this doc listed "20 unresolved gaps" for hunters. That was wrong — re-audit of `display-config.js` shows v2 has substantial hunter infrastructure already tested and working. v3 inherits all of this; it doesn't rebuild from scratch.
 
-1. **Derby types 4-8** — only seen types 1-3 in live data. Types 4-8 exist in spec but behavior unverified.
+### Derby infrastructure — COMPLETE
 
-2. **IHSA rules** (ihsa flag) — classMode=3 + ihsa=True exists but no field testing. Collegiate rules may require different parsing.
+All 9 derby types mapped with full metadata in `WEST.hunter.derbyTypes` (display-config.js lines 1289-1298):
 
-3. **Hunter UDP tag catalog incomplete** — we know `{fr}=11` for INTRO and some tag behavior for equitation, but full tag coverage for derby, multi-round, and championship formats is gapped.
+| derbyType | Label | Judges | H&G | showAllRounds |
+|---|---|---|---|---|
+| 0 | International | 2 | No | Yes |
+| 1 | National | 1 | No | No |
+| 2 | National H&G | 1 | Yes | Yes |
+| 3 | International H&G | 2 | Yes | Yes |
+| 4 | USHJA Pony Derby | 1 | No | No |
+| 5 | USHJA Pony Derby H&G | 1 | Yes | Yes |
+| 6 | USHJA 2'6 Jr Derby | 1 | No | No |
+| 7 | USHJA 2'6 Jr Derby H&G | 1 | Yes | Yes |
+| 8 | WCHR Derby Spec | 1 | No | No |
 
-4. **Run-off (runOff flag)** behavior — flag exists but not fully exercised. When does it fire? How is the run-off scored? Not implemented in v2 display.
+All 9 types have resolver helpers: `WEST.hunter.getDerby(code)`, `getClassLabel(classInfo)`. **All were tested during v2 development.**
 
-5. **Special Team classes** (classMode=3 + isTeam=True) — flag exists, team aggregation rules not tested. Multi-rider team scoring conventions unknown in our code.
+### Judge grid rendering — COMPLETE
 
-6. **California Split** (californiaSplit) — rare, unverified behavior.
+`WEST.hunter.renderJudgeGrid(entry, judgeCount, statusDisplay, opts)` at display-config.js:2013. Parameterized for:
+- 1-7+ judges (7 confirmed live at class 1002, 2026-04-08)
+- Derby vs non-derby layouts
+- Compact (display.html sidebar, stats.html) vs expanded (results.html) modes
+- Status-code dimming + per-round status rules
 
-7. **Ribbons-only mode** (ribbonsOnly) — display behavior unverified (assume: hide scores, show ribbons only).
+Derby-specific builders at lines 1831, 1872, 1902:
+- `WEST.hunter.derby.buildEntries(classInfo)` — parses per-judge per-round structure
+- `WEST.hunter.derby.renderPrecomputed(computed, opts)` — standard render
+- `WEST.hunter.derby.renderPrecomputedByJudge(computed, opts)` — by-judge view
 
-8. **Phase weights edge cases** — what if weights sum to > or < 100? Behavior not specified in our parser.
+### Championship rendering — COMPLETE
 
-9. **Championship point rollup** — how does isChampionship=True actually aggregate points from qualifying classes? v2 doesn't implement this aggregation.
+- `isChampionship` flag (H[11]) handled throughout
+- CH/RC ribbons for 1st/2nd (via `WEST.ribbon.placeRibbon` at line 230)
+- Championship class detection via flag OR class name regex (`/champion/i`)
+- `getClassLabel(classInfo)` returns "Hunter Championship" when flag set
 
-10. **Jogged classes** (isJogged) — operational flag only; what's the display implication if a horse jogs out lame?
+### Split Decision detection — COMPLETE
 
-11. **Status code `DQ`, `RO`, `EX`, `HC`** — defined but not seen live. Behavior inferred from spec.
+When a multi-judge class has disagreement on top 3 positions, a red "SPLIT DECISION" pill renders on the class header. Judge grid shows per-judge ranks so spectators can see the disagreement source.
 
-12. **reverseRank flag** — exists, presumably means lower score wins, never seen live.
+### Multi-round scoring — COMPLETE
 
-13. **Multi-judge TIEBREAK by judge N** — tie-break rule cols[18/19/20] values 1-N not fully tested.
+- R1 / R2 / R3 column layouts confirmed (non-derby sequential +9 stride, derby special layout)
+- 7 judges at cols 15-21 (R1) / 24-30 (R2) — confirmed class 1002, 2026-04-08
+- R3 at cols 33-39 — confirmed class 925 Special, 2026-04-10
+- Combined score totals at cols[42/43/44]/[45]
+- Phase weights extraction at cols[22-24]
+- Phase labels at cols[25-27]
 
-14. **Average scoreMethod (H[06]=1)** — not sure how many shows actually use this vs Total. Parser logic written but untested.
+### Equitation overlay — COMPLETE
 
-15. **onCourseSB flag** — what does it actually change in display? Unknown.
+- `isEquitation` detection (method 7 on jumper OR H[10]=True on hunter)
+- Rider-primary identity flip across all standings, on-course cards, and results
+- "Rider / Horse" column header instead of "Horse / Rider"
+- Scored vs Forced (scoringType) sub-variants both handled
 
-16. **displayNATTeam flag** — national team display mode, unknown semantics.
+### Detection helpers — COMPLETE
 
-17. **ignoreSireDam flag** — display behavior is clear (hide breeding), but is this flag actually set at FEI shows?
+- `WEST.hunter.isDerby(classInfo)`
+- `WEST.hunter.isEquitation(classInfo)`
+- `WEST.hunter.getClassLabel(classInfo)` — handles all classMode + scoringType + flag combinations
+- `WEST.hunter.isChampionship(classInfo)`
 
-18. **noCutOff flag** — keeps low scorers in placings. When is it set? What's the default cutoff?
+### Status code handling — COMPLETE
 
-19. **avgRounds vs scoreMethod=1** — two different ways to indicate averaging. Which takes precedence?
+- Text status per round (cols[52/53/54]) + numeric fallback (cols[46/47/48]) with 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS mapping
+- Evidence-based has-gone logic (don't trust flag columns alone — use score OR place OR non-DNS status)
+- Per-round status display rules (each round independent — a round's status hides that round only, not downstream rounds)
 
-20. **Hunter division championship classes** (like 20C, 23C in D1) — these are CLASSTYPE H but named after jumper divisions. How do they aggregate? Points from jumper classes scored hunter-style? Needs investigation.
+---
+
+## REMAINING GAPS (the smaller, real list)
+
+These are the flags / behaviors spec'd but not live-verified OR not yet implemented. Much shorter than the earlier "20 gaps" list because most were actually done in v2.
+
+1. **Team class aggregation** (classMode=3 + isTeam=True) — header parsed, but team-level scoring rollup (summing member scores, team standings) is not implemented. When v3 first sees a Special Team class live, this needs filling in.
+
+2. **Run-off (runOff flag, H[30])** — parser reads it, display has no special handler. Happens when top placings are tied and a timed run-off resolves them. Not observed live in our D1 sample.
+
+3. **California Split (californiaSplit, H[17])** — parser reads it + `caliSplitSections` (H[33]). Rare, mostly west-coast convention. Class divided into sections, each with its own placings. v2 doesn't render section dividers.
+
+4. **IHSA rules (ihsa flag, H[38])** — flag parsed but no behavior changes triggered. Intercollegiate catch-ride format has different scoring conventions. Unknown whether a cross-reference to IHSA rules is required.
+
+5. **displayNATTeam (H[36])** — flag parsed, display behavior unknown. National team display mode, likely FEI-ish.
+
+6. **reverseRank (H[16])** — flag parsed (lower score wins). Never observed live. Edge case.
+
+7. **noCutOff (H[32])** — flag parsed, effect on placings unclear (default cutoff unknown).
+
+8. **avgRounds (H[31]) vs scoreMethod=1 (H[06])** — two different signals for averaging. Precedence rule unverified.
+
+9. **Jumper-division championship classes (H type)** — classes like 20C, 23C in D1 are classType=H but named after jumper divisions. Points aggregation from qualifying jumper classes is done in Ryegate, not us. We render what Ryegate gives us; the actual math isn't modeled on our side.
+
+10. **Phase weight edge cases** — what if weights sum to >100 or <100? Parser accepts any number, display applies directly without normalization.
+
+**Handling in v3:** parse_warnings table (per DATABASE-SCHEMA-EXPANSION) captures the first live occurrence of any of these. Bill reviews post-show, codifies into the hunter module. Observability > speculation.
+
+---
+
+## SUMMARY — what v3 inherits vs what still needs work
+
+**v3 inherits from v2 (don't rebuild):**
+- All 9 derby types mapped with metadata
+- Judge grid renderer (1-7 judges, derby vs non-derby, compact + expanded modes)
+- Derby scoring pipeline (per-judge per-round, hiopt, handy bonus)
+- Championship class rendering (CH/RC ribbons, isChampionship flag)
+- Split Decision multi-judge disagreement detection
+- Equitation overlay (rider-primary identity)
+- classMode / scoringType / flag detection helpers (isDerby, isEquitation, isChampionship, getClassLabel)
+- Status code text + numeric fallback mapping
+- Multi-round column layouts (up to 7 judges, up to R3 confirmed)
+- Phase weights extraction, phase labels
+
+**v3 still needs to do:**
+- Port all the above into the shared `west-rules.js` / hunter-specific helper module (vanilla-JS IIFE style, dual-environment per project_electron_engine.md)
+- Implement the 10 remaining gaps listed above as they appear live (observability-first — log parse_warnings, codify after review)
+- Maintain the classType gatekeeper (Article 1) as the top-level parser branch
+
+**v3 does NOT need to re-derive:**
+- Column positions for non-derby and derby
+- Judge count behavior
+- Status code mappings
+- Derby type labels
+- Championship ribbon logic
+- Multi-judge split-decision detection
+
+---
+
+## COLUMN MAPS — self-contained hunter reference
+
+The hunter column maps from CLS-FORMAT.md are reproduced here so the hunter doc is a single source for v3 hunter parser work. The session dates and class confirmations are preserved — this represents hundreds of hours of live-toggle testing.
+
+**Remember Article 1:** every column below is meaningful ONLY under the hunter lens (`classType == 'H'`). The same column numbers mean different things in the jumper lens.
+
+### Hunter Header Columns (H[00] — H[39])
+
+Confirmed from live toggle test 2026-03-22 with incremental confirmations through 2026-04-10.
+
+```
+H[00] ClassType              H
+H[01] ClassName              text
+
+H[02] ClassMode              CONFIRMED 2026-04-06 by cycling all 4 Ryegate class type settings:
+                             0 = Over Fences (standard hunter, scored or forced)
+                             1 = Flat (no jumps, scored)
+                             2 = Derby (auto-set when Derby selected)
+                             3 = Special (custom multi-round, Normal or Team)
+
+H[03] NumRounds              CONFIRMED 2026-04-10 on class 925 Special.
+                             Values: 1, 2, or 3.
+
+H[04] CurrentRound           CONFIRMED 2026-04-10 by snapshot diff on class 925 Special:
+                             1 = R1 view active in Ryegate
+                             2 = R2 view active in Ryegate
+                             3 = R3 view active in Ryegate
+                             N+1 = "Overall" view (e.g. 4 in a 3-round class)
+                             Reflects what operator is currently viewing — NOT
+                             a measure of rounds scored. Useful live-on-course
+                             signal: when a horse is in the ring, the round tab
+                             usually matches what they're about to ride.
+                             live.html uses this to label the on-course banner
+                             round (R1/R2/R3); falls back when h[4] > numRounds.
+
+H[05] ScoringType            CONFIRMED 2026-04-06 by cycling scoring type settings:
+                             0 = Forced (operator manually enters placements)
+                             1 = Scored (places derived from judge scores, Total)
+                             2 = Hi-Lo (drop highest + lowest, average rest)
+                             NOTE: was mislabeled IsFlat — corrected 2026-04-06
+
+H[06] ScoreMethod            CONFIRMED 2026-04-06:
+                             0 = Total (sum all judge scores)
+                             1 = Average (average all judge scores)
+                             NOTE: also 1 for WCHR Derby Spec (H[37]=8) — may
+                             have dual meaning. Label STILL UNCERTAIN for H&G
+                             and Special variants (possibly IsHuntAndGo).
+
+H[07] NumJudges              1 to 7+ judges. CONFIRMED 2026-04-06 by cycling 1→5,
+                             7 verified live on class 1002 (2026-04-08).
+                             Auto-adjusts per derby sub-type.
+                             NOTE: was mislabeled NumScores — clarified 2026-04-06
+
+H[08] RibbonCount            CONFIRMED 2026-04-10 — TRUE ribbon count (matches
+                             Ryegate's "12 ribbons" setting). 12 for derbies &
+                             Specials, 8 for standard hunter. Earlier doc claimed
+                             H[04] was ribbon count — that was wrong. H[08] is
+                             the only ribbon count field.
+
+H[09] SBDelay                numeric scoreboard delay (tested at value 4)
+
+H[10] IsEquitation           True/False ✓
+H[11] IsChampionship         True/False ✓
+H[12] IsJogged               True/False ✓
+H[13] OnCourseSB             True/False ✓
+H[14] IgnoreSireDam          True/False ✓
+H[15] PrintJudgeScores       True/False ✓
+H[16] ReverseRank            True/False ✓
+
+H[17] CaliforniaSplit        True/False ✓ (confirmed — flips True when Split
+                             enabled in Ryegate). NOTE: watcher label "RunOff"
+                             is WRONG for hunter — it's CaliforniaSplit here.
+
+H[18] R1TieBreak             0 = LeaveTied, 1-N = ByJudgeN ✓
+H[19] R2TieBreak             0 = LeaveTied, 1-N = ByJudgeN ✓
+H[20] R3TieBreak             0 = LeaveTied, 1-N = ByJudgeN ✓
+H[21] OverallTieBreak        0 = LeaveTied, 20 = ByOverallScore ✓
+
+H[22] PhaseWeight1           always 100
+H[23] PhaseWeight2           always 100
+H[24] PhaseWeight3           always 100
+H[25] Phase1Label            "Phase 1" default, customizable
+H[26] Phase2Label            "Phase 2" default, customizable
+H[27] Phase3Label            "Phase 3" default, customizable
+H[28] Message                scoreboard message text
+H[29] Sponsor                sponsor text
+
+H[30] RunOff                 True/False ✓
+H[31] AvgRounds              True/False ✓
+H[32] NoCutOff               True/False ✓
+H[33] CaliSplitSections      numeric — 2=default, 4=confirmed ✓
+H[34] Dressage               True/False ✓
+H[35] ShowAllRounds          True/False ✓ (auto-set per derby type default)
+H[36] DisplayNATTeam         True/False ✓
+H[37] DerbyType              FULLY CONFIRMED 2026-04-03 by cycling all types
+                             (see derby type table below)
+H[38] IHSA                   True/False ✓
+H[39] RibbonsOnly            True/False ✓
+```
+
+### Derby Auto-changes (when Derby selected)
+
+```
+H[02] → 2 (HiLo family)
+H[07] → varies by derby sub-type
+H[08] → 12 (ribbon count)
+H[35] → True (standard derbies) or False (H&G variants)
+H[39] → False (RibbonsOnly auto-cleared)
+```
+
+### ShowAllRounds defaults per derby type
+
+```
+International (1): True          | National (2): True
+NatlHG (3): False                | IntlHG (4): False
+USHJAPony (5): True              | USHJAPonyHG (6): False
+USHJA26Jr (7): True              | USHJA26JrHG (8): False
+```
+H&G variants = False, Standard derbies = True. Operator can override.
+
+### Tie Break encoding
+
+```
+0   = Leave Tied
+1-N = By Judge N (literal judge number)
+20  = By Overall Score
+```
+
+### Hunter Header — STILL UNCERTAIN
+
+```
+H[06]   — label unknown for H&G / Special variants (possibly IsHuntAndGo)
+H[07]   — auto-adjusts per derby type, full mapping incomplete
+H[09]   — SBDelay, only tested at value 4
+H[37]=9 — WCHR Spec sub-variant not directly confirmed (extends the 0-8 range)
+```
+
+---
+
+### Hunter Entry Columns
+
+Hunter entries are always 55 cols. Identity cols 0-12 match Jumper layout (see jumper reference).
+
+```
+col[00] EntryNum (or empty — some entries padding)
+col[01] Horse
+col[02] Rider
+col[04] CountryCode
+col[10-12] FEI numbers
+```
+
+### Standard single-judge single-round Over Fences
+
+```
+col[13] GoOrder
+col[14] CurrentPlace            live standing, updates after each horse
+col[15] R1Score                 judge score (45-95 typical)
+col[42] R1Total                 same as R1Score (no bonus in single-judge OF)
+col[45] CombinedTotal           same as R1Total
+col[49] HasGone_R1              1=competed
+col[52] StatusCode              EX/RF/HF/EL/OC
+```
+
+### Non-derby scored (H[02]=0 or 3, H[05]=1 or 2) — 1 to 7+ judges, 1-3 rounds
+
+CONFIRMED 2026-04-08 (7 judges, 2 rounds, class 1002)
+CONFIRMED 2026-04-10 — R3 column map from class 925 Special, 2 judges
+
+**Per-judge scores are SEQUENTIAL — no hiopt, no bonus, no mirrors.**
+
+```
+R1: col[15 + j] where j = 0..numJudges-1    (J1=col[15], J2=col[16], ... J7=col[21])
+R2: col[24 + j] where j = 0..numJudges-1    (J1=col[24], J2=col[25], ... J7=col[30])
+R3: col[33 + j] where j = 0..numJudges-1    (J1=col[33], J2=col[34], ... J7=col[39])
+
+col[42] R1Total                 sum of all judge R1 scores
+col[43] R2Total                 sum of all judge R2 scores
+col[44] R3Total                 sum of all judge R3 scores ★ NEW
+col[45] CombinedTotal           R1Total + R2Total (+ R3Total if 3 rounds)
+                                SAME caveat as derbies: only correct when operator
+                                views "Overall" in Ryegate. Compute yourself from
+                                col[42]+col[43](+col[44]) rather than trust col[45]
+                                mid-class.
+col[46] R1_NumericStatus
+col[47] R2_NumericStatus
+col[48] R3_NumericStatus        ★ NEW
+col[49] HasGone_R1
+col[50] HasGone_R2
+col[51] HasGone_R3              ★ NEW
+col[52] StatusCode_R1
+col[53] StatusCode_R2
+col[54] StatusCode_R3           ★ NEW
+
+UNUSED padding cols:
+  22-23 (between R1 and R2)
+  31-32 (between R2 and R3)
+  40-41 (between R3 block and totals)
+```
+
+**Note:** this layout is COMPLETELY DIFFERENT from derby. Derby interleaves hiopt/base/bonus/mirrors; non-derby is straight sequential +9 stride per round. H[02] determines which layout to use.
+
+### Two-round classic (1 judge, 2 rounds — legacy reference)
+
+```
+col[13] GoOrder
+col[14] CurrentPlace
+col[15] R1Score                 (= J1 R1 score when 1 judge)
+col[24] R2Score                 (= J1 R2 score when 1 judge)
+col[42] R1Total
+col[43] R2Total
+col[45] CombinedTotal           R1 + R2
+col[49] HasGone_R1              1 = R1 only (scratched before R2)
+col[50] HasGone_R2              1 = completed both rounds
+col[52] StatusCode_R1
+col[53] StatusCode_R2
+```
+
+### International Derby (2 judges, 2 rounds, high options + handy)
+
+FULLY CONFIRMED 2026-04-03 from class 1001
+
+```
+col[13] GoOrder
+col[14] CurrentPlace
+col[15] R1_HighOptionsTaken
+col[16] Judge1_R1_BaseScore
+col[17] R1_HighOptionsTaken     (mirrors col[15])
+col[18] Judge2_R1_BaseScore
+col[24] R2_HighOptionsTaken
+col[25] Judge1_R2_BaseScore
+col[26] Judge1_R2_HandyBonus    (0-10)
+col[27] R2_HighOptionsTaken     (mirrors col[24])
+col[28] Judge2_R2_BaseScore
+col[29] Judge2_R2_HandyBonus    (0-10)
+col[42] R1Total                 = (J1base + hiOpt) + (J2base + hiOpt)
+col[43] R2Total                 = (J1base + hiOpt + handy) + (J2base + hiOpt + handy)
+col[45] CombinedTotal           = R1Total + R2Total
+                                * ONLY CORRECT after operator views Overall in Ryegate
+                                * While viewing R1 or R2, col[45] shows THAT round's total
+col[46] R1_NumericStatus        0=normal, 2=incident, 3=retired
+col[47] R2_NumericStatus        same values
+col[49] HasGone_R1
+col[50] HasGone_R2
+col[52] R1_TextStatus           RF/HF/EL/OC/DNS (empty for RT)
+col[53] R2_TextStatus           same (empty for RT)
+```
+
+### National Derby (1 judge, 2 rounds, high options + handy)
+
+CONFIRMED 2026-04-03 from class 1000
+
+```
+col[13] GoOrder
+col[14] CurrentPlace
+col[15] R1_HighOptionsTaken
+col[16] Judge1_R1_BaseScore
+col[42] R1Total                 = base + hiOpt
+col[24] R2_HighOptionsTaken
+col[25] Judge1_R2_BaseScore
+col[26] Judge1_R2_HandyBonus    (0-10) — NOT CONFIRMED for National, was 0 in test
+col[43] R2Total                 = base + hiOpt (+ handy if applicable)
+col[45] CombinedTotal           (same Overall-view caveat as International)
+col[46] R1_NumericStatus
+col[47] R2_NumericStatus
+col[49] HasGone_R1
+col[50] HasGone_R2
+col[52] R1_TextStatus
+col[53] R2_TextStatus
+```
+
+### Combined Total Caveat (CRITICAL)
+
+```
+col[45] CombinedTotal is ONLY accurate when operator views "Overall" in Ryegate.
+While viewing R1 or R2, col[45] reflects that round's total only.
+For reliable combined: compute R1total[42] + R2total[43] ourselves.
+```
+
+Applies to ALL hunter classes with multiple rounds. v3 parser should ALWAYS compute combined from component totals, never trust col[45] for mid-class state.
+
+### Score Detection — Hunter
+
+```
+Has competed:     col[49]=='1' OR col[50]=='1' (combined with evidence below)
+Eliminated:       col[52] or col[53] non-empty
+Standard score:   col[49]=='1' AND col[15] non-zero
+Classic score:    col[50]=='1' AND col[15] non-zero AND col[24] non-zero
+```
+
+### Hunter Status Code System — CONFIRMED 2026-04-03
+
+```
+col[46]: R1 numeric status code
+         0 = Normal completion
+         1 = DNS (Did Not Start)
+         2 = EL (Eliminated — covers RF, HF, EL, OC generically)
+         3 = RT (Retired / voluntary withdrawal)
+         4 = WD (Withdrawn)
+         5 = RF (Rider Fall — specific)
+         6 = OC (Off Course — specific)
+         7 = MR (?)
+         8 = HC (Hors Concours)
+
+Worker maps: {'1':'DNS','2':'EL','3':'RT','4':'WD','5':'RF','6':'OC','7':'MR','8':'HC'}
+
+col[47]: R2 numeric status code (same values as col[46])
+         CONFIRMED from class 1001 entry 113 (retired in R2)
+
+col[52]: R1 text status code
+         RF = Rider Fall, HF = Horse Fall, EL = Eliminated
+         OC = Off Course, DNS = Did Not Start
+         DOES NOT WRITE for RT/Retired — use col[46]=3 as fallback
+         May be sticky — doesn't always clear on status change in Ryegate
+
+col[53]: R2 text status code (same values as col[52])
+         Same RT caveat — doesn't write text, use col[47]=3 as fallback
+
+Display logic (waterfall):
+  1. Check text code (col[52] R1 / col[53] R2) — use if present
+  2. If empty, check numeric (col[46] R1 / col[47] R2):
+     - 2 → show as "EL" (generic — text code would have been more specific)
+     - 3 → show as "RT" (retired — text code never writes for this)
+  3. If both empty/zero = normal completion
+```
+
+### Hunter hasGone Logic — CONFIRMED 2026-04-03
+
+```
+hasGone flag (col[49]/col[50]) is NOT reliable alone:
+  - DNS entries may have hasGone=1 but no scores
+  - Accidental toggles can set hasGone=1 with no data
+  - Ryegate testing mode leaves hasGone stuck
+
+Correct detection (waterfall, evidence-based):
+  R1 competed = hasGone[49]=1
+                AND (score[15]>0 OR R1total[42]>0 OR status[52] non-empty OR col[46]>0)
+  R2 competed = hasGoneR2[50]=1
+                OR R2score[24]>0 OR R2total[43]>0 OR status[53] non-empty
+
+If hasGone=1 but no scores AND no status code → treat as NOT gone (accidental toggle)
+If hasGone=0 but scores present → treat as gone (manual entry)
+```
+
+---
+
+## JUDGES GRID DESIGN — the layout that was really thought out
+
+**Bill, Session 28:** "that judges grid was really thought out the judge column by rounds row."
+
+The judges grid is the centerpiece visual for multi-judge hunter classes. It's not a table of scores thrown together — it's a deliberate structure that reads top-down AND left-right in the way spectators naturally scan.
+
+### The layout
+
+```
+                 R1     R2     R3     Total
+  Judge 1       [87]   [85]          [172]
+  Judge 2       [86]   [88]          [174]
+  Judge 3       [85]   [86]          [171]
+                -----  -----         -----
+  Round Total   [258]  [259]         [517]
+```
+
+**Axis choice:** judges are the COLUMN axis, rounds are the ROW axis. Each judge's scores read TOP TO BOTTOM (how that judge saw the class round by round). Each round's combined reads LEFT TO RIGHT (what all judges thought of that round).
+
+Why this way, not the other:
+- Spectators typically look at ONE judge's pattern at a time ("what did Judge 1 think overall")
+- Then compare across judges for a given round ("Judge 1 vs Judge 2 on R2")
+- Putting judges as columns puts that scan direction along the eye's natural left-right motion
+- Putting rounds as rows keeps the round labels in the reading axis
+
+### Variants and parameterization
+
+Built in `WEST.hunter.renderJudgeGrid(entry, judgeCount, statusDisplay, opts)`:
+
+- **Compact mode** (display.html sidebar, stats.html): just total row + one score row, for at-a-glance
+- **Expanded mode** (results.html): full grid with all judges × all rounds + per-round totals + grand total
+- **Derby mode** (opts.isDerby): separate rows for base score, hiopt, handy bonus per judge per round
+- **Single-judge mode**: degenerates to a single column — grid collapses gracefully
+- **Status-code mode**: if a round is EL/RT/WD, that row dims with the status label in place of scores
+
+### What makes it work
+
+1. **Columns scale with judge count.** 1 judge = narrow. 7 judges = full grid. Same code path.
+2. **Status dims, not hides.** Eliminated rounds stay visible (with status code) instead of disappearing, preserving continuity in the grid.
+3. **Total rows bold.** The one row spectators gravitate to (overall totals) is visually weighted so it reads as the answer.
+4. **Per-round totals at the bottom.** Round columns sum vertically, total row sums horizontally. Two axes of comparison in one grid.
+5. **Derby bonus rows shared with base.** Same column; base + hiopt + handy are stacked within the cell, not splitting into new columns. Keeps the judge-column abstraction intact.
+
+### Why this matters for v3
+
+- v3 must preserve this grid exactly — it's the single most information-dense display on the site
+- The renderer (`WEST.hunter.renderJudgeGrid`) should move to the shared rules/display module with the SAME API (entry, judgeCount, statusDisplay, opts)
+- Don't redesign it — spectators have learned to read it. "Modernize under the hood, not on the surface" applies hardest here.
 
 ---
 
