@@ -1,0 +1,453 @@
+============================================================
+  SESSION 28 — 2026-04-18/19
+  v3.0 Planning Sprint — classType commandment + Electron lock
+  + comprehensive planning doc library + branches consolidated
+============================================================
+
+WRITTEN FOR THE NEXT CLAUDE INSTANCE
+------------------------------------
+Massive planning-only session. Zero code changes to production.
+17+ planning docs added or substantially restructured in
+docs/v3-planning/ on main. Feature branch merged + deleted.
+Memory restructured with Article 1 commandment pinned at top.
+
+If you are resuming v3 work, your entry point is:
+  1. THIS file (session notes)
+  2. memory: project_v3_rebuild.md (master v3 state)
+  3. docs/v3-planning/README.md (reading order for the 18-doc
+     planning library)
+  4. memory: feedback_class_type_commandment.md (Article 1 —
+     non-negotiable)
+
+v2 is STILL LIVE. Watcher v1.11 deployed. Shows continue.
+Do NOT touch v2 production code. All v3 work is in docs +
+planning + the /v3/ subfolder skeleton. Actual v3 code has
+NOT been written.
+
+Bill calls this Claude instance "Skippy the Magnificent."
+
+
+VERSIONS (end of session)
+-------------------------
+  Watcher:        v1.11.0 (unchanged from Session 27 — on OneDrive,
+                  deployed at scoring PCs)
+  Funnel:         v1.3.1 (unchanged)
+  Worker:         deployed (unchanged)
+  Frontend:       main production unchanged
+  v3 code:        SKELETON ONLY in /v3/ — empty stubs, no real
+                  code yet
+  v3 planning:    18 docs in docs/v3-planning/ on main
+
+
+MAJOR SHIPMENTS (all documentation, zero code changes)
+------------------------------------------------------
+
+1. ARTICLE 1 COMMANDMENT — classType is the gatekeeper
+
+   The most important rule on this project. classType (col[0]
+   of .cls row 0) determines the LENS through which you read
+   every other field. H = hunter lens, J/T = jumper lens, U =
+   no lens yet. Never translate field meanings across lenses.
+
+   Bill: "the H field is hunters and everythign after that field
+   will never have anything to do with jumpers and vice versa if
+   you see jumpers it will NEVER have anything to do with hunters."
+
+   Saved as:
+     - Memory: feedback_class_type_commandment.md
+       (pinned at top of MEMORY.md index)
+     - Commandment block at top of 6 docs:
+       CLS-FORMAT.md
+       JUMPER-METHODS-REFERENCE.md
+       HUNTER-METHODS-REFERENCE.md
+       CLASS-DETECTION-SCHEMAS.md
+       CLASS-RULES-CATALOG.txt
+       README.md (docs/v3-planning/)
+
+   Every new Claude on this project has gotten this wrong.
+   Bill is done having that conversation.
+
+2. JUMPER METHODS REFERENCE — ladder model + all methods
+
+   docs/v3-planning/JUMPER-METHODS-REFERENCE.md
+
+   Authoritative per-method spec for jumpers. Methods covered:
+     0 (Table III), 2 (II.2a), 3 (2-round + JO), 4 (II.1 Speed),
+     5 (Top Score — dropped), 6 (IV.1 Optimum), 7 (Timed Eq),
+     8 (dropped placeholder), 9 (II.2d), 10 (II.2f Stratified),
+     11 (II.2c — THIS is the II.2c, not a modifier of method 9),
+     13 (II.2b Immediate JO), 14 (Team), 15 (Winning Round).
+   Methods 1 and 12 are complete unknowns (flagged).
+
+   Bill's LADDER MODEL: a ladder between rounds exists ONLY
+   when faults are cumulative. Ladder = later-round EL wipes
+   earlier result. Methods with ladders: 3 (R1↔R2), 9 (PH1↔PH2),
+   14 (R1↔R2). Everything else is ladder-free.
+
+   Monotonic stacks — an entry's tier never decreases. Either
+   holds tier or removed entirely.
+
+3. HUNTER METHODS REFERENCE — credit v2 infrastructure + inline maps
+
+   docs/v3-planning/HUNTER-METHODS-REFERENCE.md
+
+   Covers classMode (0-3), scoringType (0-2), 17 compositional
+   flags, derby vs non-derby column layouts, multi-judge systems.
+
+   Session 28 correction: an earlier draft oversold "20 unresolved
+   gaps." Re-audit of display-config.js shows v2 has substantial
+   hunter infrastructure already built:
+     - All 9 derby types mapped with metadata (lines 1289-1298)
+     - Judge grid renderer (1-7+ judges, derby + non-derby)
+     - Derby scoring pipeline (buildEntries, renderPrecomputed)
+     - Championship rendering (CH/RC ribbons)
+     - Split Decision multi-judge disagreement detection
+     - Equitation overlay (rider-primary)
+     - 7 judges confirmed live (class 1002, 2026-04-08)
+     - R3 column layout confirmed (class 925, 2026-04-10)
+   Real gaps shrunk from 20 to 10.
+
+   Column maps moved INLINE from CLS-FORMAT.md so hunter doc is
+   self-contained. "That was a ton of work sorting through
+   everything" — Bill. Won't get lost.
+
+   Judges grid design documented (judge column × rounds row axis
+   choice + scaling variants).
+
+4. CLASS DETECTION SCHEMAS — lifecycle + Culpeper fix
+
+   docs/v3-planning/CLASS-DETECTION-SCHEMAS.md
+
+   Full class lifecycle state machine, 5 detection trigger
+   sources (.cls watch, UDP, tsked.csv watch, peek, Ctrl+A),
+   tsked.csv interpretation, ryegate.live peek rules, FINISH_LOCK,
+   canonical v3 Durable Object event schema.
+
+   CULPEPER .CLS-CHANGE ACTIVATION FIX (Part 6.1.1):
+   Bill observed at Culpeper Day 3/4 that live classes did NOT
+   display as live when operator hit Ctrl+A. Session 25's tsked-
+   gate fix over-corrected. Fix: add .cls-file-change as
+   secondary activation trigger when a class is SELECTED but
+   hasn't passed the tsked gate. Acceptance test procedure
+   spec'd in the same doc (Test A regression, Test B Culpeper
+   gap closed, Test C phantom-live safety).
+
+   Bill (end of session): "after rewrite may solve itself but
+   keep it open." v3's cleaner architecture may naturally
+   produce the right behavior. Verify at first show either way.
+
+5. FULL SCORING-SITE UI SPECS
+
+   Preserves v2 visual language for v3 rebuild. "Modernize under
+   the hood, not redesign on the surface."
+
+     docs/v3-planning/ADMIN-UI-SPEC.md
+       Every admin button, modal, workflow, endpoint (18).
+       7 known v2 bugs flagged for v3 fix.
+       Preservation checklist.
+
+     docs/v3-planning/PUBLIC-PAGES-UI-SPEC.md
+       index.html + show.html + classes.html structural inventory.
+       Typography, colors, animations, responsive breakpoints,
+       data flow per endpoint.
+
+     docs/v3-planning/LIVE-PAGES-UI-SPEC.md
+       live.html + display.html + results.html + stats.html
+       structural inventory. Shared live-display vocabulary
+       (phase pill, clock, on-course card, standings row, etc.).
+       Multi-round + hunter vs jumper handling.
+
+     docs/v3-planning/PAGE-INTENT.md
+       Design philosophy for live/display/stats — who each page
+       serves, ≤3-second user questions, how v3 push changes
+       delivery without changing soul. Pitfalls.
+
+6. DATABASE SCHEMA EXPANSION
+
+   docs/v3-planning/DATABASE-SCHEMA-EXPANSION.md
+
+   14 new D1 tables + 1 R2 bucket for v3:
+     Identity (4): riders, horses, entry_identity_links,
+                   identity_review_queue
+     Descriptor (1): class_descriptors (.cls parser output)
+     Rollups (5): show_summary_stats, class_summary_stats,
+                  rider_season_stats, horse_season_stats,
+                  class_leaderboard
+     Observability (4): parse_warnings, unknown_quirks,
+                        stats_rebuild_log, udp_anomalies
+     Archival index (1): udp_log_shipments
+     R2 bucket: raw UDP logs + archived .cls files
+
+   Principle: same D1 database, new tables. Never alter existing
+   schema. Additive only via west-worker.js migrations array.
+
+7. UDP PROTOCOL REFERENCE + V3 ROLLOUT SEQUENCE (merged from branch)
+
+   Phone Claude contributed these on a feature branch (claude/
+   enable-cross-instance-sharing-Lj43Y) during Session 28. Merged
+   into main at end of session per Bill's "fold in" directive.
+
+     docs/v3-planning/UDP-PROTOCOL-REFERENCE.md
+       Authoritative UDP reference. Frames 0-16 spec.
+       Two-channel architecture: Channel A = UDP in (port 28000
+       after funnel fan-out, ring scoring telemetry), Channel B =
+       port 31000 (operator focus signal). Independent inputs,
+       never correlate at port level.
+       Port 31000 hunter/jumper split: hunter On Course reliably
+       fires on 31000, jumper On Course does NOT.
+
+     docs/v3-planning/V3-ROLLOUT-SEQUENCE.md
+       11-stage operator-facing rollout. Bill's brick-by-brick
+       order. Locks watcher→engine rename ("WEST ENGINE" from
+       v3 forward). Locks Electron packaging decision.
+
+   V3-PLANNING.md (Session 24 brainstorm about watcher fire-and-
+   forget) was folded OUT — content shipped as the funnel v1.3.1,
+   no longer needed.
+
+8. ENGINE ELECTRON DECISIONS — 14 choices locked
+
+   docs/v3-planning/ENGINE-ELECTRON-DECISIONS.md
+
+   Bill walked through the Electron decision space with Claude.
+   14 choices locked with rationale:
+     1. Packager: electron-builder
+     2. Installer: NSIS + portable .exe dual build
+     3. Code signing: unsigned for now (Bill is only user)
+     4. Window frame: native Windows chrome
+     5. Config path: c:\west\config.json (v2 compat)
+     6. Log path: c:\west\west_log.txt (v2 pattern)
+     7. Auto-update: GitHub Releases via electron-updater
+     8. Single-instance lock: yes (one engine per scoring PC)
+     9. Auto-start on login: yes with install-time toggle
+     10. Process: single main process, workers later if needed
+     11. nodeIntegration: true (internal tool)
+     12. Window frame: native (duplicate of #4)
+     13. Crash handling: global handlers + auto-restart +
+         worker POST (observability)
+     14. UDP fan-out: SYNCHRONOUS — forward to RSServer FIRST,
+         parse SECOND (preserves v1.3.1 funnel fire-and-forget)
+
+   Tray icon + status window design locked (color-coded tray,
+   hover tooltip, right-click menu, left-click optional status
+   window).
+
+   Bill: "i just want a windows program as the final program."
+   Electron produces exactly that. Operators won't know it's
+   Electron — like VS Code, Slack, Discord.
+
+9. UNCERTAIN PROTOCOLS CHECKLIST — master punch list
+
+   docs/v3-planning/UNCERTAIN-PROTOCOLS-CHECKLIST.txt
+
+   ~73 items grouped by area. Every NOT CONFIRMED, STILL
+   UNCERTAIN, SPEC ONLY, NEVER OBSERVED LIVE, or flagged-gap
+   item across the planning docs. Checkboxes + source pointers
+   + "close by evidence" instructions.
+
+   Parts:
+     1 Jumper methods (12 items)
+     2 Hunter methods (16 items)
+     3 Class detection (6 items)
+     4 UDP protocol (6 items)
+     5 Numeric status codes (3 items, 3 already confirmed)
+     6 Electron engine (4 items, 7 resolved by decisions)
+     7 V2 bugs for v3 (7 items)
+     8 Database schema open questions (5 items)
+     9 Legacy CLS-FORMAT unknowns (8 items)
+     10 V3 build-plan infrastructure (7 items)
+   Plus "Additional Nooks" section for items found in deeper audit.
+
+   Priority spread: 9 HIGH, 19 MEDIUM, ~35 LOW, ~10 VERY LOW.
+
+   Rule: never close by speculation. Close by evidence.
+
+10. ARCHITECTURAL PRINCIPLES — hardware type vs class_kind
+
+    Big architectural clarification: the classType column
+    (J/T/H/U) is really HARDWARE TYPE, not class kind. Any
+    scoring method can run on Farmtek (J) or TOD (T) hardware.
+    v3 descriptor MUST split:
+      hardware_type: 'farmtek' | 'tod' | 'unknown'
+      class_kind:    'jumper'  | 'hunter' | 'equitation'
+    Derived independently. Parser should never refuse extraction
+    because hardware_type is unknown.
+
+    TIMY is dead hardware. T classType now means TOD.
+
+    TOD = Time of Day = FEI's absolute-reference-clock timing
+    model. Our v1.11 heartbeat-as-authority was Bill's original
+    port of this philosophy to the web.
+
+11. REPO STRUCTURE + ORGANIZATION
+
+    - Session notes moved from repo root → session-notes/ folder
+      (12 files, git mv preserves history)
+    - CLS-FORMAT.md moved from repo root → docs/v3-planning/
+      (consolidates v3 knowledge)
+    - v3/ subfolder skeleton created with 6 module stubs
+      (format, rules, clock, display, stats, data) in IIFE
+      pattern, dual-environment compatible for Electron + browser
+    - README.md added to docs/v3-planning/ with reading order +
+      one-line summaries for all 18 planning docs
+    - Feature branch (claude/enable-cross-instance-sharing-Lj43Y)
+      merged to main + deleted. Single source of truth restored.
+
+
+DARK ALLEY AUDIT (Session 28 hygiene)
+-------------------------------------
+
+At one point Bill asked "where is the dark alley I'm backing down"
+— wanting honest risks/uncertainties. Seven alleys identified:
+
+  #1 Electron unvalidated on vibes — DEFERRED with plan (spike)
+  #2 UI catalog content not saved — CLOSED (UI spec docs written)
+  #3 Branches diverging no merge plan — CLOSED (merged to main)
+  #4 Phase 0 not started — DEFERRED with plan (scheduled)
+  #5 Hunter gaps oversold — CLOSED (shrunk 20→10, v2 credited)
+  #6 Culpeper fix no acceptance test — TEST PROCEDURE DEFINED
+  #7 v3-planning no index — CLOSED (README.md added)
+
+Bill's framing on #6: "after rewrite may solve itself but keep it
+open." v3's cleaner architecture may produce the right behavior
+naturally. Test is the acceptance check regardless.
+
+
+STILL OPEN (scheduled, documented, not lost)
+--------------------------------------------
+
+These are explicitly deferred to future sessions:
+
+A. Electron spike (half-day)
+   50-line throwaway Electron app. UDP listener + fan-out to
+   RSServer port + tray icon. Validate synchronous fan-out
+   pattern works inside Electron main process.
+   Acceptance: <1ms receive→send latency 99%+ of time.
+   See ENGINE-ELECTRON-DECISIONS.md "Next steps."
+
+B. V3-BUILD-PLAN Phase 0 (few hours)
+   - git tag v2.x-pre-rebuild baseline
+   - Vitest install + sample test passing
+   - Populate /v3/tests/fixtures/cls/{H,J,T,U}/ with real fixtures
+   - UDP log replay harness
+   - V3_ENABLED feature flag in worker
+
+C. Culpeper .cls-change fix acceptance test run at next show
+   When v3 engine ships, run Test A + Test B + Test C per
+   CLASS-DETECTION-SCHEMAS.md Part 6.1.1.
+
+D. CLASS-RULES-CATALOG.txt reframe pass
+   Pre-Session 28 catalog has some errors. Defer to JUMPER/HUNTER
+   method references when they conflict. Full reframe deferred.
+
+E. Hunter 10 real gaps
+   Team aggregation, run-off, California Split, IHSA, displayNATTeam,
+   reverseRank, noCutOff, avgRounds-vs-scoreMethod precedence,
+   jumper-division championships, phase weight edge cases.
+   Observability-first: log parse_warnings on first live occurrence.
+
+F. display.html + stats.html clock consolidation
+   Both still use old timestamp-extrapolation pattern. live.html
+   was migrated to v1.11 heartbeat-authority. Not urgent since v3
+   absorbs all three into one shared clock module.
+
+G. v2 admin bugs flagged for v3 fix
+   closeDetail() missing (admin.html:891), hardcoded password +
+   API key (BLOCKING for public launch), ring hardcoded to '1'
+   in multiple endpoints, missing activity/audit UI. Full list:
+   ADMIN-UI-SPEC.md "Broken / Incomplete Features" section.
+
+
+SEQUENCING CLARITY (when coding starts)
+---------------------------------------
+
+Bill asked "do we start with the Electron app when coding begins?"
+
+NO — start with the spike (throwaway). Then parallel tracks:
+  Track A: Real Electron engine (replaces v2 watcher + funnel)
+  Track B: Shared JS modules + DO worker (Phase 1-10)
+
+Both can proceed in either order or in parallel. No constraint.
+Spike is the gate.
+
+See memory project_v3_rebuild.md "When coding starts" section
+for full detail.
+
+
+NEW MEMORY FILES THIS SESSION
+-----------------------------
+  feedback_class_type_commandment.md — Article 1 (pinned top)
+  project_stakes.md — "a lot is riding on this working"
+  project_v3_rebuild.md — master v3 memory
+  project_class_detection.md — Culpeper gap details
+  project_electron_engine.md — architecture summary
+  project_websocket_rebuild.md — future direction (active now)
+  project_clock_pages_inventory.md — live vs display vs stats
+  project_consolidation_audit.md — shared-logic debt
+  project_observability_roadmap.md (updated)
+  reference_repo_layout.md (updated)
+
+MEMORY.md index restructured. Article 1 at top, v3 master
+second, Culpeper gap high priority. v2 still-live note explicit.
+
+
+COMMITS
+-------
+
+Session 28 had many commits. Notable ones:
+
+  bdd05ca  Article 1 commandment added to 6 class-related docs
+  603ae21  CLS-FORMAT moved into docs/v3-planning/
+  7300888  UI catalog for public + live-action pages saved
+  bcb550e  Hunter methods — credit v2 + column maps + judges grid
+  213e7b0  Uncertain protocols master checklist (~73 items)
+  e1bddbc  Checklist: Article 1 reminder + additional nooks
+  58031c9  Merge feature branch → main (UDP + rollout folded in)
+  f17286d  Engine Electron decisions LOCKED (14 choices)
+  53e03cf  docs/v3-planning/README.md (reading order)
+  21c346a  Culpeper acceptance test procedure defined
+  ad7cd17  Culpeper fix reframe: may solve in rewrite, verify regardless
+
+
+WHAT v3 INHERITS FROM v2 (do not re-derive)
+-------------------------------------------
+
+From HUNTER-METHODS-REFERENCE.md and related:
+- All 9 hunter derby types mapped with metadata
+- Judge grid renderer (1-7+ judges, derby vs non-derby)
+- Championship rendering (CH/RC ribbons)
+- Split Decision multi-judge detection
+- Equitation overlay (rider-primary)
+- Hunter status code text + numeric fallback
+- Multi-round column layouts (up to 7 judges, up to R3)
+- WEST.format / WEST.ribbon / WEST.statusDisplayLabel helpers
+- display-config.js 2000+ lines of earned knowledge
+
+From JUMPER-METHODS-REFERENCE.md:
+- 12 jumper methods with full spec
+- Ladder model (which rounds are cumulative)
+- Farmtek 5s hold vs TOD operator-gate behavior
+- Clock heartbeat-as-authority pattern (v1.11)
+- Two-phase method 9 behavior (Farmtek hold + TOD gate)
+
+
+END OF SESSION 28
+------------------
+Bill: "im getting tired"
+
+Went from Session 27 ending state (v1.11 ticking clock shipped,
+memory restructured) to Session 28 ending state (18-doc v3
+planning library, 14 Electron decisions locked, Article 1
+commandment established, feature branch merged, master
+uncertainty checklist defined, dark alleys addressed).
+
+Zero production code changes. All documentation + planning.
+
+Next session goals (pick any):
+- The Electron spike (half-day, unlocks real engine build)
+- Phase 0 setup (Vitest, fixtures, baseline tag)
+- Specific v3 planning doc review/refinement
+- New v2 patch if a show reveals urgency (Culpeper-class gap
+  could strike at another show)
+
+Good work tonight. Sleep well.
