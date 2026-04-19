@@ -281,6 +281,8 @@ The (c) rule creates a second path to LIVE that catches the Culpeper case: opera
 
 **Priority:** HIGH. First detection rule to implement in the v3 watcher. v3 cannot ship reproducing this gap.
 
+**Bill, Session 28 addendum:** "honestly after rewrite it may solve itself but keep it open." The v3 rewrite restructures class detection from the ground up (cleaner state machine, parse-everything-regardless-of-classType principle, canonical event schema). It is PLAUSIBLE that the cleaner architecture naturally produces the right behavior without an explicit path-(c) branch — but that's a hope, not a guarantee. Keep this item OPEN as a verification requirement regardless of whether v3 explicitly codes the fix. The test procedure below is the acceptance check either way.
+
 **ACCEPTANCE TEST PROCEDURE (run at first show v3 engine deploys):**
 
 > Run before the engine goes live for the full show. Schedule for a morning warm-up class or early division.
