@@ -2,6 +2,13 @@ name = "west-worker"
 main = "west-worker.js"
 compatibility_date = "2024-01-01"
 
+[vars]
+# V3_ENABLED gates all v3 code paths in the worker. Default OFF — production
+# must never silently light up v3 endpoints until we decide to cutover.
+# Override per-environment by setting the V3_ENABLED secret/var in the
+# Cloudflare dashboard (preview worker: "true", production: "false" until ready).
+V3_ENABLED = "false"
+
 [[kv_namespaces]]
 binding = "WEST_LIVE"
 id = "838b38e150d24177be0bbdccf7a3e530"

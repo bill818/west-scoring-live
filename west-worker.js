@@ -29,6 +29,16 @@
 
 const AUTH_KEY_NAME = 'X-West-Key';
 
+// v3 feature flag. Reads env.V3_ENABLED (wrangler.toml [vars] or Cloudflare
+// dashboard override). Default OFF — production stays safe until cutover.
+// Use this helper at the entry of every v3 endpoint:
+//   if (!isV3Enabled(env)) return new Response('v3 disabled', { status: 404 });
+// Never check env.V3_ENABLED directly — go through this helper so we can
+// evolve it later (e.g., add per-show toggles or staged rollout percentages).
+function isV3Enabled(env) {
+  return env.V3_ENABLED === 'true' || env.V3_ENABLED === true;
+}
+
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
