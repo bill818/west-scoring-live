@@ -1,0 +1,14 @@
+{
+  "name": "west-v3",
+  "version": "0.0.0",
+  "description": "WEST v3 rebuild — shared modules, engine, worker. Phase 0 scaffolding.",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "replay": "node tools/udp-replay.js"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
+}

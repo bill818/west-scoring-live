@@ -347,6 +347,66 @@ The (c) rule creates a second path to LIVE that catches the Culpeper case: opera
 ### Who runs this test
 Bill, with the engine developer (possibly Devon) on standby via text/call. First show the engine deploys to should be a smaller venue or a ring where a regression is recoverable.
 
+### 6.1.2 — Session 29 direction: tsked + `.cls-change` + peek-L as primary live signal (THE BIGGEST OPEN HOLE)
+
+**Bill, Session 29, 2026-04-19:** "my thoughts behind it have shifted towards monitoring the classes on tsked file... noting classes that have a recent change log in their cls files coupled with the L icon on ryegate as marking those classes as live... also need to check ryegate periodically if we have cls change on a class that we DONT have live... we need to think that through when the time comes."
+
+**Why this is flagged as the biggest hole in v3:** the Culpeper fix in 6.1.1 treats `.cls-change` as a FALLBACK path for when the tsked gate fails. Bill's Session 29 thinking inverts that — make `.cls-change` + peek-L a **first-class** live signal, with tsked.csv as the *roster* (who's allowed to exist) rather than the *gate* (who's allowed to show live). This is a more reliable architecture but it's not fully designed yet.
+
+#### Signal roles under the new direction
+
+| Source | Role |
+|---|---|
+| `tsked.csv` | **Roster.** Defines which classes are scheduled for the ring today. A class must be in tsked for us to consider it at all. |
+| `.cls` mtime/content change | **Freshness.** "Something just happened on this class." Alone this is ambiguous (could be initial entry, could be a score post). |
+| ryegate.live peek shows `L` icon | **Authority.** Ryegate itself is declaring the class is live. Coupled with recent `.cls` change, this is a high-confidence live signal. |
+| UDP `{fr}=1` intro | Still useful as a fallback / independent confirmation — but no longer the sole gate. |
+| Operator Ctrl+A inference | Useful for the rare "new class off-schedule" scenario. Not the primary path. |
+
+#### Proposed live-gate (v3, direction — NOT yet locked)
+
+A class is marked LIVE on the public site when ALL of:
+
+1. Class appears in `tsked.csv` for today's ring (roster check)
+2. Class's `.cls` file was written within the last N seconds (freshness; N = TBD, probably 60-120s)
+3. Ryegate's own page for the class shows the `L` icon (authority)
+
+When all three are true → LIVE. When any becomes false → transition toward "not live" (with hysteresis to avoid flicker).
+
+#### Safety sweep — "class changed but we don't have it live"
+
+Separate loop that runs periodically:
+- For every class in tsked that has a **recent `.cls` change** but we do NOT currently have marked live on the site → **investigate**
+- Investigation = fetch the ryegate.live peek for that class and examine its state
+- If peek shows `L` → we missed a live signal; promote to LIVE and log a `parse_warning` so we can understand why the primary path didn't catch it
+- If peek shows anything else → log the discrepancy but don't change public state
+
+Purpose of the sweep: **we should never see a class with scoring activity in Ryegate that isn't reflected on the public site.** Bill's Culpeper experience drives this — the cost of missing a live class is high, the cost of an extra periodic peek is tiny.
+
+#### Open design questions (must answer before implementing)
+
+1. **What is "recent" for `.cls` change?** 60 seconds? 120 seconds? Different for first-entry vs mid-class vs final-entry cases?
+2. **Peek cadence for the safety sweep?** The existing adaptive peek rules (Part 4.2) were tuned for the old gate. Do they still apply, or does the sweep want a different rhythm (e.g., every 30s for any class with a recent .cls change)?
+3. **Hysteresis — how do we prevent live/not-live flicker at the edges?** If a class is between entries and `.cls` hasn't been written for 90s but the `L` icon is still on ryegate.live, are we still live? Propose: stay live as long as any of the three inputs is fresh; require ALL three to be stale for N seconds before demoting.
+4. **What if peek is unreachable** (ryegate.live server slow/down)? Fallback gate with just `tsked + .cls-change`, log degradation, or stay-in-last-state?
+5. **What if `.cls-change` fires on a class NOT in tsked?** (Operator created a class off-schedule.) Probably: log as anomaly, do not auto-add. This is the "new class off-schedule" case.
+6. **What about hunter vs jumper `.cls` write differences?** Hunter writes on score post (finalization signal); jumper writes at round completion. "Recent .cls change" means different things. May need separate freshness windows per classType.
+7. **Does path (c) in 6.1.1 (Culpeper fix) become obsolete or stay as a belt-and-suspenders?** If the three-signal gate works, the path-(c) branch might be redundant. But Bill's Session-28 note ("after rewrite it may solve itself but keep it open") argues for keeping both until we have field evidence.
+8. **Does the sweep's "promote + parse_warning" pattern mean the primary gate has a bug we should fix?** Frequent sweep-promotions would indicate the primary gate is too strict and should be relaxed. Monitor the rate.
+
+#### Why we're NOT specifying this further right now
+
+Bill, Session 29: "need to think that through when the time comes."
+
+This section is a **thinking-capture**, not a locked design. The engine builder should re-read this, re-examine v2's current peek/tsked behaviors, and propose a concrete spec once the engine's UDP + `.cls` + tsked layers are written. Premature optimization would lock us in before we've seen how the rewritten engine naturally behaves.
+
+**Related:**
+- Memory `reference_ryegate_web_states.md` — authoritative 4 states of the ryegate.live class page (per Bill 2026-04-15). The peek classifier reads these; the "L" icon signal maps to one of them.
+- Memory `project_class_detection.md` — HIGH PRIORITY for v3 per Session 28.
+- Part 4 of this doc — existing peek rules (adaptive cadence, ring-level tsked.php, stale-peek sweep).
+
+---
+
 ### 6.2 — Adding a class to the active array
 
 Worker KV maintains `active:{slug}:{ring}` — array of currently-live classes. A class is added via:

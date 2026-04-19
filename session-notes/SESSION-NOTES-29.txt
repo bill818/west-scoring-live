@@ -1,0 +1,194 @@
+SESSION-NOTES-29 — v3 Electron spike + Phase 0 scaffolding
+Date: 2026-04-19
+Duration: ~90 min
+Outcome: Spike PASSED. Phase 0 scaffolding landed. v3 rebuild unblocked.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT HAPPENED
+═══════════════════════════════════════════════════════════════════════════
+
+Picked up from Session 28's NEXT-SESSION-START-HERE.md directive: "first
+action is the Electron spike." Built it, ran it on Bill's dev machine
+against real Ryegate Timing, measured latency, tested auto-restart.
+
+Then laid down Phase 0 scaffolding (tag, Vitest, replay harness). No code
+written beyond what's needed to prove the architectural gate passes and
+prepare for real work in Session 30+.
+
+═══════════════════════════════════════════════════════════════════════════
+SPIKE RESULT — PASS
+═══════════════════════════════════════════════════════════════════════════
+
+Location: /v3/spike/ (committed; node_modules/dist gitignored)
+
+Architecture validated:
+  Ryegate UDP :29696
+    → Electron main process (receives)
+    → dgram.send() SYNCHRONOUSLY to 127.0.0.1:29697 (RSServer)
+    → AFTER send() returns: measure latency, log
+  NO await. NO parsing. NO logging before forward. Microseconds matter.
+
+Measured numbers (real Ryegate heartbeat traffic, ~1 packet/sec):
+  p50 latency:   40-50µs steady state
+  p99 latency:   108µs after warm-up (one 597µs cold-start outlier aged out)
+  Max latency:   597µs (single one-time outlier at process start)
+  Packet drops:  ZERO (rx always == tx across 200+ packets)
+  Auto-restart:  223ms from uncaughtException to back-on-UDP
+                 Exactly 1 Ryegate heartbeat tick missed during restart
+                 (which is invisible on a scoreboard refreshing each second)
+
+Acceptance criteria met:
+  [✓] Runs on Windows
+  [✓] p99 < 1ms (we're 10x under target)
+  [✓] No packet loss
+  [✓] RSServer receives forwarded packets (Bill confirmed scoreboard visible)
+  [✓] Tray icon appears + hover tooltip works
+  [✓] Crash + auto-restart doesn't break RSServer
+
+Cosmetic issue noted, not blocking:
+  Tray icon renders blank (my embedded 16x16 base64 PNG didn't decode into
+  a visible glyph). Real engine will have a proper .ico. Throwaway spike
+  doesn't need fixing.
+
+All 14 decisions in ENGINE-ELECTRON-DECISIONS.md stand. Don't re-debate.
+
+═══════════════════════════════════════════════════════════════════════════
+FIELD-DEBUG LESSON (for future Claude sessions)
+═══════════════════════════════════════════════════════════════════════════
+
+Claude Code's bash session had ELECTRON_RUN_AS_NODE=1 set in its env.
+Consequence: any Electron .exe launched from that bash silently ran
+as plain Node (because that env var makes Electron binaries skip chrome
+and run as node). main.js crashed on `require('electron').app` → undefined.
+
+Symptom: exe exits 0 immediately, no stdout, no log file, no process.
+Double-clicking from Explorer works because Explorer doesn't have the
+env var.
+
+Fix: `env -u ELECTRON_RUN_AS_NODE /path/to/app.exe`
+
+Memory updated to flag this for future sessions.
+
+═══════════════════════════════════════════════════════════════════════════
+PHASE 0 SCAFFOLDING LANDED
+═══════════════════════════════════════════════════════════════════════════
+
+1. GIT TAG v2.11.0-pre-rebuild
+   On commit 6d58fff (Session 28's NEXT-SESSION-START-HERE cover).
+   Rewind point if anything ever feels wrong during the rebuild:
+     git checkout v2.11.0-pre-rebuild
+   Puts you exactly at the pre-v3-code state.
+
+2. /v3/package.json + VITEST
+   devDep: vitest ^2.1.0
+   Scripts: `npm test`, `npm run test:watch`, `npm run replay`
+   Sample test at /v3/tests/sample.test.js — 1 passing assertion.
+   First real module tests arrive whenever /v3/js/*.js gets filled in.
+
+3. /v3/tools/udp-replay.js — UDP LOG REPLAY HARNESS
+   Parses v2's west_udp_log.txt, pulls every [RAW] line, replays over UDP
+   at original cadence. Options: --host, --port, --speed N, --loop, --dry.
+   Smoke-tested against Culpeper Day 1 log (9,769 frames, 6.5hr span) —
+   dry-run at 100x completed cleanly in 234s.
+   Lets the engine + parser be tested offline without live Ryegate.
+
+4. /v3/spike/ KEPT AS HISTORICAL REFERENCE
+   node_modules and dist gitignored. ~26KB of source. Can be archived to
+   /files old/ in a future session if Bill wants the tree cleaner.
+
+DEFERRED — V3_ENABLED feature flag in v2 worker:
+  The plan listed this, but it would be a flag gating zero code right now
+  (no v3 worker logic exists yet). We'll add it when the first v3
+  worker-side code lands — lets the flag gate something real.
+
+DEFERRED — Page contracts:
+  Session 28 UI catalogs (PUBLIC-PAGES-UI-SPEC.md, LIVE-PAGES-UI-SPEC.md,
+  ADMIN-UI-SPEC.md) already cover this. Don't re-author.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT SESSION (SESSION 30) — PICK ONE TRACK
+═══════════════════════════════════════════════════════════════════════════
+
+Per Session 28 sequencing, after the spike + Phase 0 we have three
+parallel tracks. No "must be first" constraint. Pick based on what feels
+risky-soonest, has external pressure, or feels productive.
+
+TRACK A — Real Electron engine (/v3/engine/)
+  Start the production engine proper. Spike's fan-out pattern becomes the
+  core, then add:
+    - config.json reading (c:\west\config.json matches v2 path)
+    - .cls file watching + parsing
+    - UDP frame decoding
+    - HTTP POST to worker
+    - Tray icon + status window
+    - electron-builder NSIS installer + portable
+    - Auto-update from GitHub Releases
+  Replaces both v2 watcher AND v2 funnel in one package.
+
+TRACK B — Shared JS modules + DO worker
+  Start Phase 1 of V3-BUILD-PLAN. Fill in /v3/js/west-format.js first
+  (pure formatters — 3-decimal/2-decimal time, phase labels, etc.).
+  Easiest to test: Vitest is ready. Then west-rules.js (class_kind
+  derivation), then west-clock.js (heartbeat-authority), etc.
+
+TRACK C — Observability + new D1 tables
+  Start parse_warnings / audit_events / unknown_quirks / udp_anomalies
+  infrastructure per DATABASE-SCHEMA-EXPANSION.md Part G. Independent of
+  A and B. Gives v3 its "systematically eliminate mystery classes"
+  superpower.
+
+All three are on the critical path eventually. Order doesn't matter
+much — whatever Bill's in the mood for.
+
+═══════════════════════════════════════════════════════════════════════════
+REMAINING V2 WORK (STILL ACTIVE, not superseded by v3)
+═══════════════════════════════════════════════════════════════════════════
+
+v2 production is untouched. Nothing in this session edited a v2 file.
+Everything landed in /v3/ or session-notes/ or memory/.
+
+v2 bugs from open-threads memory (project_open_threads.md) still apply
+if a live show surfaces them. Rule: "fix in v2 first, THEN update v3
+memory with any lesson learned."
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  /v3/spike/package.json
+  /v3/spike/main.js
+  /v3/spike/electron-builder.yml
+  /v3/spike/test-sender.js
+  /v3/spike/test-listener.js
+  /v3/spike/README.md
+  /v3/spike/.gitignore
+  /v3/package.json
+  /v3/vitest.config.js
+  /v3/.gitignore
+  /v3/tests/sample.test.js
+  /v3/tools/udp-replay.js
+  /session-notes/SESSION-NOTES-29.txt      (this file)
+
+MODIFIED:
+  (none in v2 or repo root)
+
+GIT:
+  v2.11.0-pre-rebuild tag added on HEAD 6d58fff
+
+MEMORY:
+  project_v3_rebuild.md — added Session 29 progress section with spike
+                          results, phase 0 state, next-session menu.
+
+═══════════════════════════════════════════════════════════════════════════
+DON'T FORGET
+═══════════════════════════════════════════════════════════════════════════
+
+- v2 is still live through April/May 2026 shows. Never break it.
+- Article 1 — classType at col[0] of .cls row 0 IS THE LENS. Hunter and
+  jumper field meanings DO NOT translate. Every fresh Claude has broken
+  this rule once. Don't be the next one.
+- Deploy (preview) is pre-authorized per Bill's workflow memory.
+  Production deploys still need explicit ask.
+- SESSION-NOTES pattern continues — write one at the end of any session
+  that touches code or decisions.

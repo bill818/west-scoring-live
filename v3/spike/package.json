@@ -1,0 +1,17 @@
+{
+  "name": "west-engine-spike",
+  "version": "0.0.1",
+  "description": "Throwaway Electron spike validating synchronous UDP fan-out in the main process.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "send": "node test-sender.js",
+    "listen": "node test-listener.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

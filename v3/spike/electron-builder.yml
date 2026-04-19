@@ -1,0 +1,13 @@
+appId: com.worthington.westenginespike
+productName: WestEngineSpike
+directories:
+  output: dist
+files:
+  - main.js
+  - package.json
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  signAndEditExecutable: false

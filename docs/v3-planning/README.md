@@ -31,6 +31,7 @@ See Claude memory `feedback_class_type_commandment.md` for the full rationale. T
 - **`ENGINE-ELECTRON-DECISIONS.md`** — 14 locked Electron choices with rationale. Read BEFORE writing engine code.
 
 ### 3. Understand the data (30 min)
+- **`RYEGATE-FILES-UPDATE-REFERENCE.md`** — when each of the three Ryegate files (config.dat, tsked.csv, .cls) actually gets written, what signals to trust, fs.watch lag, mtime-trap gotchas. Read before building the engine's file-watching layer.
 - **`CLS-FORMAT.md`** — column-level .cls + tsked.csv + UDP spec. 1,326 lines. Source of truth for field positions. Hunter and jumper sections are strictly separated by lens.
 - **`UDP-PROTOCOL-REFERENCE.md`** — authoritative UDP reference. Frames 0-16, two-channel architecture (UDP in + port 31000 focus signal), hunter/jumper split.
 - **`JUMPER-METHODS-REFERENCE.md`** — all jumper methods (0-15). Ladder model. Cross-refs to live classes.

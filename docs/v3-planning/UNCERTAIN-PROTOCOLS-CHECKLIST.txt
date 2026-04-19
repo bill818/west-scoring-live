@@ -273,6 +273,17 @@ See memory feedback_class_type_commandment.md.
     right behavior without explicit path-(c) code. Verify either way
     at first show — test is the acceptance check regardless.
 
+[ ] LIVE-DETECTION GATE — Session 29 direction (THE BIGGEST HOLE)
+    Bill's Session 29 thinking: tsked = roster, .cls-change + peek-L
+    = primary live gate, plus periodic safety sweep to catch classes
+    with .cls activity that aren't marked live. Full capture with 8
+    open design questions in CLASS-DETECTION-SCHEMAS.md §6.1.2.
+    How to close: answer the 8 design questions, then spec + build
+    the gate + sweep, then field-test. Much bigger than 6.1.1's
+    Culpeper fix — may subsume it.
+    Priority: HIGHEST (shapes the engine's class-state layer)
+    Status: DIRECTION CAPTURED, spec pending. "Approach later." — Bill
+
 [ ] FINISH_LOCK duration for TOD hardware
     v2 watcher uses 5s FINISH_LOCK (tuned for Farmtek's 5s hardware
     hold). TOD's phase transition is operator-gated with variable
