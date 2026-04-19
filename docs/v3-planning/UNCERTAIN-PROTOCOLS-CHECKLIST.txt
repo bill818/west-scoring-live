@@ -261,13 +261,13 @@ See memory feedback_class_type_commandment.md.
     Documented as HIGH priority v3 fix for the Session 28 Culpeper
     gap. Operator Ctrl+A's a class, tsked doesn't update in time,
     .cls gets written first, class should still go LIVE on public site.
-    How to close: define concrete test at next show:
-      1. Operator Ctrl+A's a class
-      2. Observe tsked.csv update latency (seconds to update)
-      3. Observe .cls write when operator enters first horse
-      4. Confirm class goes LIVE on public site within 5s of .cls write
-      5. Log whether the activation path (c) was taken in parse_warnings
+    Acceptance test spec: see CLASS-DETECTION-SCHEMAS.md Part 6.1.1
+    "ACCEPTANCE TEST PROCEDURE" — full Test A (regression), Test B
+    (Culpeper gap closed), Test C (phantom-live safety) with
+    step-by-step procedure, pass criteria, data-capture plan, and
+    fail-handling.
     Priority: HIGH (v3 cannot ship reproducing this gap)
+    Status: TEST DEFINED, awaits v3 engine ship + first-show run.
 
 [ ] FINISH_LOCK duration for TOD hardware
     v2 watcher uses 5s FINISH_LOCK (tuned for Farmtek's 5s hardware

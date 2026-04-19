@@ -281,6 +281,70 @@ The (c) rule creates a second path to LIVE that catches the Culpeper case: opera
 
 **Priority:** HIGH. First detection rule to implement in the v3 watcher. v3 cannot ship reproducing this gap.
 
+**ACCEPTANCE TEST PROCEDURE (run at first show v3 engine deploys):**
+
+> Run before the engine goes live for the full show. Schedule for a morning warm-up class or early division.
+
+### Pre-test setup (the day before / morning of)
+1. Confirm the scoring PC has v3 engine installed + running
+2. Confirm engine version includes the .cls-change activation path (check `ENGINE-ELECTRON-DECISIONS.md` release notes for "v1.0 includes Culpeper fix")
+3. Open `parse_warnings` query tab in admin: `SELECT * FROM parse_warnings WHERE warning_code='class-activation-via-cls-change' ORDER BY created_at DESC LIMIT 20`
+4. Open public live.html for the ring on a separate device (phone or second laptop)
+5. Open watcher/engine log tail: `c:\west\west_log.txt`
+
+### Test A — Normal tsked path still works (regression check)
+1. Operator selects a class normally (Ctrl+A) where tsked.csv has already been updated with JO flag
+2. **Expected:** class appears LIVE on public site within ~2 seconds of Ctrl+A
+3. **Expected:** parse_warnings has NO new `class-activation-via-cls-change` entry — it activated via the normal tsked path
+4. **If fail:** regression — the tsked gate is broken. Roll back engine.
+
+### Test B — The Culpeper gap (the actual acceptance test)
+1. Operator selects a class via Ctrl+A BEFORE posting JO in Ryegate
+   (To simulate: either deliberately skip the JO post, or pick a class where tsked hasn't yet reflected any activity)
+2. **Immediately observe:**
+   - Class does NOT appear LIVE on public site (gate blocks it — correct)
+   - Log shows: "[CLASS_SELECTED] class N — WAITING for tsked/cls evidence"
+3. Operator enters the first horse into the class in Ryegate (causes .cls file write)
+4. **Within 5 seconds after .cls write, expect:**
+   - Class appears LIVE on public site
+   - Log shows: "[CLASS_LIVE] class N — activated via .cls-change path (c)"
+   - `parse_warnings` has new row: `warning_code='class-activation-via-cls-change'` with class metadata
+5. **If fail at step 4:**
+   - Class stayed NOT-LIVE: the .cls path isn't activating. Check engine code for the path-(c) branch.
+   - Class went LIVE but via wrong path logged: activation attribution bug. Worth fixing but not critical.
+
+### Test C — Safety check (phantom live protection)
+1. Take a class that is in tsked.csv but NOT currently selected (no Ctrl+A)
+2. Trigger a .cls write on it (e.g., operator opens it briefly in Ryegate, no scoring)
+3. **Expected:** class does NOT go LIVE on public site
+4. **Expected:** log shows: "[CLS_CHANGE] class N — not selected, ignoring activation signal"
+5. **If fail:** the .cls-change path is too loose. Unselected classes shouldn't activate. Tighten the "class is currently SELECTED" condition.
+
+### Pass criteria for the overall fix
+- Test A pass (no regression) AND
+- Test B pass (Culpeper gap closed) AND
+- Test C pass (no phantom live)
+
+### Data to capture
+- Screenshots of live.html at each step (before activation, after activation)
+- `c:\west\west_log.txt` covering the test window
+- `parse_warnings` rows created during the test (via admin query)
+- Timing observations: how long from Ctrl+A to tsked update? How long from .cls write to public-site LIVE?
+
+### If the fix passes
+- Mark Test B item complete in `UNCERTAIN-PROTOCOLS-CHECKLIST.txt` Part 3 with date + show name
+- Update this doc: change "MUST FIX IN v3" header to "FIXED IN v3 — verified at [show name] [date]"
+- Update memory `project_class_detection.md` with verification result
+
+### If the fix fails
+- Capture all data above
+- Do NOT roll the engine back unless it's actively causing harm
+- Open a diagnostic session to understand why
+- Consider rolling back to v2 watcher for remaining show days if unstable
+
+### Who runs this test
+Bill, with the engine developer (possibly Devon) on standby via text/call. First show the engine deploys to should be a smaller venue or a ring where a regression is recoverable.
+
 ### 6.2 — Adding a class to the active array
 
 Worker KV maintains `active:{slug}:{ring}` — array of currently-live classes. A class is added via:
