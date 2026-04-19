@@ -1,0 +1,710 @@
+============================================================
+  WEST Scoring Live — UNCERTAIN PROTOCOLS CHECKLIST
+  Every unverified / uncertain / not-yet-tested protocol item
+  Consolidated 2026-04-18 (Session 28)
+  USE WHEN TESTING: check boxes as each item is confirmed
+============================================================
+
+PURPOSE
+-------
+This is the master punch list of EVERYTHING across our v3 planning
+docs that is marked NOT CONFIRMED, STILL UNCERTAIN, SPEC ONLY, NEVER
+OBSERVED LIVE, or flagged as a gap. When v3 testing begins — whether
+at a specific show, via log replay, or via controlled fixtures — this
+is the list to work through systematically.
+
+Each item shows:
+  [ ] or [X]           checkbox state
+  Name + brief
+  Source doc           where it's documented in detail
+  What to confirm      what evidence closes the item
+  How to close it      test approach (live, replay, fixture, spec-read)
+  Priority             HIGH / MEDIUM / LOW
+
+When an item is closed:
+  1. Change [ ] to [X]
+  2. Update the source doc with confirmation + date
+  3. Remove the item from "STILL UNCERTAIN" sections in that doc
+  4. Note the confirming class / log / session in a one-liner below
+
+DO NOT close items by speculation. Close by evidence.
+
+
+============================================================
+  PART 1 — JUMPER METHODS (JUMPER-METHODS-REFERENCE.md)
+============================================================
+
+[ ] METHOD 1 — completely unknown
+    Never seen in project. Not in watcher's known-method list
+    (0,2,3,4,6,7,9,13,14). Not in CLS-FORMAT.md. Not in session notes.
+    How to close: if encountered live, parser logs parse_warning with
+    full context. Bill reviews post-show, researches FEI/USEF spec for
+    what method 1 represents, documents in JUMPER-METHODS-REFERENCE.md.
+    Priority: LOW (pure discovery — won't block v3 until first encounter)
+
+[ ] METHOD 12 — completely unknown
+    Same situation as method 1. Complete blank in project knowledge.
+    Source: JUMPER-METHODS-REFERENCE.md — "Gaps — confirmed NOT FOUND"
+    Priority: LOW
+
+[ ] METHOD 3 — 2-round + JO — live end-to-end verification
+    Column layout confirmed from Devon class 221 (CLS-FORMAT.md lines
+    388-427). But whether full JO logic works end-to-end at a 2026
+    show not verified in D1 sample.
+    How to close: run a Method 3 class at next show that has one.
+    Verify: R1 standings correct, R2 standings cumulative, JO entries
+    = fewest cumulative faults, tie-break per H[03] modifier.
+    Priority: MEDIUM
+
+[ ] METHOD 5 — Top Score — dropped unused
+    Removed from watcher's active method map (SESSION-22). Never
+    observed in live data.
+    How to close: if seen in wild, un-drop from method map, confirm
+    live scoring logic matches spec (Gamblers Choice for H[03]=0,
+    Accumulator FEI Art 229 for H[03]=1).
+    Priority: LOW
+
+[ ] METHOD 8 — dropped placeholder
+    Never observed. Spec: Table II (faults only, ties NOT broken
+    by time). Removed from watcher map.
+    How to close: if seen in wild, research, add behavior spec.
+    Priority: LOW
+
+[ ] METHOD 10 — II.2f Stratified JO — spec only
+    Never observed live. Pre-determined top-N per fault tier advance
+    to JO. Spec maps to FEI Art 220.1.1.3 (R1+JO ties unbroken).
+    How to close: run at a show that uses stratified JO. Verify tier
+    placings + JO eligibility + standings render correctly.
+    Priority: MEDIUM
+
+[ ] METHOD 11 — II.2c — H[03]=1 vs H[03]=2 FEI Art distinction
+    H[03]=1 = FEI Art 4.2 (PH1 NOT against clock).
+    H[03]=2 = FEI Art 4.3 (PH1 against clock).
+    Different H[07]/H[09] interpretation for PH1 block.
+    Never live-tested. Needs fixture before shipping.
+    How to close: create fixture .cls files for both variants,
+    run through parser, confirm correct H[07]/H[09] handling per variant.
+    Priority: MEDIUM
+
+[ ] METHOD 14 — Team — live test
+    Parser + method map correct after SESSION-22 swap fix. Live test
+    not cited in session notes.
+    How to close: run at a team competition. Verify R1/R2/JO for each
+    rider, team combined scoring (H[03]=0 individual vs 1 combined
+    times), team standings render, CARRY-BACK on team elimination.
+    Priority: MEDIUM
+
+[ ] METHOD 15 — Winning Round — live test
+    Parser fixed after SESSION-22 swap. Live test theoretical.
+    How to close: run at show with winning round format. Verify R1
+    faults WIPED for R2, R2 fresh competition, no JO.
+    Priority: LOW
+
+[ ] THREE-ROUND JUMPER CLASSES — only class 221 Devon on record
+    Parser supports up to R3 but live test coverage is thin.
+    How to close: multiple three-round classes at varying methods
+    (probably method 3 and method 14), verify R3 behavior, column
+    layout, status carry, JO qualifier logic.
+    Priority: LOW
+
+[ ] "POWER AND SPEED" — Bill's verbal terminology maps to Method 11
+    Confirmed during Session 28 conversation. Worth verifying that
+    all "power and speed" class names in the wild correspond to
+    Method 11 (II.2c) and not some other method code.
+    How to close: grep D1 class names for "power and speed",
+    cross-check scoring_method column.
+    Priority: LOW (nomenclature sanity check)
+
+
+============================================================
+  PART 2 — HUNTER METHODS (HUNTER-METHODS-REFERENCE.md)
+============================================================
+
+[ ] TEAM CLASS AGGREGATION — classMode=3 + isTeam=True
+    Header parsed. Team-level scoring rollup (summing member scores,
+    team standings) NOT implemented. Multi-rider team scoring
+    conventions unknown in our code.
+    How to close: observe a Special Team class live, document team
+    aggregation rules, implement in shared module.
+    Priority: MEDIUM (when first seen live)
+
+[ ] RUN-OFF — runOff flag H[30]
+    Parser reads the flag. Display has no special handler. Happens
+    when top placings are tied and a timed run-off resolves them.
+    Not observed in D1 sample.
+    How to close: observe a run-off live, document the run-off
+    scoring mechanism, implement display.
+    Priority: LOW
+
+[ ] CALIFORNIA SPLIT — californiaSplit H[17] + H[33] sections
+    Parser reads flag + caliSplitSections. Class divides into sections,
+    each with own placings. v2 doesn't render section dividers.
+    Rare, west-coast convention.
+    How to close: observe a California split class live.
+    Priority: LOW
+
+[ ] IHSA RULES — ihsa flag H[38]
+    Flag parsed, no behavior changes triggered. Intercollegiate catch-
+    ride format has different scoring conventions.
+    How to close: find an IHSA show data source, research scoring
+    rules, decide if cross-reference is required.
+    Priority: LOW
+
+[ ] displayNATTeam — H[36]
+    Flag parsed. Display behavior unknown. Likely FEI-ish national
+    team display mode.
+    How to close: observe in wild + research spec.
+    Priority: LOW
+
+[ ] reverseRank — H[16]
+    Flag parsed (lower score wins). Never observed live.
+    How to close: spec research + fixture test.
+    Priority: LOW
+
+[ ] noCutOff — H[32]
+    Flag parsed. Effect on placings unclear. Default cutoff unknown.
+    How to close: test with flag True vs False, observe placings
+    difference.
+    Priority: LOW
+
+[ ] avgRounds (H[31]) vs scoreMethod=1 (H[06]) — precedence
+    Two different signals for averaging. Which takes precedence
+    when both set? Unverified.
+    How to close: fixture test with both flags set each way.
+    Priority: MEDIUM (edge case that could produce wrong totals)
+
+[ ] JUMPER-DIVISION CHAMPIONSHIP CLASSES (20C, 23C in D1)
+    classType=H but named after jumper divisions. Points aggregation
+    from qualifying jumper classes done in Ryegate, not us. We
+    render what we receive.
+    How to close: confirm Ryegate handles all math server-side,
+    document that our render is pass-through only.
+    Priority: LOW
+
+[ ] PHASE WEIGHT EDGE CASES
+    What if weights sum to >100 or <100? Parser accepts any number,
+    display applies directly without normalization.
+    How to close: fixture test with weights=[60,40,0], [50,50,50],
+    [100,0,0]. Decide normalization rule.
+    Priority: LOW
+
+[ ] H[06] SCOREMETHOD LABEL for H&G and Special variants
+    0=Total, 1=Average for standard. But H[06]=1 also set for WCHR
+    Derby Spec (H[37]=8). Possible dual meaning (IsHuntAndGo?).
+    How to close: test H&G classes, Special classes, compare H[06]
+    values and resulting score computations.
+    Priority: LOW
+
+[ ] H[07] NUMJUDGES auto-adjustment — full mapping
+    Auto-adjusts per derby sub-type but full mapping incomplete.
+    Current known: International (0,3)=2 judges, others=1.
+    How to close: cycle through all 9 derby types, record H[07]
+    values, confirm complete map.
+    Priority: LOW (most values known)
+
+[ ] H[09] SBDelay — only tested at value 4
+    Purpose: scoreboard delay (display timing). Only value 4 observed.
+    How to close: test at values 0, 1, 2, 4, 10. Confirm visual
+    behavior / delay semantics.
+    Priority: LOW
+
+[ ] H[37]=9 WCHR Spec — not directly confirmed
+    Extends the 0-8 range. Mentioned in CLS-FORMAT.md "STILL UNCERTAIN".
+    How to close: observe a WCHR Spec class or test Ryegate toggle.
+    Priority: LOW
+
+[ ] DERBY HANDY BONUS — National Derby (H[37]=1)
+    col[26] Judge1_R2_HandyBonus observed at 0 in test, not confirmed
+    whether National derbies use handy bonuses at all.
+    How to close: observe a National derby with non-zero handy.
+    Priority: LOW
+
+[ ] HUNTER STATUS CODES DQ, RO, EX, HC — behavior in full
+    Defined in code. Not all seen live. Behavior inferred from spec.
+    How to close: observe each in wild, confirm display logic
+    (DQ = Disqualified, RO = Rule-Out, EX = Excused, HC = Hors Concours).
+    Priority: LOW
+
+[ ] HUNTER STATUS COL[46] NUMERIC MAP — values 7 "MR" meaning
+    Worker maps {'7':'MR'} but meaning is uncertain. MR = ?
+    How to close: observe live, confirm what MR stands for.
+    Priority: LOW
+
+
+============================================================
+  PART 3 — CLASS DETECTION (CLASS-DETECTION-SCHEMAS.md)
+============================================================
+
+[ ] CULPEPER .CLS-CHANGE ACTIVATION FIX — acceptance test
+    Documented as HIGH priority v3 fix for the Session 28 Culpeper
+    gap. Operator Ctrl+A's a class, tsked doesn't update in time,
+    .cls gets written first, class should still go LIVE on public site.
+    How to close: define concrete test at next show:
+      1. Operator Ctrl+A's a class
+      2. Observe tsked.csv update latency (seconds to update)
+      3. Observe .cls write when operator enters first horse
+      4. Confirm class goes LIVE on public site within 5s of .cls write
+      5. Log whether the activation path (c) was taken in parse_warnings
+    Priority: HIGH (v3 cannot ship reproducing this gap)
+
+[ ] FINISH_LOCK duration for TOD hardware
+    v2 watcher uses 5s FINISH_LOCK (tuned for Farmtek's 5s hardware
+    hold). TOD's phase transition is operator-gated with variable
+    duration — 5s may be too short.
+    How to close: at a TOD-hardware show running Method 9 (II.2d),
+    measure operator "Send to Next Round" latency across ~10 classes.
+    Decide: adaptive lock duration, operator-signaled lock release,
+    or ignore ONCOURSE during lock regardless of duration.
+    Priority: MEDIUM (TOD shows only; Farmtek already correct)
+
+[ ] PEEK CLASSIFIER RESULTS — persist per-class?
+    Open question in doc: should v3 persist peek classifier results
+    per-class (class_state_snapshots table) for audit?
+    How to close: decide at design time. Trade-off: storage + write
+    cost vs debugging value. Recommend persist for first 30 days
+    then age out.
+    Priority: LOW (design decision)
+
+[ ] TSKED IDLE/ACTIVE mode — merge with peek cadence?
+    Currently independent. Merging could optimize together.
+    How to close: design decision. Recommend leaving separate —
+    they serve different signals (tsked = schedule, peek = public
+    page state).
+    Priority: LOW (design decision)
+
+[ ] DO STALE-PEEK SWEEP vs WATCHER
+    DO-side is more reliable (watcher can restart). Watcher-side
+    is already implemented. Could do both with conflict resolution.
+    How to close: design decision. Recommend DO-side primary
+    with watcher fallback if DO unreachable.
+    Priority: LOW (design decision)
+
+[ ] CLASS_SELECTED events that don't pass the gate — log?
+    Operator Ctrl+A's a class but never runs a horse. Today we
+    silently ignore. Logging as 'class_activation_attempt' might
+    be useful observability.
+    How to close: design decision. Recommend yes, log as
+    parse_warning type 'activation-attempt-no-action'.
+    Priority: LOW (observability improvement)
+
+
+============================================================
+  PART 4 — UDP PROTOCOL (UDP-PROTOCOL-REFERENCE.md)
+============================================================
+
+[ ] PORT 31000 — jumper On Course firing conditions
+    Bill Session 28: 31000 does NOT reliably fire on jumper On Course
+    clicks. Hunter On Course reliably fires. Exact conditions for
+    jumper unreliability unknown.
+    How to close: log every 31000 packet with correlated scoreboard-
+    port {fr}=1 ONCOURSE events for a jumper-heavy show. Identify
+    pattern: maybe 31000 fires on first horse of class only? Only on
+    manual Ctrl+A? Only when the class isn't yet LIVE?
+    Priority: HIGH (v3 engine design depends on this)
+
+[ ] PORT 31000 {fr} frame number semantics
+    UDP-PROTOCOL-REFERENCE.md: "{fr} = Ryegate internal frame number
+    — IGNORE — not meaningful for class detection." But it might
+    actually be meaningful — just not confirmed.
+    How to close: record {fr} values across many 31000 events, see
+    if values change predictably (e.g. different frame number for
+    Ctrl+A vs On Course vs class-complete).
+    Priority: MEDIUM
+
+[ ] HUNTER UDP tag catalog — derby, multi-round, championship
+    {fr}=11 INTRO confirmed. Full tag coverage for derby, multi-round,
+    and championship formats is gapped.
+    How to close: capture UDP streams during various hunter class
+    types, document tag usage per frame number per class-mode.
+    Priority: LOW (hunter finish comes from .cls, UDP not critical)
+
+[ ] UDP FRAMES {fr}=13-15 — Final/standings pages
+    Mentioned in older CLS-FORMAT as "Final/standings pages — not
+    needed." Worth confirming actual content.
+    How to close: capture + log during final/standings phase, document.
+    Priority: LOW
+
+[ ] UDP TAG {5} — always empty
+    Unknown tag. Always empty in observed data.
+    How to close: leave as-is unless ever populated. If it's ever
+    non-empty, capture and document.
+    Priority: VERY LOW (observe and note)
+
+[ ] MULTI-JUDGE UDP SCORE FRAMES
+    We know .cls handles multi-judge fine. UDP behavior for multi-
+    judge score posts unclear.
+    How to close: capture UDP during multi-judge hunter class score
+    posts. May not be needed (we use .cls for scoring).
+    Priority: LOW
+
+
+============================================================
+  PART 5 — NUMERIC STATUS CODES (feedback_numeric_status_watch.md)
+============================================================
+
+JUMPER SIDE (cols[21]/[28]/[35]) — reminder: ONLY under jumper lens
+
+[ ] Numeric status 1 = EL — TENTATIVE
+    How to close: observe eliminated jumper entry with text status
+    empty, confirm numeric column = 1.
+    Priority: MEDIUM
+
+[ ] Numeric status 2 = RT — CONFIRMED
+    Class 212 #6318 (Culpeper). ✓
+    [X] already confirmed
+
+[ ] Numeric status 3 = OC — generic eliminated
+    Text field specifies OC/EL/RF variant. 3 is a fallback when text
+    is missing.
+    How to close: observe OC fire in wild. Confirm 3 appears when
+    text code is empty.
+    Priority: MEDIUM
+
+[ ] Numeric status 4 = WD — CONFIRMED
+    Farmtek NEVER writes text; numeric-only. ✓
+    [X] already confirmed
+
+[ ] Numeric status 5 = RF — CONFIRMED
+    Class 220 #6116. ✓
+    [X] already confirmed
+
+[ ] Numeric status 6 = DNS — TENTATIVE
+    How to close: observe DNS in wild; confirm numeric = 6.
+    Priority: MEDIUM
+
+HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
+
+[ ] Hunter numeric map vs jumper numeric map — cross-check
+    Hunter: 1=DNS, 2=EL, 3=RT, 4=WD, 5=RF, 6=OC, 7=MR(?), 8=HC
+    Jumper: 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS
+    The maps ARE DIFFERENT between lenses. Confirm each live.
+    How to close: cross-reference each code observed live with the
+    correct lens map. Flag mismatches.
+    Priority: MEDIUM (lens-specific, easy to mix up)
+
+[ ] Hunter numeric status 7 = "MR" — what does MR stand for?
+    Worker maps '7' → 'MR' but acronym unknown.
+    How to close: observe live, ask at show, research USEF codes.
+    Priority: LOW
+
+
+============================================================
+  PART 6 — ELECTRON ENGINE (project_electron_engine.md)
+============================================================
+
+[ ] dgram fan-out synchronous INSIDE Electron main process
+    Architecture assumes we can receive UDP packet + immediately
+    forward to RSServer port+1 synchronously with no await. Has
+    not been prototyped.
+    How to close: 50-line spike Electron app with:
+      - dgram listener on port 29696 (or test port)
+      - dgram sender forwarding every packet to port 29697 (synchronous)
+      - measure latency receive→send in microseconds
+      - run for 1 hour during a real show day
+    Acceptance: packet-to-forward latency stays under 1ms 99%+ of time.
+    RSServer doesn't notice the engine exists.
+    Priority: HIGH (entire v3 engine architecture depends on this)
+
+[ ] electron-updater from OneDrive distribution
+    Plan is to auto-update engines on scoring PCs via electron-updater
+    reading from OneDrive-hosted releases. Never tested.
+    How to close: set up GitHub Releases or a local release server,
+    configure electron-updater, push a v0.0.2 update to a v0.0.1 test
+    install, confirm auto-update flow.
+    Priority: MEDIUM (can be done after Electron spike proves core)
+
+[ ] Code-signing workflow for Windows
+    Estimated ~$200/year for cert. Haven't confirmed vendor, haven't
+    walked through signing process.
+    How to close: research EV Code Signing cert vendors
+    (DigiCert, Sectigo, SSL.com), pick one, purchase, set up
+    signing in electron-builder config, confirm signed binary
+    passes Windows SmartScreen.
+    Priority: MEDIUM (can defer until public distribution)
+
+[ ] nodeIntegration quirks for optional status window
+    If we add a renderer status window that uses Node APIs directly,
+    Electron security config needs attention (contextIsolation etc).
+    How to close: decide status window scope, configure preload
+    properly, test.
+    Priority: LOW (can ship without status window initially)
+
+
+============================================================
+  PART 7 — V2 BUGS FLAGGED FOR V3 FIX (ADMIN-UI-SPEC.md)
+============================================================
+
+[ ] closeDetail() function reference missing
+    admin.html:891 nukeAll() calls closeDetail() but function doesn't
+    exist. Would throw if nukeAll executed.
+    How to close: v3 implements or removes the call. Probably meant
+    to clear currentSlug + refresh UI.
+    Priority: HIGH (bug that would crash a dangerous operation)
+
+[ ] Hardcoded admin password / API key (BLOCKING for public launch)
+    admin.html:354-355: ADMIN_PW='ADMIN', WORKER_KEY='west-scoring-2026'
+    Trivially reversible from client source.
+    How to close: v3 moves auth to backend endpoint (OAuth, JWT, or
+    short-lived tokens). No secrets in client code.
+    Priority: HIGH (security — blocking)
+
+[ ] Ring hardcoded to '1' in admin endpoints
+    Multiple places:
+      - triggerClsUpload('${slug}', '1') — .cls upload only ring 1
+      - toggleClassField — class flags only update ring 1
+      - Clear Live KV button for show — only clears ring 1
+    How to close: v3 passes ring from modal/form context, or updates
+    endpoint to apply across all rings.
+    Priority: MEDIUM (multi-ring shows partially broken in admin)
+
+[ ] Missing activity / audit log UI
+    Worker has /admin/activity and /admin/anomalies endpoints (refs
+    in session 25). No UI exposes them.
+    How to close: v3 admin dashboard reads parse_warnings,
+    unknown_quirks, stats_rebuild_log, udp_anomalies tables.
+    Priority: LOW (observability add; not blocking)
+
+[ ] No session expiry
+    Once authed, stays authed until page reload.
+    How to close: v3 implements short-lived tokens with refresh.
+    Priority: MEDIUM (security hygiene)
+
+[ ] No rate limiting on auth endpoint
+    Failed password attempts aren't throttled.
+    How to close: v3 adds rate limiting on auth endpoint.
+    Priority: MEDIUM (security hygiene)
+
+[ ] No admin action audit trail
+    What Bill changed and when isn't logged.
+    How to close: v3 adds D1 table admin_actions (timestamp, admin,
+    action_type, affected_resource).
+    Priority: LOW
+
+
+============================================================
+  PART 8 — DATABASE SCHEMA OPEN QUESTIONS (DATABASE-SCHEMA-EXPANSION.md)
+============================================================
+
+[ ] class_type_key definition for cross-show leaderboards
+    What makes two classes "the same" across shows for standings?
+    Options: (1) manual division label Bill tags per class in admin,
+    (2) USHJA/USEF division code parsed from class name, (3) computed
+    key from method + height + section.
+    How to close: Bill decides before class_leaderboard schema
+    finalizes. Recommend combining: auto-compute from method+height,
+    override via admin division label.
+    Priority: MEDIUM (gates cross-show leaderboards)
+
+[ ] Identity auto-match threshold
+    Only exact-usef, or also same normalized name + same city?
+    Recommend USEF-only first pass; loosen after observing false-
+    positive rate.
+    How to close: Bill decides, document in identity reconciliation
+    logic.
+    Priority: MEDIUM (gates stats rollups)
+
+[ ] Retention cutoff for D1 → R2 archive
+    When does a season move from D1 to R2 cold storage?
+    Recommend: 2 active seasons hot in D1, older archived. Not
+    blocker until 2028.
+    How to close: decide + implement when D1 size approaches limit.
+    Priority: VERY LOW
+
+[ ] Parse-warning triage workflow UI
+    Where does Bill review unknown_quirks after a show? Built into
+    admin dashboard, or separate tool?
+    How to close: design decision. Recommend built into admin
+    dashboard as a new "Observability" tab.
+    Priority: LOW
+
+[ ] Merge reversibility UX
+    If Bill merges two riders and later realizes it was wrong, is
+    there an un-merge path? Recommend: soft-merge preserves original
+    rows so it's reversible.
+    How to close: design + implement in identity merge tool.
+    Priority: LOW
+
+
+============================================================
+  PART 9 — LEGACY UNKNOWNS IN CLS-FORMAT.md
+============================================================
+
+JUMPER HEADER — legacy unused fields (listed in CLS-FORMAT lines 765-772):
+
+[ ] H[03] — always 0 — purpose? confirmed legacy unused
+    How to close: observe if ever non-zero. Not expected to close.
+    Priority: VERY LOW
+
+[ ] H[18] — always False — legacy (but wait — H[18] = IsFEI, confirmed
+    2026-04-08). The "always False" note is about earlier observations
+    before FEI classes were tested. Today H[18]=True for FEI classes.
+    Reconcile CLS-FORMAT.md "STILL UNKNOWN" section with confirmed
+    section.
+    How to close: remove from unknown list, update CLS-FORMAT.md.
+    Priority: LOW (doc cleanup)
+
+[ ] H[20] — always empty — legacy unused
+    [ ] H[24] — always False — legacy unused
+    [ ] H[27] — always True — legacy unused
+    How to close: confirm if ever non-default. Not expected.
+    Priority: VERY LOW
+
+TIMY (TOD) ENTRY — legacy unknowns (CLS-FORMAT lines 775-782):
+
+[ ] col[12] — Owner FEI/USEF number — ASSUMED by pattern
+    (horse=10, rider=11, owner=12). Confirm at HITS.
+    How to close: find TOD entry with all three FEI numbers populated.
+    Priority: LOW
+
+[ ] col[21] — always 0 — possibly R1Place — watch at HITS
+    How to close: observe during TOD class, see if R1Place appears.
+    Priority: LOW
+
+[ ] col[28] — always 0 — possibly R2Place — watch at HITS
+    How to close: same as above for R2.
+    Priority: LOW
+
+[ ] col[35] — StatusCode not yet confirmed in TOD
+    Only confirmed Farmtek col[39]. TOD's col[35] may be different.
+    How to close: observe TOD class with status code (EL/WD/RT),
+    check col[35].
+    Priority: MEDIUM (affects status detection on TOD hardware)
+
+[ ] col[82-84] — trailing padding, always empty
+    How to close: leave unless ever populated.
+    Priority: VERY LOW
+
+FARMTEK (J) ENTRY — legacy unknowns (CLS-FORMAT lines 784-788):
+
+[ ] col[13] — always 0 — unused (RideOrder at col[35] instead)
+    Confirmed empty in all Farmtek testing. Document but don't
+    expect to close.
+    Priority: VERY LOW
+
+[ ] col[37-38] — always empty
+    Confirmed empty. Document.
+    Priority: VERY LOW
+
+
+============================================================
+  PART 10 — OPEN ARCHITECTURAL DECISIONS (v3 build plan)
+============================================================
+
+[ ] v2.x-pre-rebuild baseline git tag
+    Need to tag current main as rollback baseline before v3 code
+    changes begin.
+    How to close: git tag v2.9.0-pre-rebuild && git push origin
+    v2.9.0-pre-rebuild
+    Priority: HIGH (phase 0 task, safety net for v3)
+
+[ ] Vitest setup + passing sample test
+    Test harness not yet installed.
+    How to close: npm init -y, npm install --save-dev vitest, create
+    /tests/sample.test.js, configure package.json scripts, run npm
+    test and confirm passing.
+    Priority: HIGH (phase 0 task, gates v3 code)
+
+[ ] .cls fixture folders populated
+    Directories exist at v3/tests/fixtures/cls/{H,J,T,U}/ (created
+    Session 28 skeleton) but EMPTY. Need real .cls files per class
+    type + scoring method.
+    How to close: copy representative .cls files from Culpeper +
+    test show into fixture folders. Minimum: one per scoring method
+    tested (0, 2, 4, 9, 11, 13, plus hunter classModes 0/2/3,
+    plus one U unformatted).
+    Priority: HIGH (phase 0 task, gates parser tests)
+
+[ ] UDP log replay harness
+    Plan from V3-BUILD-PLAN Phase 0.7: "Write a tiny Node script
+    that can replay the log against a local watcher or mock watcher,
+    producing the same sequence of POSTs."
+    How to close: write /scripts/replay-udp-log.js. Input: watcher
+    log file. Output: POST sequence to mock worker.
+    Priority: MEDIUM (gates integration testing)
+
+[ ] Page contract docs — one per v2 page
+    Referenced in V3-BUILD-PLAN Phase 0.6. Arguably superseded by
+    ADMIN-UI-SPEC.md + PUBLIC-PAGES-UI-SPEC.md + LIVE-PAGES-UI-SPEC.md
+    saved this session.
+    How to close: confirm UI spec docs cover everything, or identify
+    gaps.
+    Priority: LOW (may already be closed by Session 28 UI catalogs)
+
+[ ] V3_ENABLED feature flag in v2 worker
+    Referenced in V3-BUILD-PLAN Phase 0.4. Needed to stage v3 code
+    paths in the live worker without affecting production.
+    How to close: add flag check in west-worker.js, config in
+    wrangler.toml env.
+    Priority: MEDIUM (gates Phase 7 Durable Objects work)
+
+[ ] Branch merge plan — feature branch → main
+    claude/enable-cross-instance-sharing-Lj43Y has 6 commits ahead
+    of main with docs that belong on main eventually. No merge
+    strategy defined.
+    How to close: review feature branch commits, merge planned
+    docs into main (V3-PLANNING.md, UDP-PROTOCOL-REFERENCE.md,
+    V3-ROLLOUT-SEQUENCE.md), resolve any conflicts.
+    Priority: MEDIUM (mechanical debt accumulating)
+
+
+============================================================
+  SUMMARY COUNTS
+============================================================
+
+By priority:
+  HIGH:    9 items (5 in Part 10 infrastructure, 2 Electron,
+                    1 Culpeper fix, 1 v2 admin bug, 1 UDP 31000 jumper)
+  MEDIUM: 19 items (jumper methods 3/10/11/14, hunter IHSA/weights,
+                    FINISH_LOCK, peek persistence, UDP {fr} semantics,
+                    numeric status tentatives, electron-updater, code-
+                    signing, ring-hardcoded admin bug, session expiry,
+                    class_type_key, identity threshold, replay harness,
+                    V3_ENABLED flag, branch merge, TOD col[35], PORT
+                    31000 {fr})
+  LOW:    ~35 items (methods 1/12/5/8/15, three-round, derby edge
+                     cases, UDP tag catalog, hunter status codes,
+                     legacy unknowns, design decisions)
+  VERY LOW: ~10 items (audit trail, retention cutoff, {5} empty tag,
+                       legacy padding cols)
+
+Total items on punch list: ~73
+
+Already closed (confirmed):
+  [X] Numeric status 2 = RT (class 212 #6318)
+  [X] Numeric status 4 = WD (Farmtek numeric-only)
+  [X] Numeric status 5 = RF (class 220 #6116)
+
+
+============================================================
+  HOW TO USE THIS LIST
+============================================================
+
+DURING SHOW DAYS:
+  - Keep it open in another tab during a show
+  - When you observe a protocol in action, check it off
+  - Note the confirming class / entry / log in a one-liner below the item
+  - Update the source doc on the next calm session
+
+BEFORE v3 CUTOVER:
+  - All HIGH-priority items must be closed
+  - MEDIUM items: either closed or explicitly deferred to post-cutover
+    with a named plan
+  - LOW + VERY LOW items: accept as "observability will catch these
+    over time"
+
+NEW UNCERTAINTIES:
+  - When a new uncertainty is discovered (new class type, new
+    Ryegate version, new behavior), ADD it here first
+  - Parser should log parse_warning → Bill reviews → add to this list
+  - Never patch code for an uncertainty that isn't on this list
+    (closes the Session 27 loop — document first, code second)
+
+SESSION HANDOFF:
+  - This doc is the test-plan-in-waiting for v3
+  - Future Claude instances can read this + the source docs
+    referenced per item and know exactly what's left to verify
+
+
+============================================================
+  END OF CHECKLIST
+============================================================
