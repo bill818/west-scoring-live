@@ -24,25 +24,54 @@ PACKET FORMAT:
   - {tag} = curly-brace-wrapped integer, e.g. {1}, {17}, {23}
   - Values are plain text between tags (no delimiters)
 
-TWO SEPARATE UDP PORTS:
-  1. Scoreboard port (default 29696) — live class data
-     - Configurable in Ryegate config.dat
+TWO SEPARATE UDP CHANNELS (independent, DO NOT CONFLATE):
+
+  Channel A — "UDP IN" (ring scoring telemetry)
+     - Ryegate outbound port (default 29696, configurable in
+       Ryegate config.dat)
+     - Funnel/engine receives on this port, fans out to:
+         - "UDP in" (port 28000) → engine's input
+         - RSServer feed (Ryegate-port + 1, e.g. 29697) → drives
+           the physical scoreboard hardware
      - Broadcasts ~1Hz during active class
-     - Carries frames 0-16
-  2. Port 31000 — class selection / completion detection
-     - Fixed port, not configurable
-     - Fires on Ctrl+A and On Course clicks
+     - Carries frames 0-16 (live ride telemetry: clock, entry,
+       faults, phase, finish)
+     - Semantics: WHAT'S HAPPENING IN THE RING RIGHT NOW
+
+  Channel B — "FOCUS SIGNAL" (operator intent)
+     - Port 31000, fixed, not configurable
+     - Fires on:
+         · 1× Ctrl+A → CLASS_SELECTED (focus change)
+         · 3× Ctrl+A within 2s → CLASS_COMPLETE (confirmation)
+         · HUNTER On Course click → coincident with {fr}=11 INTRO
+         · JUMPER On Course click → NOT RELIABLY FIRED on 31000
+     - Semantics: WHAT THE OPERATOR IS DOING with Ryegate's
+       class management
+
+  These two channels are INDEPENDENT. The engine consumes each
+  as its own event stream. Do not use one to validate or
+  augment the other's semantics. State machine composition
+  happens at a higher level, not at the port-correlation level.
+
+  Naming:
+    - "scoreboard" refers ONLY to the PHYSICAL scoreboard in
+      the ring (and RSServer's job of driving it).
+    - "UDP in" = engine input (port 28000 after funnel fan-out).
+    - Never call 28000 the "scoreboard port" — it's the engine
+      feed, not a scoreboard driver.
 
 TRANSPORT:
   - Broadcast UDP on the local network
   - 1Hz cadence confirmed (Session 27): zero jitter, zero
-    missed frames in 3.0 MB log analysis
-  - RSServer.exe binds scoreboard port exclusively on Windows
-    (SO_EXCLUSIVEADDRUSE) — see funnel/relay docs for workaround
+    missed frames in 3.0 MB log analysis on Channel A
+  - RSServer.exe binds the Ryegate outbound port exclusively
+    on Windows (SO_EXCLUSIVEADDRUSE) — the funnel resolves this
+    by binding first and fanning out (v2 behavior, continues in
+    v3 engine via the Electron-bundled funnel module)
 
 
 ============================================================
-  FRAME MAP — SCOREBOARD PORT
+  FRAME MAP — UDP IN (Channel A, ring telemetry)
 ============================================================
 
 ────────────────────────────────────────────────────────────
