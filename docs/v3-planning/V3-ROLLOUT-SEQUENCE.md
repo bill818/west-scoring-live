@@ -57,6 +57,100 @@ Each stage builds on the prior. Don't skip stages.
 
 
 ============================================================
+  PACKAGING DECISION — LOCKED 2026-04-18 (Session 28)
+============================================================
+
+  West Engine ships as an ELECTRON APPLICATION.
+
+  One installable on the scoring PC. Bundles what v2 deploys
+  as two separate Node processes (watcher + funnel).
+
+  Why Electron, not service / not two processes:
+    - One thing to install, start, version
+    - Auto-update via electron-updater (no more "drag this
+      file into c:/west/")
+    - Optional status window for operators (engine running,
+      last event Xs ago, rings connected)
+    - Single log location
+    - Code-sign once, distribute anywhere
+
+  TWO-CHANNEL ARCHITECTURE (inside the Electron process):
+
+    Ryegate outbound UDP (default 29696)
+       │
+       └─→ Engine main process — receives every packet
+             │
+             ├─→ IMMEDIATE fan-out to RSServer port+1
+             │   (synchronous, no awaits, no queue —
+             │    before any parsing happens)
+             │
+             └─→ AFTER fan-out: engine internal event
+                 parser (async — can take its time,
+                 can crash without affecting RSServer)
+
+    Port 31000 (focus signal)
+       │
+       └─→ Engine main process — independent handler
+             reads operator-intent events (Ctrl+A,
+             hunter On Course clicks). Does NOT
+             correlate with UDP in.
+
+  CRITICAL PRINCIPLE — fire-and-forget isolation:
+
+    Even inside one Electron process, the UDP-receive +
+    RSServer-fan-out path MUST remain instant and
+    independent of anything the engine's intelligence
+    layer is doing.
+
+    Implementation rule: between dgram 'message' event
+    and the outbound dgram.send() to RSServer, do NOTHING.
+    No await, no parsing, no logging, no state checks.
+    Only after send() returns can the packet pass to the
+    event parser.
+
+    If the parser throws, hangs, or deadlocks, the fan-out
+    path is already done. Scoreboard never notices.
+
+    Lose this and we reintroduce the v1.2.0 regression
+    that Session 24's funnel solved.
+
+  SHARED MODULES — engine + browser:
+
+    Vanilla-JS IIFE modules are dual-environment compatible.
+    The same west-format.js / west-rules.js / west-stats.js
+    (live half) files run in both:
+      - Browser pages via <script> tag → window.WEST
+      - Electron main process via require() → global.WEST
+
+    This means classType gatekeeper logic (Article 1) lives
+    in ONE file, shared. Not duplicated.
+
+    Module split:
+      Both sides:    west-format, west-rules, west-stats (live)
+      Browser only:  west-clock, west-display, west-data
+      Engine only:   .cls parser, UDP listener, fan-out, fs
+                     watcher, Cloudflare client
+
+    Build step: tiny copy script moves shared files from
+    v3/js/ into engine/shared/ before electron-builder
+    packages the app. No webpack, no bundler.
+
+  RISKS AT LOCK TIME:
+    - Native deps beyond dgram/fs need electron-rebuild —
+      stick to pure JS + built-ins
+    - Windows code-signing cert (~$200/yr) to avoid
+      SmartScreen first-run warning — cost, not blocker
+    - Auto-update validated via electron-updater
+
+  NOT YET DONE (de-risk before phase-0 starts):
+    - Spike Electron app: 50 lines, UDP in → UDP out fan-out,
+      nothing else. Run on a scoring PC during a real show
+      day to prove the architecture works with actual
+      Ryegate/RSServer interaction. If it survives a show,
+      commit. If it doesn't, we know now, not at Phase 7.
+
+
+============================================================
   STAGE 1 — DATABASE & SHOW SETUP
 ============================================================
 

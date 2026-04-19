@@ -375,32 +375,43 @@ TRANSPORT:
       accidental re-open (4th press ignored)
     - Posts events to worker for KV/D1 state updates
 
-  HUNTER vs JUMPER On Course behavior on port 31000 (Bill,
-  Session 28):
-    - HUNTER:  On Course click reliably produces a 31000 packet
-               alongside the scoreboard-port {fr}=11 INTRO frame.
-               Port 31000 IS a reliable on-course / focus
-               indicator for hunter classes.
+  Mental model (Bill, Session 28):
+    Treat port 31000 as THE OPERATOR FOCUS SIGNAL.
+    It tells you what the operator is attending to in Ryegate.
+    It does NOT tell you what's happening in the ring — that's
+    what UDP in (Channel A) is for.
+
+    The two channels are independent inputs. The engine reads
+    31000 for focus/intent events and UDP in for ring
+    telemetry. They compose at the engine's higher-level state
+    machine. Do NOT conflate them at the port level. Do NOT
+    use one stream to validate the other.
+
+  HUNTER vs JUMPER On Course behavior on 31000:
+    - HUNTER:  On Course click reliably produces a 31000 packet.
+               31000 IS a reliable focus indicator for hunter
+               classes (matches the operator's attention shift
+               when they mark a horse on course).
     - JUMPER:  On Course click does NOT reliably fire on 31000.
-               Port 31000 is NOT a reliable focus indicator for
-               jumpers — DO NOT rely on 31000 traffic to detect
-               jumper on-course events. Use scoreboard-port
-               {fr}=1 ONCOURSE frames instead.
+               31000 is NOT a reliable focus indicator for
+               jumpers. For jumper on-course detection, read
+               UDP in's {fr}=1 frames — that's ring telemetry,
+               separate channel, always reliable.
 
   Port 31000 history / ambiguity status:
-    Port 31000 has been a mess of ambiguity in v2. We've used it
-    for class opening (CLASS_SELECTED) and tried to use it for
-    class closing (3× Ctrl+A). The signal set is partially
-    overloaded with On Course traffic but only for hunters, and
-    the semantics are not cleanly documented in Ryegate itself.
-    The v3 engine may need a full redesign of what it uses 31000
-    for — at minimum, disambiguate Ctrl+A presses from hunter
-    On Course clicks via scoreboard-port correlation. FLAG as
-    an area that needs exploration before v3 locks its 31000
-    handling.
+    Port 31000 has been a mess of ambiguity in v2. We've used
+    it for class opening (CLASS_SELECTED) and tried to use it
+    for class closing (3× Ctrl+A). The signal set is partially
+    overloaded with hunter On Course clicks, and Ryegate itself
+    doesn't cleanly document the semantics. The v3 engine will
+    likely need a full redesign of how it uses 31000 — approach
+    it as "31000 tells us the operator's focus, nothing more"
+    rather than as a backup scoring feed. FLAG as an area that
+    needs exploration before v3 locks its 31000 handling.
 
-  Confirmed: 2026-03-22, cooldown added S16, hunter/jumper
-  split clarified Session 28.
+  Confirmed: 2026-03-22, cooldown added S16. Focus-signal
+  framing + hunter/jumper split + channel independence
+  principle clarified Session 28.
 
 
 ============================================================
