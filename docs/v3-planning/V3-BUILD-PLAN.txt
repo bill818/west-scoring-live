@@ -1180,5 +1180,72 @@ Cross that bridge in 2028, not 2026.
 
 
 ============================================================
+  ADDENDUM C — RESULTS PAGE IS PURE VIEW (Session 29)
+============================================================
+
+Bill, Session 29, 2026-04-19. Architectural principle that
+shapes Phase 2+ and must NOT be violated:
+
+  The results page is a pure formatted view of the .cls file.
+  Nothing more.
+
+  - Engine ships the raw .cls file to the worker whenever
+    the file changes. No pre-parsing. No interpretation.
+  - Worker parses the .cls via the shared methods-reference
+    modules (west-rules.js, west-format.js). Turns bytes into
+    a structured results object (placings, times, faults).
+  - Results page fetches that object and renders. No logic
+    beyond layout. No speculation. No inference. No live-state
+    reasoning. What the .cls says is what the results are.
+
+WHY THIS IS A SEPARATE CONCERN FROM LIVE:
+
+  Results and live pages are DIFFERENT PRODUCTS that happen
+  to share source data. Don't conflate them.
+
+  | Product        | Input               | Logic            |
+  |----------------|---------------------|------------------|
+  | Results page   | Final .cls file     | Format only      |
+  | Live + stats   | UDP + mid-round     | Interpretation,  |
+  |                | .cls + inference    | state, ladders,  |
+  |                |                     | clock            |
+
+  The results page is the simplest thing in v3. It should
+  ship EARLIER and STAY simple. The live/stats complexity
+  must never leak into it.
+
+IMPLICATIONS FOR PHASE SEQUENCING:
+
+  - "Engine posts raw .cls → worker parses → results render"
+    can be the first user-facing v3 product. Smaller than
+    the live pipeline. Earlier confidence win.
+  - Shared methods-reference modules (west-rules.js,
+    west-format.js) get exercised by the results path first.
+    When live builds on top, these modules are already proven.
+  - Raw .cls archived to R2 (v3 principle #7) means every
+    result is re-parseable if a method interpretation gets
+    fixed later. Audit-trail gold.
+
+WHAT MUST NOT HAPPEN:
+
+  - Engine pre-parses the .cls and ships structured JSON.
+    (Breaks single-source-of-truth; adds logic to the most
+    field-deployed part of the stack.)
+  - Results page performs any inference or state reconstruction.
+    (If you need that, you're building a live page, not a
+    results page. Use a different component.)
+  - Live/stats logic shares code paths with results rendering
+    beyond the methods-reference formatters. Keep the pipelines
+    separate until they have to merge.
+
+DIRECT QUOTE FROM BILL, Session 29:
+  "the results page is always just the cls file formatted...
+  the live pages stats etc will be our interpertations"
+  "i just look at that as a solid base layer... we do no
+  manipulation of the results page other than using the class
+  methods and rules to render the correct placing"
+
+
+============================================================
   END OF BUILD PLAN
 ============================================================
