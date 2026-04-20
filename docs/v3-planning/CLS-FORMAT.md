@@ -63,7 +63,7 @@ Example:
 
 FLAG column values:
 - (empty) = normal class
-- S = Championship class (hunter only, when finalized)
+- S = Scored/Finished — hunter class, results finalized (Confirmed 2026-03-31; NOT "Championship" — championship is the H[11] IsChampionship flag in the .cls header, which is a separate concept)
 - JO = Jump Order — display order of go on website
 
 Row order within a date = ring order (the sequence classes run that day).
@@ -1211,11 +1211,12 @@ EX/OC/RF    — .cls StatusCode handles this
 ### Jumper Header:
 ```
 H[03]: always 0 — legacy
-H[18]: always False — legacy
 H[20]: always empty — legacy
 H[24]: always False — legacy
 H[27]: always True — legacy
 ```
+(H[18] previously listed here as "always False — legacy" — REMOVED 2026-04-20.
+Superseded by the confirmed 2026-04-08 entry above: H[18] = IsFEI, True/False.)
 
 ### TIMY Entry:
 ```

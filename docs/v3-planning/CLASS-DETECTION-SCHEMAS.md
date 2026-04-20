@@ -126,7 +126,7 @@ Example:
 | Flag | Meaning | v3 rule |
 |---|---|---|
 | (empty) | Normal class (scheduled) | SCHEDULED state |
-| `S` | Championship class (hunter only, when finalized) | Overlay: class is a championship. Display treats it as a hunter championship. |
+| `S` | Scored/Finished — hunter class, results finalized (Confirmed 2026-03-31). NOT "Championship" — championship is H[11] IsChampionship in the .cls header, a separate concept. | Transition: class → COMPLETE (hunter final-results signal). |
 | `JO` | Jump Order posted — display order of go on website | Transition: class → OOG POSTED. Peek class page to enrich with actual OOG if needed. |
 | `L` or live-badge implied | Class is live (horses are going) | Transition: class → IN PROGRESS |
 | Gone from file | Class completed or deleted | Transition: class → COMPLETE (if previously LIVE) or removed |

@@ -498,7 +498,12 @@ Same status code table as jumpers:
 
 - Text status per round: cols[52/53/54] for R1/R2/R3
 - Numeric status fallback: cols[46/47/48] for R1/R2/R3
-- Same numeric map: 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS (SESSION-25 confirmed)
+- Hunter numeric status map (cols[46]/[47]/[48]) — per v2 production `display-config.js:1390`:
+  - `'2'` → EL (generic; text code has the specifics: RF/HF/EL/OC/DNS)
+  - `'3'` → RT (Retired)
+  - Other values (1, 4, 5, 6+) are NOT mapped in v2 production. Treated as unknown status when text code is absent.
+- **DIFFERS from the jumper numeric map** (`display-config.js:318`: `1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS`). Do not translate across lenses — the only overlap is that both use the digits 1-6, with entirely different meanings.
+- Text status at cols[52]/[53]/[54] is authoritative when present; numeric is fallback only.
 
 ### Status attribution
 - Per-round independent (unlike jumpers where R2 can wipe R1)
