@@ -3,11 +3,12 @@ main = "west-worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-# V3_ENABLED gates all v3 code paths in the worker. Default OFF — production
-# must never silently light up v3 endpoints until we decide to cutover.
-# Override per-environment by setting the V3_ENABLED secret/var in the
-# Cloudflare dashboard (preview worker: "true", production: "false" until ready).
-V3_ENABLED = "false"
+# V3_ENABLED gates all v3 code paths in the worker. Flipped ON 2026-04-21
+# during Phase 1 development — v3 endpoints under /v3/* are reachable and
+# write to WEST_DB_V3 (separate DB). v2 endpoints are unaffected because they
+# don't check this flag. At v2 cutover, v2 code gets deleted/walled off; this
+# flag becomes redundant and can be removed.
+V3_ENABLED = "true"
 
 [[kv_namespaces]]
 binding = "WEST_LIVE"

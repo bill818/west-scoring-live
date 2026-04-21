@@ -1555,6 +1555,150 @@ export default {
       return json({ ok: true, settings });
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // v3 endpoints — all gated by isV3Enabled(env). Reads/writes WEST_DB_V3
+    // (separate D1 from v2's WEST_DB). Phase 1: shows + rings only.
+    // Slug validation: ^[a-z][a-z0-9-]{2,59}$
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ── GET /v3/listShows ─────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/v3/listShows') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      try {
+        const { results } = await env.WEST_DB_V3.prepare(
+          'SELECT id, slug, name, start_date, end_date, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+        ).all();
+        return json({ ok: true, shows: results || [] });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/createShow ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/v3/createShow') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, name, start_date, end_date } = body;
+      if (!slug) return err('Missing slug');
+      if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
+        return err('Invalid slug — must match ^[a-z][a-z0-9-]{2,59}$');
+      }
+      if (!name || !name.trim()) return err('Missing name');
+      try {
+        await env.WEST_DB_V3.prepare(`
+          INSERT INTO shows (slug, name, start_date, end_date)
+          VALUES (?, ?, ?, ?)
+        `).bind(slug, name.trim(), start_date || null, end_date || null).run();
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT * FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        console.log(`[v3] Created show: ${slug}`);
+        return json({ ok: true, show });
+      } catch (e) {
+        if (String(e.message || '').includes('UNIQUE')) return err('Slug already exists', 409);
+        return err('DB error: ' + e.message);
+      }
+    }
+
+    // ── GET /v3/getShow?slug=X ────────────────────────────────────────────────
+    if (method === 'GET' && path === '/v3/getShow') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT * FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        return json({ ok: true, show });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/updateShow ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/v3/updateShow') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, name, start_date, end_date } = body;
+      if (!slug) return err('Missing slug');
+      const updates = [];
+      const binds = [];
+      if (name !== undefined) { updates.push('name = ?'); binds.push(name.trim()); }
+      if (start_date !== undefined) { updates.push('start_date = ?'); binds.push(start_date || null); }
+      if (end_date !== undefined) { updates.push('end_date = ?'); binds.push(end_date || null); }
+      if (!updates.length) return err('No fields to update');
+      updates.push("updated_at = datetime('now')");
+      binds.push(slug);
+      try {
+        const res = await env.WEST_DB_V3.prepare(
+          `UPDATE shows SET ${updates.join(', ')} WHERE slug = ?`
+        ).bind(...binds).run();
+        if (!res.meta || !res.meta.changes) return err('Show not found', 404);
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT * FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        console.log(`[v3] Updated show: ${slug}`);
+        return json({ ok: true, show });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── GET /v3/listRings?slug=X ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/v3/listRings') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        const { results } = await env.WEST_DB_V3.prepare(
+          'SELECT id, ring_num, name, sort_order, created_at, updated_at FROM rings WHERE show_id = ? ORDER BY sort_order, ring_num'
+        ).bind(show.id).all();
+        return json({ ok: true, rings: results || [] });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/createRing ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/v3/createRing') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, ring_num, name, sort_order } = body;
+      if (!slug) return err('Missing slug');
+      if (ring_num === undefined || ring_num === null) return err('Missing ring_num');
+      const ringNumInt = parseInt(ring_num, 10);
+      if (!Number.isFinite(ringNumInt) || ringNumInt < 1 || ringNumInt > 99) {
+        return err('Invalid ring_num — must be integer 1-99');
+      }
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        await env.WEST_DB_V3.prepare(`
+          INSERT INTO rings (show_id, ring_num, name, sort_order)
+          VALUES (?, ?, ?, ?)
+        `).bind(
+          show.id, ringNumInt, (name || '').trim() || null,
+          Number.isFinite(parseInt(sort_order, 10)) ? parseInt(sort_order, 10) : 0
+        ).run();
+        const ring = await env.WEST_DB_V3.prepare(
+          'SELECT * FROM rings WHERE show_id = ? AND ring_num = ?'
+        ).bind(show.id, ringNumInt).first();
+        console.log(`[v3] Created ring: ${slug}/ring-${ringNumInt}`);
+        return json({ ok: true, ring });
+      } catch (e) {
+        if (String(e.message || '').includes('UNIQUE')) return err('Ring already exists for this show', 409);
+        return err('DB error: ' + e.message);
+      }
+    }
+
     return err('Not found', 404);
   }
 };
