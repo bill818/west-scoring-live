@@ -422,10 +422,16 @@ function renderRings() {
       let cls = 'online', label = 'online';
       if (ageSec > 300) { cls = 'offline'; label = 'offline'; }
       else if (ageSec > 30) { cls = 'stale'; label = 'stale'; }
-      const ageStr = ageSec < 60 ? `${ageSec}s ago`
-        : ageSec < 3600 ? `${Math.floor(ageSec/60)}m ago`
-        : `${Math.floor(ageSec/3600)}h ago`;
-      engineHtml = `<span class="engine-dot ${cls}"></span>Engine ${escapeHtml(hb.engine_version)} — ${label}, last seen ${ageStr}`;
+      const dt = new Date(hb.received_at);
+      const mm = dt.getMonth() + 1;
+      const dd = dt.getDate();
+      const yy = String(dt.getFullYear()).slice(-2);
+      const h12 = dt.getHours() % 12 || 12;
+      const min = String(dt.getMinutes()).padStart(2, '0');
+      const ss = String(dt.getSeconds()).padStart(2, '0');
+      const ampm = dt.getHours() >= 12 ? 'PM' : 'AM';
+      const stamp = `${mm}/${dd}/${yy} - ${h12}:${min}:${ss} ${ampm}`;
+      engineHtml = `<span class="engine-dot ${cls}"></span>Engine ${escapeHtml(hb.engine_version)} — ${label}, last seen ${stamp}`;
     }
     const li = document.createElement('li');
     li.className = 'ring-row';
