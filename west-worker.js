@@ -1646,8 +1646,8 @@ export default {
     }
 
     // ── GET /v3/listRings?slug=X ──────────────────────────────────────────────
-    // Returns rings for a show. Each ring includes its last_heartbeat
-    // (if any) from KV so the admin page can render engine status.
+    // Returns rings for a show. Each ring includes last_heartbeat and
+    // last_cls (if any) from KV so admin can render both freshness signals.
     if (method === 'GET' && path === '/v3/listRings') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
@@ -1661,14 +1661,74 @@ export default {
         const { results } = await env.WEST_DB_V3.prepare(
           'SELECT id, ring_num, name, sort_order, created_at, updated_at FROM rings WHERE show_id = ? ORDER BY sort_order, ring_num'
         ).bind(show.id).all();
-        // Attach engine heartbeat state per ring (KV lookup)
         const rings = results || [];
         for (const r of rings) {
-          const raw = await env.WEST_LIVE.get(`engine:${slug}:${r.ring_num}`);
-          r.last_heartbeat = raw ? JSON.parse(raw) : null;
+          const hbRaw = await env.WEST_LIVE.get(`engine:${slug}:${r.ring_num}`);
+          r.last_heartbeat = hbRaw ? JSON.parse(hbRaw) : null;
+          const clsRaw = await env.WEST_LIVE.get(`cls-last:${slug}:${r.ring_num}`);
+          r.last_cls = clsRaw ? JSON.parse(clsRaw) : null;
         }
         return json({ ok: true, rings });
       } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/postCls ─────────────────────────────────────────────────────
+    // Engine POSTs raw .cls file bytes every time the file changes on the
+    // scoring PC. Identity via headers (simpler than multipart for bytes).
+    // Writes to R2 at "{slug}/{ring_num}/{class_num}.cls" — one object per
+    // class, overwritten per change. KV tracks last-seen for fast admin UI.
+    //
+    // Headers:
+    //   X-West-Key    (auth, same as other endpoints)
+    //   X-West-Slug   show slug
+    //   X-West-Ring   ring number
+    //   X-West-Class  class identifier (e.g. "51" or "51C" for championships)
+    // Body: raw .cls bytes (application/octet-stream)
+    if (method === 'POST' && path === '/v3/postCls') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug    = request.headers.get('X-West-Slug');
+      const ringStr = request.headers.get('X-West-Ring');
+      const classId = request.headers.get('X-West-Class');
+      if (!slug || !ringStr || !classId) {
+        return err('Missing X-West-Slug, X-West-Ring, or X-West-Class header');
+      }
+      const ringNum = parseInt(ringStr, 10);
+      if (!Number.isFinite(ringNum)) return err('Invalid X-West-Ring');
+      // Class identifier is operator-facing — can be numeric or have a
+      // trailing 'C' for championships (e.g. 48C). Validate it's reasonable.
+      if (!/^[A-Za-z0-9_-]{1,16}$/.test(classId)) {
+        return err('Invalid X-West-Class (expected short alphanumeric)');
+      }
+      // Verify the show/ring exists
+      try {
+        const ring = await env.WEST_DB_V3.prepare(`
+          SELECT r.id FROM rings r
+          JOIN shows s ON s.id = r.show_id
+          WHERE s.slug = ? AND r.ring_num = ?
+        `).bind(slug, ringNum).first();
+        if (!ring) return err('Unknown show/ring pair', 404);
+      } catch (e) { return err('DB error: ' + e.message); }
+      // Read the body bytes once and write to R2 overwrite-in-place
+      const bytes = await request.arrayBuffer();
+      const size = bytes.byteLength;
+      if (size === 0) return err('Empty body');
+      if (size > 5 * 1024 * 1024) return err('.cls file too large (>5MB)', 413);
+      const r2Key = `${slug}/${ringNum}/${classId}.cls`;
+      await env.WEST_R2_CLS.put(r2Key, bytes, {
+        httpMetadata: { contentType: 'text/csv' },
+        customMetadata: { slug, ring: String(ringNum), class: classId },
+      });
+      // Track "last-cls" in KV for admin UI. 24-hour TTL so absent engines
+      // eventually drop off the indicator.
+      const received_at = new Date().toISOString();
+      const meta = { class_id: classId, filename: `${classId}.cls`, received_at, size, r2_key: r2Key };
+      await env.WEST_LIVE.put(
+        `cls-last:${slug}:${ringNum}`,
+        JSON.stringify(meta),
+        { expirationTtl: 86400 }
+      );
+      return json({ ok: true, r2_key: r2Key, size, received_at });
     }
 
     // ── POST /v3/engineHeartbeat ─────────────────────────────────────────────

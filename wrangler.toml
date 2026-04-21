@@ -27,3 +27,11 @@ database_id = "085ce299-f591-441b-8edf-b4327b924422"
 binding = "WEST_DB_V3"
 database_name = "west-scoring-v3"
 database_id = "93f7a6dd-4b4a-4e45-9730-d27aff7dfb19"
+
+# v3 raw .cls archive. Engine POSTs raw file bytes; worker writes to R2
+# at key "{slug}/{ring_num}/{class_num}.cls" — one object per class,
+# overwritten on every change (Option B, locked 2026-04-21). Historical
+# snapshots can be added later if needed.
+[[r2_buckets]]
+binding = "WEST_R2_CLS"
+bucket_name = "v3-cls"
