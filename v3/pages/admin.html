@@ -411,7 +411,22 @@ function renderRings() {
     return;
   }
   empty.style.display = 'none';
+  const now = Date.now();
   for (const r of filtered) {
+    const hb = r.last_heartbeat;
+    let engineHtml;
+    if (!hb) {
+      engineHtml = `<span class="engine-dot offline"></span>Engine: not connected`;
+    } else {
+      const ageSec = Math.max(0, Math.floor((now - Date.parse(hb.received_at)) / 1000));
+      let cls = 'online', label = 'online';
+      if (ageSec > 300) { cls = 'offline'; label = 'offline'; }
+      else if (ageSec > 30) { cls = 'stale'; label = 'stale'; }
+      const ageStr = ageSec < 60 ? `${ageSec}s ago`
+        : ageSec < 3600 ? `${Math.floor(ageSec/60)}m ago`
+        : `${Math.floor(ageSec/3600)}h ago`;
+      engineHtml = `<span class="engine-dot ${cls}"></span>Engine ${escapeHtml(hb.engine_version)} — ${label}, last seen ${ageStr}`;
+    }
     const li = document.createElement('li');
     li.className = 'ring-row';
     li.innerHTML = `
@@ -420,7 +435,7 @@ function renderRings() {
         <div class="ring-name">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</div>
         <div class="ring-meta">created ${(r.created_at || '').slice(0,10)}</div>
       </div>
-      <div class="ring-engine"><span class="engine-dot offline"></span>Engine: not connected yet</div>`;
+      <div class="ring-engine">${engineHtml}</div>`;
     ul.appendChild(li);
   }
 }
@@ -530,6 +545,12 @@ loadShows();
 
 // Auto-refresh shows list every 30s (will become WebSocket later)
 setInterval(loadShows, 30000);
+
+// Auto-refresh rings for the selected show every 10s so engine heartbeat
+// freshness stays current (aligns with engine's 10s heartbeat cadence).
+setInterval(() => {
+  if (state.selectedSlug) loadRings(state.selectedSlug);
+}, 10000);
 </script>
 
 </body>

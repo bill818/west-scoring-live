@@ -1646,6 +1646,8 @@ export default {
     }
 
     // ── GET /v3/listRings?slug=X ──────────────────────────────────────────────
+    // Returns rings for a show. Each ring includes its last_heartbeat
+    // (if any) from KV so the admin page can render engine status.
     if (method === 'GET' && path === '/v3/listRings') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
@@ -1659,8 +1661,55 @@ export default {
         const { results } = await env.WEST_DB_V3.prepare(
           'SELECT id, ring_num, name, sort_order, created_at, updated_at FROM rings WHERE show_id = ? ORDER BY sort_order, ring_num'
         ).bind(show.id).all();
-        return json({ ok: true, rings: results || [] });
+        // Attach engine heartbeat state per ring (KV lookup)
+        const rings = results || [];
+        for (const r of rings) {
+          const raw = await env.WEST_LIVE.get(`engine:${slug}:${r.ring_num}`);
+          r.last_heartbeat = raw ? JSON.parse(raw) : null;
+        }
+        return json({ ok: true, rings });
       } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/engineHeartbeat ─────────────────────────────────────────────
+    // Engine identifies itself to the worker every ~10s. Proves the engine is
+    // alive + reports its identity (show slug + ring num) + version. Stored in
+    // KV with 10min TTL so admin page can render freshness. No D1 writes.
+    if (method === 'POST' && path === '/v3/engineHeartbeat') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, ring_num, engine_version, timestamp, hostname, uptime_seconds } = body;
+      if (!slug) return err('Missing slug');
+      if (ring_num === undefined || ring_num === null) return err('Missing ring_num');
+      const ringNumInt = parseInt(ring_num, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      // Verify show + ring exist in v3 DB before accepting heartbeats —
+      // prevents noise from misconfigured engines claiming shows we don't know.
+      try {
+        const ring = await env.WEST_DB_V3.prepare(`
+          SELECT r.id FROM rings r
+          JOIN shows s ON s.id = r.show_id
+          WHERE s.slug = ? AND r.ring_num = ?
+        `).bind(slug, ringNumInt).first();
+        if (!ring) return err('Unknown show/ring pair', 404);
+      } catch (e) { return err('DB error: ' + e.message); }
+      const received_at = new Date().toISOString();
+      const payload = {
+        slug, ring_num: ringNumInt,
+        engine_version: engine_version || 'unknown',
+        timestamp: timestamp || null,
+        hostname: hostname || null,
+        uptime_seconds: Number.isFinite(uptime_seconds) ? uptime_seconds : null,
+        received_at,
+      };
+      await env.WEST_LIVE.put(
+        `engine:${slug}:${ringNumInt}`,
+        JSON.stringify(payload),
+        { expirationTtl: 600 } // 10 minutes
+      );
+      return json({ ok: true, received_at });
     }
 
     // ── POST /v3/createRing ───────────────────────────────────────────────────
