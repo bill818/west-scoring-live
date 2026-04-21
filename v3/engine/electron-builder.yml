@@ -1,0 +1,13 @@
+appId: com.worthington.westengine
+productName: WestEngine
+directories:
+  output: dist
+files:
+  - main.js
+  - package.json
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  signAndEditExecutable: false

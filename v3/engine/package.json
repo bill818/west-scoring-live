@@ -1,0 +1,15 @@
+{
+  "name": "west-engine",
+  "version": "3.0.0-dev",
+  "description": "WEST v3 scoring engine — heartbeat-only Phase 1 build.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
