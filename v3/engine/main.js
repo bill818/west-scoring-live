@@ -150,12 +150,11 @@ if (!app.requestSingleInstanceLock()) {
 app.whenReady().then(() => {
   loadConfig();
 
-  // 16x16 placeholder icon (same dummy as spike — real .ico comes later)
-  const iconPng = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHElEQVR42mNkYPhfz0AEYBxVSF6F4zWOKiSvQgBHcAIBpJuVOwAAAABJRU5ErkJggg==',
-    'base64'
-  );
-  tray = new Tray(nativeImage.createFromBuffer(iconPng));
+  // Tray icon — WEST compass from shared assets. Windows will rescale 64×64
+  // down to 16×16 for the tray.
+  const iconPath = path.join(__dirname, 'icon.png');
+  const trayIcon = nativeImage.createFromPath(iconPath);
+  tray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon);
   tray.setToolTip(`WEST Engine v${ENGINE_VERSION} — starting…`);
 
   const menu = Menu.buildFromTemplate([

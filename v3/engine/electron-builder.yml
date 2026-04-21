@@ -5,6 +5,7 @@ directories:
 files:
   - main.js
   - package.json
+  - icon.png
 win:
   target:
     - target: dir
