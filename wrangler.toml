@@ -17,3 +17,12 @@ id = "838b38e150d24177be0bbdccf7a3e530"
 binding = "WEST_DB"
 database_name = "west-scoring"
 database_id = "085ce299-f591-441b-8edf-b4327b924422"
+
+# v3 database. Separate from v2 so v3 schema decisions don't constrain v2
+# and vice versa. v2 stays readable (historical reference for stats
+# training / parser validation) but nothing writes to it from v3 code.
+# v3 endpoints use env.WEST_DB_V3 exclusively.
+[[d1_databases]]
+binding = "WEST_DB_V3"
+database_name = "west-scoring-v3"
+database_id = "93f7a6dd-4b4a-4e45-9730-d27aff7dfb19"
