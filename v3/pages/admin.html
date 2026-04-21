@@ -278,9 +278,11 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 const AUTH = 'west-scoring-2026';
 const BASE = 'https://west-worker.bill-acb.workers.dev';
 
+const SELECTED_SHOW_KEY = 'v3admin.selectedSlug';
+
 const state = {
   shows: [],
-  selectedSlug: null,
+  selectedSlug: localStorage.getItem(SELECTED_SHOW_KEY) || null,
   rings: [],
 };
 
@@ -374,6 +376,7 @@ function escapeHtml(str) {
 // ── render show detail ───────────────────────────────────────────────
 async function selectShow(slug) {
   state.selectedSlug = slug;
+  try { localStorage.setItem(SELECTED_SHOW_KEY, slug); } catch (e) {}
   renderSidebar();
   const show = state.shows.find(s => s.slug === slug);
   if (!show) return;
@@ -453,9 +456,14 @@ async function loadShows() {
     state.shows = shows;
     renderSidebar();
     if (state.selectedSlug && !shows.find(s => s.slug === state.selectedSlug)) {
+      // Stored selection points at a show that no longer exists — clear it
       state.selectedSlug = null;
+      try { localStorage.removeItem(SELECTED_SHOW_KEY); } catch (e) {}
       document.getElementById('emptyState').hidden = false;
       document.getElementById('showDetail').hidden = true;
+    } else if (state.selectedSlug) {
+      // Restore detail view for the remembered show
+      selectShow(state.selectedSlug);
     }
   } catch (e) {
     toast('Failed to load shows: ' + e.message, 'error');
