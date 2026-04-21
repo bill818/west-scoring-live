@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST v3 Admin</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --white: #ffffff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --card-radius: 10px;
+  --green: #2e7d32;
+  --green-bg: #e8f5e9;
+  --blue: #1565c0;
+  --blue-bg: #e3f2fd;
+  --amber: #b45309;
+  --amber-bg: #fef3c7;
+  --gray: #757575;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+button{font-family:inherit;cursor:pointer;border:none;background:none;}
+input,select{font-family:inherit;}
+a{color:var(--blue);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
+.header-inner{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
+.logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
+.logo-img{height:30px;width:auto;filter:invert(1);}
+@media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:24px;color:#fff;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
+.header-tag{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#fff;background:var(--red);padding:3px 8px;border-radius:2px;}
+
+/* LAYOUT */
+.app{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:280px 1fr;gap:20px;padding:20px 16px;min-height:calc(100vh - 56px);}
+@media (max-width:720px){
+  .app{grid-template-columns:1fr;}
+  .sidebar{border-right:none;border-bottom:1px solid var(--border);padding-right:0;padding-bottom:20px;}
+}
+
+/* SIDEBAR */
+.sidebar{border-right:1px solid var(--border);padding-right:20px;}
+.search-box{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;background:#fff;margin-bottom:10px;}
+.btn-primary{display:block;width:100%;padding:10px;background:var(--red);color:#fff;border-radius:6px;font-weight:600;font-size:14px;margin-bottom:16px;transition:background .15s;}
+.btn-primary:hover{background:#9a1b20;}
+.btn-secondary{display:inline-block;padding:6px 12px;background:#fff;color:var(--text-body);border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;transition:background .15s;}
+.btn-secondary:hover{background:var(--off-white);}
+.btn-danger{padding:6px 12px;background:#fff;color:var(--red);border:1px solid var(--red);border-radius:6px;font-size:13px;font-weight:500;}
+.btn-danger:hover{background:#fef3f3;}
+
+.group{margin-bottom:4px;}
+.group-header{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);cursor:pointer;user-select:none;border-radius:4px;}
+.group-header:hover{background:var(--off-white);}
+.group-header .chevron{font-size:10px;transition:transform .15s;}
+.group.collapsed .chevron{transform:rotate(-90deg);}
+.group.collapsed ul{display:none;}
+.group-count{opacity:.6;}
+.show-list{list-style:none;padding:0;margin:0;}
+.show-item{padding:8px 10px;border-radius:4px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:8px;transition:background .1s;}
+.show-item:hover{background:var(--off-white);}
+.show-item.selected{background:var(--blue-bg);color:var(--blue);font-weight:500;}
+.show-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.show-dot.upcoming{background:var(--blue);}
+.show-dot.active{background:var(--green);}
+.show-dot.past{background:var(--gray);}
+.show-item-body{flex:1;overflow:hidden;}
+.show-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.show-date{display:block;font-size:11px;color:var(--text-muted);font-family:'DM Mono',monospace;}
+
+.system{margin-top:24px;padding-top:16px;border-top:1px solid var(--border);}
+.system-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;}
+.system-item{padding:6px 10px;font-size:13px;color:var(--text-muted);opacity:.6;}
+
+/* MAIN DETAIL */
+.detail{min-height:400px;}
+.empty-state{padding:60px 20px;text-align:center;color:var(--text-muted);}
+.empty-state h2{font-family:'Playfair Display',serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
+.empty-state p{font-size:14px;max-width:400px;margin:0 auto;}
+
+.show-header{padding:20px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin-bottom:20px;}
+.show-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px;}
+.show-title{font-family:'Playfair Display',serif;font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
+.show-title-actions{display:flex;gap:8px;flex-shrink:0;}
+.show-meta{display:flex;gap:20px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
+.show-meta-item span{color:var(--text-body);}
+
+.section{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:20px;margin-bottom:16px;}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;}
+.section-title{font-family:'Playfair Display',serif;font-weight:700;font-size:18px;color:var(--text-body);}
+.section-actions{display:flex;gap:8px;align-items:center;}
+.section-search{padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;width:180px;}
+
+.ring-list{list-style:none;padding:0;margin:0;}
+.ring-row{padding:12px 14px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:12px;}
+.ring-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:6px 10px;border-radius:4px;min-width:52px;text-align:center;}
+.ring-body{flex:1;}
+.ring-name{font-weight:500;}
+.ring-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:2px;}
+.ring-engine{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);}
+.engine-dot{width:8px;height:8px;border-radius:50%;}
+.engine-dot.online{background:var(--green);}
+.engine-dot.offline{background:var(--gray);}
+.engine-dot.stale{background:var(--amber);}
+
+.placeholder{padding:20px;text-align:center;color:var(--text-muted);font-size:13px;font-style:italic;}
+
+/* MODAL */
+dialog{border:none;border-radius:var(--card-radius);padding:0;max-width:450px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);}
+dialog::backdrop{background:rgba(0,0,0,.4);}
+.dialog-header{padding:20px 24px 0;}
+.dialog-header h2{font-family:'Playfair Display',serif;font-weight:700;font-size:20px;}
+.dialog-body{padding:20px 24px;}
+.dialog-footer{padding:16px 24px;background:var(--off-white);border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;border-radius:0 0 var(--card-radius) var(--card-radius);}
+.form-group{margin-bottom:16px;}
+.form-group label{display:block;font-size:12px;font-weight:500;color:var(--text-body);margin-bottom:6px;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.05em;}
+.form-group input{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;}
+.form-group input:focus{outline:2px solid var(--blue);outline-offset:-1px;}
+.form-hint{font-size:11px;color:var(--text-muted);margin-top:4px;}
+.form-error{color:var(--red);font-size:12px;margin-top:8px;padding:8px 10px;background:#fef3f3;border-radius:4px;display:none;}
+.form-error.visible{display:block;}
+
+.toast{position:fixed;bottom:20px;right:20px;padding:12px 20px;background:var(--text-body);color:#fff;border-radius:6px;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,.2);opacity:0;pointer-events:none;transition:opacity .2s;z-index:100;}
+.toast.visible{opacity:1;}
+.toast.error{background:var(--red);}
+.toast.success{background:var(--green);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="index.html" class="logo-tap">
+      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-tag">V3 ADMIN</div>
+  </div>
+</header>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <input type="search" id="showSearch" class="search-box" placeholder="🔍 Search shows…">
+    <button class="btn-primary" id="btnCreateShow">+ Create Show</button>
+
+    <div class="group" data-group="upcoming">
+      <div class="group-header"><span><span class="chevron">▼</span> Upcoming <span class="group-count">(<span id="countUpcoming">0</span>)</span></span></div>
+      <ul class="show-list" id="listUpcoming"></ul>
+    </div>
+    <div class="group" data-group="active">
+      <div class="group-header"><span><span class="chevron">▼</span> Active <span class="group-count">(<span id="countActive">0</span>)</span></span></div>
+      <ul class="show-list" id="listActive"></ul>
+    </div>
+    <div class="group collapsed" data-group="past">
+      <div class="group-header"><span><span class="chevron">▼</span> Past <span class="group-count">(<span id="countPast">0</span>)</span></span></div>
+      <ul class="show-list" id="listPast"></ul>
+    </div>
+
+    <div class="system">
+      <div class="system-header">System</div>
+      <div class="system-item">Migrations (coming)</div>
+      <div class="system-item">Health (coming)</div>
+      <div class="system-item">Raw D1 query (coming)</div>
+    </div>
+  </aside>
+
+  <main class="detail">
+    <div class="empty-state" id="emptyState">
+      <h2>No show selected</h2>
+      <p>Pick a show from the sidebar, or create a new one to get started.</p>
+    </div>
+
+    <div id="showDetail" hidden>
+      <div class="show-header">
+        <div class="show-title-row">
+          <h1 class="show-title" id="showTitle"></h1>
+          <div class="show-title-actions">
+            <button class="btn-secondary" id="btnEditShow">Edit</button>
+          </div>
+        </div>
+        <div class="show-meta">
+          <div class="show-meta-item">slug: <span id="showSlug"></span></div>
+          <div class="show-meta-item">dates: <span id="showDates"></span></div>
+          <div class="show-meta-item">created: <span id="showCreated"></span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">Rings</h2>
+          <div class="section-actions">
+            <input type="search" id="ringSearch" class="section-search" placeholder="Search rings…">
+            <button class="btn-secondary" id="btnAddRing">+ Add Ring</button>
+          </div>
+        </div>
+        <ul class="ring-list" id="ringList"></ul>
+        <div class="placeholder" id="ringEmpty">No rings yet — add one to get started.</div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">Classes</h2>
+        </div>
+        <div class="placeholder">Classes tab — coming in the next phase.</div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<!-- CREATE SHOW DIALOG -->
+<dialog id="dlgCreateShow">
+  <div class="dialog-header"><h2>Create Show</h2></div>
+  <div class="dialog-body">
+    <div class="form-group">
+      <label for="f_showName">Name</label>
+      <input type="text" id="f_showName" placeholder="Culpeper Hunter Jumper Festival">
+    </div>
+    <div class="form-group">
+      <label for="f_showSlug">Slug</label>
+      <input type="text" id="f_showSlug" placeholder="culpeper-fall-2026">
+      <div class="form-hint">Lowercase letters, numbers, hyphens. Starts with a letter. 3-60 characters.</div>
+    </div>
+    <div class="form-group">
+      <label for="f_showStart">Start date</label>
+      <input type="date" id="f_showStart">
+    </div>
+    <div class="form-group">
+      <label for="f_showEnd">End date</label>
+      <input type="date" id="f_showEnd">
+    </div>
+    <div class="form-error" id="f_showError"></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="btn-secondary" data-close-dialog="dlgCreateShow">Cancel</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnCreateShowSubmit">Create</button>
+  </div>
+</dialog>
+
+<!-- CREATE RING DIALOG -->
+<dialog id="dlgCreateRing">
+  <div class="dialog-header"><h2>Add Ring</h2></div>
+  <div class="dialog-body">
+    <div class="form-group">
+      <label for="f_ringNum">Ring number</label>
+      <input type="number" id="f_ringNum" min="1" max="99" value="1">
+      <div class="form-hint">1-99. Must be unique within the show.</div>
+    </div>
+    <div class="form-group">
+      <label for="f_ringName">Name (optional)</label>
+      <input type="text" id="f_ringName" placeholder="Grand Hunter Field">
+    </div>
+    <div class="form-error" id="f_ringError"></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="btn-secondary" data-close-dialog="dlgCreateRing">Cancel</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnCreateRingSubmit">Create</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// v3 admin page — Phase 1.
+// Auth key hardcoded here temporarily; extract to runtime config later.
+const AUTH = 'west-scoring-2026';
+const BASE = 'https://west-worker.bill-acb.workers.dev';
+
+const state = {
+  shows: [],
+  selectedSlug: null,
+  rings: [],
+};
+
+// ── fetch helpers ────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'X-West-Key': AUTH },
+  };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(BASE + path, opts);
+  let data;
+  try { data = await res.json(); } catch (e) { data = { ok: false, error: 'Bad response' }; }
+  if (!res.ok || !data.ok) {
+    const msg = (data && data.error) ? data.error : `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+// ── toast ────────────────────────────────────────────────────────────
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function toast(msg, kind = '') {
+  toastEl.textContent = msg;
+  toastEl.className = 'toast visible ' + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.className = 'toast', 3000);
+}
+
+// ── date classification ──────────────────────────────────────────────
+function showGroup(show) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (show.start_date && show.end_date) {
+    if (show.end_date < today) return 'past';
+    if (show.start_date > today) return 'upcoming';
+    return 'active';
+  }
+  // No dates → treat as upcoming (placeholder)
+  return 'upcoming';
+}
+
+function fmtDateRange(show) {
+  if (!show.start_date && !show.end_date) return '—';
+  const f = (iso) => {
+    if (!iso) return '?';
+    const parts = iso.split('-');
+    return parts.length === 3 ? `${parts[1]}-${parts[2]}-${parts[0]}` : iso;
+  };
+  if (show.start_date === show.end_date) return f(show.start_date);
+  return `${f(show.start_date)} → ${f(show.end_date)}`;
+}
+
+// ── render sidebar show list ─────────────────────────────────────────
+function renderSidebar() {
+  const search = document.getElementById('showSearch').value.trim().toLowerCase();
+  const groups = { upcoming: [], active: [], past: [] };
+  for (const s of state.shows) {
+    if (search && !s.slug.toLowerCase().includes(search) && !s.name.toLowerCase().includes(search)) continue;
+    groups[showGroup(s)].push(s);
+  }
+  for (const g of ['upcoming', 'active', 'past']) {
+    document.getElementById('count' + g[0].toUpperCase() + g.slice(1)).textContent = groups[g].length;
+    const ul = document.getElementById('list' + g[0].toUpperCase() + g.slice(1));
+    ul.innerHTML = '';
+    for (const s of groups[g]) {
+      const li = document.createElement('li');
+      li.className = 'show-item' + (s.slug === state.selectedSlug ? ' selected' : '');
+      li.dataset.slug = s.slug;
+      li.innerHTML = `
+        <span class="show-dot ${g}"></span>
+        <div class="show-item-body">
+          <span class="show-name">${escapeHtml(s.name)}</span>
+          <span class="show-date">${fmtDateRange(s)}</span>
+        </div>`;
+      li.addEventListener('click', () => selectShow(s.slug));
+      ul.appendChild(li);
+    }
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── render show detail ───────────────────────────────────────────────
+async function selectShow(slug) {
+  state.selectedSlug = slug;
+  renderSidebar();
+  const show = state.shows.find(s => s.slug === slug);
+  if (!show) return;
+  document.getElementById('emptyState').hidden = true;
+  document.getElementById('showDetail').hidden = false;
+  document.getElementById('showTitle').textContent = show.name;
+  document.getElementById('showSlug').textContent = show.slug;
+  document.getElementById('showDates').textContent = fmtDateRange(show);
+  document.getElementById('showCreated').textContent = (show.created_at || '').slice(0, 10);
+  await loadRings(slug);
+}
+
+async function loadRings(slug) {
+  try {
+    const { rings } = await api('GET', `/v3/listRings?slug=${encodeURIComponent(slug)}`);
+    state.rings = rings;
+    renderRings();
+  } catch (e) {
+    toast('Failed to load rings: ' + e.message, 'error');
+  }
+}
+
+function renderRings() {
+  const ul = document.getElementById('ringList');
+  const empty = document.getElementById('ringEmpty');
+  const search = document.getElementById('ringSearch').value.trim().toLowerCase();
+  const filtered = state.rings.filter(r => {
+    if (!search) return true;
+    return String(r.ring_num).includes(search) || (r.name || '').toLowerCase().includes(search);
+  });
+  ul.innerHTML = '';
+  if (!filtered.length) {
+    empty.style.display = 'block';
+    empty.textContent = state.rings.length ? 'No rings match your search.' : 'No rings yet — add one to get started.';
+    return;
+  }
+  empty.style.display = 'none';
+  for (const r of filtered) {
+    const li = document.createElement('li');
+    li.className = 'ring-row';
+    li.innerHTML = `
+      <div class="ring-num">${r.ring_num}</div>
+      <div class="ring-body">
+        <div class="ring-name">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</div>
+        <div class="ring-meta">created ${(r.created_at || '').slice(0,10)}</div>
+      </div>
+      <div class="ring-engine"><span class="engine-dot offline"></span>Engine: not connected yet</div>`;
+    ul.appendChild(li);
+  }
+}
+
+// ── data load ────────────────────────────────────────────────────────
+async function loadShows() {
+  try {
+    const { shows } = await api('GET', '/v3/listShows');
+    state.shows = shows;
+    renderSidebar();
+    if (state.selectedSlug && !shows.find(s => s.slug === state.selectedSlug)) {
+      state.selectedSlug = null;
+      document.getElementById('emptyState').hidden = false;
+      document.getElementById('showDetail').hidden = true;
+    }
+  } catch (e) {
+    toast('Failed to load shows: ' + e.message, 'error');
+  }
+}
+
+// ── create show ──────────────────────────────────────────────────────
+const dlgShow = document.getElementById('dlgCreateShow');
+document.getElementById('btnCreateShow').addEventListener('click', () => {
+  document.getElementById('f_showName').value = '';
+  document.getElementById('f_showSlug').value = '';
+  document.getElementById('f_showStart').value = '';
+  document.getElementById('f_showEnd').value = '';
+  document.getElementById('f_showError').classList.remove('visible');
+  dlgShow.showModal();
+  document.getElementById('f_showName').focus();
+});
+document.getElementById('btnCreateShowSubmit').addEventListener('click', async () => {
+  const name = document.getElementById('f_showName').value.trim();
+  const slug = document.getElementById('f_showSlug').value.trim();
+  const start_date = document.getElementById('f_showStart').value || null;
+  const end_date = document.getElementById('f_showEnd').value || null;
+  const errEl = document.getElementById('f_showError');
+  errEl.classList.remove('visible');
+  if (!name) { errEl.textContent = 'Name is required.'; errEl.classList.add('visible'); return; }
+  if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
+    errEl.textContent = 'Slug must start with a letter, use only lowercase letters, numbers, and hyphens, 3-60 chars.';
+    errEl.classList.add('visible'); return;
+  }
+  try {
+    await api('POST', '/v3/createShow', { slug, name, start_date, end_date });
+    dlgShow.close();
+    toast('Show created', 'success');
+    await loadShows();
+    selectShow(slug);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add('visible');
+  }
+});
+
+// ── create ring ──────────────────────────────────────────────────────
+const dlgRing = document.getElementById('dlgCreateRing');
+document.getElementById('btnAddRing').addEventListener('click', () => {
+  // Default to next unused ring number
+  const used = new Set(state.rings.map(r => r.ring_num));
+  let next = 1;
+  while (used.has(next)) next++;
+  document.getElementById('f_ringNum').value = next;
+  document.getElementById('f_ringName').value = '';
+  document.getElementById('f_ringError').classList.remove('visible');
+  dlgRing.showModal();
+  document.getElementById('f_ringNum').focus();
+});
+document.getElementById('btnCreateRingSubmit').addEventListener('click', async () => {
+  const ring_num = parseInt(document.getElementById('f_ringNum').value, 10);
+  const name = document.getElementById('f_ringName').value.trim();
+  const errEl = document.getElementById('f_ringError');
+  errEl.classList.remove('visible');
+  if (!Number.isFinite(ring_num) || ring_num < 1 || ring_num > 99) {
+    errEl.textContent = 'Ring number must be 1-99.';
+    errEl.classList.add('visible'); return;
+  }
+  try {
+    await api('POST', '/v3/createRing', { slug: state.selectedSlug, ring_num, name });
+    dlgRing.close();
+    toast('Ring added', 'success');
+    await loadRings(state.selectedSlug);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add('visible');
+  }
+});
+
+// ── dialog close buttons ─────────────────────────────────────────────
+document.querySelectorAll('[data-close-dialog]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById(btn.dataset.closeDialog).close();
+  });
+});
+
+// ── group collapse ───────────────────────────────────────────────────
+document.querySelectorAll('.group-header').forEach(h => {
+  h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
+});
+
+// ── search bindings ──────────────────────────────────────────────────
+document.getElementById('showSearch').addEventListener('input', renderSidebar);
+document.getElementById('ringSearch').addEventListener('input', renderRings);
+
+// ── init ─────────────────────────────────────────────────────────────
+loadShows();
+
+// Auto-refresh shows list every 30s (will become WebSocket later)
+setInterval(loadShows, 30000);
+</script>
+
+</body>
+</html>

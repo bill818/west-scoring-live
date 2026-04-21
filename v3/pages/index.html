@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — v3</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #111;
+  --red: #b82025;
+  --white: #fff;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-muted: #777;
+  --text-body: #333;
+  --green: #2e7d32;
+  --blue: #1565c0;
+  --gray: #757575;
+  --card-radius: 10px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+
+/* HEADER */
+header{background:var(--black);border-bottom:3px solid var(--red);position:sticky;top:0;z-index:50;}
+.header-inner{max-width:900px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
+.logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
+.logo-img{height:30px;width:auto;filter:invert(1);}
+.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:24px;color:#fff;line-height:1;}
+.logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
+.logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
+@media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
+.header-tag{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#fff;background:var(--red);padding:3px 8px;border-radius:2px;}
+
+/* TOOLBAR */
+.toolbar{max-width:900px;margin:0 auto;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.toolbar-left{display:flex;align-items:center;gap:16px;}
+.active-block{display:flex;align-items:center;gap:10px;}
+.active-num{font-family:'Playfair Display',serif;font-weight:900;font-size:32px;line-height:1;color:var(--red);}
+.active-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);line-height:1.2;}
+.refresh-btn{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);cursor:pointer;transition:background .15s;}
+.refresh-btn:hover{background:var(--off-white);}
+
+/* SEARCH BAR */
+.search-bar{background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;max-width:900px;margin:0 auto;}
+.search-wrap{flex:1;position:relative;}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;pointer-events:none;}
+.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Source Sans 3',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
+.search-input::placeholder{color:#aaa;}
+.search-input:focus{border-color:var(--black);}
+.year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+
+/* SHOW LIST */
+.page{max-width:900px;margin:0 auto;padding:20px 16px 80px;}
+.group{margin-bottom:28px;}
+.group-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.show-list{list-style:none;padding:0;}
+.show-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .15s;}
+.show-card:hover{border-color:var(--blue);}
+.show-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.show-dot.upcoming{background:var(--blue);}
+.show-dot.active{background:var(--green);}
+.show-dot.past{background:var(--gray);}
+.show-body{flex:1;}
+.show-name{font-size:17px;font-weight:500;margin-bottom:2px;}
+.show-meta{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
+
+.empty-state,.no-results{padding:60px 20px;text-align:center;color:var(--text-muted);}
+.empty-state h2,.no-results h2{font-family:'Playfair Display',serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
+.no-results{display:none;}
+
+.spinner{margin:40px auto;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+footer{text-align:center;padding:24px 16px 40px;color:var(--text-muted);font-size:12px;font-family:'DM Mono',monospace;}
+footer a{color:var(--blue);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="index.html" class="logo-tap">
+      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-tag">V3</div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="toolbar-left">
+    <div class="active-block">
+      <div class="active-num" id="statNumber">—</div>
+      <div class="active-lbl">Active<br>Shows</div>
+    </div>
+  </div>
+  <button class="refresh-btn" onclick="loadShows()">↻ Refresh</button>
+</div>
+
+<div class="search-bar">
+  <div class="search-wrap">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="6.5" cy="6.5" r="5" stroke="#888" stroke-width="1.5"/>
+      <path d="M10.5 10.5L14 14" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input type="search" id="searchInput" class="search-input" placeholder="Search shows…" oninput="filter()" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <select id="yearSelect" class="year-sel" onchange="filter()">
+    <option value="recent">Recent</option>
+  </select>
+</div>
+
+<div class="page">
+  <div id="content">
+    <div class="spinner"></div>
+  </div>
+  <div class="no-results" id="noResults"><h2>No shows match your search</h2></div>
+</div>
+
+<footer>
+  WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
+</footer>
+
+<script>
+const AUTH = 'west-scoring-2026';
+const BASE = 'https://west-worker.bill-acb.workers.dev';
+
+let SHOWS = [];
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function showGroup(show, todayStr) {
+  if (show.start_date && show.end_date) {
+    if (show.end_date < todayStr) return 'past';
+    if (show.start_date > todayStr) return 'upcoming';
+    return 'active';
+  }
+  return 'upcoming';
+}
+
+function fmtDateRange(show) {
+  if (!show.start_date && !show.end_date) return '—';
+  const f = (iso) => {
+    if (!iso) return '?';
+    const p = iso.split('-');
+    return p.length === 3 ? `${p[1]}-${p[2]}-${p[0]}` : iso;
+  };
+  if (show.start_date === show.end_date) return f(show.start_date);
+  return `${f(show.start_date)} → ${f(show.end_date)}`;
+}
+
+function daysBetween(isoA, isoB) {
+  const a = new Date(isoA + 'T00:00:00Z');
+  const b = new Date(isoB + 'T00:00:00Z');
+  return Math.floor((b - a) / 86400000);
+}
+
+function buildYearDropdown() {
+  const sel = document.getElementById('yearSelect');
+  const years = {};
+  SHOWS.forEach(s => {
+    const y = s.start_date ? s.start_date.slice(0, 4) : null;
+    if (y) years[y] = true;
+  });
+  const sorted = Object.keys(years).sort().reverse();
+  const current = sel.value || 'recent';
+  sel.innerHTML = '<option value="recent">Recent</option>';
+  for (const y of sorted) {
+    sel.innerHTML += `<option value="${y}">${y}</option>`;
+  }
+  sel.innerHTML += '<option value="all">All Shows</option>';
+  // Restore prior selection if still valid
+  if ([...sel.options].some(o => o.value === current)) sel.value = current;
+}
+
+function applyFilter(shows) {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const year = document.getElementById('yearSelect').value;
+  const today = new Date().toISOString().slice(0, 10);
+
+  let pool = shows.slice();
+
+  // year filter
+  if (year === 'recent') {
+    // Recent = end_date within 90 days forward OR backward, OR undated (show anyway)
+    pool = pool.filter(s => {
+      if (!s.end_date && !s.start_date) return true;
+      const end = s.end_date || s.start_date;
+      if (!end) return true;
+      return Math.abs(daysBetween(today, end)) <= 90;
+    });
+  } else if (year !== 'all') {
+    pool = pool.filter(s => (s.start_date || '').slice(0, 4) === year);
+  }
+
+  // search filter
+  if (q) {
+    pool = pool.filter(s =>
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.slug || '').toLowerCase().includes(q)
+    );
+  }
+
+  // auto-fallback: if Recent yields nothing AND there's no search, try all
+  if (year === 'recent' && !q && !pool.length && shows.length) {
+    pool = shows.slice();
+  }
+
+  return pool;
+}
+
+function filter() { render(); }
+
+function render() {
+  const content = document.getElementById('content');
+  const noResults = document.getElementById('noResults');
+  const today = new Date().toISOString().slice(0, 10);
+
+  const filtered = applyFilter(SHOWS);
+
+  // Active count always reflects truly-active shows regardless of filter
+  const activeCount = SHOWS.filter(s => showGroup(s, today) === 'active').length;
+  document.getElementById('statNumber').textContent = activeCount;
+
+  if (!filtered.length) {
+    content.innerHTML = '';
+    noResults.style.display = SHOWS.length ? 'block' : 'none';
+    if (!SHOWS.length) {
+      content.innerHTML = '<div class="empty-state"><h2>No shows yet</h2><p>Nothing scheduled. Check back soon.</p></div>';
+    }
+    return;
+  }
+  noResults.style.display = 'none';
+
+  const groups = { active: [], upcoming: [], past: [] };
+  for (const s of filtered) groups[showGroup(s, today)].push(s);
+
+  const order = [
+    ['active', 'Active now'],
+    ['upcoming', 'Upcoming'],
+    ['past', 'Past shows'],
+  ];
+  let html = '';
+  for (const [key, label] of order) {
+    if (!groups[key].length) continue;
+    html += `<div class="group"><div class="group-header">${label} (${groups[key].length})</div><ul class="show-list">`;
+    for (const s of groups[key]) {
+      html += `<li><a class="show-card" href="#${escapeHtml(s.slug)}">
+        <span class="show-dot ${key}"></span>
+        <div class="show-body">
+          <div class="show-name">${escapeHtml(s.name)}</div>
+          <div class="show-meta">${fmtDateRange(s)} · ${escapeHtml(s.slug)}</div>
+        </div>
+      </a></li>`;
+    }
+    html += `</ul></div>`;
+  }
+  content.innerHTML = html;
+}
+
+async function loadShows() {
+  const content = document.getElementById('content');
+  try {
+    const res = await fetch(BASE + '/v3/listShows', { headers: { 'X-West-Key': AUTH } });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Failed');
+    SHOWS = data.shows || [];
+    buildYearDropdown();
+    render();
+  } catch (e) {
+    content.innerHTML = `<div class="empty-state"><h2>Couldn't load shows</h2><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+loadShows();
+setInterval(loadShows, 60000);
+</script>
+
+</body>
+</html>
