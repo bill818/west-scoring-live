@@ -1,0 +1,329 @@
+SESSION-NOTES-30 — v3 Phase 1 complete: engine ↔ worker pipe proven
+Date: 2026-04-20 / 2026-04-21
+Outcome: Phase 1 shipped. v3 engine connects to a show + ring, heartbeats
+         every 10s, admin page renders live status. End-to-end proven.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+v3 is no longer just planning documents. A real engine runs on Bill's dev
+machine, heartbeats land in a real (new) D1 database via a real worker
+endpoint, and a real v3 admin page renders the result in the browser. The
+architectural gate is passed; v3 is alive.
+
+No v2 code was touched. v2 stays live for upcoming contracted shows.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED (in commit order)
+═══════════════════════════════════════════════════════════════════════════
+
+e9e35cf  docs: resolve audit contradictions
+         - CLS-FORMAT.md:66 + CLASS-DETECTION-SCHEMAS.md:129 — S flag
+           corrected from "Championship" to "Scored/Finished"
+         - CLS-FORMAT.md:1214 — stale "H[18] always False" entry removed
+           (superseded by line 132 confirmed 2026-04-08)
+         - HUNTER-METHODS-REFERENCE.md:501 — hunter numeric map replaced
+           with the REAL v2 production map from display-config.js:1390
+           ({'2':'EL','3':'RT'}), plus DIFFERS-from-jumper note
+
+a0c1278  worker: add WEST_DB_V3 binding for separate v3 database
+         - Created west-scoring-v3 D1 database (id
+           93f7a6dd-4b4a-4e45-9730-d27aff7dfb19)
+         - Bound as env.WEST_DB_V3 alongside existing env.WEST_DB
+         - v2 database (west-scoring) stays intact as historical reference
+
+5aea8ff  v3 schema: initial shows + rings tables
+         - CREATE TABLE shows, rings + idx_rings_show_id
+         - UNIQUE(show_id, ring_num)
+         - Dates ISO-8601; display formats MM-DD-YYYY
+         - Slug regex ^[a-z][a-z0-9-]{2,59}$ enforced at app layer
+         - First v3 migration file at /v3/migrations/001_initial.sql
+
+daeae15  v3: add shows/rings endpoints + enable V3_ENABLED flag
+         - POST /v3/createShow        (slug + name, validation on both)
+         - GET  /v3/listShows
+         - GET  /v3/getShow?slug=X
+         - POST /v3/updateShow
+         - POST /v3/createRing        (ring_num 1-99, UNIQUE per show)
+         - GET  /v3/listRings?slug=X
+         - All 6 gated by isV3Enabled(env) before auth check
+         - All 6 read/write env.WEST_DB_V3 exclusively
+         - V3_ENABLED flipped from "false" to "true" in wrangler.toml
+
+4042223  v3: admin + index pages (Phase 1 shell)
+         - /v3/pages/admin.html — master-detail: sidebar with grouped show
+           list (Upcoming / Active / Past) + search + create-show button +
+           placeholder System section. Main pane: show detail + rings with
+           search + add-ring + Classes placeholder.
+         - /v3/pages/index.html — v2-matching UX: toolbar + "Active Shows"
+           count + Refresh, search input + Year dropdown (Recent/year-list/
+           All) with 90-day "Recent" window, grouped show list.
+         - Both: WEST compass logo + favicon from ../../assets/, v2
+           typography (Playfair Display + Source Sans 3 + DM Mono),
+           AUTH key hardcoded (will migrate to Cloudflare Secret later),
+           CORS-friendly (file:// local testing works).
+
+d7f9ec0  v3: engine heartbeat endpoint + admin status rendering
+         - POST /v3/engineHeartbeat — rejects unknown show/ring (404),
+           stores in KV "engine:{slug}:{ring_num}" with 600s TTL, no D1
+         - GET  /v3/listRings now includes per-ring last_heartbeat from KV
+         - Admin renders engine status per ring:
+             null                     → gray dot "not connected"
+             age ≤ 30s                → green dot "online"
+             30s < age ≤ 5min         → amber dot "stale"
+             age > 5min               → gray dot "offline"
+         - Admin rings auto-refresh every 10s while a show is selected
+
+4d78824  v3 engine: Phase 1 heartbeat-only build
+         - /v3/engine/ Electron app (clean start, NOT reusing spike code)
+         - Reads C:\west\v3\config.json — { workerUrl, authKey, showSlug,
+           ringNum }
+         - POSTs heartbeat every 10s with { slug, ring_num, engine_version,
+           timestamp, hostname, uptime_seconds }
+         - Tray icon + tooltip + menu (Reload config, Send heartbeat now,
+           Open log, Quit)
+         - Log at C:\west\v3\engine_log.txt
+         - Single-instance lock; uncaughtException → auto-relaunch
+         - Deploys as dir target; portable folder lives at C:\west-engine\
+
+8c44db9  v3 engine: use WEST compass for tray icon
+         - assets/favicon.png (64×64 compass) copied to v3/engine/icon.png
+         - Loaded via nativeImage.createFromPath(), Windows rescales to 16
+         - Replaces the blank placeholder from the spike
+
+1387b2b  admin: render engine last-seen as absolute timestamp
+         - "last seen 4/21/26 - 7:15:01 PM" format (local time, 12-hour)
+         - Replaces "Xs/Xm/Xh ago" relative display
+         - Status dot + label (online/stale/offline) still freshness-driven
+
+5004b45  admin: remember selected show across page reloads
+         - state.selectedSlug persisted to localStorage under
+           v3admin.selectedSlug
+         - Auto-restores on page load if the show still exists, clears if
+           the stored slug points at a deleted show
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare (production):
+  - west-worker deployed, version 6dd46d43-c533-4e20-84e4-48f32d4aea4c
+  - V3_ENABLED = "true"
+  - WEST_DB (v2) — untouched, 1 test show, otherwise unused
+  - WEST_DB_V3 (v3) — shows and rings tables live, 1 row each for the
+                      "v3-smoke-test-2026-04" smoke show
+
+Local (Bill's dev machine):
+  - /c/west-engine/ — packaged engine folder (WestEngine.exe + libs)
+  - c:\west\v3\config.json — copied from config.sample.json; points at
+                              the smoke show
+  - c:\west\v3\engine_log.txt — engine's log (steady-state logs throttled
+                                 to every 60 heartbeats to stay clean)
+  - Engine was last running with uptime ~340s before Bill quit it
+
+Git:
+  - main, clean working tree
+  - Last commit: 5004b45
+  - Tag v2.11.0-pre-rebuild still the rewind point (since session 29)
+
+Memory:
+  - project_v3_rebuild.md — will be updated in this session's wrap-up
+  - No new memories yet beyond scope_discipline from session 29
+
+═══════════════════════════════════════════════════════════════════════════
+DECISIONS MADE THIS SESSION (LOCKED)
+═══════════════════════════════════════════════════════════════════════════
+
+1. SEPARATE v3 DATABASE (west-scoring-v3), not same-DB-with-v3-flag.
+   Reason: v2 has essentially no production data (the "one real show"
+   turned out to be a test show, not a contracted event). The stats-
+   across-eras argument for a shared DB evaporated. With separate DB:
+   v3 gets optimal schema from day 1, zero risk to v2, cleaner retirement
+   when v2 walls off.
+
+2. v2 walls off at cutover (Bill, session 30). Code deleted or commented
+   out entirely rather than kept in parallel forever. "We're good at the
+   end."
+
+3. v3 DB strategy extends: same as before (new tables only, never mutate
+   v2 tables), but now in a separate DB. Historical data from v2 stays
+   readable for parser validation / stats training (never written to).
+
+4. v3 admin layout: master-detail (sidebar + main pane), not flat tabs.
+   Reason: classes belong to rings, rings belong to shows; most admin
+   interactions happen inside ONE show. Engine is ring-attribute, not a
+   top-level entity. Tabbed sidebar order is Upcoming → Active → Past.
+
+5. v3 admin + pages will have SAME visual language as v2. Same fonts,
+   colors, logo. v3 is "rebuild under the hood, not redesign on surface"
+   per locked v3 principle.
+
+6. Worker auth continues unchanged (X-West-Key header, same key as v2).
+   HTML page-level password lock is OFF for v3 admin for now; future
+   phase may add a proper admin login. The worker endpoint auth and the
+   page login are separate concerns even though they use the same key
+   today.
+
+7. V3_ENABLED feature flag is ON in production wrangler.toml. Reason:
+   v3 endpoints (all /v3/*) don't collide with v2 URLs, so turning them
+   on doesn't affect v2 behavior. All v3 paths return 404 if the flag
+   were flipped off. When we retire v2, this flag becomes redundant and
+   can be removed.
+
+8. Engine version: "3.0.0-dev" during development. Flip to "3.0.0" at
+   first real operator install. Bump from there on every deploy.
+
+9. Polling cadence for admin: 10s for rings (aligns with engine 10s
+   heartbeat), 30s for show list. WebSocket is Phase 6+ and doesn't
+   change any of the consumer code because everything goes through
+   loadShows() / loadRings() functions — swap transport inside those
+   later.
+
+10. "Results page = pure view of .cls" principle (session 29 Addendum C
+    of V3-BUILD-PLAN) stays the north star for Phase 2+.
+
+═══════════════════════════════════════════════════════════════════════════
+GOTCHAS / LESSONS FROM THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. Wrangler OAuth tokens expire. Bill's token died mid-session. Fix:
+   `wrangler logout; wrangler login` in the user's own terminal (needs
+   browser). Claude Code's bash session can't do this alone.
+
+2. PowerShell execution policy blocks unsigned wrangler.ps1 on default
+   Windows. Two fixes: (a) use cmd.exe instead, or (b)
+   `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+   once per user. Either works.
+
+3. The "one real show in v2 DB" was actually a test show Bill ran — not
+   contracted data. That re-opened the DB-separation question and led to
+   west-scoring-v3 as a separate database.
+
+4. The session 29 lesson about ELECTRON_RUN_AS_NODE env var still applies:
+   always unset it when launching Electron apps from Claude Code's bash.
+   Didn't bite us directly this session (I defaulted to `env -u
+   ELECTRON_RUN_AS_NODE`) but it's a permanent trap.
+
+5. The initial tray-icon placeholder was blank (same bug as the spike —
+   I embedded a broken base64 PNG). Fix: use assets/favicon.png copied
+   into the engine folder and loaded via nativeImage.createFromPath().
+   Apply the same pattern to any future Electron tray icons.
+
+6. CORS is already permissive on the worker (`Access-Control-Allow-Origin:
+   *`), which lets local file:// pages call the API directly. Good for
+   development. Will need tightening before real production use — that's
+   future work.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT PHASE 1 EXPLICITLY DID NOT BUILD (carry forward)
+═══════════════════════════════════════════════════════════════════════════
+
+- UDP capture in the engine (spike's fan-out pattern stays in /v3/spike/
+  ready to reintegrate when Phase 2 starts)
+- .cls file watching
+- Any parsing of scoring data
+- The "show detail" page from the sidebar click on the index page
+- The Classes, Migrations, Health, Raw D1 placeholder sections in admin
+- A v3 admin page password gate (just a known-off HTML lock, not auth)
+- Proper auth secret handling (AUTH key still hardcoded in the two HTML
+  pages; move to Cloudflare Workers Secret when it's time)
+- Installer (.msi / NSIS) for the engine
+- Auto-update from GitHub Releases for the engine
+- Any real UI for deleting or editing rings (only create is hooked)
+- Any edit flow for show name/dates (button exists but not wired)
+- WebSocket push (Phase 6+)
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT SESSION — PHASE 2 OPTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+Three natural directions, any can go first:
+
+OPTION A — Engine starts watching .cls files
+  - Engine watches C:\Ryegate\Jumper\Classes\*.cls
+  - On change, POST raw .cls bytes to a new /v3/postCls endpoint
+  - Worker stores raw in R2 (first R2 work in v3) + parses + stores
+    structured rows in new D1 tables (classes, entries, ...)
+  - Results page becomes viable as a PURE VIEW of the parsed structured
+    data (Addendum C principle in action)
+  - RECOMMENDED FIRST — it produces a user-visible result earliest
+
+OPTION B — Engine reintegrates UDP fan-out from the spike
+  - Merge spike's synchronous UDP fan-out pattern into the engine's main
+    loop alongside the heartbeat
+  - Forward UDP to RSServer (keeps the scoreboard working)
+  - THEN add the UDP parse-and-POST path once fan-out is confirmed
+  - Worth doing before .cls if there's a real show on the horizon that
+    needs the scoreboard working
+
+OPTION C — Observability tables + parse_warnings infrastructure
+  - Create the DATABASE-SCHEMA-EXPANSION Part G tables in WEST_DB_V3
+  - Wire the worker to write parse_warnings on unknown quirks
+  - Less user-visible progress but high leverage — once the parser starts
+    running in Options A or B, the observability captures quirks
+    automatically
+
+Bill picks based on what feels productive, what has external pressure
+(a show coming up = Option B), what feels risky-soonest.
+
+═══════════════════════════════════════════════════════════════════════════
+THE BIGGEST OPEN HOLE (from session 29, still open)
+═══════════════════════════════════════════════════════════════════════════
+
+Live-detection gate — "how does v3 decide a class is live?" The Bill-
+Session-29 direction (tsked = roster, .cls-change + peek-L = primary
+signal, safety sweep for misses) is captured in CLASS-DETECTION-SCHEMAS.md
+§6.1.2 with 8 open design questions. Still highest-priority unresolved
+architectural question. Not touched this session. Will be fully tackled
+once the engine can actually read .cls changes (Option A above).
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION (summary)
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  docs/v3-planning/RYEGATE-FILES-UPDATE-REFERENCE.md   (session 29, still
+                                                         relevant here)
+  v3/migrations/001_initial.sql
+  v3/pages/admin.html
+  v3/pages/index.html
+  v3/engine/.gitignore
+  v3/engine/README.md
+  v3/engine/config.sample.json
+  v3/engine/electron-builder.yml
+  v3/engine/icon.png
+  v3/engine/main.js
+  v3/engine/package.json
+  session-notes/SESSION-NOTES-30.txt   (this file)
+
+MODIFIED:
+  west-worker.js                       (+~200 lines: 6 v3 endpoints +
+                                         heartbeat + listRings extension)
+  wrangler.toml                        (V3_ENABLED="true", WEST_DB_V3
+                                         binding added)
+  docs/v3-planning/CLS-FORMAT.md       (2 audit fixes)
+  docs/v3-planning/CLASS-DETECTION-SCHEMAS.md  (1 audit fix)
+  docs/v3-planning/HUNTER-METHODS-REFERENCE.md (hunter numeric map fix)
+  docs/v3-planning/README.md           (reference to new doc)
+  docs/v3-planning/UNCERTAIN-PROTOCOLS-CHECKLIST.txt  (live-detection
+                                                       item carried over)
+
+UNCHANGED (v2 production):
+  admin.html, index.html, live.html, display.html, stats.html, results.html
+  west-watcher.js (and all deploy/west-watcher-v1.0/ files)
+  display-config.js
+  all root-level legacy files
+
+═══════════════════════════════════════════════════════════════════════════
+DON'T FORGET
+═══════════════════════════════════════════════════════════════════════════
+
+- v2 still runs shows through April/May 2026. Never break it.
+- Article 1 (classType = lens) is the single most important rule.
+- Scope discipline memory (feedback_scope_discipline.md) applies — capture
+  ideas, don't cascade. Build the base simple, layers prove themselves.
+- Engine config lives at C:\west\v3\ (NOT C:\west\ — that's v2's path).
+- v3 DB id for wrangler: 93f7a6dd-4b4a-4e45-9730-d27aff7dfb19
+- Worker version ID (for rollback if needed): check `wrangler deployments
+  list` — as of session-end it was 6dd46d43-c533-4e20-84e4-48f32d4aea4c.
