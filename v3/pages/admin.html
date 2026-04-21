@@ -109,6 +109,8 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .ring-name{font-weight:500;}
 .ring-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:2px;}
 .ring-engine{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);}
+.ring-cls{margin-top:4px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.ring-cls-file{color:var(--text-body);font-weight:500;}
 .engine-dot{width:8px;height:8px;border-radius:50%;}
 .engine-dot.online{background:var(--green);}
 .engine-dot.offline{background:var(--gray);}
@@ -417,15 +419,9 @@ function renderRings() {
   const now = Date.now();
   for (const r of filtered) {
     const hb = r.last_heartbeat;
-    let engineHtml;
-    if (!hb) {
-      engineHtml = `<span class="engine-dot offline"></span>Engine: not connected`;
-    } else {
-      const ageSec = Math.max(0, Math.floor((now - Date.parse(hb.received_at)) / 1000));
-      let cls = 'online', label = 'online';
-      if (ageSec > 300) { cls = 'offline'; label = 'offline'; }
-      else if (ageSec > 30) { cls = 'stale'; label = 'stale'; }
-      const dt = new Date(hb.received_at);
+    const cls = r.last_cls;
+    const fmtStamp = (iso) => {
+      const dt = new Date(iso);
       const mm = dt.getMonth() + 1;
       const dd = dt.getDate();
       const yy = String(dt.getFullYear()).slice(-2);
@@ -433,8 +429,26 @@ function renderRings() {
       const min = String(dt.getMinutes()).padStart(2, '0');
       const ss = String(dt.getSeconds()).padStart(2, '0');
       const ampm = dt.getHours() >= 12 ? 'PM' : 'AM';
-      const stamp = `${mm}/${dd}/${yy} - ${h12}:${min}:${ss} ${ampm}`;
-      engineHtml = `<span class="engine-dot ${cls}"></span>Engine ${escapeHtml(hb.engine_version)} — ${label}, last seen ${stamp}`;
+      return `${mm}/${dd}/${yy} - ${h12}:${min}:${ss} ${ampm}`;
+    };
+    const fmtBytes = (n) => {
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    };
+    let engineHtml;
+    if (!hb) {
+      engineHtml = `<span class="engine-dot offline"></span>Engine: not connected`;
+    } else {
+      const ageSec = Math.max(0, Math.floor((now - Date.parse(hb.received_at)) / 1000));
+      let cCls = 'online', label = 'online';
+      if (ageSec > 300) { cCls = 'offline'; label = 'offline'; }
+      else if (ageSec > 30) { cCls = 'stale'; label = 'stale'; }
+      engineHtml = `<span class="engine-dot ${cCls}"></span>Engine ${escapeHtml(hb.engine_version)} — ${label}, last seen ${fmtStamp(hb.received_at)}`;
+    }
+    let clsHtml = '';
+    if (cls) {
+      clsHtml = `<div class="ring-cls">Last .cls: <span class="ring-cls-file">${escapeHtml(cls.filename)}</span> — ${fmtStamp(cls.received_at)} (${fmtBytes(cls.size)})</div>`;
     }
     const li = document.createElement('li');
     li.className = 'ring-row';
@@ -443,6 +457,7 @@ function renderRings() {
       <div class="ring-body">
         <div class="ring-name">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</div>
         <div class="ring-meta">created ${(r.created_at || '').slice(0,10)}</div>
+        ${clsHtml}
       </div>
       <div class="ring-engine">${engineHtml}</div>`;
     ul.appendChild(li);

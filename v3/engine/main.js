@@ -28,6 +28,9 @@ const ENGINE_VERSION = '3.0.0-dev';
 const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
 const HEARTBEAT_INTERVAL_MS = 10_000;
+const DEFAULT_CLS_DIR = 'C:\\Ryegate\\Jumper\\Classes';
+const CLS_DEBOUNCE_MS = 2000;
+const CLS_STARTUP_SYNC_DELAY_MS = 150; // space out initial POSTs
 
 let tray = null;
 let config = null;
@@ -37,6 +40,13 @@ let lastHeartbeatOk = false;
 let lastHeartbeatError = null;
 let heartbeatCount = 0;
 let heartbeatFailCount = 0;
+let clsPostCount = 0;
+let clsPostFailCount = 0;
+let lastClsPostAt = 0;
+let lastClsPostFile = null;
+let lastClsPostError = null;
+let clsWatcher = null;
+const clsDebounceTimers = new Map(); // filename → setTimeout handle
 const startedAt = Date.now();
 
 function log(msg) {
@@ -65,6 +75,115 @@ function loadConfig() {
     configError = e.message;
     config = null;
     log(`[CONFIG ERROR] ${e.message}`);
+  }
+}
+
+function classIdFromFilename(filename) {
+  // "1005.cls" → "1005", "48C.cls" → "48C"
+  if (!filename.toLowerCase().endsWith('.cls')) return null;
+  const base = filename.slice(0, -4);
+  if (!/^[A-Za-z0-9_-]{1,16}$/.test(base)) return null;
+  return base;
+}
+
+async function postClsFile(filename) {
+  if (!config) return;
+  const clsDir = config.clsDir || DEFAULT_CLS_DIR;
+  const classId = classIdFromFilename(filename);
+  if (!classId) return; // non-.cls or malformed filename
+  const full = path.join(clsDir, filename);
+  let bytes;
+  try {
+    bytes = fs.readFileSync(full);
+  } catch (e) {
+    log(`[CLS READ FAIL] ${filename}: ${e.message}`);
+    return;
+  }
+  if (!bytes.length) {
+    log(`[CLS SKIP] ${filename}: empty file`);
+    return;
+  }
+  try {
+    const res = await fetch(`${config.workerUrl}/v3/postCls`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-West-Key': config.authKey,
+        'X-West-Slug': config.showSlug,
+        'X-West-Ring': String(config.ringNum),
+        'X-West-Class': classId,
+      },
+      body: bytes,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    clsPostCount++;
+    lastClsPostAt = Date.now();
+    lastClsPostFile = filename;
+    lastClsPostError = null;
+    if (clsPostCount <= 5 || clsPostCount % 20 === 0) {
+      log(`CLS POST OK ${filename} (${bytes.length} bytes) — total ${clsPostCount}/${clsPostCount + clsPostFailCount}`);
+    }
+  } catch (e) {
+    clsPostFailCount++;
+    lastClsPostError = e.message;
+    log(`[CLS POST FAIL] ${filename}: ${e.message}`);
+  }
+}
+
+function scheduleClsPost(filename) {
+  // Debounce: coalesce multiple fs.watch events for the same file within
+  // CLS_DEBOUNCE_MS into one POST with the latest bytes. Guards against
+  // Ryegate's atomic-write pattern firing 3-5 fs.watch events per save.
+  const existing = clsDebounceTimers.get(filename);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    clsDebounceTimers.delete(filename);
+    postClsFile(filename).catch(e => log(`[CLS POST UNCAUGHT] ${filename}: ${e.message}`));
+  }, CLS_DEBOUNCE_MS);
+  clsDebounceTimers.set(filename, timer);
+}
+
+async function syncAllCls() {
+  // Startup sync: post every .cls currently in the directory so the worker
+  // has the latest state even if the engine was offline while files changed.
+  if (!config) return;
+  const clsDir = config.clsDir || DEFAULT_CLS_DIR;
+  let entries;
+  try {
+    entries = fs.readdirSync(clsDir);
+  } catch (e) {
+    log(`[CLS DIR READ FAIL] ${clsDir}: ${e.message}`);
+    return;
+  }
+  const clsFiles = entries.filter(f => classIdFromFilename(f));
+  if (!clsFiles.length) {
+    log(`CLS startup sync: no .cls files in ${clsDir}`);
+    return;
+  }
+  log(`CLS startup sync: found ${clsFiles.length} .cls files in ${clsDir}`);
+  for (const f of clsFiles) {
+    await postClsFile(f);
+    await new Promise(r => setTimeout(r, CLS_STARTUP_SYNC_DELAY_MS));
+  }
+  log(`CLS startup sync complete — ${clsPostCount} ok, ${clsPostFailCount} failed`);
+}
+
+function startClsWatcher() {
+  if (!config) return;
+  const clsDir = config.clsDir || DEFAULT_CLS_DIR;
+  try {
+    clsWatcher = fs.watch(clsDir, { persistent: true }, (eventType, filename) => {
+      if (!filename) return;
+      if (!classIdFromFilename(filename)) return;
+      scheduleClsPost(filename);
+    });
+    clsWatcher.on('error', err => log(`[CLS WATCHER ERROR] ${err.message}`));
+    log(`CLS watcher started on ${clsDir}`);
+  } catch (e) {
+    log(`[CLS WATCHER START FAIL] ${clsDir}: ${e.message}`);
   }
 }
 
@@ -127,6 +246,11 @@ function updateTray() {
       lines.push(`Status: 🔴 failing`);
       lines.push(`Last error: ${lastHeartbeatError || 'unknown'}`);
     }
+    lines.push(`.cls posts: ${clsPostCount} ok, ${clsPostFailCount} failed`);
+    if (lastClsPostFile) {
+      const clsAge = Math.floor((Date.now() - lastClsPostAt) / 1000);
+      lines.push(`Last .cls: ${lastClsPostFile} (${clsAge}s ago)`);
+    }
   }
   tray.setToolTip(lines.join('\n'));
 }
@@ -162,6 +286,7 @@ app.whenReady().then(() => {
     { type: 'separator' },
     { label: 'Reload config', click: () => { loadConfig(); updateTray(); } },
     { label: 'Send heartbeat now', click: async () => { await sendHeartbeat(); updateTray(); } },
+    { label: 'Re-sync all .cls now', click: async () => { await syncAllCls(); updateTray(); } },
     { label: 'Open log folder', click: () => {
       require('electron').shell.openPath(path.dirname(LOG_PATH));
     }},
@@ -175,6 +300,10 @@ app.whenReady().then(() => {
   // Fire first heartbeat immediately, then on interval
   sendHeartbeat().then(updateTray);
   setInterval(async () => { await sendHeartbeat(); updateTray(); }, HEARTBEAT_INTERVAL_MS);
+
+  // .cls watching: startup sync + live watcher for subsequent changes
+  startClsWatcher();
+  syncAllCls().then(updateTray).catch(e => log(`[SYNC UNCAUGHT] ${e.message}`));
 
   // Tray tooltip refreshes tick between heartbeats so "Xs ago" stays current
   setInterval(updateTray, 2000);
