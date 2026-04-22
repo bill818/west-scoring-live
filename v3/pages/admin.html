@@ -89,6 +89,11 @@
         <div class="section-header">
           <h2 class="section-title">Classes</h2>
           <div class="section-actions">
+            <select id="classSort" class="section-sort">
+              <option value="day">Sort: by day</option>
+              <option value="number">Sort: by number</option>
+              <option value="name">Sort: by name</option>
+            </select>
             <input type="search" id="classSearch" class="section-search" placeholder="Search classes…">
           </div>
         </div>
@@ -166,6 +171,7 @@ const AUTH = 'west-scoring-2026';
 const BASE = 'https://west-worker.bill-acb.workers.dev';
 
 const SELECTED_SHOW_KEY = 'v3admin.selectedSlug';
+const CLASS_SORT_KEY = 'v3admin.classSort';
 
 const state = {
   shows: [],
@@ -174,6 +180,7 @@ const state = {
   classes: [],
   expandedClassId: null,     // DB id of the class whose entries are expanded
   entriesByClassId: {},      // cache of entries keyed by class DB id
+  classSort: localStorage.getItem(CLASS_SORT_KEY) || 'day',
 };
 
 // ── fetch helpers ────────────────────────────────────────────────────
@@ -351,55 +358,75 @@ function renderClasses() {
   }
   const rings = [...groups.keys()].sort((a, b) => a - b);
   let html = '';
+
+  const sortByNumber = (a, b) => {
+    const na = parseInt(a.class_id, 10);
+    const nb = parseInt(b.class_id, 10);
+    if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+    return String(a.class_id).localeCompare(String(b.class_id));
+  };
+  const sortByName = (a, b) =>
+    (a.class_name || '').localeCompare(b.class_name || '');
+
+  // Row renderer — used by both sort modes (avoid duplication)
+  const renderClassRow = (c) => {
+    const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
+    let methodStr = WEST.format.methodLabel(
+      c.class_type, c.scoring_method, c.class_mode, c.scoring_modifier
+    );
+    if (!methodStr) {
+      methodStr = c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
+    }
+    const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
+    const expanded = state.expandedClassId === c.id;
+    const entryCount = c.entry_count ?? 0;
+    const countBadge = entryCount > 0
+      ? `<span class="class-count" data-class-db-id="${c.id}">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span>`
+      : '<span class="class-count class-count-empty">no entries</span>';
+    let rowHtml = `<li class="class-row-wrap${expanded ? ' expanded' : ''}">
+      <div class="class-row${statusClass}" data-class-db-id="${c.id}">
+        <span class="class-id">${escapeHtml(c.class_id)}</span>
+        <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
+        <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
+        <span class="class-method">${escapeHtml(methodStr)}</span>
+        ${countBadge}
+      </div>`;
+    if (expanded) rowHtml += renderEntries(c.id);
+    rowHtml += `</li>`;
+    return rowHtml;
+  };
+
   for (const ringNum of rings) {
     const list = groups.get(ringNum);
-    // Second-level group: by scheduled_date. Unscheduled classes go last.
-    const byDate = new Map();
-    for (const c of list) {
-      const key = c.scheduled_date || '__unscheduled__';
-      if (!byDate.has(key)) byDate.set(key, []);
-      byDate.get(key).push(c);
-    }
-    const dateKeys = [...byDate.keys()].sort((a, b) => {
-      if (a === '__unscheduled__') return 1;
-      if (b === '__unscheduled__') return -1;
-      return a < b ? -1 : a > b ? 1 : 0;
-    });
     html += `<div class="class-group"><div class="class-group-header">Ring ${ringNum} <span class="class-group-count">(${list.length})</span></div>`;
-    for (const dk of dateKeys) {
-      const dayList = byDate.get(dk);
-      const dayLabel = dk === '__unscheduled__'
-        ? 'Unscheduled'
-        : WEST.format.dateWithDay(dk);
-      html += `<div class="day-group"><div class="day-group-header">${escapeHtml(dayLabel)} <span class="day-group-count">(${dayList.length})</span></div><ul class="class-list">`;
-      for (const c of dayList) {
-      const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
-      let methodStr = WEST.format.methodLabel(
-        c.class_type, c.scoring_method, c.class_mode, c.scoring_modifier
-      );
-      if (!methodStr) {
-        methodStr = c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
+
+    if (state.classSort === 'number' || state.classSort === 'name') {
+      // Flat list within ring, sorted by chosen column
+      const sortFn = state.classSort === 'number' ? sortByNumber : sortByName;
+      const sorted = [...list].sort(sortFn);
+      html += `<ul class="class-list">`;
+      for (const c of sorted) html += renderClassRow(c);
+      html += `</ul>`;
+    } else {
+      // Sort by day: two-level grouping ring → day → classes
+      const byDate = new Map();
+      for (const c of list) {
+        const key = c.scheduled_date || '__unscheduled__';
+        if (!byDate.has(key)) byDate.set(key, []);
+        byDate.get(key).push(c);
       }
-      const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
-      const expanded = state.expandedClassId === c.id;
-      const entryCount = c.entry_count ?? 0;
-      const countBadge = entryCount > 0
-        ? `<span class="class-count" data-class-db-id="${c.id}">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span>`
-        : '<span class="class-count class-count-empty">no entries</span>';
-      html += `<li class="class-row-wrap${expanded ? ' expanded' : ''}">
-        <div class="class-row${statusClass}" data-class-db-id="${c.id}">
-          <span class="class-id">${escapeHtml(c.class_id)}</span>
-          <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
-          <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
-          <span class="class-method">${escapeHtml(methodStr)}</span>
-          ${countBadge}
-        </div>`;
-      if (expanded) {
-        html += renderEntries(c.id);
+      const dateKeys = [...byDate.keys()].sort((a, b) => {
+        if (a === '__unscheduled__') return 1;
+        if (b === '__unscheduled__') return -1;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+      for (const dk of dateKeys) {
+        const dayList = byDate.get(dk);
+        const dayLabel = dk === '__unscheduled__' ? 'Unscheduled' : WEST.format.dateWithDay(dk);
+        html += `<div class="day-group"><div class="day-group-header">${escapeHtml(dayLabel)} <span class="day-group-count">(${dayList.length})</span></div><ul class="class-list">`;
+        for (const c of dayList) html += renderClassRow(c);
+        html += `</ul></div>`;
       }
-      html += `</li>`;
-      }
-      html += `</ul></div>`;
     }
     html += `</div>`;
   }
@@ -625,6 +652,15 @@ setInterval(() => {
 }, 10000);
 
 document.getElementById('classSearch').addEventListener('input', renderClasses);
+
+// Class sort dropdown — persist + re-render
+const classSortEl = document.getElementById('classSort');
+classSortEl.value = state.classSort;
+classSortEl.addEventListener('change', () => {
+  state.classSort = classSortEl.value;
+  try { localStorage.setItem(CLASS_SORT_KEY, state.classSort); } catch (e) {}
+  renderClasses();
+});
 </script>
 
 </body>
