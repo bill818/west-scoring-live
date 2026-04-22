@@ -39,6 +39,86 @@ function isV3Enabled(env) {
   return env.V3_ENABLED === 'true' || env.V3_ENABLED === true;
 }
 
+// ── .cls HEADER PARSE (Phase 2b) ─────────────────────────────────────────
+// Article 1 enforced: classType at col[0] is THE LENS. Hunter and jumper
+// column meanings are NEVER translated across lenses. We only read the
+// minimum needed for the classes table:
+//   - classType (col[0]): H | J | T | U
+//   - className (col[1]): quoted string, operator-entered
+//   - scoring_method (col[2]) for J/T only
+//   - class_mode   (col[2]) for H only
+//   - U = no lens committed — read col[0] and col[1] only, mark unconfigured
+
+function parseCsvLineV3(line) {
+  // Quote-aware single-line splitter (same pattern as v2 funnel).
+  // Named V3-suffix to avoid colliding with any v2 helper.
+  const out = [];
+  let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (q && line[i + 1] === '"') { cur += '"'; i++; }
+      else q = !q;
+    } else if (ch === ',' && !q) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseClsHeaderV3(bytes) {
+  // bytes = ArrayBuffer. Returns {class_type, class_name, scoring_method?,
+  //  class_mode?, parse_status, parse_notes}.
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  } catch (e) {
+    return { class_type: 'U', class_name: null, parse_status: 'parse_error', parse_notes: 'decode failed: ' + e.message };
+  }
+  const firstLine = (text.split(/\r?\n/)[0] || '').trim();
+  if (!firstLine) {
+    return { class_type: 'U', class_name: null, parse_status: 'parse_error', parse_notes: 'empty header row' };
+  }
+  const cols = parseCsvLineV3(firstLine);
+  const rawType = (cols[0] || '').trim().toUpperCase();
+  const className = (cols[1] || '').trim() || null;
+
+  if (!['H', 'J', 'T', 'U'].includes(rawType)) {
+    return { class_type: 'U', class_name: className, parse_status: 'parse_error', parse_notes: `unknown classType "${cols[0]}"` };
+  }
+
+  if (rawType === 'U') {
+    // Article 1: U = no lens yet. Do NOT assume method from name text.
+    return {
+      class_type: 'U',
+      class_name: className,
+      parse_status: className ? 'unconfigured' : 'parse_error',
+      parse_notes: className ? 'U — no lens committed yet' : 'U with no name',
+    };
+  }
+
+  if (rawType === 'H') {
+    const n = parseInt(cols[2], 10);
+    return {
+      class_type: 'H',
+      class_name: className,
+      class_mode: Number.isFinite(n) ? n : null,
+      parse_status: 'parsed',
+      parse_notes: null,
+    };
+  }
+
+  // J or T — jumper lens
+  const n = parseInt(cols[2], 10);
+  return {
+    class_type: rawType,
+    class_name: className,
+    scoring_method: Number.isFinite(n) ? n : null,
+    parse_status: 'parsed',
+    parse_notes: null,
+  };
+}
+
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
@@ -1700,14 +1780,17 @@ export default {
       if (!/^[A-Za-z0-9_-]{1,16}$/.test(classId)) {
         return err('Invalid X-West-Class (expected short alphanumeric)');
       }
-      // Verify the show/ring exists
+      // Verify the show/ring exists and grab both IDs for the classes upsert.
+      let showId, ringId;
       try {
-        const ring = await env.WEST_DB_V3.prepare(`
-          SELECT r.id FROM rings r
-          JOIN shows s ON s.id = r.show_id
+        const row = await env.WEST_DB_V3.prepare(`
+          SELECT r.id AS ring_id, s.id AS show_id
+          FROM rings r JOIN shows s ON s.id = r.show_id
           WHERE s.slug = ? AND r.ring_num = ?
         `).bind(slug, ringNum).first();
-        if (!ring) return err('Unknown show/ring pair', 404);
+        if (!row) return err('Unknown show/ring pair', 404);
+        showId = row.show_id;
+        ringId = row.ring_id;
       } catch (e) { return err('DB error: ' + e.message); }
       // Read the body bytes once and write to R2 overwrite-in-place
       const bytes = await request.arrayBuffer();
@@ -1719,8 +1802,7 @@ export default {
         httpMetadata: { contentType: 'text/csv' },
         customMetadata: { slug, ring: String(ringNum), class: classId },
       });
-      // Track "last-cls" in KV for admin UI. 24-hour TTL so absent engines
-      // eventually drop off the indicator.
+      // Track "last-cls" in KV for admin UI. 24-hour TTL.
       const received_at = new Date().toISOString();
       const meta = { class_id: classId, filename: `${classId}.cls`, received_at, size, r2_key: r2Key };
       await env.WEST_LIVE.put(
@@ -1728,7 +1810,80 @@ export default {
         JSON.stringify(meta),
         { expirationTtl: 86400 }
       );
-      return json({ ok: true, r2_key: r2Key, size, received_at });
+      // Phase 2b: parse the header (Article 1 enforced) and upsert into
+      // classes table. Archive is already safe (R2 above) — parse failure
+      // never rejects the POST; it writes a parse_status row instead.
+      let parsed;
+      try { parsed = parseClsHeaderV3(bytes); }
+      catch (e) { parsed = { class_type: 'U', class_name: null, parse_status: 'parse_error', parse_notes: 'parser threw: ' + e.message }; }
+      try {
+        await env.WEST_DB_V3.prepare(`
+          INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
+                               scoring_method, class_mode, parse_status, parse_notes,
+                               r2_key, first_seen_at, parsed_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
+            class_name     = excluded.class_name,
+            class_type     = excluded.class_type,
+            scoring_method = excluded.scoring_method,
+            class_mode     = excluded.class_mode,
+            parse_status   = excluded.parse_status,
+            parse_notes    = excluded.parse_notes,
+            r2_key         = excluded.r2_key,
+            parsed_at      = datetime('now')
+        `).bind(
+          showId, ringId, classId,
+          parsed.class_name || null,
+          parsed.class_type || 'U',
+          parsed.scoring_method ?? null,
+          parsed.class_mode ?? null,
+          parsed.parse_status || 'parse_error',
+          parsed.parse_notes || null,
+          r2Key,
+        ).run();
+      } catch (e) {
+        console.log(`[v3/postCls] classes upsert failed for ${slug}/${ringNum}/${classId}: ${e.message}`);
+        // Don't fail the POST — archive already succeeded.
+      }
+      return json({ ok: true, r2_key: r2Key, size, received_at, parsed: {
+        class_type: parsed.class_type,
+        class_name: parsed.class_name,
+        parse_status: parsed.parse_status,
+      }});
+    }
+
+    // ── GET /v3/listClasses?slug=X[&ring=N] ──────────────────────────────────
+    // Returns classes for a show (optionally filtered to one ring). Includes
+    // ring_num for convenience so the admin can group client-side without
+    // extra lookups.
+    if (method === 'GET' && path === '/v3/listClasses') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      const ringStr = url.searchParams.get('ring');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        let query, params;
+        if (ringStr !== null && ringStr !== undefined) {
+          const ringNum = parseInt(ringStr, 10);
+          if (!Number.isFinite(ringNum)) return err('Invalid ring');
+          const ring = await env.WEST_DB_V3.prepare(
+            'SELECT id FROM rings WHERE show_id = ? AND ring_num = ?'
+          ).bind(show.id, ringNum).first();
+          if (!ring) return err('Ring not found', 404);
+          query = `SELECT c.*, ? AS ring_num FROM classes c WHERE c.ring_id = ? ORDER BY c.class_id`;
+          params = [ringNum, ring.id];
+        } else {
+          query = `SELECT c.*, r.ring_num FROM classes c JOIN rings r ON r.id = c.ring_id WHERE c.show_id = ? ORDER BY r.ring_num, c.class_id`;
+          params = [show.id];
+        }
+        const { results } = await env.WEST_DB_V3.prepare(query).bind(...params).all();
+        return json({ ok: true, classes: results || [] });
+      } catch (e) { return err('DB error: ' + e.message); }
     }
 
     // ── POST /v3/engineHeartbeat ─────────────────────────────────────────────

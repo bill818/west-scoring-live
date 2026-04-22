@@ -122,6 +122,25 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 
 .placeholder{padding:20px;text-align:center;color:var(--text-muted);font-size:13px;font-style:italic;}
 
+/* ── CLASS LIST (Phase 2b) ───────────────────────────────────────────── */
+.class-group{margin-bottom:16px;}
+.class-group:last-child{margin-bottom:0;}
+.class-group-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;border-bottom:1px solid var(--border);}
+.class-group-count{opacity:.5;}
+.class-list{list-style:none;padding:0;margin:0;}
+.class-row{display:grid;grid-template-columns:48px 28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:4px;font-size:13px;}
+.class-row:hover{background:var(--off-white);}
+.class-row.class-dim{opacity:.6;}
+.class-row.class-error{background:#fef3f3;}
+.class-id{font-family:'DM Mono',monospace;font-weight:600;color:var(--text-body);}
+.class-type-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;}
+.class-type-h{background:var(--blue-bg);color:var(--blue);}
+.class-type-j{background:var(--green-bg);color:var(--green);}
+.class-type-t{background:var(--amber-bg);color:var(--amber);}
+.class-type-u{background:var(--off-white);color:var(--text-muted);}
+.class-name{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.class-method{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+
 /* ── MODAL ───────────────────────────────────────────────────────────── */
 dialog{border:none;border-radius:var(--card-radius);padding:0;max-width:450px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);}
 dialog::backdrop{background:rgba(0,0,0,.4);}
