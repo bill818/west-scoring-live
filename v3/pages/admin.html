@@ -244,16 +244,17 @@ function toast(msg, kind = '') {
   toastTimer = setTimeout(() => toastEl.className = 'toast', 3000);
 }
 
-// ── date classification ──────────────────────────────────────────────
+// ── show grouping (admin = status-driven, not date-driven) ───────────
+// Admin sidebar reflects operator/engine state, not calendar dates.
+// The detail header's status dropdown is the authoritative source;
+// the sidebar just mirrors it. Auto-promotion in the worker flips
+// pending→active on first heartbeat, which flows through here on the
+// next refresh tick (30s poll cadence).
 function showGroup(show) {
-  const today = new Date().toISOString().slice(0, 10);
-  if (show.start_date && show.end_date) {
-    if (show.end_date < today) return 'past';
-    if (show.start_date > today) return 'upcoming';
-    return 'active';
-  }
-  // No dates → treat as upcoming (placeholder)
-  return 'upcoming';
+  const s = (show.status || 'pending').toLowerCase();
+  if (s === 'active') return 'active';
+  if (s === 'complete' || s === 'archived') return 'past';
+  return 'upcoming'; // pending or anything unrecognized
 }
 
 function fmtDateRange(show) {
