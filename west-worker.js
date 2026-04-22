@@ -2330,6 +2330,52 @@ export default {
       return json({ ok: true, received_at, status_promoted: promoted > 0 });
     }
 
+    // ── POST /v3/updateRing ──────────────────────────────────────────────────
+    // Update editable ring fields. ring_num stays immutable (same rationale
+    // as slug on shows — it's the operator-facing key). Name and sort_order
+    // are editable; empty name clears it back to null (UI falls back to
+    // "Ring N" display).
+    if (method === 'POST' && path === '/v3/updateRing') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, ring_num, name, sort_order } = body;
+      if (!slug) return err('Missing slug');
+      if (ring_num === undefined || ring_num === null) return err('Missing ring_num');
+      const ringNumInt = parseInt(ring_num, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      const updates = [];
+      const binds = [];
+      if (name !== undefined) {
+        updates.push('name = ?');
+        binds.push((name || '').trim() || null);
+      }
+      if (sort_order !== undefined) {
+        const so = parseInt(sort_order, 10);
+        if (!Number.isFinite(so)) return err('Invalid sort_order');
+        updates.push('sort_order = ?');
+        binds.push(so);
+      }
+      if (!updates.length) return err('No fields to update');
+      updates.push("updated_at = datetime('now')");
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        binds.push(show.id, ringNumInt);
+        const res = await env.WEST_DB_V3.prepare(
+          `UPDATE rings SET ${updates.join(', ')} WHERE show_id = ? AND ring_num = ?`
+        ).bind(...binds).run();
+        if (!res.meta || !res.meta.changes) return err('Ring not found', 404);
+        const ring = await env.WEST_DB_V3.prepare(
+          'SELECT * FROM rings WHERE show_id = ? AND ring_num = ?'
+        ).bind(show.id, ringNumInt).first();
+        return json({ ok: true, ring });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
     // ── POST /v3/createRing ───────────────────────────────────────────────────
     if (method === 'POST' && path === '/v3/createRing') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);

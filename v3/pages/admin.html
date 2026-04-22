@@ -330,6 +330,64 @@ async function loadRings(slug) {
   }
 }
 
+function beginRingNameEdit(el) {
+  if (el.dataset.editing === '1') return;
+  const ringNum = parseInt(el.dataset.ringNum, 10);
+  if (!Number.isFinite(ringNum)) return;
+  const ring = state.rings.find(r => r.ring_num === ringNum);
+  const currentName = ring && ring.name ? ring.name : '';
+  el.dataset.editing = '1';
+  el.dataset.originalHtml = el.innerHTML;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'ring-name-input';
+  input.value = currentName;
+  input.placeholder = `Ring ${ringNum}`;
+  input.maxLength = 80;
+  el.innerHTML = '';
+  el.appendChild(input);
+  input.focus();
+  input.select();
+  let committed = false;
+  const cancel = () => {
+    if (committed) return;
+    committed = true;
+    el.innerHTML = el.dataset.originalHtml;
+    delete el.dataset.editing;
+    delete el.dataset.originalHtml;
+  };
+  const commit = async () => {
+    if (committed) return;
+    committed = true;
+    const newName = input.value.trim();
+    if (newName === currentName) {
+      el.innerHTML = el.dataset.originalHtml;
+      delete el.dataset.editing;
+      delete el.dataset.originalHtml;
+      return;
+    }
+    try {
+      await api('POST', '/v3/updateRing', {
+        slug: state.selectedSlug,
+        ring_num: ringNum,
+        name: newName,
+      });
+      toast('Ring renamed', 'success');
+      await loadRings(state.selectedSlug); // re-renders, drops the input
+    } catch (e) {
+      toast('Rename failed: ' + e.message, 'error');
+      el.innerHTML = el.dataset.originalHtml;
+      delete el.dataset.editing;
+      delete el.dataset.originalHtml;
+    }
+  };
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); cancel(); }
+  });
+  input.addEventListener('blur', () => { commit(); });
+}
+
 async function loadClasses(slug) {
   try {
     const { classes } = await api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}`);
@@ -605,6 +663,13 @@ function renderRings() {
   const ul = document.getElementById('ringList');
   const empty = document.getElementById('ringEmpty');
   const search = document.getElementById('ringSearch').value.trim().toLowerCase();
+  const ulClickHandler = (ev) => {
+    const el = ev.target.closest('.ring-name[data-ring-num]');
+    if (!el) return;
+    beginRingNameEdit(el);
+  };
+  ul.removeEventListener('click', ulClickHandler);
+  ul.addEventListener('click', ulClickHandler);
   const filtered = state.rings.filter(r => {
     if (!search) return true;
     return String(r.ring_num).includes(search) || (r.name || '').toLowerCase().includes(search);
@@ -652,10 +717,12 @@ function renderRings() {
     }
     const li = document.createElement('li');
     li.className = 'ring-row';
+    const displayName = r.name || `Ring ${r.ring_num}`;
+    const placeholderUsed = !r.name;
     li.innerHTML = `
       <div class="ring-num">${r.ring_num}</div>
       <div class="ring-body">
-        <div class="ring-name">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</div>
+        <div class="ring-name${placeholderUsed ? ' ring-name-placeholder' : ''}" data-ring-num="${r.ring_num}" title="Click to rename">${escapeHtml(displayName)}</div>
         <div class="ring-meta">created ${(r.created_at || '').slice(0,10)}</div>
         ${clsHtml}
       </div>
