@@ -2309,7 +2309,25 @@ export default {
         JSON.stringify(payload),
         { expirationTtl: 600 } // 10 minutes
       );
-      return json({ ok: true, received_at });
+      // Show-lifecycle auto-promotion: first heartbeat for a show flips
+      // its status from 'pending' to 'active'. Idempotent — guarded
+      // WHERE status='pending' so it's a no-op after the first flip.
+      // Never demotes; manual status changes (→ complete / archived)
+      // stay sticky and heartbeats don't overwrite them.
+      let promoted = 0;
+      try {
+        const res = await env.WEST_DB_V3.prepare(
+          `UPDATE shows SET status = 'active', updated_at = datetime('now')
+           WHERE slug = ? AND status = 'pending'`
+        ).bind(slug).run();
+        promoted = res.meta ? res.meta.changes : 0;
+        if (promoted > 0) {
+          console.log(`[v3] Show ${slug} auto-promoted pending → active on first heartbeat`);
+        }
+      } catch (e) {
+        console.log(`[v3/engineHeartbeat] status auto-promote failed for ${slug}: ${e.message}`);
+      }
+      return json({ ok: true, received_at, status_promoted: promoted > 0 });
     }
 
     // ── POST /v3/createRing ───────────────────────────────────────────────────
