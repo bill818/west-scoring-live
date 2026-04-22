@@ -1997,18 +1997,95 @@ export default {
           if (!ring) return err('Ring not found', 404);
           query = `SELECT c.*, ? AS ring_num,
                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
-                   FROM classes c WHERE c.ring_id = ? ORDER BY c.class_id`;
+                   FROM classes c WHERE c.ring_id = ?
+                   ORDER BY c.scheduled_date IS NULL, c.scheduled_date, c.class_id`;
           params = [ringNum, ring.id];
         } else {
           query = `SELECT c.*, r.ring_num,
                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
                    FROM classes c JOIN rings r ON r.id = c.ring_id
-                   WHERE c.show_id = ? ORDER BY r.ring_num, c.class_id`;
+                   WHERE c.show_id = ?
+                   ORDER BY r.ring_num, c.scheduled_date IS NULL, c.scheduled_date, c.class_id`;
           params = [show.id];
         }
         const { results } = await env.WEST_DB_V3.prepare(query).bind(...params).all();
         return json({ ok: true, classes: results || [] });
       } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/postTsked ───────────────────────────────────────────────────
+    // Engine POSTs raw tsked.csv bytes when content changes. Worker archives
+    // to R2 and updates scheduled_date + schedule_flag on every matching
+    // class row (by show_id + class_id). Only UPDATES — never creates
+    // classes (those come from .cls POSTs). Classes tsked mentions that
+    // don't exist yet are skipped silently with a count.
+    //
+    // Headers: X-West-Key, X-West-Slug.  Body: raw CSV bytes.
+    //
+    // tsked.csv format:
+    //   Row 0: <ShowName>,"<DateRange>"
+    //   Row 1+: <ClassNum>,<ClassName>,<Date M/D/YYYY>,<Flag>
+    if (method === 'POST' && path === '/v3/postTsked') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = request.headers.get('X-West-Slug');
+      if (!slug) return err('Missing X-West-Slug header');
+      let showId;
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Unknown show slug', 404);
+        showId = show.id;
+      } catch (e) { return err('DB error: ' + e.message); }
+      const bytes = await request.arrayBuffer();
+      const size = bytes.byteLength;
+      if (size === 0) return err('Empty body');
+      if (size > 1024 * 1024) return err('tsked.csv too large (>1MB)', 413);
+      const r2Key = `${slug}/tsked.csv`;
+      await env.WEST_R2_CLS.put(r2Key, bytes, {
+        httpMetadata: { contentType: 'text/csv' },
+        customMetadata: { slug, kind: 'tsked' },
+      });
+      // Parse rows (skip row 0 — show header)
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+      const lines = text.split(/\r?\n/);
+      let updated = 0, skipped = 0, invalid = 0;
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const cols = parseCsvLineV3(line);
+        const classId = (cols[0] || '').trim();
+        if (!classId) { invalid++; continue; }
+        const dateStr = (cols[2] || '').trim();
+        let isoDate = null;
+        const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (m) isoDate = `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+        const flag = (cols[3] || '').trim() || null;
+        rows.push({ classId, isoDate, flag });
+      }
+      // Update classes (UPDATE-only, never INSERT — .cls POST is the
+      // authority for class existence)
+      for (const r of rows) {
+        try {
+          const res = await env.WEST_DB_V3.prepare(
+            `UPDATE classes SET scheduled_date = ?, schedule_flag = ? WHERE show_id = ? AND class_id = ?`
+          ).bind(r.isoDate, r.flag, showId, r.classId).run();
+          if (res.meta && res.meta.changes > 0) updated++;
+          else skipped++;
+        } catch (e) {
+          console.log(`[v3/postTsked] update failed for ${slug}/${r.classId}: ${e.message}`);
+          invalid++;
+        }
+      }
+      const received_at = new Date().toISOString();
+      await env.WEST_LIVE.put(
+        `tsked-last:${slug}`,
+        JSON.stringify({ received_at, size, rows_total: rows.length, updated, skipped, invalid, r2_key: r2Key }),
+        { expirationTtl: 86400 }
+      );
+      return json({ ok: true, received_at, rows_total: rows.length, updated, skipped, invalid });
     }
 
     // ── GET /v3/listEntries?class_id=N ───────────────────────────────────────

@@ -20,6 +20,7 @@
 //   }
 
 const { app, Tray, Menu, nativeImage } = require('electron');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -29,8 +30,10 @@ const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
 const HEARTBEAT_INTERVAL_MS = 10_000;
 const DEFAULT_CLS_DIR = 'C:\\Ryegate\\Jumper\\Classes';
+const DEFAULT_TSKED_PATH = 'C:\\Ryegate\\Jumper\\tsked.csv';
 const CLS_DEBOUNCE_MS = 2000;
 const CLS_STARTUP_SYNC_DELAY_MS = 150; // space out initial POSTs
+const TSKED_DEBOUNCE_MS = 2000;
 
 let tray = null;
 let config = null;
@@ -47,6 +50,13 @@ let lastClsPostFile = null;
 let lastClsPostError = null;
 let clsWatcher = null;
 const clsDebounceTimers = new Map(); // filename → setTimeout handle
+let tskedWatcher = null;
+let tskedDebounceTimer = null;
+let tskedLastHash = null;
+let tskedPostCount = 0;
+let tskedSkipCount = 0; // content unchanged, didn't POST
+let tskedLastPostAt = 0;
+let tskedLastError = null;
 const startedAt = Date.now();
 
 function log(msg) {
@@ -169,6 +179,79 @@ async function syncAllCls() {
   log(`CLS startup sync complete — ${clsPostCount} ok, ${clsPostFailCount} failed`);
 }
 
+async function postTskedIfChanged(reason) {
+  if (!config) return;
+  const tskedPath = config.tskedPath || DEFAULT_TSKED_PATH;
+  let bytes;
+  try { bytes = fs.readFileSync(tskedPath); }
+  catch (e) {
+    log(`[TSKED READ FAIL] ${tskedPath}: ${e.message}`);
+    return;
+  }
+  if (!bytes.length) {
+    log(`[TSKED SKIP] ${tskedPath}: empty file`);
+    return;
+  }
+  const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (hash === tskedLastHash) {
+    tskedSkipCount++;
+    // Session 25 lesson: Ryegate's "Upload Results" button touches mtime
+    // without changing content. Skip silently.
+    return;
+  }
+  try {
+    const res = await fetch(`${config.workerUrl}/v3/postTsked`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-West-Key': config.authKey,
+        'X-West-Slug': config.showSlug,
+      },
+      body: bytes,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    tskedLastHash = hash;
+    tskedPostCount++;
+    tskedLastPostAt = Date.now();
+    tskedLastError = null;
+    log(`TSKED POST OK (${bytes.length} bytes, ${data.rows_total} rows: ${data.updated} updated, ${data.skipped} unmatched) — reason=${reason}`);
+  } catch (e) {
+    tskedLastError = e.message;
+    log(`[TSKED POST FAIL] ${e.message}`);
+  }
+}
+
+function scheduleTskedPost(reason) {
+  if (tskedDebounceTimer) clearTimeout(tskedDebounceTimer);
+  tskedDebounceTimer = setTimeout(() => {
+    tskedDebounceTimer = null;
+    postTskedIfChanged(reason).catch(e => log(`[TSKED UNCAUGHT] ${e.message}`));
+  }, TSKED_DEBOUNCE_MS);
+}
+
+function startTskedWatcher() {
+  if (!config) return;
+  const tskedPath = config.tskedPath || DEFAULT_TSKED_PATH;
+  try {
+    // Watch the parent dir for the specific filename — fs.watch on a
+    // non-existent file throws, and watching the dir survives file
+    // creation/deletion too.
+    const dir = path.dirname(tskedPath);
+    const name = path.basename(tskedPath);
+    tskedWatcher = fs.watch(dir, { persistent: true }, (eventType, filename) => {
+      if (!filename || filename.toLowerCase() !== name.toLowerCase()) return;
+      scheduleTskedPost('fs.watch event');
+    });
+    tskedWatcher.on('error', err => log(`[TSKED WATCHER ERROR] ${err.message}`));
+    log(`TSKED watcher started on ${tskedPath}`);
+  } catch (e) {
+    log(`[TSKED WATCHER START FAIL] ${e.message}`);
+  }
+}
+
 function startClsWatcher() {
   if (!config) return;
   const clsDir = config.clsDir || DEFAULT_CLS_DIR;
@@ -249,6 +332,11 @@ function updateTray() {
       const clsAge = Math.floor((Date.now() - lastClsPostAt) / 1000);
       lines.push(`Last .cls: ${lastClsPostFile} (${clsAge}s ago)`);
     }
+    lines.push(`tsked: ${tskedPostCount} posts, ${tskedSkipCount} skipped (no-op)`);
+    if (tskedLastPostAt) {
+      const tAge = Math.floor((Date.now() - tskedLastPostAt) / 1000);
+      lines.push(`Last tsked POST: ${tAge}s ago`);
+    }
   }
   tray.setToolTip(lines.join('\n'));
 }
@@ -285,6 +373,11 @@ app.whenReady().then(() => {
     { label: 'Reload config', click: () => { loadConfig(); updateTray(); } },
     { label: 'Send heartbeat now', click: async () => { await sendHeartbeat(); updateTray(); } },
     { label: 'Re-sync all .cls now', click: async () => { await syncAllCls(); updateTray(); } },
+    { label: 'Re-send tsked.csv now', click: async () => {
+        tskedLastHash = null; // bust cache
+        await postTskedIfChanged('manual');
+        updateTray();
+    }},
     { label: 'Open log folder', click: () => {
       require('electron').shell.openPath(path.dirname(LOG_PATH));
     }},
@@ -302,6 +395,10 @@ app.whenReady().then(() => {
   // .cls watching: startup sync + live watcher for subsequent changes
   startClsWatcher();
   syncAllCls().then(updateTray).catch(e => log(`[SYNC UNCAUGHT] ${e.message}`));
+
+  // tsked watching: send current content at startup, then on content changes
+  startTskedWatcher();
+  postTskedIfChanged('startup').then(updateTray).catch(e => log(`[TSKED STARTUP UNCAUGHT] ${e.message}`));
 
   // Tray tooltip refreshes tick between heartbeats so "Xs ago" stays current
   setInterval(updateTray, 2000);

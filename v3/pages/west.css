@@ -128,6 +128,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .class-group:last-child{margin-bottom:0;}
 .class-group-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;border-bottom:1px solid var(--border);}
 .class-group-count{opacity:.5;}
+.day-group{margin:8px 0 8px 12px;}
+.day-group-header{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--blue);padding:4px 10px;margin-bottom:2px;background:var(--blue-bg);border-radius:4px;display:inline-block;}
+.day-group-count{opacity:.7;}
 .class-list{list-style:none;padding:0;margin:0;}
 .class-row-wrap{margin-bottom:2px;}
 .class-row-wrap.expanded{background:var(--off-white);border-radius:6px;padding-bottom:6px;}

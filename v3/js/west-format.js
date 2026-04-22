@@ -61,6 +61,28 @@
     return modStr ? `${base} · ${modStr}` : base;
   };
 
+  // formatDate — take an ISO "YYYY-MM-DD" string and render as
+  // "MM/DD/YYYY" (Bill's preferred display format). Returns the input
+  // unchanged if it doesn't match the expected pattern.
+  WEST.format.date = function (iso) {
+    if (!iso) return '';
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return iso;
+    return `${m[2]}/${m[3]}/${m[1]}`;
+  };
+
+  // formatDateWithDayName — "Fri 09/12/2025". Used for date group headers
+  // so operators can see the day-of-week at a glance.
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  WEST.format.dateWithDay = function (iso) {
+    if (!iso) return '';
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return iso;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    const day = DAYS[d.getUTCDay()];
+    return `${day} ${m[2]}/${m[3]}/${m[1]}`;
+  };
+
   // CommonJS export for Node (engine) side — harmless in browsers.
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.format;

@@ -353,8 +353,26 @@ function renderClasses() {
   let html = '';
   for (const ringNum of rings) {
     const list = groups.get(ringNum);
-    html += `<div class="class-group"><div class="class-group-header">Ring ${ringNum} <span class="class-group-count">(${list.length})</span></div><ul class="class-list">`;
+    // Second-level group: by scheduled_date. Unscheduled classes go last.
+    const byDate = new Map();
     for (const c of list) {
+      const key = c.scheduled_date || '__unscheduled__';
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key).push(c);
+    }
+    const dateKeys = [...byDate.keys()].sort((a, b) => {
+      if (a === '__unscheduled__') return 1;
+      if (b === '__unscheduled__') return -1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+    html += `<div class="class-group"><div class="class-group-header">Ring ${ringNum} <span class="class-group-count">(${list.length})</span></div>`;
+    for (const dk of dateKeys) {
+      const dayList = byDate.get(dk);
+      const dayLabel = dk === '__unscheduled__'
+        ? 'Unscheduled'
+        : WEST.format.dateWithDay(dk);
+      html += `<div class="day-group"><div class="day-group-header">${escapeHtml(dayLabel)} <span class="day-group-count">(${dayList.length})</span></div><ul class="class-list">`;
+      for (const c of dayList) {
       const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
       let methodStr = WEST.format.methodLabel(
         c.class_type, c.scoring_method, c.class_mode, c.scoring_modifier
@@ -380,8 +398,10 @@ function renderClasses() {
         html += renderEntries(c.id);
       }
       html += `</li>`;
+      }
+      html += `</ul></div>`;
     }
-    html += `</ul></div>`;
+    html += `</div>`;
   }
   host.innerHTML = html;
   // Wire click handlers on class rows to expand/collapse entries
