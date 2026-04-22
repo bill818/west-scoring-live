@@ -69,7 +69,10 @@
         <div class="show-meta">
           <div class="show-meta-item">slug: <span id="showSlug"></span></div>
           <div class="show-meta-item">dates: <span id="showDates"></span></div>
-          <div class="show-meta-item">created: <span id="showCreated"></span></div>
+          <div class="show-meta-item">venue: <span id="showVenue"></span></div>
+          <div class="show-meta-item">location: <span id="showLocation"></span></div>
+          <div class="show-meta-item">status: <span id="showStatus"></span></div>
+          <div class="show-meta-item">stats: <span id="showStatsEligible"></span></div>
         </div>
       </div>
 
@@ -112,9 +115,9 @@
 
 </div>
 
-<!-- CREATE SHOW DIALOG -->
-<dialog id="dlgCreateShow">
-  <div class="dialog-header"><h2>Create Show</h2></div>
+<!-- SHOW DIALOG (unified Create / Edit) -->
+<dialog id="dlgShow">
+  <div class="dialog-header"><h2 id="dlgShowTitle">Create Show</h2></div>
   <div class="dialog-body">
     <div class="form-group">
       <label for="f_showName">Name</label>
@@ -123,21 +126,46 @@
     <div class="form-group">
       <label for="f_showSlug">Slug</label>
       <input type="text" id="f_showSlug" placeholder="culpeper-fall-2026">
-      <div class="form-hint">Lowercase letters, numbers, hyphens. Starts with a letter. 3-60 characters.</div>
+      <div class="form-hint" id="f_showSlugHint">Lowercase letters, numbers, hyphens. Starts with a letter. 3-60 characters.</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="f_showStart">Start date</label>
+        <input type="date" id="f_showStart">
+      </div>
+      <div class="form-group">
+        <label for="f_showEnd">End date</label>
+        <input type="date" id="f_showEnd">
+      </div>
     </div>
     <div class="form-group">
-      <label for="f_showStart">Start date</label>
-      <input type="date" id="f_showStart">
+      <label for="f_showVenue">Venue</label>
+      <input type="text" id="f_showVenue" placeholder="Devon Horse Show Grounds">
     </div>
     <div class="form-group">
-      <label for="f_showEnd">End date</label>
-      <input type="date" id="f_showEnd">
+      <label for="f_showLocation">Location</label>
+      <input type="text" id="f_showLocation" placeholder="Devon, PA">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="f_showStatus">Status</label>
+        <select id="f_showStatus">
+          <option value="pending">Pending</option>
+          <option value="active">Active</option>
+          <option value="complete">Complete</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="f_showStatsEligible" checked> Include in stats</label>
+        <div class="form-hint">Uncheck for test shows you don't want polluting rider/horse stats.</div>
+      </div>
     </div>
     <div class="form-error" id="f_showError"></div>
   </div>
   <div class="dialog-footer">
-    <button class="btn-secondary" data-close-dialog="dlgCreateShow">Cancel</button>
-    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnCreateShowSubmit">Create</button>
+    <button class="btn-secondary" data-close-dialog="dlgShow">Cancel</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnShowSubmit">Create</button>
   </div>
 </dialog>
 
@@ -282,7 +310,10 @@ async function selectShow(slug) {
   document.getElementById('showTitle').textContent = show.name;
   document.getElementById('showSlug').textContent = show.slug;
   document.getElementById('showDates').textContent = fmtDateRange(show);
-  document.getElementById('showCreated').textContent = (show.created_at || '').slice(0, 10);
+  document.getElementById('showVenue').textContent = show.venue || '—';
+  document.getElementById('showLocation').textContent = show.location || '—';
+  document.getElementById('showStatus').textContent = show.status || 'pending';
+  document.getElementById('showStatsEligible').textContent = show.stats_eligible === 0 ? 'excluded' : 'included';
   await loadRings(slug);
   await loadClasses(slug);
 }
@@ -652,35 +683,78 @@ async function loadShows() {
   }
 }
 
-// ── create show ──────────────────────────────────────────────────────
-const dlgShow = document.getElementById('dlgCreateShow');
-document.getElementById('btnCreateShow').addEventListener('click', () => {
-  document.getElementById('f_showName').value = '';
-  document.getElementById('f_showSlug').value = '';
-  document.getElementById('f_showStart').value = '';
-  document.getElementById('f_showEnd').value = '';
+// ── show dialog (unified create + edit) ─────────────────────────────
+const dlgShow = document.getElementById('dlgShow');
+let showDialogMode = 'create'; // 'create' | 'edit'
+
+function openShowDialog(mode, show) {
+  showDialogMode = mode;
+  document.getElementById('dlgShowTitle').textContent = mode === 'edit' ? 'Edit Show' : 'Create Show';
+  document.getElementById('btnShowSubmit').textContent = mode === 'edit' ? 'Save' : 'Create';
+  const slugInput = document.getElementById('f_showSlug');
+  const slugHint  = document.getElementById('f_showSlugHint');
+  if (mode === 'edit') {
+    slugInput.readOnly = true;
+    slugInput.classList.add('input-readonly');
+    slugHint.textContent = 'Slug is locked on existing shows. Rename requires a future migration flow.';
+  } else {
+    slugInput.readOnly = false;
+    slugInput.classList.remove('input-readonly');
+    slugHint.textContent = 'Lowercase letters, numbers, hyphens. Starts with a letter. 3-60 characters.';
+  }
+  const s = show || {};
+  document.getElementById('f_showName').value          = s.name          || '';
+  document.getElementById('f_showSlug').value          = s.slug          || '';
+  document.getElementById('f_showStart').value         = s.start_date    || '';
+  document.getElementById('f_showEnd').value           = s.end_date      || '';
+  document.getElementById('f_showVenue').value         = s.venue         || '';
+  document.getElementById('f_showLocation').value      = s.location      || '';
+  document.getElementById('f_showStatus').value        = s.status        || 'pending';
+  document.getElementById('f_showStatsEligible').checked = s.stats_eligible === 0 ? false : true;
   document.getElementById('f_showError').classList.remove('visible');
   dlgShow.showModal();
   document.getElementById('f_showName').focus();
+}
+
+document.getElementById('btnCreateShow').addEventListener('click', () => openShowDialog('create'));
+document.getElementById('btnEditShow').addEventListener('click', () => {
+  const show = state.shows.find(s => s.slug === state.selectedSlug);
+  if (show) openShowDialog('edit', show);
 });
-document.getElementById('btnCreateShowSubmit').addEventListener('click', async () => {
-  const name = document.getElementById('f_showName').value.trim();
-  const slug = document.getElementById('f_showSlug').value.trim();
+
+document.getElementById('btnShowSubmit').addEventListener('click', async () => {
+  const name     = document.getElementById('f_showName').value.trim();
+  const slug     = document.getElementById('f_showSlug').value.trim();
   const start_date = document.getElementById('f_showStart').value || null;
-  const end_date = document.getElementById('f_showEnd').value || null;
+  const end_date   = document.getElementById('f_showEnd').value || null;
+  const venue    = document.getElementById('f_showVenue').value.trim();
+  const location = document.getElementById('f_showLocation').value.trim();
+  const status   = document.getElementById('f_showStatus').value;
+  const stats_eligible = document.getElementById('f_showStatsEligible').checked ? 1 : 0;
   const errEl = document.getElementById('f_showError');
   errEl.classList.remove('visible');
   if (!name) { errEl.textContent = 'Name is required.'; errEl.classList.add('visible'); return; }
-  if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
+  if (showDialogMode === 'create' && !/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
     errEl.textContent = 'Slug must start with a letter, use only lowercase letters, numbers, and hyphens, 3-60 chars.';
     errEl.classList.add('visible'); return;
   }
   try {
-    await api('POST', '/v3/createShow', { slug, name, start_date, end_date });
-    dlgShow.close();
-    toast('Show created', 'success');
-    await loadShows();
-    selectShow(slug);
+    const payload = { slug, name, start_date, end_date, venue, location, status, stats_eligible };
+    if (showDialogMode === 'edit') {
+      await api('POST', '/v3/updateShow', payload);
+      dlgShow.close();
+      toast('Show updated', 'success');
+      await loadShows();
+      // Refresh the detail header so the new values show
+      const show = state.shows.find(s => s.slug === slug);
+      if (show) selectShow(slug);
+    } else {
+      await api('POST', '/v3/createShow', payload);
+      dlgShow.close();
+      toast('Show created', 'success');
+      await loadShows();
+      selectShow(slug);
+    }
   } catch (e) {
     errEl.textContent = e.message;
     errEl.classList.add('visible');

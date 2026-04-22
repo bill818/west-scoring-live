@@ -1702,7 +1702,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       try {
         const { results } = await env.WEST_DB_V3.prepare(
-          'SELECT id, slug, name, start_date, end_date, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
         ).all();
         return json({ ok: true, shows: results || [] });
       } catch (e) { return err('DB error: ' + e.message); }
@@ -1714,17 +1714,23 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible } = body;
       if (!slug) return err('Missing slug');
       if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
         return err('Invalid slug — must match ^[a-z][a-z0-9-]{2,59}$');
       }
       if (!name || !name.trim()) return err('Missing name');
+      const statusVal = status && ['pending','active','complete','archived'].includes(status) ? status : 'pending';
+      const statsVal = stats_eligible === false || stats_eligible === 0 ? 0 : 1;
       try {
         await env.WEST_DB_V3.prepare(`
-          INSERT INTO shows (slug, name, start_date, end_date)
-          VALUES (?, ?, ?, ?)
-        `).bind(slug, name.trim(), start_date || null, end_date || null).run();
+          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          slug, name.trim(), start_date || null, end_date || null,
+          (venue || '').trim() || null, (location || '').trim() || null,
+          statusVal, statsVal
+        ).run();
         const show = await env.WEST_DB_V3.prepare(
           'SELECT * FROM shows WHERE slug = ?'
         ).bind(slug).first();
@@ -1752,18 +1758,36 @@ export default {
     }
 
     // ── POST /v3/updateShow ───────────────────────────────────────────────────
+    // Updates any editable show field. Slug is NOT editable — it's the
+    // primary key operators key off of. Rename requires a full migration
+    // that's its own future feature.
     if (method === 'POST' && path === '/v3/updateShow') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
-      if (name !== undefined) { updates.push('name = ?'); binds.push(name.trim()); }
+      if (name !== undefined) {
+        if (!name || !name.trim()) return err('Name cannot be empty');
+        updates.push('name = ?'); binds.push(name.trim());
+      }
       if (start_date !== undefined) { updates.push('start_date = ?'); binds.push(start_date || null); }
-      if (end_date !== undefined) { updates.push('end_date = ?'); binds.push(end_date || null); }
+      if (end_date   !== undefined) { updates.push('end_date = ?');   binds.push(end_date   || null); }
+      if (venue      !== undefined) { updates.push('venue = ?');      binds.push((venue    || '').trim() || null); }
+      if (location   !== undefined) { updates.push('location = ?');   binds.push((location || '').trim() || null); }
+      if (status     !== undefined) {
+        if (!['pending','active','complete','archived'].includes(status)) {
+          return err('Invalid status — must be pending/active/complete/archived');
+        }
+        updates.push('status = ?'); binds.push(status);
+      }
+      if (stats_eligible !== undefined) {
+        updates.push('stats_eligible = ?');
+        binds.push(stats_eligible === false || stats_eligible === 0 ? 0 : 1);
+      }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
       binds.push(slug);

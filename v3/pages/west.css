@@ -186,6 +186,11 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .form-group label{display:block;font-size:12px;font-weight:500;color:var(--text-body);margin-bottom:6px;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.05em;}
 .form-group input{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;}
 .form-group input:focus{outline:2px solid var(--blue);outline-offset:-1px;}
+.form-group select{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;background:#fff;}
+.form-group input.input-readonly{background:var(--off-white);color:var(--text-muted);cursor:not-allowed;}
+.form-row{display:flex;gap:12px;}
+.form-row .form-group{flex:1;}
+.show-meta{flex-wrap:wrap;}
 .form-hint{font-size:11px;color:var(--text-muted);margin-top:4px;}
 .form-error{color:var(--red);font-size:12px;margin-top:8px;padding:8px 10px;background:#fef3f3;border-radius:4px;display:none;}
 .form-error.visible{display:block;}
