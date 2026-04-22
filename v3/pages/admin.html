@@ -324,7 +324,7 @@ function renderClasses() {
       const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
       const methodStr = c.class_type === 'H' && c.class_mode !== null && c.class_mode !== undefined
           ? `mode ${c.class_mode}`
-        : (c.class_type === 'J' || c.class_type === 'T') && c.scoring_method !== null && c.scoring_method !== undefined
+        : c.scoring_method !== null && c.scoring_method !== undefined
           ? `method ${c.scoring_method}`
         : c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
       const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
