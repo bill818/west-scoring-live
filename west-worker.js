@@ -96,10 +96,12 @@ function parseClsHeaderV3(bytes) {
     // it actually has a method code operator-entered.
     const methodMaybe = parseInt(cols[2], 10);
     if (Number.isFinite(methodMaybe) && methodMaybe >= 0 && methodMaybe <= 15) {
+      const modMaybe = parseInt(cols[3], 10);
       return {
         class_type: 'U',
         class_name: className,
         scoring_method: methodMaybe,
+        scoring_modifier: Number.isFinite(modMaybe) ? modMaybe : null,
         parse_status: 'parsed',
         parse_notes: 'U hardware-type, jumper-shape method inferred from col[2]',
       };
@@ -113,6 +115,8 @@ function parseClsHeaderV3(bytes) {
   }
 
   if (rawType === 'H') {
+    // Hunter lens. col[2] = classMode. col[3] semantics unconfirmed —
+    // left NULL rather than guessed (Article 1).
     const n = parseInt(cols[2], 10);
     return {
       class_type: 'H',
@@ -123,12 +127,14 @@ function parseClsHeaderV3(bytes) {
     };
   }
 
-  // J or T — jumper lens
+  // J or T — jumper lens. col[2] = scoring_method, col[3] = scoring_modifier.
   const n = parseInt(cols[2], 10);
+  const mod = parseInt(cols[3], 10);
   return {
     class_type: rawType,
     class_name: className,
     scoring_method: Number.isFinite(n) ? n : null,
+    scoring_modifier: Number.isFinite(mod) ? mod : null,
     parse_status: 'parsed',
     parse_notes: null,
   };
@@ -1834,23 +1840,26 @@ export default {
       try {
         await env.WEST_DB_V3.prepare(`
           INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
-                               scoring_method, class_mode, parse_status, parse_notes,
+                               scoring_method, scoring_modifier, class_mode,
+                               parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
-            class_name     = excluded.class_name,
-            class_type     = excluded.class_type,
-            scoring_method = excluded.scoring_method,
-            class_mode     = excluded.class_mode,
-            parse_status   = excluded.parse_status,
-            parse_notes    = excluded.parse_notes,
-            r2_key         = excluded.r2_key,
-            parsed_at      = datetime('now')
+            class_name       = excluded.class_name,
+            class_type       = excluded.class_type,
+            scoring_method   = excluded.scoring_method,
+            scoring_modifier = excluded.scoring_modifier,
+            class_mode       = excluded.class_mode,
+            parse_status     = excluded.parse_status,
+            parse_notes      = excluded.parse_notes,
+            r2_key           = excluded.r2_key,
+            parsed_at        = datetime('now')
         `).bind(
           showId, ringId, classId,
           parsed.class_name || null,
           parsed.class_type || 'U',
           parsed.scoring_method ?? null,
+          parsed.scoring_modifier ?? null,
           parsed.class_mode ?? null,
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,

@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="west.css">
+<script src="../js/west-format.js"></script>
 </head>
 <body>
 
@@ -322,17 +323,26 @@ function renderClasses() {
     html += `<div class="class-group"><div class="class-group-header">Ring ${ringNum} <span class="class-group-count">(${list.length})</span></div><ul class="class-list">`;
     for (const c of list) {
       const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
-      const methodStr = c.class_type === 'H' && c.class_mode !== null && c.class_mode !== undefined
-          ? `mode ${c.class_mode}`
-        : c.scoring_method !== null && c.scoring_method !== undefined
-          ? `method ${c.scoring_method}`
-        : c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
+      let methodStr;
+      if (c.class_type === 'H' && c.class_mode !== null && c.class_mode !== undefined) {
+        methodStr = `mode ${c.class_mode}`;
+      } else if (c.scoring_method !== null && c.scoring_method !== undefined) {
+        methodStr = `method ${c.scoring_method}`;
+        if (c.scoring_modifier !== null && c.scoring_modifier !== undefined) {
+          methodStr += ` · mod ${c.scoring_modifier}`;
+        }
+      } else {
+        methodStr = c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
+      }
+      const methodTitle = WEST.format.methodLabel(
+        c.class_type, c.scoring_method, c.class_mode, c.scoring_modifier
+      );
       const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
       html += `<li class="class-row${statusClass}">
         <span class="class-id">${escapeHtml(c.class_id)}</span>
         <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
         <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
-        <span class="class-method">${escapeHtml(methodStr)}</span>
+        <span class="class-method" title="${escapeHtml(methodTitle)}">${escapeHtml(methodStr)}</span>
       </li>`;
     }
     html += `</ul></div>`;
