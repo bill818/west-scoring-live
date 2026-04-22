@@ -112,10 +112,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .ring-row{padding:12px 14px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:12px;}
 .ring-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:6px 10px;border-radius:4px;min-width:52px;text-align:center;}
 .ring-body{flex:1;}
-.ring-name{font-weight:500;cursor:pointer;padding:2px 4px;margin:-2px -4px;border-radius:3px;display:inline-block;}
-.ring-name:hover{background:var(--off-white);}
+.ring-name{font-weight:500;}
 .ring-name.ring-name-placeholder{color:var(--text-muted);font-style:italic;}
-.ring-name-input{font:inherit;font-weight:500;padding:2px 4px;border:1px solid var(--blue);border-radius:3px;background:#fff;width:240px;max-width:100%;outline:none;}
+.btn-ring-edit{margin-left:8px;flex-shrink:0;}
 .ring-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:2px;}
 .ring-engine{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);}
 .ring-cls{margin-top:4px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}

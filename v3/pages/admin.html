@@ -170,24 +170,25 @@
   </div>
 </dialog>
 
-<!-- CREATE RING DIALOG -->
-<dialog id="dlgCreateRing">
-  <div class="dialog-header"><h2>Add Ring</h2></div>
+<!-- RING DIALOG (unified Add / Edit) -->
+<dialog id="dlgRing">
+  <div class="dialog-header"><h2 id="dlgRingTitle">Add Ring</h2></div>
   <div class="dialog-body">
     <div class="form-group">
       <label for="f_ringNum">Ring number</label>
       <input type="number" id="f_ringNum" min="1" max="99" value="1">
-      <div class="form-hint">1-99. Must be unique within the show.</div>
+      <div class="form-hint" id="f_ringNumHint">1-99. Must be unique within the show.</div>
     </div>
     <div class="form-group">
       <label for="f_ringName">Name (optional)</label>
       <input type="text" id="f_ringName" placeholder="Grand Hunter Field">
+      <div class="form-hint">Leave blank for "Ring N" fallback.</div>
     </div>
     <div class="form-error" id="f_ringError"></div>
   </div>
   <div class="dialog-footer">
-    <button class="btn-secondary" data-close-dialog="dlgCreateRing">Cancel</button>
-    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnCreateRingSubmit">Create</button>
+    <button class="btn-secondary" data-close-dialog="dlgRing">Cancel</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnRingSubmit">Create</button>
   </div>
 </dialog>
 
@@ -328,64 +329,6 @@ async function loadRings(slug) {
   } catch (e) {
     toast('Failed to load rings: ' + e.message, 'error');
   }
-}
-
-function beginRingNameEdit(el) {
-  if (el.dataset.editing === '1') return;
-  const ringNum = parseInt(el.dataset.ringNum, 10);
-  if (!Number.isFinite(ringNum)) return;
-  const ring = state.rings.find(r => r.ring_num === ringNum);
-  const currentName = ring && ring.name ? ring.name : '';
-  el.dataset.editing = '1';
-  el.dataset.originalHtml = el.innerHTML;
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'ring-name-input';
-  input.value = currentName;
-  input.placeholder = `Ring ${ringNum}`;
-  input.maxLength = 80;
-  el.innerHTML = '';
-  el.appendChild(input);
-  input.focus();
-  input.select();
-  let committed = false;
-  const cancel = () => {
-    if (committed) return;
-    committed = true;
-    el.innerHTML = el.dataset.originalHtml;
-    delete el.dataset.editing;
-    delete el.dataset.originalHtml;
-  };
-  const commit = async () => {
-    if (committed) return;
-    committed = true;
-    const newName = input.value.trim();
-    if (newName === currentName) {
-      el.innerHTML = el.dataset.originalHtml;
-      delete el.dataset.editing;
-      delete el.dataset.originalHtml;
-      return;
-    }
-    try {
-      await api('POST', '/v3/updateRing', {
-        slug: state.selectedSlug,
-        ring_num: ringNum,
-        name: newName,
-      });
-      toast('Ring renamed', 'success');
-      await loadRings(state.selectedSlug); // re-renders, drops the input
-    } catch (e) {
-      toast('Rename failed: ' + e.message, 'error');
-      el.innerHTML = el.dataset.originalHtml;
-      delete el.dataset.editing;
-      delete el.dataset.originalHtml;
-    }
-  };
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
-    else if (ev.key === 'Escape') { ev.preventDefault(); cancel(); }
-  });
-  input.addEventListener('blur', () => { commit(); });
 }
 
 async function loadClasses(slug) {
@@ -663,13 +606,6 @@ function renderRings() {
   const ul = document.getElementById('ringList');
   const empty = document.getElementById('ringEmpty');
   const search = document.getElementById('ringSearch').value.trim().toLowerCase();
-  const ulClickHandler = (ev) => {
-    const el = ev.target.closest('.ring-name[data-ring-num]');
-    if (!el) return;
-    beginRingNameEdit(el);
-  };
-  ul.removeEventListener('click', ulClickHandler);
-  ul.addEventListener('click', ulClickHandler);
   const filtered = state.rings.filter(r => {
     if (!search) return true;
     return String(r.ring_num).includes(search) || (r.name || '').toLowerCase().includes(search);
@@ -722,11 +658,12 @@ function renderRings() {
     li.innerHTML = `
       <div class="ring-num">${r.ring_num}</div>
       <div class="ring-body">
-        <div class="ring-name${placeholderUsed ? ' ring-name-placeholder' : ''}" data-ring-num="${r.ring_num}" title="Click to rename">${escapeHtml(displayName)}</div>
+        <div class="ring-name${placeholderUsed ? ' ring-name-placeholder' : ''}">${escapeHtml(displayName)}</div>
         <div class="ring-meta">created ${(r.created_at || '').slice(0,10)}</div>
         ${clsHtml}
       </div>
-      <div class="ring-engine">${engineHtml}</div>`;
+      <div class="ring-engine">${engineHtml}</div>
+      <button class="btn-secondary btn-ring-edit" data-ring-num="${r.ring_num}" title="Edit ring">Edit</button>`;
     ul.appendChild(li);
   }
 }
@@ -830,20 +767,43 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
   }
 });
 
-// ── create ring ──────────────────────────────────────────────────────
-const dlgRing = document.getElementById('dlgCreateRing');
-document.getElementById('btnAddRing').addEventListener('click', () => {
-  // Default to next unused ring number
-  const used = new Set(state.rings.map(r => r.ring_num));
-  let next = 1;
-  while (used.has(next)) next++;
-  document.getElementById('f_ringNum').value = next;
-  document.getElementById('f_ringName').value = '';
+// ── ring dialog (unified add + edit) ─────────────────────────────────
+const dlgRing = document.getElementById('dlgRing');
+let ringDialogMode = 'create'; // 'create' | 'edit'
+
+function openRingDialog(mode, ring) {
+  ringDialogMode = mode;
+  document.getElementById('dlgRingTitle').textContent = mode === 'edit' ? 'Edit Ring' : 'Add Ring';
+  document.getElementById('btnRingSubmit').textContent = mode === 'edit' ? 'Save' : 'Create';
+  const numInput = document.getElementById('f_ringNum');
+  const numHint  = document.getElementById('f_ringNumHint');
+  if (mode === 'edit') {
+    numInput.readOnly = true;
+    numInput.classList.add('input-readonly');
+    numHint.textContent = 'Ring number is locked on existing rings (same rule as slug on shows).';
+    numInput.value = ring.ring_num;
+    document.getElementById('f_ringName').value = ring.name || '';
+  } else {
+    numInput.readOnly = false;
+    numInput.classList.remove('input-readonly');
+    numHint.textContent = '1-99. Must be unique within the show.';
+    // Default to next unused ring number
+    const used = new Set(state.rings.map(r => r.ring_num));
+    let next = 1;
+    while (used.has(next)) next++;
+    numInput.value = next;
+    document.getElementById('f_ringName').value = '';
+  }
   document.getElementById('f_ringError').classList.remove('visible');
   dlgRing.showModal();
-  document.getElementById('f_ringNum').focus();
-});
-document.getElementById('btnCreateRingSubmit').addEventListener('click', async () => {
+  (mode === 'edit'
+    ? document.getElementById('f_ringName')
+    : document.getElementById('f_ringNum')).focus();
+}
+
+document.getElementById('btnAddRing').addEventListener('click', () => openRingDialog('create'));
+
+document.getElementById('btnRingSubmit').addEventListener('click', async () => {
   const ring_num = parseInt(document.getElementById('f_ringNum').value, 10);
   const name = document.getElementById('f_ringName').value.trim();
   const errEl = document.getElementById('f_ringError');
@@ -853,9 +813,15 @@ document.getElementById('btnCreateRingSubmit').addEventListener('click', async (
     errEl.classList.add('visible'); return;
   }
   try {
-    await api('POST', '/v3/createRing', { slug: state.selectedSlug, ring_num, name });
-    dlgRing.close();
-    toast('Ring added', 'success');
+    if (ringDialogMode === 'edit') {
+      await api('POST', '/v3/updateRing', { slug: state.selectedSlug, ring_num, name });
+      dlgRing.close();
+      toast('Ring updated', 'success');
+    } else {
+      await api('POST', '/v3/createRing', { slug: state.selectedSlug, ring_num, name });
+      dlgRing.close();
+      toast('Ring added', 'success');
+    }
     await loadRings(state.selectedSlug);
   } catch (e) {
     errEl.textContent = e.message;
