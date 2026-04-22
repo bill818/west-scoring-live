@@ -617,6 +617,15 @@ function renderRings() {
     return;
   }
   empty.style.display = 'none';
+  // Wire Edit buttons on ring rows via event delegation (overwrites any
+  // previous delegated handler so we don't stack listeners on re-render)
+  ul.onclick = (ev) => {
+    const btn = ev.target.closest('.btn-ring-edit[data-ring-num]');
+    if (!btn) return;
+    const rn = parseInt(btn.dataset.ringNum, 10);
+    const ring = state.rings.find(r => r.ring_num === rn);
+    if (ring) openRingDialog('edit', ring);
+  };
   const now = Date.now();
   for (const r of filtered) {
     const hb = r.last_heartbeat;
