@@ -1734,7 +1734,17 @@ export default {
         const show = await env.WEST_DB_V3.prepare(
           'SELECT * FROM shows WHERE slug = ?'
         ).bind(slug).first();
-        console.log(`[v3] Created show: ${slug}`);
+        // Auto-create Ring 1 — every show needs at least one ring for the
+        // engine to connect to. Matches v2 behavior. Operator can rename it
+        // or add more rings via the admin.
+        if (show) {
+          await env.WEST_DB_V3.prepare(`
+            INSERT INTO rings (show_id, ring_num, name, sort_order)
+            VALUES (?, 1, 'Ring 1', 0)
+            ON CONFLICT(show_id, ring_num) DO NOTHING
+          `).bind(show.id).run();
+          console.log(`[v3] Created show ${slug} + auto-created Ring 1`);
+        }
         return json({ ok: true, show });
       } catch (e) {
         if (String(e.message || '').includes('UNIQUE')) return err('Slug already exists', 409);
