@@ -2045,6 +2045,58 @@ export default {
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
+    // ── POST /v3/hardDeleteCls ───────────────────────────────────────────────
+    // Operator-initiated permanent removal of a class. Only allowed on
+    // classes that are ALREADY soft-deleted (deleted_at IS NOT NULL), so
+    // operators have to pull the file from Ryegate first — two-step safety
+    // against accidental obliteration of an active class.
+    //
+    // Deletes: entries rows, classes row, R2 object. All three or nothing
+    // meaningful — D1 doesn't do cross-statement transactions via the
+    // binding API but each call is small and ordered so recovery is:
+    //   1. delete entries (OK if zero)
+    //   2. delete classes row
+    //   3. delete R2 object (fails → orphan in R2, no DB impact)
+    // Worst case: R2 object outlives the DB row. Manual cleanup via
+    // wrangler r2 object delete is trivial.
+    if (method === 'POST' && path === '/v3/hardDeleteCls') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, ring_num, class_id } = body;
+      if (!slug || ring_num === undefined || !class_id) return err('Missing fields');
+      const ringNumInt = parseInt(ring_num, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      try {
+        // Look up the class row and confirm it IS soft-deleted
+        const cls = await env.WEST_DB_V3.prepare(`
+          SELECT c.id, c.deleted_at, c.r2_key FROM classes c
+          JOIN rings r ON r.id = c.ring_id
+          JOIN shows s ON s.id = r.show_id
+          WHERE s.slug = ? AND r.ring_num = ? AND c.class_id = ?
+        `).bind(slug, ringNumInt, class_id).first();
+        if (!cls) return err('Class not found', 404);
+        if (!cls.deleted_at) {
+          return err('Class is active — soft-delete first (remove from Ryegate folder) before permanent delete', 409);
+        }
+        const classDbId = cls.id;
+        const r2Key = cls.r2_key;
+        // 1. delete entries
+        await env.WEST_DB_V3.prepare('DELETE FROM entries WHERE class_id = ?').bind(classDbId).run();
+        // 2. delete class row
+        await env.WEST_DB_V3.prepare('DELETE FROM classes WHERE id = ?').bind(classDbId).run();
+        // 3. delete R2 object (best-effort; orphan is acceptable if this fails)
+        try {
+          if (r2Key) await env.WEST_R2_CLS.delete(r2Key);
+        } catch (e) {
+          console.log(`[v3/hardDeleteCls] R2 delete failed for ${r2Key}: ${e.message}`);
+        }
+        console.log(`[v3/hardDeleteCls] ${slug}/${ringNumInt}/${class_id} — permanently deleted`);
+        return json({ ok: true, class_id });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
     // ── GET /v3/downloadCls?slug=X&ring=N&class=C ────────────────────────────
     // Streams the raw .cls bytes from R2 back as a file download so operators
     // can restore a deleted class by dropping the file back into Ryegate.

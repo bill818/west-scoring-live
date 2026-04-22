@@ -470,18 +470,47 @@ function renderClasses() {
       downloadCls(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId);
     });
   });
+  // Wire hard-delete buttons on deleted rows
+  host.querySelectorAll('.btn-hard-delete').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      hardDeleteCls(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId);
+    });
+  });
+}
+
+async function hardDeleteCls(slug, ring, classId) {
+  const confirmed = confirm(
+    `Permanently delete class ${classId}?\n\n` +
+    `This removes the class row, all entries, and the R2 archive. Cannot be undone.\n\n` +
+    `If the .cls file is ever dropped back into Ryegate, it will come back as a NEW class with no history.`
+  );
+  if (!confirmed) return;
+  try {
+    await api('POST', '/v3/hardDeleteCls', { slug, ring_num: Number(ring), class_id: classId });
+    toast(`Class ${classId} permanently deleted`, 'success');
+    await loadClasses(state.selectedSlug);
+  } catch (e) {
+    toast('Hard delete failed: ' + e.message, 'error');
+  }
 }
 
 function renderDeletedClassRow(c) {
   const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
   const deletedWhen = (c.deleted_at || '').replace('T', ' ').slice(0, 19);
+  const slug = escapeHtml(state.selectedSlug || '');
+  const ring = escapeHtml(String(c.ring_num));
+  const cid  = escapeHtml(c.class_id);
   return `<li class="class-row-wrap">
     <div class="class-row class-deleted" data-class-db-id="${c.id}">
       <span class="class-id">${escapeHtml(c.class_id)}</span>
       <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
       <span class="class-name-cell"><span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span></span>
       <span class="class-method">deleted ${escapeHtml(deletedWhen)} UTC</span>
-      <button class="btn-download-cls" data-slug="${escapeHtml(state.selectedSlug || '')}" data-ring="${escapeHtml(String(c.ring_num))}" data-class-id="${escapeHtml(c.class_id)}" title="Download archived .cls from R2">⬇ Download</button>
+      <span class="deleted-actions">
+        <button class="btn-download-cls" data-slug="${slug}" data-ring="${ring}" data-class-id="${cid}" title="Download archived .cls from R2">⬇ Download</button>
+        <button class="btn-hard-delete" data-slug="${slug}" data-ring="${ring}" data-class-id="${cid}" title="Permanently delete this class and its archive (irreversible)">🗑 Delete Forever</button>
+      </span>
     </div>
   </li>`;
 }
