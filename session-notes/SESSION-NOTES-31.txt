@@ -1,0 +1,373 @@
+SESSION-NOTES-31 — v3 Phase 2a → 2c.7 end-to-end + admin polish
+Date: 2026-04-21 / 2026-04-22
+Duration: long session — serious forward progress
+Outcome: v3 engine now ingests raw .cls, parses headers/entries/tsked,
+         renders class data by day/number/name, handles soft-delete +
+         restore + hard-delete, and the admin has fully operational
+         Add/Edit dialogs for shows AND rings.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+v3 went from "engine heartbeats only" (end of Session 30) to "engine
+ingests all Ryegate data + admin renders a complete operator view." The
+pipe engine→worker→R2+D1→admin is proven end-to-end against Bill's real
+71 .cls files and real tsked.csv. 564+ entries parsed, 66 classes
+scheduled by day, 15 classes carrying confirmed "Scored" flags.
+
+No v2 code touched. v2 still serves v2 shows.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED (Phase 2 breakdown)
+═══════════════════════════════════════════════════════════════════════════
+
+PHASE 2a — raw .cls ingestion + R2 archive (earlier today)
+  - R2 bucket v3-cls created
+  - POST /v3/postCls — auth + v3-gated, body is raw bytes, key is
+    {slug}/{ring}/{class_id}.cls (Option B: overwrite-in-place)
+  - Engine watches C:\Ryegate\Jumper\Classes\, startup-syncs all
+    files, then fs.watch on changes. Debounced 2s.
+  - Admin shows "Last .cls: filename — timestamp" per ring.
+
+PHASE 2b — parse .cls header → classes table
+  - Migration 002: classes table (show_id, ring_id, class_id,
+    class_name, class_type, scoring_method, class_mode, parse_status,
+    parse_notes, r2_key, timestamps).
+  - parseClsHeaderV3 — Article 1 strict. Reads col[0] as the lens.
+    H → class_mode. J/T → scoring_method. U → name-only, marked
+    unconfigured UNLESS col[2] is a jumper-shape method code, in
+    which case capture scoring_method (class_type stays U — honest
+    to the file).
+  - GET /v3/listClasses — returns classes with ring_num + entry_count
+    via subquery.
+  - Admin Classes section: master-detail with Ring → Day grouping,
+    type badges (H/J/T/U color-coded), method labels.
+
+PHASE 2b+ — scoring_modifier + shared format module
+  - Migration 003: classes.scoring_modifier INTEGER.
+  - Method-scoped interpretation: method 6 mod 1 = 2-round variant,
+    method 7 mod 1 = Scored (vs 0 = Forced).
+  - v3/js/west-format.js FIRST REAL SHARED MODULE populated:
+    methodLabel(), modifierLabel(), scheduleFlagLabel(), date(),
+    dateWithDay(). Dual-env IIFE (browser window.WEST + Node
+    CommonJS export).
+  - Admin renders method+modifier as plain English ("II.2b ·
+    Immediate JO", "Timed Equitation · Scored", "IV.1 Optimum ·
+    1-round") — not raw codes.
+  - Class list sort dropdown (by day / number / name), persisted
+    to localStorage.
+
+PHASE 2c — entries parsing + admin drill-down
+  - Migration 004: entries table (class_id FK, entry_num, horse,
+    rider, owner, USEF nums, city, state, raw_row, timestamps).
+    UNIQUE(class_id, entry_num).
+  - parseClsEntriesV3 — identity-only (cols 0-12, shared across
+    H/J/T). Skips @metadata rows. Validates entry_num.
+  - Lens rule (Bill's call): parse entries when lens is known.
+    H/J/T always. U WITH inferred method → jumper lens. Bare U
+    skipped silently.
+  - GET /v3/listEntries?class_id=N
+  - Admin class rows are click-to-expand → entry table (horse,
+    rider, owner, USEF, city/state).
+  - Per-class stale-entry cleanup: on re-POST, entries not in the
+    current .cls get deleted (operator-removed entries disappear).
+
+PHASE 2c.5 — tsked parsing + day-grouping
+  - Migration 005: classes.scheduled_date TEXT, classes.schedule_flag
+    TEXT.
+  - POST /v3/postTsked — archives raw to R2 at {slug}/tsked.csv,
+    parses rows, UPDATE-only (never creates classes — .cls POST is
+    authority). Normalizes M/D/YYYY → ISO YYYY-MM-DD.
+  - Clear-stale: classes previously scheduled but no longer in tsked
+    have scheduled_date + schedule_flag nulled (they fall to
+    "Unscheduled" bucket in admin — no data loss).
+  - Engine watches C:\Ryegate\Jumper\tsked.csv with SHA-256
+    content-hash check (Session 25 "Upload Results mtime no-op touch"
+    fix).
+  - Admin: two-level grouping Ring → Day → Classes with "Fri
+    MM/DD/YYYY" day headers. "Unscheduled" bucket at bottom of each
+    ring.
+  - Schedule-flag badge rendered next to class name (S=Scored green,
+    JO=JO-posted blue, L=Live amber).
+
+PHASE 2c.6 — soft-delete tracking + download + hard-delete
+  - Migration 006: classes.deleted_at TEXT.
+  - Engine: unified scheduleClsEvent(). On fs.watch fire, check if
+    file exists → POST or DELETE accordingly. Rapid delete+restore
+    sequences collapse correctly via debounce.
+  - POST /v3/deleteCls — sets deleted_at on matching class. Guarded
+    WHERE deleted_at IS NULL (idempotent).
+  - POST /v3/postCls now clears deleted_at on re-POST. Drop the file
+    back → class auto-undeletes.
+  - GET /v3/downloadCls?slug=X&ring=N&class=C — streams raw R2 bytes
+    back as a file download. Admin fetches via JS + Blob + anchor
+    click so auth stays private.
+  - POST /v3/hardDeleteCls — deletes entries + class row + R2 object.
+    Two-step safety: only works if class is already soft-deleted
+    (returns 409 otherwise).
+  - Admin "Deleted from Ryegate" section at the bottom of Classes.
+    Rows: strikethrough name, [⬇ Download] + [🗑 Delete Forever]
+    buttons. Confirm dialog before hard-delete.
+  - Smoke-tested full round-trip: create 999.cls → upload → delete
+    file → soft-delete triggered → restore file → auto-undelete.
+    Hard-delete also verified.
+
+PHASE 2c.7 — v2 show fields + unified Add/Edit dialogs
+  - Migration 007: shows.venue, shows.location, shows.status
+    ('pending'|'active'|'complete'|'archived' default pending),
+    shows.stats_eligible (0/1 default 1).
+  - Skipped from v2: dates (text) — derived from start/end;
+    rings_count — rings table is source of truth.
+  - Unified #dlgShow dialog (replaced separate create dialog).
+    openShowDialog('create'|'edit', show?) toggles title, submit
+    label, slug read-only state.
+  - Slug is IMMUTABLE on edit (explicitly locked per Bill's rule:
+    "slug rename introduces errors i don't like"). Rename-flow
+    captured in memory as permanently out-of-scope.
+  - Show header displays: slug, dates, venue, location, status,
+    stats-eligible (wrapping enabled).
+  - Delete show button added as DISABLED placeholder — wiring
+    deferred to a later day per Bill.
+  - Auto-promotion: POST /v3/engineHeartbeat flips shows.status from
+    'pending' → 'active' on first heartbeat. Idempotent (WHERE
+    status='pending'), never demotes. Operator-set status (complete,
+    archived) stays sticky.
+  - Admin sidebar now groups by STATUS field, not by dates (fixes
+    the "sidebar says Active but detail says Pending" mismatch).
+    Date-based grouping stays on public index — different audience.
+
+PHASE 2c.8 — ring rename via unified dialog
+  - POST /v3/updateRing — edits name + sort_order. ring_num immutable
+    (same rule as slug).
+  - Unified #dlgRing dialog (replaced separate create dialog).
+    openRingDialog('create'|'edit', ring?) — matches Show dialog
+    pattern for UX consistency.
+  - Ring row has "Edit" button (event-delegated via ul.onclick).
+  - Auto-create Ring 1 on show creation — every show needs at least
+    one ring for engine connection. Matches v2 behavior.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL RULES LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. SLUG RENAME PERMANENTLY OUT OF SCOPE. Bill: "slug rename introduces
+   errors i don't like." Future "migrate show to new slug" operation
+   is theoretically possible (clone + transfer R2 + class links + old
+   delete) but not planned. /v3/updateShow does not accept slug.
+
+2. RING_NUM IMMUTABLE on existing rings — same rationale as slug.
+
+3. ADMIN MIRRORS RYEGATE FOLDER. Classes that are soft-deleted
+   stay visible in admin's "Deleted from Ryegate" section with
+   ⬇ Download + 🗑 Delete Forever actions. No silent data loss.
+
+4. PUBLIC-FACING vs ADMIN-FACING GROUPING DIFFER.
+   - Admin sidebar: status-driven (Active = status='active' etc.)
+   - Public index: date-driven (Happening now = today between start/end)
+   Operator cares about "what state did I set"; spectator cares about
+   "what's happening today". Different audiences, different models.
+
+5. SHOW STATUS AUTO-LIFECYCLE.
+   - pending (default on create)
+   - heartbeat arrives → worker auto-flips pending → active
+   - Manual changes to complete / archived are sticky — engine
+     activity doesn't demote.
+
+6. OPTION B R2 ARCHIVE: one .cls per class, overwrite-in-place. No
+   versioned history. Raw tsked also overwrite-in-place. History
+   snapshots can be added later if needed.
+
+7. UNIFIED DIALOG PATTERN FOR ADD/EDIT. Shows and Rings both use one
+   dialog each with mode toggle ('create' | 'edit'). Primary key
+   locked in edit mode. Consistent UX, one code path per entity.
+
+8. FLAG CENTRALIZATION: all method/mode/modifier/schedule-flag labels
+   live in v3/js/west-format.js. Admin pulls via WEST.format.* —
+   hunter modes are currently empty map {} (Bill hasn't audited
+   Ryegate settings yet) and fall back to "Hunter classMode N".
+
+9. ENTRY COLUMN MAP IS INLINE IN WORKER (Phase 2c). Not yet in
+   west-rules.js because only one consumer (worker). Extract when
+   a second parser needs it.
+
+10. ENGINE NEVER POSTS DUPLICATE CONTENT for tsked.csv. SHA-256
+    content-hash check before POST. Session 25's "Upload Results
+    no-op mtime-touch" trap avoided.
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare:
+  - Worker version: latest (many deploys this session, clean)
+  - V3_ENABLED = "true"
+  - WEST_DB_V3 — 4 tables (shows, rings, classes, entries), 5
+    migrations applied cleanly (002-006 today, 007 too)
+  - WEST_R2_CLS (bucket v3-cls) — 71+ class .cls files + 1
+    tsked.csv archived
+  - KV WEST_LIVE: engine:{slug}:{ring}, cls-last:{slug}:{ring},
+    tsked-last:{slug}
+
+D1 data:
+  - Shows: 1 (v3-smoke-test-2026-04, status=active)
+  - Rings: 1 (Ring 1)
+  - Classes: 71 active (+ some soft-deleted test artifacts if any
+    still present)
+    - By type: 16 H, 51 T, 4 U (1 with inferred method 7)
+    - Scheduled: 66 (over Devon Fall 2025 + April 2026 dates)
+    - Flagged Scored (S): 15
+  - Entries: 564+
+  - Parse errors: 0 across all parsed classes
+
+Local (Bill's dev machine):
+  - Engine at C:\west-engine\WestEngine.exe — running
+  - Config at c:\west\v3\config.json
+  - Log at c:\west\v3\engine_log.txt
+  - tsked watcher active, hash-cached to avoid no-op re-posts
+
+Git:
+  - main branch, clean working tree at EOS
+  - ~50+ commits this session, all tight and scoped
+  - v2.11.0-pre-rebuild tag still intact (rewind point unchanged)
+
+═══════════════════════════════════════════════════════════════════════════
+PHASE 2 STATUS BOARD
+═══════════════════════════════════════════════════════════════════════════
+
+[✓] 2a   engine → R2 archive
+[✓] 2b   parse .cls header → classes table
+[✓] 2b+  scoring_modifier + west-format.js
+[✓] 2c   parse entries → admin drill-down
+[✓] 2c.5 tsked parsing + day grouping
+[✓] 2c.6 soft-delete + download + hard-delete
+[✓] 2c.7 v2 show fields + unified Add/Edit Show dialog + auto-promote
+[✓] 2c.8 ring rename via unified dialog + auto Ring 1
+[ ] 2d   SCORING PARSING (times, faults, placings per round)
+         — per-lens columns, Article 1 complexity peak
+         — hunter: status cols 52/53/54 (text), 46/47/48 (numeric)
+         — jumper J/T: R1Time=15, R1Faults=16, R1Total=17,
+           status tail-scan cols 36-39 or 21/28/35 numeric (J),
+           cols 82/83 status for T
+         — scoring_modifier semantics per method
+         — est: 1.5-2 hours focused work
+[ ] 2e   PUBLIC RESULTS PAGE — pure formatted view (Addendum C)
+         — thin page, leverages west-format.js + Phase 2d data
+         — est: 1 hour
+
+═══════════════════════════════════════════════════════════════════════════
+OPEN ITEMS DEFERRED (don't let these get lost)
+═══════════════════════════════════════════════════════════════════════════
+
+1. Hunter classMode labels (HUNTER_MODES {}). Bill: "I'll have to go
+   through the settings again." Edit v3/js/west-format.js
+   HUNTER_MODES object when names are known — one-line-per-mode fix.
+2. Delete Show button wiring (placeholder exists, disabled). Same
+   two-step safety pattern as hard-delete class: require specific
+   preconditions first. "Wire at a different day" — Bill.
+3. Live-detection gate (Session 29's "biggest hole"). tsked data is
+   now flowing, so this is closer to solvable. 8 open questions
+   captured in docs/v3-planning/CLASS-DETECTION-SCHEMAS.md §6.1.2.
+4. Rename-slug migration (theoretical future). Currently out of
+   scope; permanently captured in memory.
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION (summary)
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  v3/migrations/002_classes.sql
+  v3/migrations/003_classes_add_modifier.sql
+  v3/migrations/004_entries.sql
+  v3/migrations/005_classes_schedule.sql
+  v3/migrations/006_classes_deleted_at.sql
+  v3/migrations/007_shows_v2_fields.sql
+  v3/pages/west.css (extracted from inline <style> blocks)
+  session-notes/SESSION-NOTES-31.txt (this file)
+
+HEAVILY MODIFIED:
+  west-worker.js       — ~12 new endpoints + parser functions
+  v3/js/west-format.js — first real shared module, populated
+  v3/pages/admin.html  — master-detail shell evolved into full CRUD
+  v3/pages/index.html  — logo assets, no-cache metas
+  v3/engine/main.js    — .cls watcher, tsked watcher, delete
+                          detection, hash-cache
+
+UNCHANGED (v2):
+  admin.html, index.html, live.html, display.html, stats.html,
+  results.html, west-watcher.js, display-config.js (root-level
+  v2 production, all untouched per locked rule)
+
+═══════════════════════════════════════════════════════════════════════════
+COMMIT TRAIL (selected milestones)
+═══════════════════════════════════════════════════════════════════════════
+
+Too many to list individually. Git log will show the sequence.
+Notable ones:
+  - e138015  true-U test fixtures
+  - e9c4e8e  R2 bucket + /v3/postCls
+  - e4e151b  Phase 2b backend
+  - 4376211  Phase 2b admin UI
+  - 5c23ca2  parser extracts method from col[2] for U classes
+  - 963eb0c  Phase 2c entries + admin drill-down
+  - 5dcb513  Phase 2c.5 tsked + day grouping
+  - b7f60e6  Phase 2c.6 soft-delete + download
+  - b77ddf3  permanent delete button
+  - 93f7739  unified Add/Edit Show dialog + v2 fields
+  - 100a64d  show status auto-promote on heartbeat
+  - 9624407  sidebar groups by status not dates
+  - ea68c99  ring rename (inline — superseded)
+  - 593e28a  unified Add/Edit Ring dialog (replaced inline)
+  - 3a6f55e  auto-create Ring 1 on show create
+  - 25fd1b8  ring Edit button wired
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT SESSION — SUGGESTED OPENING MOVE
+═══════════════════════════════════════════════════════════════════════════
+
+Start Phase 2d (scoring parsing). It's the biggest remaining parser
+surface and where Article 1 really matters. Recommended approach:
+
+1. Migration 008: add scoring columns to entries table
+   (r1_time, r1_faults, r1_total, r1_status, r2_*, r3_*, rank).
+2. Worker: add parseEntriesScoreH (hunter lens) and parseEntriesScoreJ
+   (jumper lens; J and T share identity cols but T has round-
+   timestamp blocks that J lacks). Keep H and J/T parsers as
+   SEPARATE functions — never a single function with lens-branch
+   conditionals (invites Article 1 violations).
+3. Call the right parser from /v3/postCls based on class_type.
+   U-with-inferred-method uses jumper scorer. Pure U skips.
+4. Expose score columns via /v3/listEntries.
+5. Admin entry-drill-down table adds round columns.
+
+Test against real data — 71 .cls Bill already has covers many of the
+column-position edge cases. Particularly check:
+  - Farmtek (J) classes that use cols 36-39 status tail-scan
+  - TOD (T) classes with cols 82/83 status
+  - Hunter multi-judge classes
+  - Method 9 (II.2d) two-phase ladder rows — phase totals
+  - Timed Eq method 7 — rider-primary rendering concern (deferred
+    to 2e)
+
+After 2d passes: Phase 2e — public results page (thin view).
+After 2e: Phase 2 complete. Phase 3 territory (UDP, live pages,
+DO WebSocket, stats rollups) — entirely new work, separate planning
+session.
+
+═══════════════════════════════════════════════════════════════════════════
+REMINDERS FOR FUTURE CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- v2 is UNTOUCHED and still serving v2 shows through April/May 2026.
+  Never modify root-level HTML/JS/worker files without explicit ask.
+- Article 1: classType at col[0] of .cls is THE LENS. Hunter and
+  jumper column meanings are NEVER interchangeable.
+- Scope discipline: capture ideas in one place, don't cascade.
+- Centralize when a SECOND consumer exists, not before.
+- Auto-promotion only goes UP (pending → active), never down.
+  Manual status is always sticky.
+- Slug and ring_num are immutable on existing rows. No rename flows.
+- Admin is a COMPLETE mirror of Ryegate's folder state. Deleted
+  classes stay visible (in their own section) with restore actions.
+- west-format.js is the one place for display labels. Adding a new
+  mode/flag/method = edit one file, all pages pick it up.
