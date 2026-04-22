@@ -97,6 +97,7 @@
           <span>Type</span>
           <span>Name</span>
           <span>Score Method (from Ryegate)</span>
+          <span>Entries</span>
         </div>
         <div id="classGroups"></div>
         <div class="placeholder" id="classEmpty" hidden>No classes yet — they'll appear here as the engine uploads .cls files.</div>
@@ -171,6 +172,8 @@ const state = {
   selectedSlug: localStorage.getItem(SELECTED_SHOW_KEY) || null,
   rings: [],
   classes: [],
+  expandedClassId: null,     // DB id of the class whose entries are expanded
+  entriesByClassId: {},      // cache of entries keyed by class DB id
 };
 
 // ── fetch helpers ────────────────────────────────────────────────────
@@ -297,6 +300,30 @@ async function loadClasses(slug) {
   }
 }
 
+async function loadEntries(classDbId) {
+  try {
+    const { entries } = await api('GET', `/v3/listEntries?class_id=${classDbId}`);
+    state.entriesByClassId[classDbId] = entries;
+    renderClasses();
+  } catch (e) {
+    toast('Failed to load entries: ' + e.message, 'error');
+  }
+}
+
+async function toggleClassExpand(classDbId) {
+  if (state.expandedClassId === classDbId) {
+    state.expandedClassId = null;
+    renderClasses();
+    return;
+  }
+  state.expandedClassId = classDbId;
+  if (!state.entriesByClassId[classDbId]) {
+    await loadEntries(classDbId);
+  } else {
+    renderClasses();
+  }
+}
+
 function renderClasses() {
   const host = document.getElementById('classGroups');
   const empty = document.getElementById('classEmpty');
@@ -336,16 +363,63 @@ function renderClasses() {
         methodStr = c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
       }
       const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
-      html += `<li class="class-row${statusClass}">
-        <span class="class-id">${escapeHtml(c.class_id)}</span>
-        <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
-        <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
-        <span class="class-method">${escapeHtml(methodStr)}</span>
-      </li>`;
+      const expanded = state.expandedClassId === c.id;
+      const entryCount = c.entry_count ?? 0;
+      const countBadge = entryCount > 0
+        ? `<span class="class-count" data-class-db-id="${c.id}">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span>`
+        : '<span class="class-count class-count-empty">no entries</span>';
+      html += `<li class="class-row-wrap${expanded ? ' expanded' : ''}">
+        <div class="class-row${statusClass}" data-class-db-id="${c.id}">
+          <span class="class-id">${escapeHtml(c.class_id)}</span>
+          <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
+          <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
+          <span class="class-method">${escapeHtml(methodStr)}</span>
+          ${countBadge}
+        </div>`;
+      if (expanded) {
+        html += renderEntries(c.id);
+      }
+      html += `</li>`;
     }
     html += `</ul></div>`;
   }
   host.innerHTML = html;
+  // Wire click handlers on class rows to expand/collapse entries
+  host.querySelectorAll('.class-row[data-class-db-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = parseInt(el.dataset.classDbId, 10);
+      if (Number.isFinite(id)) toggleClassExpand(id);
+    });
+  });
+}
+
+function renderEntries(classDbId) {
+  const entries = state.entriesByClassId[classDbId];
+  if (entries === undefined) {
+    return '<div class="entries-loading">Loading entries…</div>';
+  }
+  if (!entries.length) {
+    return '<div class="entries-empty">No entries parsed for this class.</div>';
+  }
+  let h = '<table class="entries-table"><thead><tr>'
+    + '<th>#</th><th>Horse</th><th>Rider</th><th>Owner</th>'
+    + '<th>USEF · H/R/O</th><th>City, ST</th>'
+    + '</tr></thead><tbody>';
+  for (const e of entries) {
+    const usefCombined = [e.horse_usef, e.rider_usef, e.owner_usef]
+      .map(v => v || '—').join(' · ');
+    const loc = [e.city, e.state].filter(Boolean).join(', ') || '—';
+    h += `<tr>
+      <td class="entry-num">${escapeHtml(e.entry_num)}</td>
+      <td>${escapeHtml(e.horse_name || '—')}</td>
+      <td>${escapeHtml(e.rider_name || '—')}</td>
+      <td>${escapeHtml(e.owner_name || '—')}</td>
+      <td class="entry-usef">${escapeHtml(usefCombined)}</td>
+      <td>${escapeHtml(loc)}</td>
+    </tr>`;
+  }
+  h += '</tbody></table>';
+  return h;
 }
 
 function renderRings() {

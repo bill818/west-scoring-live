@@ -66,6 +66,40 @@ function parseCsvLineV3(line) {
   return out;
 }
 
+// Phase 2c: parse entry rows. Called after header parse decides which lens
+// to use. Identity cols 0-12 are shared across H/J/T/U-inferred. Scoring
+// cols diverge by lens — left for Phase 2d.
+function parseClsEntriesV3(text, lensKnown) {
+  if (!lensKnown) return { entries: [], status: 'skipped: no lens' };
+  const lines = text.split(/\r?\n/);
+  const entries = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    // Skip rows that start with '@' (e.g., "@foot,Trophie Line" seen in
+    // some hunter .cls files — Ryegate metadata, not an entry).
+    if (line.startsWith('@')) continue;
+    const cols = parseCsvLineV3(line);
+    if (!cols[0] || !cols[0].trim()) continue;
+    // entry_num must look reasonable — alphanumeric short string
+    const entryNum = cols[0].trim();
+    if (!/^[A-Za-z0-9_-]{1,16}$/.test(entryNum)) continue;
+    entries.push({
+      entry_num: entryNum,
+      horse_name: (cols[1] || '').trim() || null,
+      rider_name: (cols[2] || '').trim() || null,
+      owner_name: (cols[5] || '').trim() || null,
+      city:       (cols[8] || '').trim() || null,
+      state:      (cols[9] || '').trim() || null,
+      horse_usef: (cols[10] || '').trim() || null,
+      rider_usef: (cols[11] || '').trim() || null,
+      owner_usef: (cols[12] || '').trim() || null,
+      raw_row:    line,
+    });
+  }
+  return { entries, status: `parsed: ${entries.length} entries` };
+}
+
 function parseClsHeaderV3(bytes) {
   // bytes = ArrayBuffer. Returns {class_type, class_name, scoring_method?,
   //  class_mode?, parse_status, parse_notes}.
@@ -1837,6 +1871,7 @@ export default {
       let parsed;
       try { parsed = parseClsHeaderV3(bytes); }
       catch (e) { parsed = { class_type: 'U', class_name: null, parse_status: 'parse_error', parse_notes: 'parser threw: ' + e.message }; }
+      let classDbId = null;
       try {
         await env.WEST_DB_V3.prepare(`
           INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
@@ -1865,14 +1900,75 @@ export default {
           parsed.parse_notes || null,
           r2Key,
         ).run();
+        const row = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM classes WHERE show_id = ? AND ring_id = ? AND class_id = ?'
+        ).bind(showId, ringId, classId).first();
+        classDbId = row ? row.id : null;
       } catch (e) {
         console.log(`[v3/postCls] classes upsert failed for ${slug}/${ringNum}/${classId}: ${e.message}`);
         // Don't fail the POST — archive already succeeded.
+      }
+
+      // Phase 2c: parse + upsert entries. Skipped for U classes with no
+      // method inferred (no lens to apply).
+      let entriesStatus = 'not attempted';
+      if (classDbId) {
+        const lensKnown =
+          parsed.class_type === 'H' ||
+          parsed.class_type === 'J' ||
+          parsed.class_type === 'T' ||
+          (parsed.class_type === 'U' && parsed.scoring_method !== null && parsed.scoring_method !== undefined);
+        try {
+          const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+          const entryParse = parseClsEntriesV3(text, lensKnown);
+          entriesStatus = entryParse.status;
+          const currentNums = entryParse.entries.map(e => e.entry_num);
+          // Delete stale entries (removed by operator since last parse)
+          if (lensKnown) {
+            if (currentNums.length > 0) {
+              const placeholders = currentNums.map(() => '?').join(',');
+              await env.WEST_DB_V3.prepare(
+                `DELETE FROM entries WHERE class_id = ? AND entry_num NOT IN (${placeholders})`
+              ).bind(classDbId, ...currentNums).run();
+            } else {
+              await env.WEST_DB_V3.prepare(
+                'DELETE FROM entries WHERE class_id = ?'
+              ).bind(classDbId).run();
+            }
+            // Upsert each current entry
+            for (const e of entryParse.entries) {
+              await env.WEST_DB_V3.prepare(`
+                INSERT INTO entries (class_id, entry_num, horse_name, rider_name, owner_name,
+                                      horse_usef, rider_usef, owner_usef, city, state,
+                                      raw_row, first_seen_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(class_id, entry_num) DO UPDATE SET
+                  horse_name  = excluded.horse_name,
+                  rider_name  = excluded.rider_name,
+                  owner_name  = excluded.owner_name,
+                  horse_usef  = excluded.horse_usef,
+                  rider_usef  = excluded.rider_usef,
+                  owner_usef  = excluded.owner_usef,
+                  city        = excluded.city,
+                  state       = excluded.state,
+                  raw_row     = excluded.raw_row,
+                  updated_at  = datetime('now')
+              `).bind(
+                classDbId, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
+                e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state, e.raw_row
+              ).run();
+            }
+          }
+        } catch (e) {
+          console.log(`[v3/postCls] entries upsert failed for ${slug}/${ringNum}/${classId}: ${e.message}`);
+          entriesStatus = 'error: ' + e.message;
+        }
       }
       return json({ ok: true, r2_key: r2Key, size, received_at, parsed: {
         class_type: parsed.class_type,
         class_name: parsed.class_name,
         parse_status: parsed.parse_status,
+        entries_status: entriesStatus,
       }});
     }
 
@@ -1899,14 +1995,40 @@ export default {
             'SELECT id FROM rings WHERE show_id = ? AND ring_num = ?'
           ).bind(show.id, ringNum).first();
           if (!ring) return err('Ring not found', 404);
-          query = `SELECT c.*, ? AS ring_num FROM classes c WHERE c.ring_id = ? ORDER BY c.class_id`;
+          query = `SELECT c.*, ? AS ring_num,
+                   (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
+                   FROM classes c WHERE c.ring_id = ? ORDER BY c.class_id`;
           params = [ringNum, ring.id];
         } else {
-          query = `SELECT c.*, r.ring_num FROM classes c JOIN rings r ON r.id = c.ring_id WHERE c.show_id = ? ORDER BY r.ring_num, c.class_id`;
+          query = `SELECT c.*, r.ring_num,
+                   (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
+                   FROM classes c JOIN rings r ON r.id = c.ring_id
+                   WHERE c.show_id = ? ORDER BY r.ring_num, c.class_id`;
           params = [show.id];
         }
         const { results } = await env.WEST_DB_V3.prepare(query).bind(...params).all();
         return json({ ok: true, classes: results || [] });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── GET /v3/listEntries?class_id=N ───────────────────────────────────────
+    // Returns all entries for a given class (by D1 PK id). Used by admin
+    // when an operator expands a class row to view the entry roster.
+    if (method === 'GET' && path === '/v3/listEntries') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const classIdStr = url.searchParams.get('class_id');
+      if (!classIdStr) return err('Missing class_id');
+      const classDbId = parseInt(classIdStr, 10);
+      if (!Number.isFinite(classDbId)) return err('Invalid class_id');
+      try {
+        const { results } = await env.WEST_DB_V3.prepare(
+          `SELECT id, entry_num, horse_name, rider_name, owner_name,
+                  horse_usef, rider_usef, owner_usef, city, state,
+                  first_seen_at, updated_at
+           FROM entries WHERE class_id = ? ORDER BY entry_num`
+        ).bind(classDbId).all();
+        return json({ ok: true, entries: results || [] });
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
