@@ -88,7 +88,22 @@ function parseClsHeaderV3(bytes) {
   }
 
   if (rawType === 'U') {
-    // Article 1: U = no lens yet. Do NOT assume method from name text.
+    // Article 1: U = hardware type not committed. Per locked v3 principle
+    // "parse everything readable regardless of classType", we still read
+    // col[2] as a potential scoring method when it's jumper-shaped (0-15).
+    // class_type stays U (honest to the file); scoring_method captures
+    // the lens hint so the class isn't mis-labeled "unconfigured" when
+    // it actually has a method code operator-entered.
+    const methodMaybe = parseInt(cols[2], 10);
+    if (Number.isFinite(methodMaybe) && methodMaybe >= 0 && methodMaybe <= 15) {
+      return {
+        class_type: 'U',
+        class_name: className,
+        scoring_method: methodMaybe,
+        parse_status: 'parsed',
+        parse_notes: 'U hardware-type, jumper-shape method inferred from col[2]',
+      };
+    }
     return {
       class_type: 'U',
       class_name: className,
