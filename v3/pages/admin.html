@@ -388,12 +388,12 @@ function renderClasses() {
       ? `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`
       : 'no entries';
     const countCls = entryCount > 0 ? 'class-count' : 'class-count class-count-empty';
-    const countBadge = `<span class="class-count-cell">${flagBadge}<span class="${countCls}">${countText}</span></span>`;
+    const countBadge = `<span class="${countCls}">${countText}</span>`;
     let rowHtml = `<li class="class-row-wrap${expanded ? ' expanded' : ''}">
       <div class="class-row${statusClass}" data-class-db-id="${c.id}">
         <span class="class-id">${escapeHtml(c.class_id)}</span>
         <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
-        <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
+        <span class="class-name-cell"><span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>${flagBadge}</span>
         <span class="class-method">${escapeHtml(methodStr)}</span>
         ${countBadge}
       </div>`;

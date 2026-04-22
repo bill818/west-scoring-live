@@ -146,9 +146,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .class-type-j{background:var(--green-bg);color:var(--green);}
 .class-type-t{background:var(--amber-bg);color:var(--amber);}
 .class-type-u{background:var(--off-white);color:var(--text-muted);}
+.class-name-cell{display:flex;align-items:center;gap:8px;overflow:hidden;}
 .class-name{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .class-method{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
-.class-count-cell{display:flex;align-items:center;gap:6px;justify-content:flex-end;}
 .class-count{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);text-align:right;}
 .class-count.class-count-empty{color:var(--text-muted);opacity:.5;}
 .schedule-flag{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.04em;padding:1px 6px;border-radius:3px;text-transform:uppercase;}
