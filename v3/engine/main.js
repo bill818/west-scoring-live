@@ -123,9 +123,7 @@ async function postClsFile(filename) {
     lastClsPostAt = Date.now();
     lastClsPostFile = filename;
     lastClsPostError = null;
-    if (clsPostCount <= 5 || clsPostCount % 20 === 0) {
-      log(`CLS POST OK ${filename} (${bytes.length} bytes) — total ${clsPostCount}/${clsPostCount + clsPostFailCount}`);
-    }
+    log(`CLS POST OK ${filename} (${bytes.length} bytes) — total ${clsPostCount}/${clsPostCount + clsPostFailCount}`);
   } catch (e) {
     clsPostFailCount++;
     lastClsPostError = e.message;
