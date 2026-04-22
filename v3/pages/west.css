@@ -140,6 +140,12 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .class-row-wrap.expanded .class-row{background:transparent;}
 .class-row.class-dim{opacity:.6;}
 .class-row.class-error{background:#fef3f3;}
+.class-row.class-deleted{opacity:.55;cursor:default;}
+.class-row.class-deleted .class-name{text-decoration:line-through;}
+.class-group-deleted{margin-top:20px;border-top:1px dashed var(--border);padding-top:8px;}
+.class-group-header-deleted{color:var(--red);}
+.btn-download-cls{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:4px;cursor:pointer;text-align:right;}
+.btn-download-cls:hover{background:var(--blue-bg);}
 .class-id{font-family:'DM Mono',monospace;font-weight:600;color:var(--text-body);}
 .class-type-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;}
 .class-type-h{background:var(--blue-bg);color:var(--blue);}

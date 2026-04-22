@@ -141,17 +141,55 @@ async function postClsFile(filename) {
   }
 }
 
-function scheduleClsPost(filename) {
-  // Debounce: coalesce multiple fs.watch events for the same file within
-  // CLS_DEBOUNCE_MS into one POST with the latest bytes. Guards against
-  // Ryegate's atomic-write pattern firing 3-5 fs.watch events per save.
+async function deleteClsOnWorker(filename) {
+  if (!config) return;
+  const classId = classIdFromFilename(filename);
+  if (!classId) return;
+  try {
+    const res = await fetch(`${config.workerUrl}/v3/deleteCls`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-West-Key': config.authKey,
+      },
+      body: JSON.stringify({
+        slug: config.showSlug,
+        ring_num: config.ringNum,
+        class_id: classId,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    log(`CLS DELETE OK ${filename} — worker marked deleted`);
+  } catch (e) {
+    log(`[CLS DELETE FAIL] ${filename}: ${e.message}`);
+  }
+}
+
+function scheduleClsEvent(filename) {
+  // Debounce. When timer fires, check if file currently exists:
+  //   exists → POST as usual
+  //   missing → POST /v3/deleteCls (soft-delete)
+  // This unifies add/change/delete through the same debounce so rapid
+  // delete-then-restore sequences collapse correctly.
   const existing = clsDebounceTimers.get(filename);
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
     clsDebounceTimers.delete(filename);
-    postClsFile(filename).catch(e => log(`[CLS POST UNCAUGHT] ${filename}: ${e.message}`));
+    const clsDir = config && (config.clsDir || DEFAULT_CLS_DIR);
+    const full = clsDir ? path.join(clsDir, filename) : null;
+    const exists = full ? fs.existsSync(full) : false;
+    if (exists) {
+      postClsFile(filename).catch(e => log(`[CLS POST UNCAUGHT] ${filename}: ${e.message}`));
+    } else {
+      deleteClsOnWorker(filename).catch(e => log(`[CLS DELETE UNCAUGHT] ${filename}: ${e.message}`));
+    }
   }, CLS_DEBOUNCE_MS);
   clsDebounceTimers.set(filename, timer);
+}
+
+function scheduleClsPost(filename) {
+  scheduleClsEvent(filename);
 }
 
 async function syncAllCls() {
@@ -259,7 +297,7 @@ function startClsWatcher() {
     clsWatcher = fs.watch(clsDir, { persistent: true }, (eventType, filename) => {
       if (!filename) return;
       if (!classIdFromFilename(filename)) return;
-      scheduleClsPost(filename);
+      scheduleClsEvent(filename);
     });
     clsWatcher.on('error', err => log(`[CLS WATCHER ERROR] ${err.message}`));
     log(`CLS watcher started on ${clsDir}`);

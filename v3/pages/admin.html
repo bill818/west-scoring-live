@@ -335,7 +335,11 @@ function renderClasses() {
   const host = document.getElementById('classGroups');
   const empty = document.getElementById('classEmpty');
   const search = document.getElementById('classSearch').value.trim().toLowerCase();
-  const filtered = state.classes.filter(c => {
+  // Split: active classes go through the normal grouping; deleted go
+  // into a separate "Deleted" section at the bottom.
+  const active  = state.classes.filter(c => !c.deleted_at);
+  const deleted = state.classes.filter(c => c.deleted_at);
+  const filtered = active.filter(c => {
     if (!search) return true;
     return (c.class_id || '').toLowerCase().includes(search)
         || (c.class_name || '').toLowerCase().includes(search)
@@ -436,14 +440,74 @@ function renderClasses() {
     }
     html += `</div>`;
   }
+  // Deleted section at the bottom (always visible when any deletions exist)
+  if (deleted.length > 0) {
+    const deletedFiltered = deleted.filter(c => {
+      if (!search) return true;
+      return (c.class_id || '').toLowerCase().includes(search)
+          || (c.class_name || '').toLowerCase().includes(search);
+    });
+    if (deletedFiltered.length > 0) {
+      html += `<div class="class-group class-group-deleted"><div class="class-group-header class-group-header-deleted">Deleted from Ryegate <span class="class-group-count">(${deletedFiltered.length})</span></div><ul class="class-list">`;
+      for (const c of deletedFiltered) {
+        html += renderDeletedClassRow(c);
+      }
+      html += `</ul></div>`;
+    }
+  }
   host.innerHTML = html;
   // Wire click handlers on class rows to expand/collapse entries
-  host.querySelectorAll('.class-row[data-class-db-id]').forEach(el => {
+  host.querySelectorAll('.class-row[data-class-db-id]:not(.class-deleted)').forEach(el => {
     el.addEventListener('click', () => {
       const id = parseInt(el.dataset.classDbId, 10);
       if (Number.isFinite(id)) toggleClassExpand(id);
     });
   });
+  // Wire download buttons on deleted rows
+  host.querySelectorAll('.btn-download-cls').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      downloadCls(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId);
+    });
+  });
+}
+
+function renderDeletedClassRow(c) {
+  const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
+  const deletedWhen = (c.deleted_at || '').replace('T', ' ').slice(0, 19);
+  return `<li class="class-row-wrap">
+    <div class="class-row class-deleted" data-class-db-id="${c.id}">
+      <span class="class-id">${escapeHtml(c.class_id)}</span>
+      <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
+      <span class="class-name-cell"><span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span></span>
+      <span class="class-method">deleted ${escapeHtml(deletedWhen)} UTC</span>
+      <button class="btn-download-cls" data-slug="${escapeHtml(state.selectedSlug || '')}" data-ring="${escapeHtml(String(c.ring_num))}" data-class-id="${escapeHtml(c.class_id)}" title="Download archived .cls from R2">⬇ Download</button>
+    </div>
+  </li>`;
+}
+
+async function downloadCls(slug, ring, classId) {
+  try {
+    const res = await fetch(
+      `${BASE}/v3/downloadCls?slug=${encodeURIComponent(slug)}&ring=${encodeURIComponent(ring)}&class=${encodeURIComponent(classId)}`,
+      { headers: { 'X-West-Key': AUTH } }
+    );
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${classId}.cls`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    toast(`Downloaded ${classId}.cls — drop it in C:\\Ryegate\\Jumper\\Classes to restore`, 'success');
+  } catch (e) {
+    toast('Download failed: ' + e.message, 'error');
+  }
 }
 
 function renderEntries(classDbId) {

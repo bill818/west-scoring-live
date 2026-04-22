@@ -1888,7 +1888,8 @@ export default {
             parse_status     = excluded.parse_status,
             parse_notes      = excluded.parse_notes,
             r2_key           = excluded.r2_key,
-            parsed_at        = datetime('now')
+            parsed_at        = datetime('now'),
+            deleted_at       = NULL
         `).bind(
           showId, ringId, classId,
           parsed.class_name || null,
@@ -2011,6 +2012,62 @@ export default {
         const { results } = await env.WEST_DB_V3.prepare(query).bind(...params).all();
         return json({ ok: true, classes: results || [] });
       } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/deleteCls ───────────────────────────────────────────────────
+    // Engine detected a .cls file was removed from Ryegate's Classes folder.
+    // Soft-delete: set deleted_at, keep row + R2 archive intact. If the file
+    // ever reappears via /v3/postCls, deleted_at clears automatically.
+    if (method === 'POST' && path === '/v3/deleteCls') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, ring_num, class_id } = body;
+      if (!slug) return err('Missing slug');
+      if (ring_num === undefined || ring_num === null) return err('Missing ring_num');
+      if (!class_id) return err('Missing class_id');
+      const ringNumInt = parseInt(ring_num, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      try {
+        const res = await env.WEST_DB_V3.prepare(`
+          UPDATE classes
+          SET deleted_at = datetime('now')
+          WHERE class_id = ? AND deleted_at IS NULL
+          AND ring_id = (
+            SELECT r.id FROM rings r JOIN shows s ON s.id = r.show_id
+            WHERE s.slug = ? AND r.ring_num = ?
+          )
+        `).bind(class_id, slug, ringNumInt).run();
+        const changes = res.meta ? res.meta.changes : 0;
+        console.log(`[v3/deleteCls] ${slug}/${ringNumInt}/${class_id} — ${changes} marked deleted`);
+        return json({ ok: true, changes });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── GET /v3/downloadCls?slug=X&ring=N&class=C ────────────────────────────
+    // Streams the raw .cls bytes from R2 back as a file download so operators
+    // can restore a deleted class by dropping the file back into Ryegate.
+    if (method === 'GET' && path === '/v3/downloadCls') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      const ring = url.searchParams.get('ring');
+      const cls  = url.searchParams.get('class');
+      if (!slug || !ring || !cls) return err('Missing slug/ring/class');
+      const ringNumInt = parseInt(ring, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring');
+      if (!/^[A-Za-z0-9_-]{1,16}$/.test(cls)) return err('Invalid class');
+      const r2Key = `${slug}/${ringNumInt}/${cls}.cls`;
+      const obj = await env.WEST_R2_CLS.get(r2Key);
+      if (!obj) return err('Not found in R2', 404);
+      return new Response(obj.body, {
+        headers: {
+          ...CORS,
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="${cls}.cls"`,
+        },
+      });
     }
 
     // ── POST /v3/postTsked ───────────────────────────────────────────────────
