@@ -2065,6 +2065,35 @@ export default {
         const flag = (cols[3] || '').trim() || null;
         rows.push({ classId, isoDate, flag });
       }
+      // Clear scheduled_date / schedule_flag for classes previously scheduled
+      // but no longer mentioned in tsked. They keep existing in admin (class
+      // came from .cls archive) but fall into the "Unscheduled" bucket.
+      // Admin behavior: show it under "Unscheduled" so no data is lost.
+      // Public-facing pages will filter out Unscheduled classes — that's a
+      // future UI concern, not a DB-level delete.
+      let cleared = 0;
+      const currentClassIds = rows.map(r => r.classId);
+      try {
+        if (currentClassIds.length > 0) {
+          const placeholders = currentClassIds.map(() => '?').join(',');
+          const res = await env.WEST_DB_V3.prepare(
+            `UPDATE classes SET scheduled_date = NULL, schedule_flag = NULL
+             WHERE show_id = ?
+             AND (scheduled_date IS NOT NULL OR schedule_flag IS NOT NULL)
+             AND class_id NOT IN (${placeholders})`
+          ).bind(showId, ...currentClassIds).run();
+          cleared = res.meta ? res.meta.changes : 0;
+        } else {
+          const res = await env.WEST_DB_V3.prepare(
+            `UPDATE classes SET scheduled_date = NULL, schedule_flag = NULL
+             WHERE show_id = ?
+             AND (scheduled_date IS NOT NULL OR schedule_flag IS NOT NULL)`
+          ).bind(showId).run();
+          cleared = res.meta ? res.meta.changes : 0;
+        }
+      } catch (e) {
+        console.log(`[v3/postTsked] clear-stale failed for ${slug}: ${e.message}`);
+      }
       // Update classes (UPDATE-only, never INSERT — .cls POST is the
       // authority for class existence)
       for (const r of rows) {
@@ -2082,10 +2111,10 @@ export default {
       const received_at = new Date().toISOString();
       await env.WEST_LIVE.put(
         `tsked-last:${slug}`,
-        JSON.stringify({ received_at, size, rows_total: rows.length, updated, skipped, invalid, r2_key: r2Key }),
+        JSON.stringify({ received_at, size, rows_total: rows.length, updated, skipped, cleared, invalid, r2_key: r2Key }),
         { expirationTtl: 86400 }
       );
-      return json({ ok: true, received_at, rows_total: rows.length, updated, skipped, invalid });
+      return json({ ok: true, received_at, rows_total: rows.length, updated, skipped, cleared, invalid });
     }
 
     // ── GET /v3/listEntries?class_id=N ───────────────────────────────────────

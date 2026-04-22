@@ -83,6 +83,21 @@
     return `${day} ${m[2]}/${m[3]}/${m[1]}`;
   };
 
+  // ── Schedule flag labels — tsked.csv col[3] values interpreted for UI
+  // S  = Scored/Finished (results finalized, confirmed 2026-03-31)
+  // JO = Jump Order posted (display order of go)
+  // L  = Live-badge (less well confirmed, older semantics)
+  // empty / unknown → not rendered
+  const SCHEDULE_FLAGS = {
+    'S':  'Scored',
+    'JO': 'JO posted',
+    'L':  'Live',
+  };
+  WEST.format.scheduleFlagLabel = function (flag) {
+    if (!flag) return '';
+    return SCHEDULE_FLAGS[flag] || flag;
+  };
+
   // CommonJS export for Node (engine) side — harmless in browsers.
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.format;

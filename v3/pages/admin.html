@@ -380,9 +380,15 @@ function renderClasses() {
     const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
     const expanded = state.expandedClassId === c.id;
     const entryCount = c.entry_count ?? 0;
-    const countBadge = entryCount > 0
-      ? `<span class="class-count" data-class-db-id="${c.id}">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span>`
-      : '<span class="class-count class-count-empty">no entries</span>';
+    const flagLabel = WEST.format.scheduleFlagLabel(c.schedule_flag);
+    const flagBadge = flagLabel
+      ? `<span class="schedule-flag schedule-flag-${(c.schedule_flag || '').toLowerCase()}">${escapeHtml(flagLabel)}</span>`
+      : '';
+    const countText = entryCount > 0
+      ? `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`
+      : 'no entries';
+    const countCls = entryCount > 0 ? 'class-count' : 'class-count class-count-empty';
+    const countBadge = `<span class="class-count-cell">${flagBadge}<span class="${countCls}">${countText}</span></span>`;
     let rowHtml = `<li class="class-row-wrap${expanded ? ' expanded' : ''}">
       <div class="class-row${statusClass}" data-class-db-id="${c.id}">
         <span class="class-id">${escapeHtml(c.class_id)}</span>
