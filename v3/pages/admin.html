@@ -87,8 +87,12 @@
       <div class="section">
         <div class="section-header">
           <h2 class="section-title">Classes</h2>
+          <div class="section-actions">
+            <input type="search" id="classSearch" class="section-search" placeholder="Search classes…">
+          </div>
         </div>
-        <div class="placeholder">Classes tab — coming in the next phase.</div>
+        <div id="classGroups"></div>
+        <div class="placeholder" id="classEmpty" hidden>No classes yet — they'll appear here as the engine uploads .cls files.</div>
       </div>
     </div>
   </main>
@@ -159,6 +163,7 @@ const state = {
   shows: [],
   selectedSlug: localStorage.getItem(SELECTED_SHOW_KEY) || null,
   rings: [],
+  classes: [],
 };
 
 // ── fetch helpers ────────────────────────────────────────────────────
@@ -262,6 +267,7 @@ async function selectShow(slug) {
   document.getElementById('showDates').textContent = fmtDateRange(show);
   document.getElementById('showCreated').textContent = (show.created_at || '').slice(0, 10);
   await loadRings(slug);
+  await loadClasses(slug);
 }
 
 async function loadRings(slug) {
@@ -272,6 +278,66 @@ async function loadRings(slug) {
   } catch (e) {
     toast('Failed to load rings: ' + e.message, 'error');
   }
+}
+
+async function loadClasses(slug) {
+  try {
+    const { classes } = await api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}`);
+    state.classes = classes;
+    renderClasses();
+  } catch (e) {
+    toast('Failed to load classes: ' + e.message, 'error');
+  }
+}
+
+function renderClasses() {
+  const host = document.getElementById('classGroups');
+  const empty = document.getElementById('classEmpty');
+  const search = document.getElementById('classSearch').value.trim().toLowerCase();
+  const filtered = state.classes.filter(c => {
+    if (!search) return true;
+    return (c.class_id || '').toLowerCase().includes(search)
+        || (c.class_name || '').toLowerCase().includes(search)
+        || (c.class_type || '').toLowerCase().includes(search);
+  });
+  if (!filtered.length) {
+    host.innerHTML = '';
+    empty.hidden = false;
+    empty.textContent = state.classes.length
+      ? 'No classes match your search.'
+      : "No classes yet — they'll appear here as the engine uploads .cls files.";
+    return;
+  }
+  empty.hidden = true;
+  const groups = new Map();
+  for (const c of filtered) {
+    const key = c.ring_num;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  const rings = [...groups.keys()].sort((a, b) => a - b);
+  let html = '';
+  for (const ringNum of rings) {
+    const list = groups.get(ringNum);
+    html += `<div class="class-group"><div class="class-group-header">Ring ${ringNum} <span class="class-group-count">(${list.length})</span></div><ul class="class-list">`;
+    for (const c of list) {
+      const typeClass = `class-type-${(c.class_type || 'u').toLowerCase()}`;
+      const methodStr = c.class_type === 'H' && c.class_mode !== null && c.class_mode !== undefined
+          ? `mode ${c.class_mode}`
+        : (c.class_type === 'J' || c.class_type === 'T') && c.scoring_method !== null && c.scoring_method !== undefined
+          ? `method ${c.scoring_method}`
+        : c.parse_status === 'unconfigured' ? 'unconfigured' : '—';
+      const statusClass = c.parse_status === 'parsed' ? '' : c.parse_status === 'unconfigured' ? ' class-dim' : ' class-error';
+      html += `<li class="class-row${statusClass}">
+        <span class="class-id">${escapeHtml(c.class_id)}</span>
+        <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
+        <span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>
+        <span class="class-method">${escapeHtml(methodStr)}</span>
+      </li>`;
+    }
+    html += `</ul></div>`;
+  }
+  host.innerHTML = html;
 }
 
 function renderRings() {
@@ -448,11 +514,15 @@ loadShows();
 // Auto-refresh shows list every 30s (will become WebSocket later)
 setInterval(loadShows, 30000);
 
-// Auto-refresh rings for the selected show every 10s so engine heartbeat
-// freshness stays current (aligns with engine's 10s heartbeat cadence).
+// Auto-refresh rings + classes for the selected show every 10s
 setInterval(() => {
-  if (state.selectedSlug) loadRings(state.selectedSlug);
+  if (state.selectedSlug) {
+    loadRings(state.selectedSlug);
+    loadClasses(state.selectedSlug);
+  }
 }, 10000);
+
+document.getElementById('classSearch').addEventListener('input', renderClasses);
 </script>
 
 </body>
