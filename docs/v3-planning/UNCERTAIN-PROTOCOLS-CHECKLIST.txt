@@ -448,12 +448,38 @@ HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
     Priority: LOW
 
 [ ] TIMY/TOD col[84] R3 status — unconfirmed
-    display-config.js:1200 comment: "TIMY (T): col[82]=R1 status,
-    col[83]=R2 status, col[84]=R3 (unconfirmed)." Under T (TOD) lens
-    in jumper context.
-    How to close: find/fixture a TOD 3-round jumper class with an R3
-    status (EL/WD/RT/etc), verify col[84] carries the status code.
-    Priority: LOW (3-round jumpers rare on TOD hardware)
+    The inference: col[82]=R1 and col[83]=R2 are confirmed 2026-04-03;
+    col[84] is structurally the next slot and 85-col rows end there,
+    so col[84]=R3 status is the natural guess. Never verified live.
+    Currently marked "probable/unconfirmed" in CLS-FORMAT.md master
+    table (PER-ROUND STATUS COLUMNS section).
+
+    HANDOFF NOTE TO NEXT CLAUDE (2026-04-22 end-of-session):
+    Bill's dev machine has 71 real .cls files at
+    C:\Ryegate\Jumper\Classes\. Several T-type classes exist. Run
+    this check early in the next session:
+
+      1. Find T-type classes with RoundsCompleted >= 3:
+         for f in /c/Ryegate/Jumper/Classes/*.cls; do
+           head -1 "$f" | awk -F, '$1=="T" && $5 >= 3 { print FILENAME }'
+         done
+         (H[04] / col[4] of row 0 = RoundsCompleted)
+
+      2. For each matching class, find entries with non-zero col[84]
+         or non-empty R3 columns (col[29]-col[34]):
+         tail -n +2 <FILE> | awk -F, '{ print NR": col[29]="$30" col[34]="$35" col[84]="$85 }'
+
+      3. If col[84] carries EL/WD/RT/etc. on R3-completed entries
+         where col[29]-col[34] shows elimination → confirmed.
+         Update CLS-FORMAT.md master table: T R3 text → ✓ confirmed.
+         Delete "probable/unconfirmed" caveat.
+
+      4. If no T-type 3-round classes exist on disk, item stays open;
+         Phase 2d parser still reads col[84] for T R3 but logs a
+         parse_warning if the value is outside known status codes.
+
+    Priority: LOW-MEDIUM (only matters for T classes running
+    methods 3/14 that complete 3 rounds)
 
 [ ] UDP tags {6}-{7} — may appear in specific class types
     CLS-FORMAT.md UDP section notes {6}-{7} as unknown — "may appear
