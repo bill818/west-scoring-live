@@ -412,9 +412,13 @@ JUMPER SIDE (cols[21]/[28]/[35]) — reminder: ONLY under jumper lens
 HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
 
 [ ] Hunter numeric map vs jumper numeric map — cross-check
-    Hunter: 1=DNS, 2=EL, 3=RT, 4=WD, 5=RF, 6=OC, 7=MR(?), 8=HC
-    Jumper: 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS
-    The maps ARE DIFFERENT between lenses. Confirm each live.
+    See CLS-FORMAT.md → "PER-ROUND STATUS COLUMNS — QUICK REFERENCE"
+    for the master table covering all three rounds per lens.
+    Authoritative maps from v2 production display-config.js:
+      Hunter (cols 46/47/48): '2'→EL, '3'→RT (only these 2 mapped)
+      Jumper (cols 21/28/35): 1=EL, 2=RT, 3=OC, 4=WD, 5=RF, 6=DNS
+    The maps ARE DIFFERENT between lenses. Confirm the unobserved
+    values live.
     How to close: cross-reference each code observed live with the
     correct lens map. Flag mismatches.
     Priority: MEDIUM (lens-specific, easy to mix up)

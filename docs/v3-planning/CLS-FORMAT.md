@@ -24,6 +24,84 @@
 
 ---
 
+## PER-ROUND STATUS COLUMNS — QUICK REFERENCE
+
+> Master table built 2026-04-22. Consolidated from scattered references
+> across this doc + `HUNTER-METHODS-REFERENCE.md` + memory. **Phase 2d
+> parser reads from here.** If any line disagrees with later detail in
+> this doc, update both places (and commit the reconciliation).
+
+Each lens has TWO status columns per round: **text** (authoritative when
+present) and **numeric fallback** (used when text is blank/zero).
+
+| Lens | Round | Text status col | Numeric status col | Confidence |
+|---|---|---|---|---|
+| **H** (hunter, 55-col rows) | R1 | `col[52]` | `col[46]` | ✓ confirmed |
+| **H** | R2 | `col[53]` | `col[47]` | ✓ confirmed |
+| **H** | R3 | `col[54]` | `col[48]` | ✓ confirmed |
+| **J** (Farmtek, 40-col rows) | R1 | tail-scan `cols[36-39]` | `col[21]` | text confirmed, numeric partial |
+| **J** | R2 | tail-scan `cols[36-39]` | `col[28]` | text confirmed, numeric partial |
+| **J** | R3 | tail-scan `cols[36-39]` | `col[35]` | text confirmed, numeric partial |
+| **T** (TOD, 85-col rows) | R1 | `col[82]` | `col[21]` | text confirmed 2026-04-03, numeric same as J |
+| **T** | R2 | `col[83]` | `col[28]` | text confirmed 2026-04-03, numeric same as J |
+| **T** | R3 | `col[84]` | `col[35]` | text **probable/unconfirmed** (no 3-round T data), numeric same as J |
+
+### Numeric status → text mapping (DIFFERS by lens — DO NOT TRANSLATE ACROSS)
+
+**Hunter lens** (source: v2 `display-config.js:1390`, sourced authoritative):
+```
+'2' → EL   (generic — could be RF, HF, EL, OC, DNS; text code has specifics)
+'3' → RT
+other values → unknown (fall through to "Unknown Status")
+```
+
+**Jumper lens** (source: v2 `display-config.js:318`):
+```
+'1' → EL
+'2' → RT
+'3' → OC
+'4' → WD
+'5' → RF
+'6' → DNS
+other values → unknown
+```
+
+### Farmtek (J) tail-scan detail
+
+Status text is "tail-scanned" across `cols[36]` through `cols[39]` because
+Ryegate places it in different positions per round/entry. v2 parser scans
+these four cells and takes the first non-empty textual token as the status.
+v3 parser should do the same. (Source: memory `project_v3_rebuild.md`,
+"Status code tail-scan for Farmtek" — "hard-won fix after single-column
+lookup failed").
+
+### TIMY (T) col[35] caveat
+
+`col[35]` is **always 0** for TIMY entries — NOT the status code (despite
+being the status column for Farmtek jumper-J rows). TIMY uses `col[82]`
+and `col[83]` instead. For numeric fallback, TIMY still uses `col[21]`/
+`col[28]`/`col[35]` the same way Farmtek does. (Source: `CLS-FORMAT.md`
+lines 1228-1238 elsewhere in this doc.)
+
+### Parser rule for Phase 2d
+
+1. Pick parser by `classType` — NEVER one function that branches.
+2. For each round: read text col first. If present → use it.
+3. If text blank/zero → read numeric col. Map via lens-specific table.
+4. If numeric is 0 or blank → no status (normal completion).
+5. Any value outside the known map → log a `parse_warning` (Phase G
+   observability), return raw as fallback.
+
+### "Unconfirmed" items flagged above
+
+- **J numeric map values 1, 3, 6** — only 2=RT, 4=WD, 5=RF observed live.
+- **T col[84] (R3 text status)** — no live 3-round TIMY data yet.
+- **Farmtek tail-scan** — precise per-round cell is context-dependent.
+
+Tracking: `UNCERTAIN-PROTOCOLS-CHECKLIST.txt` line 414+.
+
+---
+
 ## FILE TYPES
 
 ### .cls — Live Class File (PRIMARY DATA SOURCE)

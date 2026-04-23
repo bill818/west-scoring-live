@@ -498,6 +498,10 @@ Same status code table as jumpers:
 
 - Text status per round: cols[52/53/54] for R1/R2/R3
 - Numeric status fallback: cols[46/47/48] for R1/R2/R3
+**See `CLS-FORMAT.md` → "PER-ROUND STATUS COLUMNS — QUICK REFERENCE"** for
+the master table covering H, J, T across all three rounds (text + numeric).
+This section below is kept for hunter-detail reference only.
+
 - Hunter numeric status map (cols[46]/[47]/[48]) — per v2 production `display-config.js:1390`:
   - `'2'` → EL (generic; text code has the specifics: RF/HF/EL/OC/DNS)
   - `'3'` → RT (Retired)
