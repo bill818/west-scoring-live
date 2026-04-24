@@ -96,27 +96,33 @@
 
   // ── Hunter placement ─────────────────────────────────────────────────
   //
-  // Per SESSION-32 §7 / Bill: hunters don't use the jumper ladder model.
-  // The rule is simpler:
-  //   R1 is the GATE. Must complete with a valid score and no killing
-  //   status. If an entry clears R1, later-round failures are LOCAL —
-  //   the entry keeps its last-clean-round score for placement.
+  // Hunter placement depends on scoring_type (classes.scoring_type, from
+  // header col[5]):
   //
-  // Encoded as: R1 must have a numeric total AND non-killing status.
-  // Everything after R1 is display-only (round cells show status or
-  // score via Decision 1, place survives via R1 gate).
+  //   scoringType = 0 (Forced): operator pins placements manually. No
+  //     computed totals. Placement evidence is current_place presence.
+  //     Rule: R1 status must not be killing; that's the only check.
   //
-  // No method table needed — universal rule across all hunter modes
-  // (Over Fences, Flat, Derby, Special).
-  WEST.rules.hunterIsPlaced = function(r1Total, r1Status) {
+  //   scoringType = 1 (Scored) or 2 (Hi-Lo): judge-computed totals.
+  //     R1 is the GATE — must have a valid total AND non-killing status.
+  //     Past R1 = placed (later-round failures local — no ladder).
+  //
+  // Universal across class modes (Over Fences, Flat, Derby, Special).
+  // No method table needed. Simpler than jumper.
+  WEST.rules.hunterIsPlaced = function(scoringType, r1Total, r1Status) {
     var isKilling = WEST.status.isKillingStatus;
+    // Forced: placement is purely operator-pinned; killing status still hides.
+    if (scoringType === 0) {
+      return !isKilling(r1Status);
+    }
+    // Scored / Hi-Lo / unknown: R1 gate with score requirement.
     if (isKilling(r1Status)) return false;
     if (r1Total == null || r1Total === 0) return false;
     return true;
   };
 
-  WEST.rules.hunterPlaceFor = function(currentPlace, r1Total, r1Status) {
-    if (!WEST.rules.hunterIsPlaced(r1Total, r1Status)) return null;
+  WEST.rules.hunterPlaceFor = function(currentPlace, scoringType, r1Total, r1Status) {
+    if (!WEST.rules.hunterIsPlaced(scoringType, r1Total, r1Status)) return null;
     if (currentPlace == null) return null;
     return currentPlace;
   };

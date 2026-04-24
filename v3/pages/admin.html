@@ -444,7 +444,7 @@ function renderClasses() {
         <span class="class-method">${escapeHtml(methodStr)}</span>
         ${countBadge}
       </div>`;
-    if (expanded) rowHtml += renderEntries(c.id, c.class_type, c.scoring_method);
+    if (expanded) rowHtml += renderEntries(c.id, c.class_type, c.scoring_method, c.scoring_type);
     rowHtml += `</li>`;
     return rowHtml;
   };
@@ -621,14 +621,16 @@ function renderHunterRoundCell(total, status) {
   return `<span class="round-faults">${escapeHtml(String(total))}</span>`;
 }
 
-// Hunter place — uses hunter gate rule (R1 must be clean).
-function renderHunterPlace(currentPlace, r1Total, r1Status) {
-  const place = WEST.rules.hunterPlaceFor(currentPlace, r1Total, r1Status);
+// Hunter place — scoring-type-aware gate rule.
+// Forced (scoring_type=0): placement = current_place presence + non-killing status.
+// Scored/Hi-Lo: R1 must have valid total AND non-killing status.
+function renderHunterPlace(currentPlace, scoringType, r1Total, r1Status) {
+  const place = WEST.rules.hunterPlaceFor(currentPlace, scoringType, r1Total, r1Status);
   if (place == null) return '<span class="place-blank">—</span>';
   return `<span class="place-num">${escapeHtml(String(place))}</span>`;
 }
 
-function renderEntries(classDbId, classType, scoringMethod) {
+function renderEntries(classDbId, classType, scoringMethod, scoringType) {
   const entries = state.entriesByClassId[classDbId];
   if (entries === undefined) {
     return '<div class="entries-loading">Loading entries…</div>';
@@ -639,6 +641,7 @@ function renderEntries(classDbId, classType, scoringMethod) {
   const isJumper = classType === 'J' || classType === 'T';
   const isHunter = classType === 'H';
   const method = Number.isFinite(scoringMethod) ? scoringMethod : parseInt(scoringMethod, 10);
+  const st = Number.isFinite(scoringType) ? scoringType : parseInt(scoringType, 10);
 
   let headerCols = '<th>#</th><th>Horse</th><th>Rider</th>'
     + '<th class="col-owner">Owner</th>'
@@ -677,7 +680,7 @@ function renderEntries(classDbId, classType, scoringMethod) {
       const goStr = (e.go_order != null && e.go_order > 0) ? String(e.go_order) : '—';
       rowCells += `
         <td class="entry-ro">${escapeHtml(goStr)}</td>
-        <td class="entry-place">${renderHunterPlace(e.current_place, e.r1_score_total, e.r1_h_status)}</td>
+        <td class="entry-place">${renderHunterPlace(e.current_place, st, e.r1_score_total, e.r1_h_status)}</td>
         <td class="entry-round">${renderHunterRoundCell(e.r1_score_total, e.r1_h_status)}</td>
         <td class="entry-round">${renderHunterRoundCell(e.r2_score_total, e.r2_h_status)}</td>
         <td class="entry-round">${renderHunterRoundCell(e.r3_score_total, e.r3_h_status)}</td>`;

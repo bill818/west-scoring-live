@@ -443,9 +443,11 @@ function parseClsHeaderV3(bytes) {
     // Hunter lens.
     //   col[2]  = classMode (0=Over Fences, 1=Flat, 2=Derby, 3=Special)
     //   col[3]  semantics unconfirmed — left NULL rather than guessed (Article 1)
-    //   col[7]  = numJudges (Phase 2d hunter addition)
-    //   col[10] = is_equitation (boolean "True"/"False" in header — Phase 2d addition)
+    //   col[5]  = scoringType (0=Forced, 1=Scored, 2=Hi-Lo) — changes placement rule
+    //   col[7]  = numJudges
+    //   col[10] = is_equitation (boolean "True"/"False" in header)
     const n = parseInt(cols[2], 10);
+    const st = parseInt(cols[5], 10);
     const nj = parseInt(cols[7], 10);
     const isEqRaw = (cols[10] || '').trim().toLowerCase();
     const isEq = isEqRaw === 'true' ? 1 : isEqRaw === 'false' ? 0 : null;
@@ -453,6 +455,7 @@ function parseClsHeaderV3(bytes) {
       class_type: 'H',
       class_name: className,
       class_mode: Number.isFinite(n) ? n : null,
+      scoring_type: Number.isFinite(st) ? st : null,
       num_judges: Number.isFinite(nj) ? nj : null,
       is_equitation: isEq,
       parse_status: 'parsed',
@@ -2209,16 +2212,17 @@ export default {
         await env.WEST_DB_V3.prepare(`
           INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
                                scoring_method, scoring_modifier, class_mode,
-                               num_judges, is_equitation,
+                               scoring_type, num_judges, is_equitation,
                                parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name       = excluded.class_name,
             class_type       = excluded.class_type,
             scoring_method   = excluded.scoring_method,
             scoring_modifier = excluded.scoring_modifier,
             class_mode       = excluded.class_mode,
+            scoring_type     = excluded.scoring_type,
             num_judges       = excluded.num_judges,
             is_equitation    = excluded.is_equitation,
             parse_status     = excluded.parse_status,
@@ -2233,6 +2237,7 @@ export default {
           parsed.scoring_method ?? null,
           parsed.scoring_modifier ?? null,
           parsed.class_mode ?? null,
+          parsed.scoring_type ?? null,
           parsed.num_judges ?? null,
           parsed.is_equitation ?? null,
           parsed.parse_status || 'parse_error',

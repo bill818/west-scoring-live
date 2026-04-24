@@ -250,6 +250,72 @@ RUNNING STATE AFTER HUNTER HALF
     off preview still)
 
 ═══════════════════════════════════════════════════════════════════════════
+PART 3 — FORCED HUNTER FIX (same session)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill spotted that "forced 1-round hunters" (classes that just have
+placements pinned by the operator, no computed scores) weren't
+handled. He asked to verify via snapshots and notes.
+
+Dug up the spec:
+  H[02] class_mode     0=Over Fences, 1=Flat, 2=Derby, 3=Special
+  H[05] scoring_type   0=Forced, 1=Scored, 2=Hi-Lo  ← MISSING PIECE
+  H[07] num_judges
+
+Forced = operator manually pins placements. Col[14] current_place
+populated; col[42-45] totals stay 0. The hunterIsPlaced rule shipped
+this morning would treat every Forced entry as unplaced (R1 total = 0
+failed the gate).
+
+Also confirmed (SESSION-NOTES-16): hunters don't write .cls on on-
+course. UDP {fr}=11 INTRO is the only on-course signal. {fr}=14 fires
+as each ribbon is announced for forced/flat. Those flow through the
+live path (UDP), not the .cls path — unchanged by this fix.
+
+MIGRATION 011 — classes.scoring_type INTEGER
+  Single column added. parseClsHeaderV3 H-branch now reads col[5].
+
+WORKER
+  - classes UPSERT binds scoring_type alongside class_mode, num_judges,
+    is_equitation
+  - Header parser returns scoring_type on hunter classes
+
+west-rules.js
+  - hunterIsPlaced now takes (scoringType, r1Total, r1Status):
+      scoringType === 0 (Forced): return !isKilling(r1Status)
+        -- placement evidence is current_place presence; R1 total
+           intentionally ignored (no scores to check)
+      else: current rule (R1 gate with valid total + non-killing)
+  - hunterPlaceFor signature updated to match
+
+ADMIN
+  - renderHunterPlace takes scoringType
+  - renderEntries threads scoring_type from class object through
+
+VALIDATION
+  - 71 .cls files re-POSTed
+  - 16 hunter classes now classified:
+      classMode=0 Over Fences, scoring_type=0 Forced:   4 classes
+      classMode=0 Over Fences, scoring_type=1 Scored:   9 classes
+      classMode=2 Derby, scoring_type=1:                 2 classes
+      classMode=3 Special, scoring_type=1:               1 class
+  - Class 901 "3'3" Green Hunter" (Forced): 6 entries, all placed
+    1-6, r1_score_total=null, combined_total=0 — renders correctly
+    under new rule
+  - Class 902 "Forced Eq Class": 4 entries, all placed 1-4 — ditto
+
+Derby question — already covered earlier in session: totals at
+col[42-45] captured, components (HighOptions/Handy bonus) NOT.
+But Bill then revised: capture components AND per-judge data now,
+display logic later. THAT work is the next task after this fix
+commit.
+
+RUNNING STATE AFTER FORCED FIX
+  - Worker version: fded56f8-1152-4353-9337-e6e51ea3fc2a
+  - classes.scoring_type populated on all 71 classes
+  - Forced classes (4) now render placed entries correctly in admin
+
+═══════════════════════════════════════════════════════════════════════════
 NEXT UP (post-session-33)
 ═══════════════════════════════════════════════════════════════════════════
 

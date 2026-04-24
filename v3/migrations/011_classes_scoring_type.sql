@@ -1,0 +1,22 @@
+-- Phase 2d hunter refinement: capture scoring_type (Forced/Scored/Hi-Lo).
+--
+-- Hunter header has THREE orthogonal dimensions:
+--   H[02] class_mode    — 0=Over Fences, 1=Flat, 2=Derby, 3=Special
+--   H[05] scoring_type  — 0=Forced, 1=Scored, 2=Hi-Lo  ← THIS COLUMN
+--   H[07] num_judges
+--
+-- Forced classes (scoring_type=0) work fundamentally differently:
+--   - Operator pins placements manually (col[14] current_place)
+--   - No computed totals (col[42-45] = 0)
+--   - Placement rule: current_place presence IS the evidence
+--
+-- Without scoring_type captured, the parser can't tell Forced from
+-- Scored and misrenders Forced classes as "all entries unplaced" in
+-- admin. This column fixes that.
+--
+-- Jumpers also have a scoring_type field (H[05] same position — 0=Forced
+-- pins jumper placements in method 7 Timed Eq etc.). Reusing the same
+-- column across lenses since semantics are identical (0=operator-pinned,
+-- 1=computed-from-scores).
+
+ALTER TABLE classes ADD COLUMN scoring_type INTEGER;
