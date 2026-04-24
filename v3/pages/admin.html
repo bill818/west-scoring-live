@@ -612,6 +612,22 @@ function renderJumperPlace(overallPlace, scoringMethod, r1Status, r2Status, r3St
   return `<span class="place-num">${escapeHtml(String(place))}</span>`;
 }
 
+// Hunter round cell — judge-sum total or status label (Decision 1).
+function renderHunterRoundCell(total, status) {
+  if (WEST.status.isKillingStatus(status)) {
+    return `<span class="round-status">${escapeHtml(status)}</span>`;
+  }
+  if (total == null || total === 0) return '<span class="round-blank">—</span>';
+  return `<span class="round-faults">${escapeHtml(String(total))}</span>`;
+}
+
+// Hunter place — uses hunter gate rule (R1 must be clean).
+function renderHunterPlace(currentPlace, r1Total, r1Status) {
+  const place = WEST.rules.hunterPlaceFor(currentPlace, r1Total, r1Status);
+  if (place == null) return '<span class="place-blank">—</span>';
+  return `<span class="place-num">${escapeHtml(String(place))}</span>`;
+}
+
 function renderEntries(classDbId, classType, scoringMethod) {
   const entries = state.entriesByClassId[classDbId];
   if (entries === undefined) {
@@ -621,6 +637,7 @@ function renderEntries(classDbId, classType, scoringMethod) {
     return '<div class="entries-empty">No entries parsed for this class.</div>';
   }
   const isJumper = classType === 'J' || classType === 'T';
+  const isHunter = classType === 'H';
   const method = Number.isFinite(scoringMethod) ? scoringMethod : parseInt(scoringMethod, 10);
 
   let headerCols = '<th>#</th><th>Horse</th><th>Rider</th>'
@@ -629,6 +646,8 @@ function renderEntries(classDbId, classType, scoringMethod) {
     + '<th class="col-location">City, ST</th>';
   if (isJumper) {
     headerCols += '<th>RO</th><th>Pl</th><th>R1</th><th>R2</th><th>R3</th>';
+  } else if (isHunter) {
+    headerCols += '<th>Go</th><th>Pl</th><th>R1</th><th>R2</th><th>R3</th>';
   }
   const tableCls = state.entryCompact ? 'entries-table compact-identity' : 'entries-table';
   let h = '<table class="' + tableCls + '"><thead><tr>' + headerCols + '</tr></thead><tbody>';
@@ -654,6 +673,14 @@ function renderEntries(classDbId, classType, scoringMethod) {
         <td class="entry-round">${renderJumperRoundCell(e.r1_time, e.r1_total_faults, e.r1_time_faults, e.r1_jump_faults, e.r1_status)}</td>
         <td class="entry-round">${renderJumperRoundCell(e.r2_time, e.r2_total_faults, e.r2_time_faults, e.r2_jump_faults, e.r2_status)}</td>
         <td class="entry-round">${renderJumperRoundCell(e.r3_time, e.r3_total_faults, e.r3_time_faults, e.r3_jump_faults, e.r3_status)}</td>`;
+    } else if (isHunter) {
+      const goStr = (e.go_order != null && e.go_order > 0) ? String(e.go_order) : '—';
+      rowCells += `
+        <td class="entry-ro">${escapeHtml(goStr)}</td>
+        <td class="entry-place">${renderHunterPlace(e.current_place, e.r1_score_total, e.r1_h_status)}</td>
+        <td class="entry-round">${renderHunterRoundCell(e.r1_score_total, e.r1_h_status)}</td>
+        <td class="entry-round">${renderHunterRoundCell(e.r2_score_total, e.r2_h_status)}</td>
+        <td class="entry-round">${renderHunterRoundCell(e.r3_score_total, e.r3_h_status)}</td>`;
     }
 
     h += `<tr>${rowCells}</tr>`;

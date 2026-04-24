@@ -166,16 +166,104 @@ Admin: Still off preview per Bill. Local file:// test against the
 new pivot confirms class 23 renders identically to yesterday.
 
 ═══════════════════════════════════════════════════════════════════════════
-NEXT UP
+PART 2 — HUNTER HALF SHIPPED (same session, later morning)
 ═══════════════════════════════════════════════════════════════════════════
 
-- Phase 2d HUNTER half — parseEntriesScoreH + entry_hunter_summary
-  + entry_hunter_rounds + hunter-side lens module.
-- Phase 2e PUBLIC RESULTS PAGE — thin view, collapses ELIM family
-  to generic "EL" for public audience.
-- Phase 3+ STATS — now the per-round shape is in place, stats queries
-  can hit entry_jumper_rounds natively. First consumer likely a
-  per-class clear-round % dashboard. No unpivot gymnastics needed.
+Applied the exact same per-round pattern to the hunter lens. Full
+Phase 2d half-A (hunter data collection) landed end-to-end. Display
+polish (HUNTER_MODES labels, Derby component breakdown, per-judge
+scores table) still deferred per Bill's directive "collect the data
+then we'll work on per-judge calculations, label displays etc."
+
+MIGRATION 010 — entry_hunter_per_round.sql
+  - entry_hunter_summary (entry_id PK: go_order, current_place,
+    combined_total, score_parse_status, score_parse_notes, timestamps)
+  - entry_hunter_rounds (entry_id+round composite PK: total, status,
+    numeric_status, timestamps). Absence of row = didn't ride.
+  - classes.num_judges + classes.is_equitation (from header col[7]
+    and col[10])
+
+LENS MODULE — v3/js/west-cls-hunter.js
+  - Versioned shape (v_2026_04_24). Identity cols 0-12 shared w/ jumper.
+  - go_order col[13], current_place col[14], combined_total col[45]
+  - Per-round: total cols[42/43/44], numeric status cols[46/47/48],
+    text status cols[52/53/54]
+  - Per-judge positions documented (judges.N.start) but NOT consumed
+    in Phase 2d — future entry_hunter_judge_scores table
+  - Derby component cols (15-29 for classMode=2) noted as deferred
+
+WORKER
+  - parseClsHeaderV3 extended for H: captures num_judges + is_equitation
+  - CLS_HUNTER_LAYOUT inline mirror of lens module v_2026_04_24
+  - HUNTER_NUMERIC_MAP {2:'EL', 3:'RT'} (from v2 display-config.js:1390
+    — narrower than jumper's map per v2 precedent)
+  - parseEntriesScoreH — separate function (Article 1 at function level).
+    Per-round text status direct read (no tail-scan ambiguity like
+    Farmtek), numeric fallback via HUNTER_NUMERIC_MAP
+  - /v3/postCls gains H branch: UPSERT entry_hunter_summary +
+    fresh-replace entry_hunter_rounds (same pattern as jumper)
+  - classes INSERT/UPSERT now binds num_judges + is_equitation
+  - /v3/listEntries extended with hunter JOINs: entry_hunter_summary
+    (aliased hs) + entry_hunter_rounds × 3 (hr1/hr2/hr3). Hunter
+    fields aliased as r1_score_total, r1_h_status etc. to avoid
+    collision with jumper r1_time/r1_status
+  - ORDER BY uses COALESCE(jumper_place, hunter_place) so hunter
+    entries sort naturally too
+
+SHARED MODULES
+  - v3/js/west-rules.js gains hunterIsPlaced + hunterPlaceFor.
+    Rule: R1 is the GATE — must have valid total and non-killing
+    status. Past R1 = placed. Later-round failures local (no ladder).
+    Universal across hunter modes (no method table needed — matches
+    Bill's SESSION-32 direction).
+
+ADMIN
+  - renderEntries gains isHunter branch with columns: Go | Pl | R1 | R2 | R3
+  - renderHunterRoundCell: total value or status label (Decision 1
+    suppression via WEST.status.isKillingStatus)
+  - renderHunterPlace: delegates to WEST.rules.hunterPlaceFor
+
+VALIDATION
+  - 71 .cls files re-POSTed through new hunter parser path
+  - 221 hunter summary rows across 16 H classes (100% coverage)
+  - 58 hunter round rows (38 R1 + 16 R2 + 4 R3)
+    ★ First R3 hunter data ever captured in v3 ★
+  - 5 rows with text status present
+  - 14 warnings — all expected "classMode=2 Derby components deferred"
+    from 2 derby test classes (1000: 5 entries, 1001: 9 entries).
+    Zero surprise warnings.
+  - num_judges populated on all 16 H classes
+  - Class 1002 spot-check (multi-judge classMode=0 O/F): entry 117
+    RULE ON returned correctly with go=0, pl=1, combined=56, r1=28,
+    r2=28 — matches the raw col[42]=28, col[43]=28, col[45]=56.
+
+RUNNING STATE AFTER HUNTER HALF
+  - Worker version: 80d31f0c-013c-46b0-9b1c-46abf3a5de18
+  - WEST_DB_V3 total:
+      entry_jumper_summary:   959 rows
+      entry_jumper_rounds:  1,127 rows
+      entry_hunter_summary:   221 rows
+      entry_hunter_rounds:     58 rows
+      classes:                 71 (51 J/T, 16 H, 4 U)
+  - 0 parse warnings outside expected Derby notes
+  - Admin renders both jumper AND hunter classes correctly (local,
+    off preview still)
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-33)
+═══════════════════════════════════════════════════════════════════════════
+
+- Phase 2e PUBLIC RESULTS PAGE — thin view using shared modules.
+  publicLabel() collapses ELIM family to generic "EL".
+  First consumer of west-rules.js placement logic outside admin.
+- Per-judge scores — new table entry_hunter_judge_scores,
+  separate parser pass. Bill to audit Ryegate settings for
+  HUNTER_MODES labels first.
+- Derby component breakdown — extended hunter parser pass
+  (classMode=2 specific), feeds a judge-aware rendering.
+- Phase 3+ STATS — per-round shape ready for native SQL aggregation
+  across both lenses. First consumer likely per-class clear-round %
+  dashboard. No unpivot gymnastics needed in either direction.
 
 ═══════════════════════════════════════════════════════════════════════════
 FILES CHANGED THIS SESSION

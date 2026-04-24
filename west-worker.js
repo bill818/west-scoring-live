@@ -256,10 +256,110 @@ function parseEntriesScoreJ(text, classType) {
   return { entries, status: `parsed: ${entries.length} jumper scorings` };
 }
 
+// Phase 2d hunter half: hunter lens column layout.
+// MIRROR of v3/js/west-cls-hunter.js `current` version. Keep in sync.
+const CLS_HUNTER_LAYOUT_VERSION = 'v_2026_04_24';
+const CLS_HUNTER_LAYOUT = {
+  identity: {
+    entry_num: 0, horse_name: 1, rider_name: 2,
+    country_code: 4, owner_name: 5, sire: 6, dam: 7,
+    city: 8, state: 9,
+    horse_usef: 10, rider_usef: 11, owner_usef: 12,
+  },
+  go_order: 13,
+  current_place: 14,
+  rounds: {
+    1: { total: 42, numeric_status: 46, text_status: 52 },
+    2: { total: 43, numeric_status: 47, text_status: 53 },
+    3: { total: 44, numeric_status: 48, text_status: 54 },
+  },
+  combined_total: 45,
+  min_cols: 55,
+};
+
+// Hunter numeric status map (from v2 display-config.js:1390).
+// Narrower than jumper map — hunter operators don't use the same code set.
+// Unknown values log parse_warning (parser fallback).
+const HUNTER_NUMERIC_MAP = {
+  2: 'EL',  // generic — text code has specifics (RF/HF/EL/OC/DNS)
+  3: 'RT',  // retired — often missing text
+};
+
+// Phase 2d: parse hunter scoring per entry.
+// Returns { entries: [...], status: string }.
+// Each entry object carries summary fields (go_order, current_place,
+// combined_total, parse meta) AND wide-shape round fields (r1_total,
+// r1_status, r1_numeric_status, r2_*, r3_*) — the worker splits at
+// write time into entry_hunter_summary + entry_hunter_rounds rows.
+// Per-judge scores NOT captured (deferred).
+function parseEntriesScoreH(text, classMode) {
+  const L = CLS_HUNTER_LAYOUT;
+  const lines = text.split(/\r?\n/);
+  const entries = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    if (line.startsWith('@')) continue;
+    const cols = parseCsvLineV3(line);
+    const rawEntryNum = (cols[L.identity.entry_num] || '').trim();
+    if (!rawEntryNum || !/^[A-Za-z0-9_-]{1,16}$/.test(rawEntryNum)) continue;
+
+    const notes = [];
+    if (cols.length < L.min_cols) {
+      notes.push(`col count ${cols.length} below hunter min ${L.min_cols}`);
+    }
+    if (classMode === 2) {
+      notes.push('classMode=2 Derby — component breakdown not captured (totals at col[42-45] still land)');
+    }
+
+    // Per-round status attribution. Hunter has direct per-round text
+    // columns (52/53/54) AND per-round numeric (46/47/48). Both are
+    // lens-specific. Unlike Farmtek, no tail-scan ambiguity.
+    const statuses = {};
+    for (const round of [1, 2, 3]) {
+      const ns = intOrNull(cols[L.rounds[round].numeric_status]) || 0;
+      const txtRaw = (cols[L.rounds[round].text_status] || '').trim();
+      let txt = null;
+      if (txtRaw && JUMPER_KNOWN_STATUS_RE.test(txtRaw)) {
+        txt = txtRaw.toUpperCase();
+      }
+      // Numeric fallback (hunter-specific map) when text missing
+      if (!txt && ns > 0) {
+        txt = HUNTER_NUMERIC_MAP[ns] || null;
+        if (!HUNTER_NUMERIC_MAP[ns]) {
+          notes.push(`R${round} unknown hunter numeric ${ns}`);
+        }
+      }
+      statuses[round] = { text: txt, numeric: ns || null };
+    }
+
+    entries.push({
+      entry_num: rawEntryNum,
+      go_order: intOrNull(cols[L.go_order]),
+      current_place: intOrNull(cols[L.current_place]),
+      combined_total: numOrNull(cols[L.combined_total]),
+
+      r1_total:          numOrNull(cols[L.rounds[1].total]),
+      r1_status:         statuses[1].text,
+      r1_numeric_status: statuses[1].numeric,
+      r2_total:          numOrNull(cols[L.rounds[2].total]),
+      r2_status:         statuses[2].text,
+      r2_numeric_status: statuses[2].numeric,
+      r3_total:          numOrNull(cols[L.rounds[3].total]),
+      r3_status:         statuses[3].text,
+      r3_numeric_status: statuses[3].numeric,
+
+      score_parse_status: notes.length > 0 ? 'warnings' : 'parsed',
+      score_parse_notes:  notes.length > 0 ? notes.join('; ') : null,
+    });
+  }
+  return { entries, status: `parsed: ${entries.length} hunter scorings` };
+}
+
 // Phase 2c: parse entry rows. Called after header parse decides which lens
 // to use. Identity cols 0-12 are shared across H/J/T/U-inferred. Scoring
-// cols diverge by lens — handled by parseEntriesScoreJ (above) and
-// parseEntriesScoreH (Phase 2d hunter pass, not yet built).
+// cols diverge by lens — handled by parseEntriesScoreJ (jumper, above) and
+// parseEntriesScoreH (hunter, above).
 function parseClsEntriesV3(text, lensKnown) {
   if (!lensKnown) return { entries: [], status: 'skipped: no lens' };
   const lines = text.split(/\r?\n/);
@@ -340,13 +440,21 @@ function parseClsHeaderV3(bytes) {
   }
 
   if (rawType === 'H') {
-    // Hunter lens. col[2] = classMode. col[3] semantics unconfirmed —
-    // left NULL rather than guessed (Article 1).
+    // Hunter lens.
+    //   col[2]  = classMode (0=Over Fences, 1=Flat, 2=Derby, 3=Special)
+    //   col[3]  semantics unconfirmed — left NULL rather than guessed (Article 1)
+    //   col[7]  = numJudges (Phase 2d hunter addition)
+    //   col[10] = is_equitation (boolean "True"/"False" in header — Phase 2d addition)
     const n = parseInt(cols[2], 10);
+    const nj = parseInt(cols[7], 10);
+    const isEqRaw = (cols[10] || '').trim().toLowerCase();
+    const isEq = isEqRaw === 'true' ? 1 : isEqRaw === 'false' ? 0 : null;
     return {
       class_type: 'H',
       class_name: className,
       class_mode: Number.isFinite(n) ? n : null,
+      num_judges: Number.isFinite(nj) ? nj : null,
+      is_equitation: isEq,
       parse_status: 'parsed',
       parse_notes: null,
     };
@@ -2101,15 +2209,18 @@ export default {
         await env.WEST_DB_V3.prepare(`
           INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
                                scoring_method, scoring_modifier, class_mode,
+                               num_judges, is_equitation,
                                parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name       = excluded.class_name,
             class_type       = excluded.class_type,
             scoring_method   = excluded.scoring_method,
             scoring_modifier = excluded.scoring_modifier,
             class_mode       = excluded.class_mode,
+            num_judges       = excluded.num_judges,
+            is_equitation    = excluded.is_equitation,
             parse_status     = excluded.parse_status,
             parse_notes      = excluded.parse_notes,
             r2_key           = excluded.r2_key,
@@ -2122,6 +2233,8 @@ export default {
           parsed.scoring_method ?? null,
           parsed.scoring_modifier ?? null,
           parsed.class_mode ?? null,
+          parsed.num_judges ?? null,
+          parsed.is_equitation ?? null,
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,
           r2Key,
@@ -2262,6 +2375,70 @@ export default {
             } catch (scErr) {
               console.log(`[v3/postCls] jumper scoring failed for ${slug}/${ringNum}/${classId}: ${scErr.message}`);
               entriesStatus += ` | scoring error: ${scErr.message}`;
+            }
+          }
+
+          // Phase 2d hunter: hunter-scoring pass. Only runs for H lens.
+          // Writes to entry_hunter_summary + entry_hunter_rounds. Per-round
+          // INDEPENDENT (same pattern as jumper side). Per-judge scores
+          // NOT captured yet (deferred to future entry_hunter_judge_scores).
+          if (parsed.class_type === 'H') {
+            try {
+              const scoreParse = parseEntriesScoreH(text, parsed.class_mode);
+              const { results: idRows } = await env.WEST_DB_V3.prepare(
+                'SELECT id, entry_num FROM entries WHERE class_id = ?'
+              ).bind(classDbId).all();
+              const idByNum = new Map(idRows.map(r => [r.entry_num, r.id]));
+              for (const s of scoreParse.entries) {
+                const entryId = idByNum.get(s.entry_num);
+                if (!entryId) continue;
+
+                // Summary upsert (entry-scoped)
+                await env.WEST_DB_V3.prepare(`
+                  INSERT INTO entry_hunter_summary (
+                    entry_id, go_order, current_place, combined_total,
+                    score_parse_status, score_parse_notes,
+                    first_seen_at, updated_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                  ON CONFLICT(entry_id) DO UPDATE SET
+                    go_order=excluded.go_order,
+                    current_place=excluded.current_place,
+                    combined_total=excluded.combined_total,
+                    score_parse_status=excluded.score_parse_status,
+                    score_parse_notes=excluded.score_parse_notes,
+                    updated_at=datetime('now')
+                `).bind(
+                  entryId, s.go_order, s.current_place, s.combined_total,
+                  s.score_parse_status, s.score_parse_notes
+                ).run();
+
+                // Fresh-replace round rows (same pattern as jumper).
+                await env.WEST_DB_V3.prepare(
+                  'DELETE FROM entry_hunter_rounds WHERE entry_id = ?'
+                ).bind(entryId).run();
+
+                for (const round of [1, 2, 3]) {
+                  const p = `r${round}_`;
+                  const total = s[p + 'total'];
+                  const status = s[p + 'status'];
+                  const numericStatus = s[p + 'numeric_status'];
+                  const hasAnyData =
+                    (total != null && total !== 0) ||
+                    status != null ||
+                    (numericStatus != null && numericStatus !== 0);
+                  if (!hasAnyData) continue;
+                  await env.WEST_DB_V3.prepare(`
+                    INSERT INTO entry_hunter_rounds (
+                      entry_id, round, total, status, numeric_status,
+                      first_seen_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                  `).bind(entryId, round, total, status, numericStatus).run();
+                }
+              }
+              entriesStatus += ` | ${scoreParse.status}`;
+            } catch (scErr) {
+              console.log(`[v3/postCls] hunter scoring failed for ${slug}/${ringNum}/${classId}: ${scErr.message}`);
+              entriesStatus += ` | hunter scoring error: ${scErr.message}`;
             }
           }
         } catch (e) {
@@ -2566,16 +2743,32 @@ export default {
                   r2.status AS r2_status, r2.numeric_status AS r2_numeric_status,
                   r3.time AS r3_time, r3.penalty_sec AS r3_penalty_sec, r3.total_time AS r3_total_time,
                   r3.time_faults AS r3_time_faults, r3.jump_faults AS r3_jump_faults, r3.total_faults AS r3_total_faults,
-                  r3.status AS r3_status, r3.numeric_status AS r3_numeric_status
+                  r3.status AS r3_status, r3.numeric_status AS r3_numeric_status,
+                  hs.go_order, hs.current_place, hs.combined_total,
+                  hs.score_parse_status AS h_score_parse_status,
+                  hs.score_parse_notes  AS h_score_parse_notes,
+                  hr1.total AS r1_score_total,
+                  hr1.status AS r1_h_status, hr1.numeric_status AS r1_h_numeric_status,
+                  hr2.total AS r2_score_total,
+                  hr2.status AS r2_h_status, hr2.numeric_status AS r2_h_numeric_status,
+                  hr3.total AS r3_score_total,
+                  hr3.status AS r3_h_status, hr3.numeric_status AS r3_h_numeric_status
            FROM entries e
            LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
            LEFT JOIN entry_jumper_rounds r1 ON r1.entry_id = e.id AND r1.round = 1
            LEFT JOIN entry_jumper_rounds r2 ON r2.entry_id = e.id AND r2.round = 2
            LEFT JOIN entry_jumper_rounds r3 ON r3.entry_id = e.id AND r3.round = 3
+           LEFT JOIN entry_hunter_summary hs ON hs.entry_id = e.id
+           LEFT JOIN entry_hunter_rounds hr1 ON hr1.entry_id = e.id AND hr1.round = 1
+           LEFT JOIN entry_hunter_rounds hr2 ON hr2.entry_id = e.id AND hr2.round = 2
+           LEFT JOIN entry_hunter_rounds hr3 ON hr3.entry_id = e.id AND hr3.round = 3
            WHERE e.class_id = ?
            ORDER BY
-             CASE WHEN s.overall_place IS NULL THEN 999 ELSE s.overall_place END,
-             CASE WHEN s.ride_order IS NULL OR s.ride_order = 0 THEN 999 ELSE s.ride_order END,
+             CASE WHEN COALESCE(s.overall_place, hs.current_place) IS NULL THEN 999
+                  ELSE COALESCE(s.overall_place, hs.current_place) END,
+             CASE WHEN COALESCE(s.ride_order, hs.go_order) IS NULL
+                    OR COALESCE(s.ride_order, hs.go_order) = 0 THEN 999
+                  ELSE COALESCE(s.ride_order, hs.go_order) END,
              CAST(e.entry_num AS INTEGER)`
         ).bind(classDbId).all();
         return json({ ok: true, entries: results || [] });

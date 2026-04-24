@@ -94,8 +94,32 @@
     return overallPlace;
   };
 
-  // Hunter placement stub — populated when Phase 2d hunter half lands.
-  // WEST.rules.hunterIsPlaced = function(numRounds, rounds) { ... };
+  // ── Hunter placement ─────────────────────────────────────────────────
+  //
+  // Per SESSION-32 §7 / Bill: hunters don't use the jumper ladder model.
+  // The rule is simpler:
+  //   R1 is the GATE. Must complete with a valid score and no killing
+  //   status. If an entry clears R1, later-round failures are LOCAL —
+  //   the entry keeps its last-clean-round score for placement.
+  //
+  // Encoded as: R1 must have a numeric total AND non-killing status.
+  // Everything after R1 is display-only (round cells show status or
+  // score via Decision 1, place survives via R1 gate).
+  //
+  // No method table needed — universal rule across all hunter modes
+  // (Over Fences, Flat, Derby, Special).
+  WEST.rules.hunterIsPlaced = function(r1Total, r1Status) {
+    var isKilling = WEST.status.isKillingStatus;
+    if (isKilling(r1Status)) return false;
+    if (r1Total == null || r1Total === 0) return false;
+    return true;
+  };
+
+  WEST.rules.hunterPlaceFor = function(currentPlace, r1Total, r1Status) {
+    if (!WEST.rules.hunterIsPlaced(r1Total, r1Status)) return null;
+    if (currentPlace == null) return null;
+    return currentPlace;
+  };
 
   // CommonJS export
   if (typeof module !== 'undefined' && module.exports) {
