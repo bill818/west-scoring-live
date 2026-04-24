@@ -12,6 +12,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="west.css">
 <script src="../js/west-format.js"></script>
+<script src="../js/west-status.js"></script>
+<script src="../js/west-rules.js"></script>
 </head>
 <body>
 
@@ -580,40 +582,16 @@ async function downloadCls(slug, ring, classId) {
   }
 }
 
-// Status codes that trigger Decision 1 round-cell suppression (hide time/faults).
-// Source: SESSION-32 findings §7 + status catalog.
-const ADMIN_ELIM_CODES    = new Set(['EL','RF','HF','OC','RO','DQ']);
-const ADMIN_PARTIAL_CODES = new Set(['RT','WD','HC','EX']);
-function isKillingStatus(code) {
-  if (!code) return false;
-  return ADMIN_ELIM_CODES.has(code) || ADMIN_PARTIAL_CODES.has(code);
-}
-
-// Jumper method placement rules — MIRROR of the table in SESSION-32 §8.
-// Inline here until v3/js/west-rules.js lands in Phase 2e. Keep in sync.
-//
-// wipesOnFail:{2:[1]} = "round 2's failure also wipes round 1" (ladder).
-// Method 9 (II.2d two-phase, one ride) has the ladder — PH2 EL kills the
-// whole ride including PH1. Same shape for methods 3 (2-round+JO
-// cumulative) and 14 (Team cumulative).
-const JUMPER_METHODS = {
-  0:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
-  2:  { scoreRounds:[1],   tiebreak:2,    wipesOnFail:{} },
-  3:  { scoreRounds:[1,2], tiebreak:3,    wipesOnFail:{2:[1]} },
-  4:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
-  6:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
-  7:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
-  9:  { scoreRounds:[1,2], tiebreak:null, wipesOnFail:{2:[1]} },
-  11: { scoreRounds:[1,2], tiebreak:null, wipesOnFail:{} },
-  13: { scoreRounds:[1],   tiebreak:2,    wipesOnFail:{} },
-  14: { scoreRounds:[1,2], tiebreak:3,    wipesOnFail:{2:[1]} },
-  15: { scoreRounds:[2],   tiebreak:null, wipesOnFail:{} },
-};
+// Decision 1 round-cell suppression and Decision 2 placement logic both
+// delegate to the shared WEST.status + WEST.rules modules. Adding a new
+// status code or adjusting a method's ladder = edit the shared module,
+// admin picks it up automatically.
 
 // Decision 1 — "what goes in this round's cell?"
 // Returns HTML for a single round cell, applying status suppression.
+// Delegates isKillingStatus to WEST.status (shared module).
 function renderJumperRoundCell(time, totalFaults, timeFaults, jumpFaults, status) {
-  if (isKillingStatus(status)) {
+  if (WEST.status.isKillingStatus(status)) {
     return `<span class="round-status">${escapeHtml(status)}</span>`;
   }
   const hasTime = time != null && time !== 0;
@@ -624,42 +602,14 @@ function renderJumperRoundCell(time, totalFaults, timeFaults, jumpFaults, status
   return `<span class="round-faults">${escapeHtml(faultStr)}</span> <span class="round-time">${escapeHtml(time.toFixed ? time.toFixed(3) : time)}</span>`;
 }
 
-// Decision 2 — method-aware placement check.
-// Walks the scoring_method's wipesOnFail ladder to determine which rounds
-// are killed (including cascades from failures in later rounds). If ANY
-// scoreRound for the method is in the killed set, the entry is unplaced
-// regardless of what Ryegate stamped in col[14].
-//
-// Example — method 9 (II.2d two-phase, wipesOnFail:{2:[1]}):
-//   r1_status=null, r2_status='EL' → killed={2}, ladder adds 1 → {1,2}
-//   scoreRounds=[1,2] — both killed → UNPLACED
-//
-// Example — method 13 (no ladder, wipesOnFail:{}):
-//   r1_status=null, r2_status='WD' (declined JO) → killed={2}, no ladder
-//   scoreRounds=[1] — NOT in killed → PLACED (correct: R1 clean survives)
+// Decision 2 — method-aware placement rendering.
+// Delegates the method walk + ladder logic to WEST.rules.jumperPlaceFor.
+// Keeps admin concerns here (HTML output, blank vs place-num styling).
 function renderJumperPlace(overallPlace, scoringMethod, r1Status, r2Status, r3Status) {
-  const rule = JUMPER_METHODS[scoringMethod];
-  if (!rule) {
-    // Unknown method — fall back to legacy approximation (r1-only check).
-    if (isKillingStatus(r1Status)) return '<span class="place-blank">—</span>';
-    if (overallPlace == null) return '<span class="place-blank">—</span>';
-    return `<span class="place-num">${escapeHtml(String(overallPlace))}</span>`;
-  }
-  const killed = new Set();
   const statuses = { 1: r1Status, 2: r2Status, 3: r3Status };
-  for (const r of [1, 2, 3]) {
-    if (isKillingStatus(statuses[r])) {
-      killed.add(r);
-      const wiped = rule.wipesOnFail[r];
-      if (wiped) wiped.forEach(n => killed.add(n));
-    }
-  }
-  // If any scoreRound is killed → not placed
-  for (const n of rule.scoreRounds) {
-    if (killed.has(n)) return '<span class="place-blank">—</span>';
-  }
-  if (overallPlace == null) return '<span class="place-blank">—</span>';
-  return `<span class="place-num">${escapeHtml(String(overallPlace))}</span>`;
+  const place = WEST.rules.jumperPlaceFor(overallPlace, scoringMethod, statuses);
+  if (place == null) return '<span class="place-blank">—</span>';
+  return `<span class="place-num">${escapeHtml(String(place))}</span>`;
 }
 
 function renderEntries(classDbId, classType, scoringMethod) {
