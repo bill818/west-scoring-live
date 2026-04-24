@@ -2197,41 +2197,66 @@ export default {
                 'SELECT id, entry_num FROM entries WHERE class_id = ?'
               ).bind(classDbId).all();
               const idByNum = new Map(idRows.map(r => [r.entry_num, r.id]));
+              // Write path is now TWO tables (per-round shape, Session 33 pivot):
+              //   entry_jumper_summary — one row per entry, entry-scoped fields
+              //   entry_jumper_rounds  — one row per entry PER round that has data
+              // Absence of a round row = that round didn't happen.
+              // Parser still emits a wide object per entry; we split it here.
               for (const s of scoreParse.entries) {
                 const entryId = idByNum.get(s.entry_num);
                 if (!entryId) continue;
+
+                // Summary upsert (entry-scoped data)
                 await env.WEST_DB_V3.prepare(`
-                  INSERT INTO entry_jumper_scores (
-                    entry_id,
-                    r1_time, r1_penalty_sec, r1_total_time, r1_time_faults, r1_jump_faults, r1_total_faults, r1_status, r1_numeric_status,
-                    r2_time, r2_penalty_sec, r2_total_time, r2_time_faults, r2_jump_faults, r2_total_faults, r2_status, r2_numeric_status,
-                    r3_time, r3_penalty_sec, r3_total_time, r3_time_faults, r3_jump_faults, r3_total_faults, r3_status, r3_numeric_status,
-                    ride_order, overall_place, score_parse_status, score_parse_notes,
+                  INSERT INTO entry_jumper_summary (
+                    entry_id, ride_order, overall_place,
+                    score_parse_status, score_parse_notes,
                     first_seen_at, updated_at
-                  ) VALUES (?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?, datetime('now'), datetime('now'))
+                  ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                   ON CONFLICT(entry_id) DO UPDATE SET
-                    r1_time=excluded.r1_time, r1_penalty_sec=excluded.r1_penalty_sec,
-                    r1_total_time=excluded.r1_total_time, r1_time_faults=excluded.r1_time_faults,
-                    r1_jump_faults=excluded.r1_jump_faults, r1_total_faults=excluded.r1_total_faults,
-                    r1_status=excluded.r1_status, r1_numeric_status=excluded.r1_numeric_status,
-                    r2_time=excluded.r2_time, r2_penalty_sec=excluded.r2_penalty_sec,
-                    r2_total_time=excluded.r2_total_time, r2_time_faults=excluded.r2_time_faults,
-                    r2_jump_faults=excluded.r2_jump_faults, r2_total_faults=excluded.r2_total_faults,
-                    r2_status=excluded.r2_status, r2_numeric_status=excluded.r2_numeric_status,
-                    r3_time=excluded.r3_time, r3_penalty_sec=excluded.r3_penalty_sec,
-                    r3_total_time=excluded.r3_total_time, r3_time_faults=excluded.r3_time_faults,
-                    r3_jump_faults=excluded.r3_jump_faults, r3_total_faults=excluded.r3_total_faults,
-                    r3_status=excluded.r3_status, r3_numeric_status=excluded.r3_numeric_status,
-                    ride_order=excluded.ride_order, overall_place=excluded.overall_place,
-                    score_parse_status=excluded.score_parse_status, score_parse_notes=excluded.score_parse_notes,
+                    ride_order=excluded.ride_order,
+                    overall_place=excluded.overall_place,
+                    score_parse_status=excluded.score_parse_status,
+                    score_parse_notes=excluded.score_parse_notes,
                     updated_at=datetime('now')
                 `).bind(
-                  entryId,
-                  s.r1_time, s.r1_penalty_sec, s.r1_total_time, s.r1_time_faults, s.r1_jump_faults, s.r1_total_faults, s.r1_status, s.r1_numeric_status,
-                  s.r2_time, s.r2_penalty_sec, s.r2_total_time, s.r2_time_faults, s.r2_jump_faults, s.r2_total_faults, s.r2_status, s.r2_numeric_status,
-                  s.r3_time, s.r3_penalty_sec, s.r3_total_time, s.r3_time_faults, s.r3_jump_faults, s.r3_total_faults, s.r3_status, s.r3_numeric_status,
-                  s.ride_order, s.overall_place, s.score_parse_status, s.score_parse_notes
+                  entryId, s.ride_order, s.overall_place,
+                  s.score_parse_status, s.score_parse_notes
                 ).run();
+
+                // Round upserts — fresh-replace to handle the case where a
+                // round used to have data and no longer does (operator edited
+                // the class in Ryegate). Delete existing rounds for this
+                // entry, then insert only rounds that currently have data.
+                await env.WEST_DB_V3.prepare(
+                  'DELETE FROM entry_jumper_rounds WHERE entry_id = ?'
+                ).bind(entryId).run();
+
+                for (const round of [1, 2, 3]) {
+                  const p = `r${round}_`;
+                  const time = s[p + 'time'];
+                  const status = s[p + 'status'];
+                  const numericStatus = s[p + 'numeric_status'];
+                  // Skip rounds with zero data — absence of row = didn't happen.
+                  const hasAnyData =
+                    (time != null && time !== 0) ||
+                    status != null ||
+                    (numericStatus != null && numericStatus !== 0);
+                  if (!hasAnyData) continue;
+                  await env.WEST_DB_V3.prepare(`
+                    INSERT INTO entry_jumper_rounds (
+                      entry_id, round,
+                      time, penalty_sec, total_time, time_faults, jump_faults, total_faults,
+                      status, numeric_status,
+                      first_seen_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                  `).bind(
+                    entryId, round,
+                    s[p + 'time'], s[p + 'penalty_sec'], s[p + 'total_time'],
+                    s[p + 'time_faults'], s[p + 'jump_faults'], s[p + 'total_faults'],
+                    s[p + 'status'], s[p + 'numeric_status']
+                  ).run();
+                }
               }
               entriesStatus += ` | ${scoreParse.status}`;
             } catch (scErr) {
@@ -2509,10 +2534,16 @@ export default {
     // Returns all entries for a given class (by D1 PK id). Used by admin
     // when an operator expands a class row to view the entry roster.
     //
-    // Phase 2d: LEFT JOIN entry_jumper_scores so jumper-lens classes
-    // return scoring data alongside identity. Score columns are NULL for
-    // hunter classes (and for jumper classes where scoring hasn't been
-    // parsed yet). When entry_hunter_scores lands, add a parallel JOIN.
+    // Storage is per-round (Session 33 pivot):
+    //   entries               identity only
+    //   entry_jumper_summary  one row per entry — ride_order, overall_place, parse meta
+    //   entry_jumper_rounds   one row per entry PER round (absence = didn't happen)
+    //
+    // Admin expects a WIDE row shape per entry. This query pivots the
+    // 3 round rows back into r1_* / r2_* / r3_* columns via LEFT JOINs
+    // on (entry_id, round). Same output shape as pre-pivot — admin code
+    // unchanged. Stats consumers (Phase 3+) read entry_jumper_rounds
+    // natively without the pivot.
     if (method === 'GET' && path === '/v3/listEntries') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
@@ -2525,23 +2556,26 @@ export default {
           `SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
                   e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state,
                   e.first_seen_at, e.updated_at,
-                  j.ride_order, j.overall_place,
-                  j.r1_time, j.r1_penalty_sec, j.r1_total_time,
-                  j.r1_time_faults, j.r1_jump_faults, j.r1_total_faults,
-                  j.r1_status, j.r1_numeric_status,
-                  j.r2_time, j.r2_penalty_sec, j.r2_total_time,
-                  j.r2_time_faults, j.r2_jump_faults, j.r2_total_faults,
-                  j.r2_status, j.r2_numeric_status,
-                  j.r3_time, j.r3_penalty_sec, j.r3_total_time,
-                  j.r3_time_faults, j.r3_jump_faults, j.r3_total_faults,
-                  j.r3_status, j.r3_numeric_status,
-                  j.score_parse_status, j.score_parse_notes
+                  s.ride_order, s.overall_place,
+                  s.score_parse_status, s.score_parse_notes,
+                  r1.time AS r1_time, r1.penalty_sec AS r1_penalty_sec, r1.total_time AS r1_total_time,
+                  r1.time_faults AS r1_time_faults, r1.jump_faults AS r1_jump_faults, r1.total_faults AS r1_total_faults,
+                  r1.status AS r1_status, r1.numeric_status AS r1_numeric_status,
+                  r2.time AS r2_time, r2.penalty_sec AS r2_penalty_sec, r2.total_time AS r2_total_time,
+                  r2.time_faults AS r2_time_faults, r2.jump_faults AS r2_jump_faults, r2.total_faults AS r2_total_faults,
+                  r2.status AS r2_status, r2.numeric_status AS r2_numeric_status,
+                  r3.time AS r3_time, r3.penalty_sec AS r3_penalty_sec, r3.total_time AS r3_total_time,
+                  r3.time_faults AS r3_time_faults, r3.jump_faults AS r3_jump_faults, r3.total_faults AS r3_total_faults,
+                  r3.status AS r3_status, r3.numeric_status AS r3_numeric_status
            FROM entries e
-           LEFT JOIN entry_jumper_scores j ON j.entry_id = e.id
+           LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
+           LEFT JOIN entry_jumper_rounds r1 ON r1.entry_id = e.id AND r1.round = 1
+           LEFT JOIN entry_jumper_rounds r2 ON r2.entry_id = e.id AND r2.round = 2
+           LEFT JOIN entry_jumper_rounds r3 ON r3.entry_id = e.id AND r3.round = 3
            WHERE e.class_id = ?
            ORDER BY
-             CASE WHEN j.overall_place IS NULL THEN 999 ELSE j.overall_place END,
-             CASE WHEN j.ride_order IS NULL OR j.ride_order = 0 THEN 999 ELSE j.ride_order END,
+             CASE WHEN s.overall_place IS NULL THEN 999 ELSE s.overall_place END,
+             CASE WHEN s.ride_order IS NULL OR s.ride_order = 0 THEN 999 ELSE s.ride_order END,
              CAST(e.entry_num AS INTEGER)`
         ).bind(classDbId).all();
         return json({ ok: true, entries: results || [] });

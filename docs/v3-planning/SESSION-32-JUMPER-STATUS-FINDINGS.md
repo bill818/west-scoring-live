@@ -390,13 +390,25 @@ This is what the entire conversation's findings drive. To be written during Phas
 
 ### Target storage
 
-Parser output is UPSERTed into `entry_jumper_scores` (schema in
-`v3/migrations/008_entry_jumper_scores.sql`). The `entries` table stays
-identity-only; lens-specific scoring lives in the linked lens tables.
-Hunter entries (class_type='H') go through a separate parser writing
-to `entry_hunter_scores` (not yet built).
+**Schema pivoted in Session 33 (2026-04-24) from wide to per-round.**
+Session 32 originally landed `entry_jumper_scores` (one wide row per
+entry with r1_*/r2_*/r3_* columns). On Session 33 review, Bill's
+instinct that stats would want per-round prevailed — v2's D1 `results`
+table, v2 `stats.html`, and `STATS-BRAINSTORM.md` all agreed per-round
+is the natural analytics shape. Pivot executed. New shape:
 
-One row per entry in `entry_jumper_scores`, keyed by `entry_id` FK.
+- `entries` — identity only (unchanged from Phase 2c).
+- `entry_jumper_summary` — one row per jumper entry. Entry-scoped
+  fields: `ride_order`, `overall_place`, `score_parse_status`,
+  `score_parse_notes`. Schema in `v3/migrations/009_entry_jumper_per_round.sql`.
+- `entry_jumper_rounds` — one row per entry **per round that actually
+  happened**. PK is `(entry_id, round)`. Fields: `time`, `penalty_sec`,
+  `total_time`, `time_faults`, `jump_faults`, `total_faults`, `status`,
+  `numeric_status`. Absence of a round row = round didn't happen.
+
+The parser still emits a wide object per entry; the worker splits it
+on write. The `/v3/listEntries` endpoint pivots back to wide shape via
+three LEFT JOINs so admin code needs no changes.
 
 ### Function signature
 
@@ -409,7 +421,8 @@ One row per entry in `entry_jumper_scores`, keyed by `entry_id` FK.
 //
 // classType: 'J' (Farmtek) or 'T' (TOD)
 // Returns: array of per-entry scoring objects, one per parsed row.
-// Caller upserts each into entry_jumper_scores keyed by entry_id.
+// Caller splits each object into entry_jumper_summary (entry-scoped)
+// and entry_jumper_rounds (per-round rows). Session 33 per-round pivot.
 
 function parseEntriesScoreJ(text, classType) {
   // For each entry row in the CSV:
@@ -420,7 +433,7 @@ function parseEntriesScoreJ(text, classType) {
   //   parseRoundStatus(cols, round=3)      // col[35] numeric + text tail-scan (unconfirmed)
   //   parseRideMetadata(cols)              // ride_order (col[13]), overall_place (col[14])
   //
-  // Returns per-row (field names match entry_jumper_scores columns 1:1):
+  // Returns per-row (wide shape; caller splits to summary + rounds):
   //   {
   //     entry_num,                         // used by caller to look up entry_id FK
   //     ride_order, overall_place,
@@ -527,7 +540,8 @@ started (e.g., II.1 → II.2b). Our pipeline handles this naturally:
 2. Engine fs.watch fires → 2-second debounce ([v3/engine/main.js:34](../../v3/engine/main.js#L34))
    absorbs any mid-write state. After 2s of quiet, engine POSTs.
 3. Worker parses the new header → UPDATE `classes.scoring_method`.
-   Parser re-reads all entries → UPDATE `entry_jumper_scores`.
+   Parser re-reads all entries → UPDATE `entry_jumper_summary` +
+   fresh-replace `entry_jumper_rounds` rows.
 4. Display-side `effectivePlacement()` reads the CURRENT
    `class.scoring_method`, so ladder/tiebreak rules apply immediately
    from next render.
@@ -573,10 +587,10 @@ aggregation layer. Note captured here so it isn't forgotten.
 
 ## 12. Next steps in code (Phase 2d sequencing)
 
-**Piece 1** — schema: `entry_jumper_scores` linked table ✓ (applied to WEST_DB_V3 2026-04-23; migration at `v3/migrations/008_entry_jumper_scores.sql`)
+**Piece 1** — schema: `entry_jumper_scores` wide linked table ✓ (Session 32, migration 008). **Superseded by Session 33 pivot** to per-round — see migration 009 `entry_jumper_summary` + `entry_jumper_rounds`.
 **Piece 1b** — lens module ✓ (`v3/js/west-cls-jumper.js` — centralizes column positions so Ryegate layout drift is a one-file fix)
-**Piece 2 (this function)** — `parseEntriesScoreJ` + `parseRoundStatus` per the spec above. Writes to `entry_jumper_scores`.
-**Piece 3** — wire into `/v3/postCls`, expose via `/v3/listEntries` (add JOIN to entry_jumper_scores)
+**Piece 2 (this function)** — `parseEntriesScoreJ` + `parseRoundStatus` per the spec above. Writes to `entry_jumper_summary` + `entry_jumper_rounds` (post-Session-33).
+**Piece 3** — wire into `/v3/postCls`, expose via `/v3/listEntries` (pivots per-round back to wide via 3 LEFT JOINs — admin code unchanged)
 **Piece 4** — admin drill-down columns
 
 Fixture in hand: `v3/tests/fixtures/cls/J/212_culpeper.cls` (24 entries, 11 showing per-round status patterns). Acceptance test walks through 1993, 6318, 6147, 6235, 6056 and verifies the expected result shape.

@@ -1,0 +1,191 @@
+SESSION-NOTES-33 — jumper scoring schema pivot: wide → per-round
+Date: 2026-04-24 (morning)
+Duration: short focused session
+Outcome: Session 32 shipped jumper scoring with a wide single-table
+         design. Session 33 pivoted it to per-round (summary + rounds
+         tables) after reviewing v2 stats.html + STATS-BRAINSTORM.md
+         which confirmed per-round is the right shape for analytics.
+         Transparent to admin — same wide row shape served via SQL
+         pivot. 71 classes, 959 entries, 1,127 round rows backfilled.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill pushed back on the wide-table design shipped in Session 32:
+"if we waited until Phase 3 [stats] we may have a bigger task on our
+hands." He asked to look at what stats existed in v2 before deciding.
+
+Evidence review changed the call:
+
+1. V2's D1 `results` table IS per-round (keyed by entry_id + round).
+   V2 made the schema decision we were about to defer.
+
+2. v2 stats.html client-side UNPIVOTS wide jumper data into per-round
+   rows at lines 1262-1269 with the explicit comment:
+   "Stats page expects D1-shaped entries with round sub-objects."
+   The unpivot is a pain point — v2 does it every page render.
+
+3. docs/STATS-BRAINSTORM.md (Session 12 brainstorm for v1/early-v2)
+   — EVERY primary stats bullet is per-round:
+     - Clear round % R1 / JO
+     - Avg elapsed vs TA (per round)
+     - Fastest clear round (per round)
+     - JO conversion rate
+     - Avg JO time vs R1 time
+     - JO clear % vs R1 clear %
+     - Fault patterns R1 vs JO
+     - Time savings in JO
+   Not a theoretical future — the core product value prop.
+
+The "bigger task later" concern was legitimate because the per-round
+consumer count isn't just "future stats" — it's rider pages, horse
+pages, season leaderboards, TA analysis, public stats page, and more.
+Writing all of those against wide and then flipping to per-round
+would be expensive. Switching now while only one writer (parser) and
+one reader (admin) depend on it is cheap.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED
+═══════════════════════════════════════════════════════════════════════════
+
+MIGRATION 009 — entry_jumper_per_round.sql
+  - DROP TABLE entry_jumper_scores (Session 32's wide design)
+  - CREATE TABLE entry_jumper_summary (entry_id PK, entry-scoped:
+    ride_order, overall_place, score_parse_status, score_parse_notes,
+    timestamps)
+  - CREATE TABLE entry_jumper_rounds (entry_id+round composite PK,
+    per-round: time, penalty_sec, total_time, time_faults,
+    jump_faults, total_faults, status, numeric_status, timestamps)
+  - Indexes on (entry_id) and (round) for query performance
+
+WORKER write path (west-worker.js /v3/postCls)
+  - Parser still emits wide shape per entry (unchanged).
+  - Write-time split:
+      1. UPSERT entry_jumper_summary with entry-scoped fields
+      2. DELETE entry_jumper_rounds for this entry (fresh replace
+         handles the case where a round previously had data and
+         no longer does — operator edited in Ryegate)
+      3. For each round 1..3: INSERT entry_jumper_rounds row ONLY
+         if that round has data (non-zero time, OR any status).
+         Absence of a round row = round didn't happen.
+  - Zero-data rounds are skipped at write. entry_jumper_rounds
+    only carries rows for rounds that actually happened.
+
+WORKER read path (west-worker.js /v3/listEntries)
+  - Pivots per-round rows back to wide shape via 3 LEFT JOINs:
+      LEFT JOIN entry_jumper_summary s   ON s.entry_id = e.id
+      LEFT JOIN entry_jumper_rounds r1   ON r1.entry_id = e.id AND r1.round = 1
+      LEFT JOIN entry_jumper_rounds r2   ON r2.entry_id = e.id AND r2.round = 2
+      LEFT JOIN entry_jumper_rounds r3   ON r3.entry_id = e.id AND r3.round = 3
+  - Projects r1.time AS r1_time, r2.time AS r2_time, etc.
+  - Missing rounds come back as NULL — admin renders blank cell via
+    existing Decision 1 logic.
+  - Admin code UNCHANGED. Same flat JSON shape as pre-pivot.
+
+ADMIN (v3/pages/admin.html)
+  - No changes. renderEntries / renderJumperRoundCell /
+    renderJumperPlace all consume the same wide shape from
+    /v3/listEntries that the pivot produces.
+
+═══════════════════════════════════════════════════════════════════════════
+VALIDATION
+═══════════════════════════════════════════════════════════════════════════
+
+End-to-end re-POSTed 71 .cls files through the new write path, then
+verified listEntries for class 23 matches yesterday's Ryegate PDF
+shape exactly:
+
+  7 acceptance cases from SESSION-32 findings §10 all pass:
+    146 ANYTIME     → placed 1,  R1 65.138 clean, R2 32.757 clean
+    176 REMINISCENT → placed 10, R1 62.126 clean, R2 29/4 EL  ← per-round works
+    184 DON REGAL   → placed 27, R1 31 RF
+    107 GOLDEN GUN  → placed 27, R1 71/8 EL
+    239 STAKKATO    → placed 27, R1 56/4 EL
+    129 FARFAN M    → placed 26, R1 44/4 RT
+    150 ZEALOUS     → DNS — no summary or round rows visible as null
+
+Row counts reconcile with Session 32:
+  entry_jumper_summary:   959 (one per jumper entry — matches)
+  entry_jumper_rounds:  1,127  (874 R1 + 253 R2 + 0 R3)
+    - 959 − 874 = 85 entries that didn't ride R1 (DNS)
+    - 253 R2 rows = entries that rode R2/JO
+    - 71 rows with text status — matches Session 32's 54+17 = 71
+  parse warnings:  0
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+9. PER-ROUND IS THE AUTHORITATIVE SHAPE FOR SCORING STORAGE.
+   (Adds to SESSION-32 decisions 1-8.)
+   entry_jumper_rounds is the source of truth for per-round data.
+   entry_jumper_summary is the source of truth for entry-scoped data
+   (place, ride_order, parse meta). Wide shape is a READ projection
+   served by /v3/listEntries for UI consumers that want flat rows.
+
+10. ABSENCE OF ROUND ROW = ROUND DIDN'T HAPPEN.
+    No round rows with all-zero data. Query semantics: "did entry X
+    ride R2?" becomes "exists entry_jumper_rounds WHERE entry_id=X
+    AND round=2". No column-pivoting or NULL gymnastics.
+
+11. FRESH-REPLACE ROUND ROWS ON EACH POST.
+    When the engine re-POSTs a .cls, worker DELETEs all
+    entry_jumper_rounds for each entry then INSERTs only the rounds
+    that currently have data. Handles the case where Ryegate edit
+    removes a round's data (rare but possible).
+
+12. HUNTER SCHEMA WILL MIRROR THIS.
+    When Phase 2d hunter-half lands:
+      - entry_hunter_summary (go_order, current_place, parse meta)
+      - entry_hunter_rounds (per round: total, numeric_status, status)
+    Same split pattern. Future per-judge scores go in a third table
+    (entry_hunter_judge_scores keyed by entry_id+round+judge) when
+    needed — natural extension.
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare:
+  - Worker version: 36523ef9-f669-4758-b425-6f0dfbc6d275
+  - WEST_DB_V3 tables:
+      shows, rings, classes, entries (unchanged)
+      entry_jumper_summary (new)
+      entry_jumper_rounds (new)
+      entry_jumper_scores (DROPPED)
+  - Migrations 008 (wide) now effectively superseded by 009
+    (per-round). Both files preserved in git history.
+
+Data:
+  - 959 entry_jumper_summary rows
+  - 1,127 entry_jumper_rounds rows across 51 T classes
+  - 0 parse warnings
+
+Admin: Still off preview per Bill. Local file:// test against the
+new pivot confirms class 23 renders identically to yesterday.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP
+═══════════════════════════════════════════════════════════════════════════
+
+- Phase 2d HUNTER half — parseEntriesScoreH + entry_hunter_summary
+  + entry_hunter_rounds + hunter-side lens module.
+- Phase 2e PUBLIC RESULTS PAGE — thin view, collapses ELIM family
+  to generic "EL" for public audience.
+- Phase 3+ STATS — now the per-round shape is in place, stats queries
+  can hit entry_jumper_rounds natively. First consumer likely a
+  per-class clear-round % dashboard. No unpivot gymnastics needed.
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  v3/migrations/009_entry_jumper_per_round.sql
+  session-notes/SESSION-NOTES-33.txt (this file)
+
+MODIFIED:
+  west-worker.js (per-round write path, pivot read path)
+  docs/v3-planning/SESSION-32-JUMPER-STATUS-FINDINGS.md (§ schema
+    pivot note + terminology updates)
