@@ -1,0 +1,395 @@
+SESSION-NOTES-32 — v3 Phase 2d jumper scoring end-to-end
+Date: 2026-04-23
+Duration: long session — Phase 2d Pieces 1–4 shipped for the jumper lens
+Outcome: v3 parses per-round jumper scoring from real Farmtek + TOD .cls
+         files, stores it in a linked scoring table with correct per-round
+         status attribution (fixing the v2 double-WD bug), and renders
+         it in admin with suppression rules. All 51 T classes on Bill's
+         dev corpus backfilled cleanly. Hunter scoring deferred to next
+         session; public results page (Phase 2e) also deferred.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Phase 2d (jumper half) shipped end-to-end in one session. What used to
+be v2's "parse the .cls and guess at per-round statuses" is now a
+structurally clean pipeline:
+
+  engine .cls POST
+     → worker parseClsHeaderV3 (picks lens from col[0])
+     → worker parseClsEntriesV3 (identity cols 0-12)
+     → worker parseEntriesScoreJ (J or T lens) — per-round independent
+     → UPSERT entry_jumper_scores keyed by entry_id
+     → /v3/listEntries returns joined scoring to admin
+     → admin renderEntries applies Decision 1 (cell suppression) +
+       Decision 2 (place suppression on R1 kill)
+
+959 rows across 51 classes backfilled via a single engine startup-sync
+with zero parse warnings and zero failures. Verified against a Ryegate
+published PDF for class 23 — every placement, time, fault count, and
+status matched (one benign "richer" difference: v3 stores RF where
+Ryegate's PDF shows the generic "EL" — expected behavior).
+
+The foundational v2 parser bug is fixed: v2's "attribute single overall
+status to all rounds" logic produced double-WD artifacts (e.g., entry
+1993 EXCELLENT in Culpeper class 212 had r1_status="WD" stored even
+though R1 was clean). v3's per-round independent attribution stores
+r1_status=NULL, r2_status="WD" — honest to the raw .cls.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — PHASE 2d BREAKDOWN (jumper half)
+═══════════════════════════════════════════════════════════════════════════
+
+PIECE 1 — entry_jumper_scores linked table
+  - Initial attempt: added 28 scoring columns directly to the entries
+    table (wide-table design). Quickly pivoted mid-session to linked-
+    table design after Bill raised the cross-show stats concern:
+    "those stats will fail" — wide-table silently ignores NULL columns
+    in AVG() queries, which would produce misleading hunter/jumper
+    averages with no error.
+  - Pivot executed: dropped the 28 jumper columns from entries (4 test
+    rows, zero production data impact), created entry_jumper_scores
+    as a separate table keyed by entry_id FK with ON DELETE CASCADE.
+  - Migration file: v3/migrations/008_entry_jumper_scores.sql
+  - Schema lives in WEST_DB_V3. Identity stays in entries (14 cols).
+    Jumper scoring lives in entry_jumper_scores (30 cols with
+    timestamps). Hunter will get entry_hunter_scores (migration 010)
+    when we build the hunter parser.
+
+PIECE 1b — west-cls-jumper.js lens module
+  - v3/js/west-cls-jumper.js — VERSIONED shape so old R2 archives
+    can always be re-parsed against the layout they were written with.
+  - Structure:
+      WEST.cls.jumper = {
+        current: 'v_2026_04_23',
+        versions: { 'v_2026_04_23': { identity, rounds, text_status, ... } },
+        forCurrent(), forVersion(v),
+      }
+  - When Ryegate shifts column positions: add new version entry with
+    new layout, bump `current`, don't touch old versions. Archive
+    re-parse picks version by stored layout_version metadata (Phase 3+).
+  - Dual-env IIFE — browser pages load via <script> tag, worker
+    currently has an inline mirror (sync manually when versions change).
+
+PIECE 2 — parseEntriesScoreJ + parseRoundStatus in the worker
+  - west-worker.js gains CLS_JUMPER_LAYOUT const (inline mirror of
+    lens module v_2026_04_23 — keep in sync), JUMPER_NUMERIC_MAP
+    {2:'RT', 3:'EL', 4:'WD'}, JUMPER_KNOWN_STATUS_RE regex.
+  - parseEntryStatusesJumper(cols, classType): single pass returning
+    {r1:{text,numeric}, r2:{...}, r3:{...}}. Per-round independent.
+    Farmtek (J): tail-scan cols 37-39 for text, attribute to LATEST
+    round whose numeric fired. TOD (T): direct read from cols 82/83/84.
+    For any round with non-zero numeric but no text attributed, derive
+    text from JUMPER_NUMERIC_MAP.
+  - parseEntriesScoreJ(text, classType): full per-entry parser.
+    Returns array of score objects matching entry_jumper_scores
+    columns 1:1. Validates column count against expected (J=40, T=85),
+    logs parse_warnings for unknown numeric codes and first-ever
+    R3 data observations.
+  - /v3/postCls handler gains a jumper-scoring pass after the
+    existing identity upsert loop: for J/T class types, runs the
+    scorer, looks up entry_ids, UPSERTs into entry_jumper_scores with
+    ON CONFLICT DO UPDATE SET on all columns.
+
+  Acceptance verified locally against v3/tests/fixtures/cls/J/212_culpeper.cls
+  before deploy: 7/7 acceptance cases from SESSION-32 findings spec
+  all pass — including the three v2-double-WD cases (1993, 6191,
+  6267) which now correctly store r1_status=NULL / r2_status='WD'.
+
+PIECE 3 — /v3/listEntries LEFT JOIN entry_jumper_scores
+  - LEFT JOIN so hunter/U classes still return rows (scoring cols NULL).
+  - ORDER BY overall_place (NULLS last), then ride_order, then
+    entry_num — gives admin a reasonable default sort.
+  - Returns all 28 scoring cols alongside the 14 identity cols in a
+    flat shape. Future entry_hunter_scores will parallel-JOIN similarly.
+
+PIECE 4 — admin drill-down scoring columns
+  - v3/pages/admin.html renderEntries() extended with class_type
+    awareness. For J/T, adds 5 columns: RO, Pl, R1, R2, R3.
+  - renderJumperRoundCell(time, totalFaults, timeFaults, jumpFaults, status):
+    Decision 1 suppression. Killing status shows red label only.
+    Otherwise shows "total_faults / time" or (when time faults
+    present) "jump_faults + time_faults / time" matching Ryegate
+    PDF convention.
+  - renderJumperPlace(overallPlace, r1Status): Decision 2
+    approximation. Hides place when R1 has a killing status. Covers
+    method 13 (the dominant method) exactly. Proper method-aware
+    ladder logic deferred to west-rules.js in Phase 2e.
+  - v3/pages/west.css: new CSS classes for round cells, status
+    (red #b82025 matching v2 color semantics), place styling.
+  - Changes kept OFF preview per Bill. Local browser (file://) test
+    confirmed rendering looks correct against class 23 (matches the
+    Ryegate published PDF layout and suppression behavior).
+
+═══════════════════════════════════════════════════════════════════════════
+THE V2 PARSER BUG — DIAGNOSED AND FIXED STRUCTURALLY
+═══════════════════════════════════════════════════════════════════════════
+
+Investigation surfaced a real bug in the v2 production data:
+
+  v2 production DB stores for Culpeper class 212 entry 1993:
+    r1_status = 'WD'    ← WRONG
+    r2_status = 'WD'    ← right
+
+  Raw .cls for that entry (pulled from classes.cls_raw in v2 DB):
+    col[21] = 0         (no R1 status)
+    col[28] = 4         (R2 numeric status = WD)
+    col[37-39] all empty (no text status anywhere)
+
+  Ryegate wrote ONE signal: col[28]=4. R1 was genuinely clean
+  (time 73.626, 0 faults). v2 watcher's line 1005 computes a single
+  overall entry.statusCode; downstream storage mechanism writes that
+  single value to BOTH round rows in the results table.
+
+Same pattern confirmed across:
+  - Class 212 entries 1993, 6191, 6267 (triple-WD after clean R1)
+  - Class 264 entry 6056 (OC stored on both R1 and R2)
+
+v3's structural fix:
+  - Parser never computes an overall statusCode — each round parsed
+    independently from its own numeric + the (attributable) tail text.
+  - Storage target is the linked entry_jumper_scores table, one row
+    per entry — but with per-round columns (r1_status, r2_status,
+    r3_status) that get written independently from the parse output.
+  - No single "statusCode" field in the DB at all. If any future
+    consumer wants "overall status," it derives it at render time
+    as r2_status || r1_status || r3_status || null.
+
+Public-facing behavior unaffected (v2's display worked around the bad
+storage by checking time-presence). v3 simply stores truth.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. LINKED LENS TABLES, NOT WIDE SINGLE-TABLE.
+   Rationale: stats correctness. Wide-table AVG() silently drops NULLs
+   which would produce wrong cross-lens averages. Linked tables force
+   queries to join through a specific lens table, making wrong-lens
+   queries impossible to write by accident. Per-lens column evolution
+   also stays independent. Bill's instinct on this was correct;
+   Claude had to be convinced and reconverted.
+
+2. LENS MODULE IS VERSIONED.
+   west-cls-jumper.js stores every layout version that's ever
+   existed. Old archives re-parse against the layout they were
+   written with. When Ryegate shifts columns, add a new version,
+   don't mutate old ones.
+
+3. PER-ROUND STATUS IS INDEPENDENT — ALWAYS.
+   No overall statusCode anywhere. Each round's text + numeric
+   attributed from its own columns (or from the tail-scan attributed
+   to the LATEST fired numeric for Farmtek). Never propagated.
+
+4. HASGONE (col[36]) IS UNRELIABLE, NOT STORED.
+   Cross-confirmed across 2,357 rows (Farmtek + TOD) that col[36]=1
+   can appear with zero scoring evidence (7 such entries found). Not
+   a "show on results" flag either — three Farmtek anomalies verified
+   on Ryegate's live results page, none displayed. Parser ignores
+   col[36]. "Did they ride" is derived from (time > 0 OR status) at
+   render time.
+
+5. NUMERIC STATUS MAP IS EMPIRICAL, NOT SPECULATIVE.
+   JUMPER_NUMERIC_MAP starts with {2:'RT', 3:'EL', 4:'WD'} —
+   ONLY codes observed live in Culpeper data. Unknown values
+   (1, 5, 6) log parse_warning on first sight. Map expands from
+   evidence. Session 22's speculative "3=HF" and display-config.js's
+   speculative "3=OC" were not used.
+
+6. SPECIFIC CAUSE CAPTURED INTERNALLY; PUBLIC DISPLAY GENERIC.
+   Per Bill's directive: admin/internal shows specific codes
+   (RF/HF/OC/RO/DQ); public pages collapse to generic "EL". Not a
+   per-code publicLabel field — one-line render helper at the
+   public page level when Phase 2e lands:
+     publicLabel(code) = TEXT_CODES[code].category === 'ELIM' ? 'EL' : code
+
+7. DISPLAY LAYER DECIDES PLACEMENT, NOT PARSE.
+   overall_place is stored raw from col[14] exactly as Ryegate
+   stamped it. Admin's Decision 2 suppresses place when R1 has a
+   killing status (approximation of the full method-aware ladder
+   logic). Proper effectivePlacement() function with method-table
+   walk and wipesOnFail ladder rules lands in west-rules.js in
+   Phase 2e.
+
+8. DECISION 1 SUPPRESSES ROUND DATA WHEN STATUS FIRES.
+   Round cell shows either time/faults OR the status label —
+   never both. Matches Ryegate PDF convention. Raw time/faults
+   stay in the DB for future use (partial-ride stats etc.).
+
+═══════════════════════════════════════════════════════════════════════════
+VALIDATION — CLASS 23 END-TO-END MATCH
+═══════════════════════════════════════════════════════════════════════════
+
+Class 23 ($3,000 1.15M AM JMPR CLASSIC II.2B — TOD method 13, 32 entries)
+verified against the Ryegate published results PDF, line by line:
+
+  ✓ Places 1-25: time, faults, and rank all match exactly
+  ✓ Jump + time fault split: LAISHA W "4 + 2", ROS FER "20 + 17",
+    E.G. VIVANT DE LUX "0 + 2" — PDF and v3 agree on the components
+  ✓ Place 10 REMINISCENT: R1 clean, R2 "EL" (PDF suppresses R2
+    time/faults; v3 Decision 1 matches)
+  ✓ Unplaced (129 FARFAN M, 107 GOLDEN GUN, 184 DON REGAL, 239
+    STAKKATO PAN): no rank shown on PDF page 3; v3 Decision 2
+    suppresses the place column for these too
+  ✓ DNS entries not shown on Ryegate PDF; v3 admin shows them at
+    the bottom with dashes (admin-specific — operator wants to see
+    DNS entries)
+
+One benign difference:
+  PDF shows 184 DON REGAL status = "EL" (generic)
+  v3 DB stores r1_status = "RF" (Ryegate's specific col[82] text)
+  → v3 captures richer data than the public PDF. Public results
+     page (Phase 2e) will collapse back to "EL" per the ELIM-family
+     render rule.
+
+═══════════════════════════════════════════════════════════════════════════
+FULL BACKFILL — 51 CLASSES, 959 ROWS, ZERO WARNINGS
+═══════════════════════════════════════════════════════════════════════════
+
+After deploy of worker version d1669174, Bill restarted the v3 engine.
+Startup-sync POSTed 123 .cls files at 150ms intervals (~18 sec). Worker
+routed:
+  - 51 T classes → parseEntriesScoreJ → entry_jumper_scores UPSERT
+  -  4 J classes would have taken the same path (none on this machine;
+     Bill's dev corpus is Devon Fall 2025 which was all TOD)
+  - 16 H classes → identity-only parse (no hunter parser yet)
+  -  4 U classes → identity-only parse (no lens committed)
+
+Result after ~50 sec:
+  classes_with_scores:     51
+  total_score_rows:       959
+  parsed_clean:           959
+  with_warnings:            0    ← zero anomalies across the corpus
+  r1_status populated:     54
+  r2_status populated:     17    ← all from the three Culpeper-style
+                                   "clean R1, incident R2" patterns
+  r3_status populated:      0    ← matches expectation (no 3-round data)
+
+Zero R3 data observed = zero parse_warnings on R3 positions. When a
+real 3-round class lands someday (method 3/14 on TOD), the parser
+will log a warning on first R3 numeric so we can capture the
+confirmation evidence that's been missing.
+
+═══════════════════════════════════════════════════════════════════════════
+DOCUMENTATION LANDED
+═══════════════════════════════════════════════════════════════════════════
+
+1. docs/v3-planning/SESSION-32-JUMPER-STATUS-FINDINGS.md (new, ~500 lines)
+   The central doc. 12 sections: raw evidence, column layout, v2 bug
+   analysis, decision architecture, train analogy / ladder rules,
+   method table, two-module architectural split, parser function spec
+   (§10), audience-aware label policy, open items, sequencing.
+   Every claim backed by raw .cls bytes or v2 DB evidence. Future
+   Claude starting Phase 2d hunter work reads this first.
+
+2. Memory anchors:
+   - reference_session32_jumper_status.md — "SETTLED, DO NOT REOPEN"
+     marker pointing at the findings doc. Bill: "i dont want to go
+     over this again for the 10th time."
+   - MEMORY.md updated with the anchor.
+
+3. docs/v3-planning/UNCERTAIN-PROTOCOLS-CHECKLIST.txt appended with
+   a 2026-04-23 sweep result for the TIMY/TOD col[84] R3 status
+   question — item stays OPEN (no 3-round T data exists on disk).
+
+4. v3/tests/fixtures/cls/J/212_culpeper.cls — real Culpeper Farmtek
+   .cls saved from v2 classes.cls_raw for future acceptance tests.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S NEXT
+═══════════════════════════════════════════════════════════════════════════
+
+Phase 2d HUNTER half (next session):
+  - Migration 010: CREATE TABLE entry_hunter_scores
+  - Extend header parser to capture num_judges + is_equitation
+  - Build v3/js/west-cls-hunter.js lens module (hunter-side versioned)
+  - Build parseEntriesScoreH in worker
+    (SEPARATE function from parseEntriesScoreJ per Article 1)
+  - Wire into /v3/postCls for class_type='H'
+  - Extend /v3/listEntries with parallel hunter JOIN
+  - Extend admin drill-down with hunter-specific columns
+  - Derby mode (classMode=2) component breakdown deferred, logs warning
+
+Phase 2e — PUBLIC RESULTS PAGE:
+  - Thin view, reads via new endpoint (or reuses /v3/listEntries?)
+  - Renders using west-format.js + new west-rules.js (ladder-aware
+    Decision 2) + publicStatusLabel() collapse
+  - Mirrors Ryegate PDF layout conventions
+
+Phase 3 — LIVE SIDE and STATS:
+  - UDP fan-out reintegration into Electron engine (spike pattern)
+  - Live pages (clock, standings, phase indicators)
+  - WebSocket/DO push layer
+  - stats_rebuild_log + rollup triggers (class update → enqueue
+    rebuild) — this is where "method changed mid-class" cache-
+    invalidation concern gets addressed
+  - parse_warnings / unknown_quirks / udp_anomalies observability
+    tables
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare:
+  - Worker version: d1669174-1be8-4389-99ed-0c90f0668805
+  - WEST_DB_V3 tables: shows, rings, classes, entries,
+    entry_jumper_scores (new). Migration 008 applied.
+  - R2 bucket v3-cls: 71+ .cls files + 1 tsked.csv unchanged
+  - Preview/production Pages UNTOUCHED — admin.html changes stayed
+    on Bill's local filesystem per explicit "keeping this off
+    preview for now"
+
+Data volume in WEST_DB_V3:
+  - Shows: 1 (v3-smoke-test-2026-04)
+  - Rings: 1
+  - Classes: 71 (51 J/T, 16 H, 4 U)
+  - Entries: 564+ (identity)
+  - Jumper scores: 959 rows across 51 classes, all parsed clean
+
+Engine (c:\west-engine\):
+  - Running. Backfill completed via startup-sync mid-session.
+
+Admin page:
+  - Local file c:\Users\bwort\OneDrive\...\v3\pages\admin.html renders
+    scoring columns against live worker. Off preview deliberately.
+
+═══════════════════════════════════════════════════════════════════════════
+REMINDERS FOR FUTURE CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Article 1 at schema level now — jumper scoring in entry_jumper_scores,
+  hunter will be in entry_hunter_scores. NEVER write a query that
+  blends them. Each lens's stats is its own query.
+- When Ryegate shifts column positions, add a new version to
+  west-cls-jumper.js AND update the CLS_JUMPER_LAYOUT mirror in
+  west-worker.js. Don't mutate old versions.
+- Parser never computes an overall statusCode. Display derives.
+- Admin keeps specific status codes (RF/HF/OC/RO/DQ); public collapses
+  to generic "EL". Rule: one-liner in Phase 2e renderer, no schema
+  field for it.
+- col[36] is unreliable. Parser ignores. Derive "did they ride"
+  from evidence.
+- Numeric map {2:'RT', 3:'EL', 4:'WD'} is the starting empirical set.
+  Unknown codes log parse_warning; expand map only from evidence.
+- R3 positions (col[35] jumper numeric, col[84] TOD text) are
+  structural inference with no live evidence yet. Parser reads them
+  and logs a warning on first non-zero value.
+
+═══════════════════════════════════════════════════════════════════════════
+COMMIT TRAIL (this session — pushed to GitHub at session close)
+═══════════════════════════════════════════════════════════════════════════
+
+See git log after session-close commit(s). Session 32 touches:
+  NEW:   v3/migrations/008_entry_jumper_scores.sql
+  NEW:   v3/js/west-cls-jumper.js
+  NEW:   v3/tests/fixtures/cls/J/212_culpeper.cls
+  NEW:   docs/v3-planning/SESSION-32-JUMPER-STATUS-FINDINGS.md
+  NEW:   session-notes/SESSION-NOTES-32.txt (this file)
+  MOD:   west-worker.js (+~280 lines: lens const, status map, helpers,
+         two parsers, /v3/postCls scoring pass, /v3/listEntries JOIN)
+  MOD:   v3/pages/admin.html (+60 lines: renderJumperRoundCell,
+         renderJumperPlace, renderEntries extended)
+  MOD:   v3/pages/west.css (+12 lines: round-cell and place styling)
+  MOD:   docs/v3-planning/UNCERTAIN-PROTOCOLS-CHECKLIST.txt (+18
+         lines: col[84] sweep result 2026-04-23)

@@ -478,6 +478,24 @@ HUNTER SIDE (col[46]/[47]/[48]) — reminder: ONLY under hunter lens
          Phase 2d parser still reads col[84] for T R3 but logs a
          parse_warning if the value is outside known status codes.
 
+    SWEEP RESULT 2026-04-23 (next-Claude session):
+    Ran step 1 across 123 files in C:\Ryegate\Jumper\Classes\.
+    - 51 T-type files, 959 T entries total.
+    - T files with RoundsCompleted (col[4]) >= 3: ZERO.
+      Distribution: rc=1 → 38 files, rc=2 → 13 files, rc=3 → 0.
+    - Bonus sweep across ALL 959 T entries regardless of rc:
+        col[82] non-empty: 49 entries (R1 status, per confirmed spec)
+        col[83] non-empty: 11 entries (R2 status; all had col[82]
+          empty → round-attribution behaves as hypothesized)
+        col[84] non-empty: 0 entries
+    - Step 4 applies: item STAYS OPEN. Structural pattern for
+      col[82]/col[83] strongly reinforced by the sweep; col[84]
+      R3-status inference has no contradicting evidence but also
+      no live affirmation yet. Master table stays "probable/
+      unconfirmed" for T R3. Re-run this same sweep after any
+      show weekend that included 3-round T classes (methods 3 or
+      14 on TOD hardware).
+
     Priority: LOW-MEDIUM (only matters for T classes running
     methods 3/14 that complete 3 rounds)
 

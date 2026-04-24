@@ -66,9 +66,200 @@ function parseCsvLineV3(line) {
   return out;
 }
 
+// Phase 2d: jumper lens column layout.
+// MIRROR of v3/js/west-cls-jumper.js `current` version. Keep in sync.
+// Versioning scaffold lives in the shared file; worker only needs the
+// active version. When layout shifts, bump the comment + replace this
+// block with the new version's data (AND bump `current` in the shared
+// file + add a new version entry there).
+const CLS_JUMPER_LAYOUT_VERSION = 'v_2026_04_23';
+const CLS_JUMPER_LAYOUT = {
+  identity: {
+    entry_num: 0, horse_name: 1, rider_name: 2,
+    country_code: 4, owner_name: 5, sire: 6, dam: 7,
+    city: 8, state: 9,
+    horse_usef: 10, rider_usef: 11, owner_usef: 12,
+  },
+  ride_order: 13,
+  overall_place: 14,
+  rounds: {
+    1: { time:15, penalty_sec:16, total_time:17, time_faults:18, jump_faults:19, total_faults:20, numeric_status:21 },
+    2: { time:22, penalty_sec:23, total_time:24, time_faults:25, jump_faults:26, total_faults:27, numeric_status:28 },
+    3: { time:29, penalty_sec:30, total_time:31, time_faults:32, jump_faults:33, total_faults:34, numeric_status:35 },
+  },
+  text_status: {
+    J: { scan_range: [37, 38, 39] },
+    T: { 1: 82, 2: 83, 3: 84 },
+  },
+  expected_cols: { J: 40, T: 85 },
+};
+
+// Empirical jumper numeric → display-category map. Built from live evidence
+// (Culpeper 2026-04 + v2 watcher observations). Codes 1, 5, 6 never observed
+// live; parser logs parse_warning if encountered. See SESSION-32 findings.
+const JUMPER_NUMERIC_MAP = {
+  2: 'RT',  // Retired
+  3: 'EL',  // Elim family (generic — Ryegate's specific text wins when present)
+  4: 'WD',  // Withdrew
+};
+
+// Text status whitelist for tail-scan (Farmtek). Matches v2 watcher.
+const JUMPER_KNOWN_STATUS_RE = /^(EL|RF|OC|HF|WD|RT|DNS|DQ|RO|EX|HC)$/i;
+
+// Number-parse helpers: parseFloat("") → NaN which SQLite REAL won't accept.
+// Return null for empty / non-numeric so D1 bind stores NULL.
+function numOrNull(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+function intOrNull(v) {
+  if (v == null || v === '') return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Phase 2d: parse per-round status for one entry row (jumper lens).
+// Returns { r1:{text,numeric}, r2:{...}, r3:{...} }.
+// Core rule (SESSION-32 §10): per-round INDEPENDENT. Never propagates
+// one round's status to another. Text wins over numeric when attributable.
+function parseEntryStatusesJumper(cols, classType) {
+  const L = CLS_JUMPER_LAYOUT;
+  const nums = {
+    1: intOrNull(cols[L.rounds[1].numeric_status]) || 0,
+    2: intOrNull(cols[L.rounds[2].numeric_status]) || 0,
+    3: intOrNull(cols[L.rounds[3].numeric_status]) || 0,
+  };
+  const out = {
+    r1: { text: null, numeric: nums[1] || null },
+    r2: { text: null, numeric: nums[2] || null },
+    r3: { text: null, numeric: nums[3] || null },
+  };
+
+  if (classType === 'T') {
+    // TOD: per-round text columns, direct read
+    for (const round of [1, 2, 3]) {
+      const col = L.text_status.T[round];
+      const val = (cols[col] || '').trim();
+      if (val && JUMPER_KNOWN_STATUS_RE.test(val)) {
+        out['r' + round].text = val.toUpperCase();
+      }
+    }
+  } else {
+    // Farmtek (J): tail-scan single text field at cols 37-39.
+    // Attribute to the LATEST round whose numeric flag fired.
+    let tailText = null;
+    for (const col of L.text_status.J.scan_range) {
+      const val = (cols[col] || '').trim();
+      if (val && JUMPER_KNOWN_STATUS_RE.test(val)) {
+        tailText = val.toUpperCase();
+        break;
+      }
+    }
+    if (tailText) {
+      if (nums[3]) out.r3.text = tailText;
+      else if (nums[2]) out.r2.text = tailText;
+      else if (nums[1]) out.r1.text = tailText;
+      // If no numeric fired but text found → anomaly; leave all text null,
+      // parser caller logs parse_warning from its own sweep.
+    }
+  }
+
+  // For any round with a non-zero numeric but no text attributed, derive
+  // text from the JUMPER_NUMERIC_MAP. Ryegate-specific text (when present)
+  // wins; numeric-derived fallback only when text absent.
+  for (const round of [1, 2, 3]) {
+    const r = out['r' + round];
+    if (r.numeric && !r.text) {
+      r.text = JUMPER_NUMERIC_MAP[r.numeric] || null;
+    }
+  }
+
+  return out;
+}
+
+// Phase 2d: parse full jumper scoring per entry.
+// classType: 'J' (Farmtek) or 'T' (TOD). U-with-method is skipped upstream.
+// Returns { entries: [...], status: string }.
+// Each entry object's fields map 1:1 to entry_jumper_scores columns.
+function parseEntriesScoreJ(text, classType) {
+  if (classType !== 'J' && classType !== 'T') {
+    return { entries: [], status: 'skipped: wrong lens' };
+  }
+  const L = CLS_JUMPER_LAYOUT;
+  const expectedCols = L.expected_cols[classType];
+  const lines = text.split(/\r?\n/);
+  const entries = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    if (line.startsWith('@')) continue;
+    const cols = parseCsvLineV3(line);
+    const rawEntryNum = (cols[L.identity.entry_num] || '').trim();
+    if (!rawEntryNum || !/^[A-Za-z0-9_-]{1,16}$/.test(rawEntryNum)) continue;
+
+    const notes = [];
+    if (expectedCols && cols.length !== expectedCols) {
+      notes.push(`col count ${cols.length}, expected ${expectedCols} for ${classType}`);
+    }
+
+    const statuses = parseEntryStatusesJumper(cols, classType);
+
+    // Log parse_warning for numeric codes outside our empirical map.
+    for (const round of [1, 2, 3]) {
+      const n = statuses['r' + round].numeric;
+      if (n && !JUMPER_NUMERIC_MAP[n]) {
+        notes.push(`R${round} unknown numeric ${n}`);
+      }
+    }
+    // First-ever R3 data signal — structural R3 positions stay flagged
+    // until we see live 3-round jumper data. Both branches log for now.
+    const r3Time = numOrNull(cols[L.rounds[3].time]);
+    if ((r3Time && r3Time > 0) || statuses.r3.numeric) {
+      notes.push('R3 data observed — confirms structural R3 position');
+    }
+
+    entries.push({
+      entry_num: rawEntryNum,
+      ride_order: intOrNull(cols[L.ride_order]),
+      overall_place: intOrNull(cols[L.overall_place]),
+      r1_time:           numOrNull(cols[L.rounds[1].time]),
+      r1_penalty_sec:    numOrNull(cols[L.rounds[1].penalty_sec]),
+      r1_total_time:     numOrNull(cols[L.rounds[1].total_time]),
+      r1_time_faults:    numOrNull(cols[L.rounds[1].time_faults]),
+      r1_jump_faults:    numOrNull(cols[L.rounds[1].jump_faults]),
+      r1_total_faults:   numOrNull(cols[L.rounds[1].total_faults]),
+      r1_status:         statuses.r1.text,
+      r1_numeric_status: statuses.r1.numeric,
+      r2_time:           numOrNull(cols[L.rounds[2].time]),
+      r2_penalty_sec:    numOrNull(cols[L.rounds[2].penalty_sec]),
+      r2_total_time:     numOrNull(cols[L.rounds[2].total_time]),
+      r2_time_faults:    numOrNull(cols[L.rounds[2].time_faults]),
+      r2_jump_faults:    numOrNull(cols[L.rounds[2].jump_faults]),
+      r2_total_faults:   numOrNull(cols[L.rounds[2].total_faults]),
+      r2_status:         statuses.r2.text,
+      r2_numeric_status: statuses.r2.numeric,
+      r3_time:           r3Time,
+      r3_penalty_sec:    numOrNull(cols[L.rounds[3].penalty_sec]),
+      r3_total_time:     numOrNull(cols[L.rounds[3].total_time]),
+      r3_time_faults:    numOrNull(cols[L.rounds[3].time_faults]),
+      r3_jump_faults:    numOrNull(cols[L.rounds[3].jump_faults]),
+      r3_total_faults:   numOrNull(cols[L.rounds[3].total_faults]),
+      r3_status:         statuses.r3.text,
+      r3_numeric_status: statuses.r3.numeric,
+      score_parse_status: notes.length > 0 ? 'warnings' : 'parsed',
+      score_parse_notes:  notes.length > 0 ? notes.join('; ') : null,
+    });
+  }
+
+  return { entries, status: `parsed: ${entries.length} jumper scorings` };
+}
+
 // Phase 2c: parse entry rows. Called after header parse decides which lens
 // to use. Identity cols 0-12 are shared across H/J/T/U-inferred. Scoring
-// cols diverge by lens — left for Phase 2d.
+// cols diverge by lens — handled by parseEntriesScoreJ (above) and
+// parseEntriesScoreH (Phase 2d hunter pass, not yet built).
 function parseClsEntriesV3(text, lensKnown) {
   if (!lensKnown) return { entries: [], status: 'skipped: no lens' };
   const lines = text.split(/\r?\n/);
@@ -1994,6 +2185,60 @@ export default {
               ).run();
             }
           }
+
+          // Phase 2d: jumper-scoring pass. Only runs for J and T lens.
+          // Writes to entry_jumper_scores (linked table, keyed by entry_id).
+          // Per-round status stored INDEPENDENTLY. No overall collapse.
+          if (parsed.class_type === 'J' || parsed.class_type === 'T') {
+            try {
+              const scoreParse = parseEntriesScoreJ(text, parsed.class_type);
+              // Build entry_num → id lookup once to avoid 25 SELECTs per class.
+              const { results: idRows } = await env.WEST_DB_V3.prepare(
+                'SELECT id, entry_num FROM entries WHERE class_id = ?'
+              ).bind(classDbId).all();
+              const idByNum = new Map(idRows.map(r => [r.entry_num, r.id]));
+              for (const s of scoreParse.entries) {
+                const entryId = idByNum.get(s.entry_num);
+                if (!entryId) continue;
+                await env.WEST_DB_V3.prepare(`
+                  INSERT INTO entry_jumper_scores (
+                    entry_id,
+                    r1_time, r1_penalty_sec, r1_total_time, r1_time_faults, r1_jump_faults, r1_total_faults, r1_status, r1_numeric_status,
+                    r2_time, r2_penalty_sec, r2_total_time, r2_time_faults, r2_jump_faults, r2_total_faults, r2_status, r2_numeric_status,
+                    r3_time, r3_penalty_sec, r3_total_time, r3_time_faults, r3_jump_faults, r3_total_faults, r3_status, r3_numeric_status,
+                    ride_order, overall_place, score_parse_status, score_parse_notes,
+                    first_seen_at, updated_at
+                  ) VALUES (?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?, datetime('now'), datetime('now'))
+                  ON CONFLICT(entry_id) DO UPDATE SET
+                    r1_time=excluded.r1_time, r1_penalty_sec=excluded.r1_penalty_sec,
+                    r1_total_time=excluded.r1_total_time, r1_time_faults=excluded.r1_time_faults,
+                    r1_jump_faults=excluded.r1_jump_faults, r1_total_faults=excluded.r1_total_faults,
+                    r1_status=excluded.r1_status, r1_numeric_status=excluded.r1_numeric_status,
+                    r2_time=excluded.r2_time, r2_penalty_sec=excluded.r2_penalty_sec,
+                    r2_total_time=excluded.r2_total_time, r2_time_faults=excluded.r2_time_faults,
+                    r2_jump_faults=excluded.r2_jump_faults, r2_total_faults=excluded.r2_total_faults,
+                    r2_status=excluded.r2_status, r2_numeric_status=excluded.r2_numeric_status,
+                    r3_time=excluded.r3_time, r3_penalty_sec=excluded.r3_penalty_sec,
+                    r3_total_time=excluded.r3_total_time, r3_time_faults=excluded.r3_time_faults,
+                    r3_jump_faults=excluded.r3_jump_faults, r3_total_faults=excluded.r3_total_faults,
+                    r3_status=excluded.r3_status, r3_numeric_status=excluded.r3_numeric_status,
+                    ride_order=excluded.ride_order, overall_place=excluded.overall_place,
+                    score_parse_status=excluded.score_parse_status, score_parse_notes=excluded.score_parse_notes,
+                    updated_at=datetime('now')
+                `).bind(
+                  entryId,
+                  s.r1_time, s.r1_penalty_sec, s.r1_total_time, s.r1_time_faults, s.r1_jump_faults, s.r1_total_faults, s.r1_status, s.r1_numeric_status,
+                  s.r2_time, s.r2_penalty_sec, s.r2_total_time, s.r2_time_faults, s.r2_jump_faults, s.r2_total_faults, s.r2_status, s.r2_numeric_status,
+                  s.r3_time, s.r3_penalty_sec, s.r3_total_time, s.r3_time_faults, s.r3_jump_faults, s.r3_total_faults, s.r3_status, s.r3_numeric_status,
+                  s.ride_order, s.overall_place, s.score_parse_status, s.score_parse_notes
+                ).run();
+              }
+              entriesStatus += ` | ${scoreParse.status}`;
+            } catch (scErr) {
+              console.log(`[v3/postCls] jumper scoring failed for ${slug}/${ringNum}/${classId}: ${scErr.message}`);
+              entriesStatus += ` | scoring error: ${scErr.message}`;
+            }
+          }
         } catch (e) {
           console.log(`[v3/postCls] entries upsert failed for ${slug}/${ringNum}/${classId}: ${e.message}`);
           entriesStatus = 'error: ' + e.message;
@@ -2263,6 +2508,11 @@ export default {
     // ── GET /v3/listEntries?class_id=N ───────────────────────────────────────
     // Returns all entries for a given class (by D1 PK id). Used by admin
     // when an operator expands a class row to view the entry roster.
+    //
+    // Phase 2d: LEFT JOIN entry_jumper_scores so jumper-lens classes
+    // return scoring data alongside identity. Score columns are NULL for
+    // hunter classes (and for jumper classes where scoring hasn't been
+    // parsed yet). When entry_hunter_scores lands, add a parallel JOIN.
     if (method === 'GET' && path === '/v3/listEntries') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
@@ -2272,10 +2522,27 @@ export default {
       if (!Number.isFinite(classDbId)) return err('Invalid class_id');
       try {
         const { results } = await env.WEST_DB_V3.prepare(
-          `SELECT id, entry_num, horse_name, rider_name, owner_name,
-                  horse_usef, rider_usef, owner_usef, city, state,
-                  first_seen_at, updated_at
-           FROM entries WHERE class_id = ? ORDER BY entry_num`
+          `SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
+                  e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state,
+                  e.first_seen_at, e.updated_at,
+                  j.ride_order, j.overall_place,
+                  j.r1_time, j.r1_penalty_sec, j.r1_total_time,
+                  j.r1_time_faults, j.r1_jump_faults, j.r1_total_faults,
+                  j.r1_status, j.r1_numeric_status,
+                  j.r2_time, j.r2_penalty_sec, j.r2_total_time,
+                  j.r2_time_faults, j.r2_jump_faults, j.r2_total_faults,
+                  j.r2_status, j.r2_numeric_status,
+                  j.r3_time, j.r3_penalty_sec, j.r3_total_time,
+                  j.r3_time_faults, j.r3_jump_faults, j.r3_total_faults,
+                  j.r3_status, j.r3_numeric_status,
+                  j.score_parse_status, j.score_parse_notes
+           FROM entries e
+           LEFT JOIN entry_jumper_scores j ON j.entry_id = e.id
+           WHERE e.class_id = ?
+           ORDER BY
+             CASE WHEN j.overall_place IS NULL THEN 999 ELSE j.overall_place END,
+             CASE WHEN j.ride_order IS NULL OR j.ride_order = 0 THEN 999 ELSE j.ride_order END,
+             CAST(e.entry_num AS INTEGER)`
         ).bind(classDbId).all();
         return json({ ok: true, entries: results || [] });
       } catch (e) { return err('DB error: ' + e.message); }

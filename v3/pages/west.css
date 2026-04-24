@@ -178,6 +178,17 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .entries-table .entry-usef{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
 .entries-loading,.entries-empty{padding:12px;text-align:center;font-size:12px;color:var(--text-muted);font-style:italic;}
 
+/* ── Jumper scoring drill-down cells (Phase 2d Piece 4) ─────────────── */
+.entries-table .entry-ro,
+.entries-table .entry-place{font-family:'DM Mono',monospace;text-align:right;font-variant-numeric:tabular-nums;}
+.entries-table .entry-round{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.entries-table .round-faults{font-weight:600;color:var(--text-body);}
+.entries-table .round-time{color:var(--text-muted);font-size:11px;}
+.entries-table .round-status{color:#b82025;font-weight:600;letter-spacing:.04em;} /* red = elim/retire/withdraw — matches v2 color semantics */
+.entries-table .round-blank,
+.entries-table .place-blank{color:var(--text-muted);}
+.entries-table .place-num{font-weight:600;}
+
 /* ── MODAL ───────────────────────────────────────────────────────────── */
 dialog{border:none;border-radius:var(--card-radius);padding:0;max-width:450px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);}
 dialog::backdrop{background:rgba(0,0,0,.4);}

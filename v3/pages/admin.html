@@ -435,7 +435,7 @@ function renderClasses() {
         <span class="class-method">${escapeHtml(methodStr)}</span>
         ${countBadge}
       </div>`;
-    if (expanded) rowHtml += renderEntries(c.id);
+    if (expanded) rowHtml += renderEntries(c.id, c.class_type);
     rowHtml += `</li>`;
     return rowHtml;
   };
@@ -573,7 +573,40 @@ async function downloadCls(slug, ring, classId) {
   }
 }
 
-function renderEntries(classDbId) {
+// Status codes that trigger Decision 1 round-cell suppression (hide time/faults).
+// Source: SESSION-32 findings §7 + status catalog.
+const ADMIN_ELIM_CODES    = new Set(['EL','RF','HF','OC','RO','DQ']);
+const ADMIN_PARTIAL_CODES = new Set(['RT','WD','HC','EX']);
+function isKillingStatus(code) {
+  if (!code) return false;
+  return ADMIN_ELIM_CODES.has(code) || ADMIN_PARTIAL_CODES.has(code);
+}
+
+// Decision 1 — "what goes in this round's cell?"
+// Returns HTML for a single round cell, applying status suppression.
+function renderJumperRoundCell(time, totalFaults, timeFaults, jumpFaults, status) {
+  if (isKillingStatus(status)) {
+    return `<span class="round-status">${escapeHtml(status)}</span>`;
+  }
+  const hasTime = time != null && time !== 0;
+  if (!hasTime) return '<span class="round-blank">—</span>';
+  const faultStr = (timeFaults > 0)
+    ? `${jumpFaults || 0} + ${timeFaults}`
+    : String(totalFaults != null ? totalFaults : 0);
+  return `<span class="round-faults">${escapeHtml(faultStr)}</span> <span class="round-time">${escapeHtml(time.toFixed ? time.toFixed(3) : time)}</span>`;
+}
+
+// Decision 2 approximation — hide place when R1 has a killing status.
+// Covers method 13 (dominant) exactly. Ladder methods (3/9/14) will need
+// full method-aware logic once west-rules.js lands; acceptable for now
+// because ladder methods are rare in the dev corpus.
+function renderJumperPlace(overallPlace, r1Status) {
+  if (isKillingStatus(r1Status)) return '<span class="place-blank">—</span>';
+  if (overallPlace == null) return '<span class="place-blank">—</span>';
+  return `<span class="place-num">${escapeHtml(String(overallPlace))}</span>`;
+}
+
+function renderEntries(classDbId, classType) {
   const entries = state.entriesByClassId[classDbId];
   if (entries === undefined) {
     return '<div class="entries-loading">Loading entries…</div>';
@@ -581,22 +614,39 @@ function renderEntries(classDbId) {
   if (!entries.length) {
     return '<div class="entries-empty">No entries parsed for this class.</div>';
   }
-  let h = '<table class="entries-table"><thead><tr>'
-    + '<th>#</th><th>Horse</th><th>Rider</th><th>Owner</th>'
-    + '<th>USEF · H/R/O</th><th>City, ST</th>'
-    + '</tr></thead><tbody>';
+  const isJumper = classType === 'J' || classType === 'T';
+
+  let headerCols = '<th>#</th><th>Horse</th><th>Rider</th><th>Owner</th>'
+    + '<th>USEF · H/R/O</th><th>City, ST</th>';
+  if (isJumper) {
+    headerCols += '<th>RO</th><th>Pl</th><th>R1</th><th>R2</th><th>R3</th>';
+  }
+  let h = '<table class="entries-table"><thead><tr>' + headerCols + '</tr></thead><tbody>';
+
   for (const e of entries) {
     const usefCombined = [e.horse_usef, e.rider_usef, e.owner_usef]
       .map(v => v || '—').join(' · ');
     const loc = [e.city, e.state].filter(Boolean).join(', ') || '—';
-    h += `<tr>
+
+    let rowCells = `
       <td class="entry-num">${escapeHtml(e.entry_num)}</td>
       <td>${escapeHtml(e.horse_name || '—')}</td>
       <td>${escapeHtml(e.rider_name || '—')}</td>
       <td>${escapeHtml(e.owner_name || '—')}</td>
       <td class="entry-usef">${escapeHtml(usefCombined)}</td>
-      <td>${escapeHtml(loc)}</td>
-    </tr>`;
+      <td>${escapeHtml(loc)}</td>`;
+
+    if (isJumper) {
+      const roStr = (e.ride_order != null && e.ride_order > 0) ? String(e.ride_order) : '—';
+      rowCells += `
+        <td class="entry-ro">${escapeHtml(roStr)}</td>
+        <td class="entry-place">${renderJumperPlace(e.overall_place, e.r1_status)}</td>
+        <td class="entry-round">${renderJumperRoundCell(e.r1_time, e.r1_total_faults, e.r1_time_faults, e.r1_jump_faults, e.r1_status)}</td>
+        <td class="entry-round">${renderJumperRoundCell(e.r2_time, e.r2_total_faults, e.r2_time_faults, e.r2_jump_faults, e.r2_status)}</td>
+        <td class="entry-round">${renderJumperRoundCell(e.r3_time, e.r3_total_faults, e.r3_time_faults, e.r3_jump_faults, e.r3_status)}</td>`;
+    }
+
+    h += `<tr>${rowCells}</tr>`;
   }
   h += '</tbody></table>';
   return h;
