@@ -435,7 +435,7 @@ function renderClasses() {
         <span class="class-method">${escapeHtml(methodStr)}</span>
         ${countBadge}
       </div>`;
-    if (expanded) rowHtml += renderEntries(c.id, c.class_type);
+    if (expanded) rowHtml += renderEntries(c.id, c.class_type, c.scoring_method);
     rowHtml += `</li>`;
     return rowHtml;
   };
@@ -582,6 +582,27 @@ function isKillingStatus(code) {
   return ADMIN_ELIM_CODES.has(code) || ADMIN_PARTIAL_CODES.has(code);
 }
 
+// Jumper method placement rules — MIRROR of the table in SESSION-32 §8.
+// Inline here until v3/js/west-rules.js lands in Phase 2e. Keep in sync.
+//
+// wipesOnFail:{2:[1]} = "round 2's failure also wipes round 1" (ladder).
+// Method 9 (II.2d two-phase, one ride) has the ladder — PH2 EL kills the
+// whole ride including PH1. Same shape for methods 3 (2-round+JO
+// cumulative) and 14 (Team cumulative).
+const JUMPER_METHODS = {
+  0:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
+  2:  { scoreRounds:[1],   tiebreak:2,    wipesOnFail:{} },
+  3:  { scoreRounds:[1,2], tiebreak:3,    wipesOnFail:{2:[1]} },
+  4:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
+  6:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
+  7:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },
+  9:  { scoreRounds:[1,2], tiebreak:null, wipesOnFail:{2:[1]} },
+  11: { scoreRounds:[1,2], tiebreak:null, wipesOnFail:{} },
+  13: { scoreRounds:[1],   tiebreak:2,    wipesOnFail:{} },
+  14: { scoreRounds:[1,2], tiebreak:3,    wipesOnFail:{2:[1]} },
+  15: { scoreRounds:[2],   tiebreak:null, wipesOnFail:{} },
+};
+
 // Decision 1 — "what goes in this round's cell?"
 // Returns HTML for a single round cell, applying status suppression.
 function renderJumperRoundCell(time, totalFaults, timeFaults, jumpFaults, status) {
@@ -596,17 +617,45 @@ function renderJumperRoundCell(time, totalFaults, timeFaults, jumpFaults, status
   return `<span class="round-faults">${escapeHtml(faultStr)}</span> <span class="round-time">${escapeHtml(time.toFixed ? time.toFixed(3) : time)}</span>`;
 }
 
-// Decision 2 approximation — hide place when R1 has a killing status.
-// Covers method 13 (dominant) exactly. Ladder methods (3/9/14) will need
-// full method-aware logic once west-rules.js lands; acceptable for now
-// because ladder methods are rare in the dev corpus.
-function renderJumperPlace(overallPlace, r1Status) {
-  if (isKillingStatus(r1Status)) return '<span class="place-blank">—</span>';
+// Decision 2 — method-aware placement check.
+// Walks the scoring_method's wipesOnFail ladder to determine which rounds
+// are killed (including cascades from failures in later rounds). If ANY
+// scoreRound for the method is in the killed set, the entry is unplaced
+// regardless of what Ryegate stamped in col[14].
+//
+// Example — method 9 (II.2d two-phase, wipesOnFail:{2:[1]}):
+//   r1_status=null, r2_status='EL' → killed={2}, ladder adds 1 → {1,2}
+//   scoreRounds=[1,2] — both killed → UNPLACED
+//
+// Example — method 13 (no ladder, wipesOnFail:{}):
+//   r1_status=null, r2_status='WD' (declined JO) → killed={2}, no ladder
+//   scoreRounds=[1] — NOT in killed → PLACED (correct: R1 clean survives)
+function renderJumperPlace(overallPlace, scoringMethod, r1Status, r2Status, r3Status) {
+  const rule = JUMPER_METHODS[scoringMethod];
+  if (!rule) {
+    // Unknown method — fall back to legacy approximation (r1-only check).
+    if (isKillingStatus(r1Status)) return '<span class="place-blank">—</span>';
+    if (overallPlace == null) return '<span class="place-blank">—</span>';
+    return `<span class="place-num">${escapeHtml(String(overallPlace))}</span>`;
+  }
+  const killed = new Set();
+  const statuses = { 1: r1Status, 2: r2Status, 3: r3Status };
+  for (const r of [1, 2, 3]) {
+    if (isKillingStatus(statuses[r])) {
+      killed.add(r);
+      const wiped = rule.wipesOnFail[r];
+      if (wiped) wiped.forEach(n => killed.add(n));
+    }
+  }
+  // If any scoreRound is killed → not placed
+  for (const n of rule.scoreRounds) {
+    if (killed.has(n)) return '<span class="place-blank">—</span>';
+  }
   if (overallPlace == null) return '<span class="place-blank">—</span>';
   return `<span class="place-num">${escapeHtml(String(overallPlace))}</span>`;
 }
 
-function renderEntries(classDbId, classType) {
+function renderEntries(classDbId, classType, scoringMethod) {
   const entries = state.entriesByClassId[classDbId];
   if (entries === undefined) {
     return '<div class="entries-loading">Loading entries…</div>';
@@ -615,6 +664,7 @@ function renderEntries(classDbId, classType) {
     return '<div class="entries-empty">No entries parsed for this class.</div>';
   }
   const isJumper = classType === 'J' || classType === 'T';
+  const method = Number.isFinite(scoringMethod) ? scoringMethod : parseInt(scoringMethod, 10);
 
   let headerCols = '<th>#</th><th>Horse</th><th>Rider</th><th>Owner</th>'
     + '<th>USEF · H/R/O</th><th>City, ST</th>';
@@ -640,7 +690,7 @@ function renderEntries(classDbId, classType) {
       const roStr = (e.ride_order != null && e.ride_order > 0) ? String(e.ride_order) : '—';
       rowCells += `
         <td class="entry-ro">${escapeHtml(roStr)}</td>
-        <td class="entry-place">${renderJumperPlace(e.overall_place, e.r1_status)}</td>
+        <td class="entry-place">${renderJumperPlace(e.overall_place, method, e.r1_status, e.r2_status, e.r3_status)}</td>
         <td class="entry-round">${renderJumperRoundCell(e.r1_time, e.r1_total_faults, e.r1_time_faults, e.r1_jump_faults, e.r1_status)}</td>
         <td class="entry-round">${renderJumperRoundCell(e.r2_time, e.r2_total_faults, e.r2_time_faults, e.r2_jump_faults, e.r2_status)}</td>
         <td class="entry-round">${renderJumperRoundCell(e.r3_time, e.r3_total_faults, e.r3_time_faults, e.r3_jump_faults, e.r3_status)}</td>`;
