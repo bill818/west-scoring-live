@@ -107,6 +107,9 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .section-actions{display:flex;gap:8px;align-items:center;}
 .section-search{padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;width:180px;}
 .section-sort{padding:6px 10px;font-size:12px;font-family:'DM Mono',monospace;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;}
+.section-toggle{padding:6px 10px;font-size:12px;font-family:'DM Mono',monospace;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;transition:background .15s,border-color .15s;}
+.section-toggle:hover{background:var(--off-white);}
+.section-toggle.is-compact{background:var(--off-white);border-color:var(--text-muted);color:var(--text-body);}
 
 .ring-list{list-style:none;padding:0;margin:0;}
 .ring-row{padding:12px 14px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:12px;}
@@ -188,6 +191,21 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .entries-table .round-blank,
 .entries-table .place-blank{color:var(--text-muted);}
 .entries-table .place-num{font-weight:600;}
+
+/* ── Identity-detail toggle (Option B) ──────────────────────────────── */
+/* .compact-identity on the table hides owner/USEF/location cols. */
+.entries-table.compact-identity .col-owner,
+.entries-table.compact-identity .col-usef,
+.entries-table.compact-identity .col-location{display:none;}
+
+/* ── Responsive hide (Option C) ─────────────────────────────────────── */
+/* Always hide identity detail cols on narrow screens regardless of
+   toggle state — there isn't room for them on phones/tablets. */
+@media (max-width: 900px) {
+  .entries-table .col-owner,
+  .entries-table .col-usef,
+  .entries-table .col-location{display:none;}
+}
 
 /* ── MODAL ───────────────────────────────────────────────────────────── */
 dialog{border:none;border-radius:var(--card-radius);padding:0;max-width:450px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);}

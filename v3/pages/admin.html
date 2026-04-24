@@ -98,6 +98,9 @@
               <option value="number">Sort: by number</option>
               <option value="name">Sort: by name</option>
             </select>
+            <button id="entryCompactToggle" class="section-toggle" type="button" title="Toggle owner / USEF / location columns in entry tables">
+              Identity: compact
+            </button>
             <input type="search" id="classSearch" class="section-search" placeholder="Search classes…">
           </div>
         </div>
@@ -202,6 +205,7 @@ const BASE = 'https://west-worker.bill-acb.workers.dev';
 
 const SELECTED_SHOW_KEY = 'v3admin.selectedSlug';
 const CLASS_SORT_KEY = 'v3admin.classSort';
+const ENTRY_COMPACT_KEY = 'v3admin.entryCompact';
 
 const state = {
   shows: [],
@@ -211,6 +215,9 @@ const state = {
   expandedClassId: null,     // DB id of the class whose entries are expanded
   entriesByClassId: {},      // cache of entries keyed by class DB id
   classSort: localStorage.getItem(CLASS_SORT_KEY) || 'day',
+  // Entry table identity-detail visibility. 'compact' hides owner/USEF/location.
+  // 'full' shows everything. Default compact — keeps tables focused on scoring.
+  entryCompact: localStorage.getItem(ENTRY_COMPACT_KEY) !== 'full',
 };
 
 // ── fetch helpers ────────────────────────────────────────────────────
@@ -666,12 +673,15 @@ function renderEntries(classDbId, classType, scoringMethod) {
   const isJumper = classType === 'J' || classType === 'T';
   const method = Number.isFinite(scoringMethod) ? scoringMethod : parseInt(scoringMethod, 10);
 
-  let headerCols = '<th>#</th><th>Horse</th><th>Rider</th><th>Owner</th>'
-    + '<th>USEF · H/R/O</th><th>City, ST</th>';
+  let headerCols = '<th>#</th><th>Horse</th><th>Rider</th>'
+    + '<th class="col-owner">Owner</th>'
+    + '<th class="col-usef">USEF · H/R/O</th>'
+    + '<th class="col-location">City, ST</th>';
   if (isJumper) {
     headerCols += '<th>RO</th><th>Pl</th><th>R1</th><th>R2</th><th>R3</th>';
   }
-  let h = '<table class="entries-table"><thead><tr>' + headerCols + '</tr></thead><tbody>';
+  const tableCls = state.entryCompact ? 'entries-table compact-identity' : 'entries-table';
+  let h = '<table class="' + tableCls + '"><thead><tr>' + headerCols + '</tr></thead><tbody>';
 
   for (const e of entries) {
     const usefCombined = [e.horse_usef, e.rider_usef, e.owner_usef]
@@ -682,9 +692,9 @@ function renderEntries(classDbId, classType, scoringMethod) {
       <td class="entry-num">${escapeHtml(e.entry_num)}</td>
       <td>${escapeHtml(e.horse_name || '—')}</td>
       <td>${escapeHtml(e.rider_name || '—')}</td>
-      <td>${escapeHtml(e.owner_name || '—')}</td>
-      <td class="entry-usef">${escapeHtml(usefCombined)}</td>
-      <td>${escapeHtml(loc)}</td>`;
+      <td class="col-owner">${escapeHtml(e.owner_name || '—')}</td>
+      <td class="entry-usef col-usef">${escapeHtml(usefCombined)}</td>
+      <td class="col-location">${escapeHtml(loc)}</td>`;
 
     if (isJumper) {
       const roStr = (e.ride_order != null && e.ride_order > 0) ? String(e.ride_order) : '—';
@@ -976,6 +986,24 @@ classSortEl.value = state.classSort;
 classSortEl.addEventListener('change', () => {
   state.classSort = classSortEl.value;
   try { localStorage.setItem(CLASS_SORT_KEY, state.classSort); } catch (e) {}
+  renderClasses();
+});
+
+// Entry-table identity-detail toggle — compact (default) vs full.
+// Persists across reloads via localStorage. CSS media query still
+// hides these cols on narrow screens regardless of toggle state.
+const entryCompactToggleEl = document.getElementById('entryCompactToggle');
+function refreshCompactToggleLabel() {
+  entryCompactToggleEl.textContent = state.entryCompact
+    ? 'Identity: compact'
+    : 'Identity: full';
+  entryCompactToggleEl.classList.toggle('is-compact', state.entryCompact);
+}
+refreshCompactToggleLabel();
+entryCompactToggleEl.addEventListener('click', () => {
+  state.entryCompact = !state.entryCompact;
+  try { localStorage.setItem(ENTRY_COMPACT_KEY, state.entryCompact ? 'compact' : 'full'); } catch (e) {}
+  refreshCompactToggleLabel();
   renderClasses();
 });
 </script>
