@@ -275,6 +275,32 @@ const CLS_HUNTER_LAYOUT = {
   },
   combined_total: 45,
   min_cols: 55,
+
+  // Non-derby per-judge score starts (Layout A — sequential, +9 stride).
+  // R1 judge J: col[15 + J],  R2: col[24 + J],  R3: col[33 + J]
+  // Capped at numJudges-1 (max J=6 for 7-judge class).
+  judges: {
+    1: { start: 15 },
+    2: { start: 24 },
+    3: { start: 33 },
+  },
+
+  // Derby per-judge layout (classMode=2, Layout B — interleaved).
+  // R1 stride per judge = 2: [HighOptions, BaseScore]
+  //   J1: col[15]=HighOpt, col[16]=Base
+  //   J2: col[17]=HighOpt (mirror of col[15]), col[18]=Base
+  //   Jn: col[15 + 2n]=HighOpt, col[16 + 2n]=Base
+  // R2 stride per judge = 3: [HighOptions, BaseScore, HandyBonus]
+  //   J1: col[24]=HighOpt, col[25]=Base, col[26]=Handy
+  //   J2: col[27]=HighOpt, col[28]=Base, col[29]=Handy
+  //   Jn: col[24 + 3n]=HighOpt, col[25 + 3n]=Base, col[26 + 3n]=Handy
+  // R3: derby classes typically 2-round; extrapolation unconfirmed.
+  derby: {
+    rounds: {
+      1: { start: 15, stride: 2, hasHandy: false },
+      2: { start: 24, stride: 3, hasHandy: true  },
+    },
+  },
 };
 
 // Hunter numeric status map (from v2 display-config.js:1390).
@@ -354,6 +380,70 @@ function parseEntriesScoreH(text, classMode) {
     });
   }
   return { entries, status: `parsed: ${entries.length} hunter scorings` };
+}
+
+// Phase 2d hunter completion: per-judge score parser.
+// Returns array of { entry_num, rows: [{round, judge_idx, base_score,
+// high_options, handy_bonus}] } — one entry per parsed row, with 0..N
+// judge-round rows per entry.
+//
+// Non-derby (classMode 0/1/3): sequential per-judge scores via Layout A.
+// Derby (classMode 2): interleaved HighOpt/Base/Handy via Layout B.
+// Forced (scoringType 0): no judge scores exist in the .cls — skip entirely.
+function parseHunterJudgeScores(text, classMode, numJudges, scoringType) {
+  if (scoringType === 0) return { entries: [], status: 'skipped: forced (no judge scores)' };
+  if (!Number.isFinite(numJudges) || numJudges < 1) {
+    return { entries: [], status: 'skipped: numJudges invalid' };
+  }
+  const L = CLS_HUNTER_LAYOUT;
+  const lines = text.split(/\r?\n/);
+  const entries = [];
+  const isDerby = classMode === 2;
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.startsWith('@')) continue;
+    const cols = parseCsvLineV3(line);
+    const rawEntryNum = (cols[L.identity.entry_num] || '').trim();
+    if (!rawEntryNum || !/^[A-Za-z0-9_-]{1,16}$/.test(rawEntryNum)) continue;
+
+    const rows = [];
+
+    if (isDerby) {
+      // Derby layout B — interleaved per-judge slots.
+      // Skip rule: base_score null or 0 = judge didn't score this round.
+      // Hunter scoring range is 40-100 in practice; 0 is Ryegate's
+      // "empty slot" sentinel (EL'd entries, unused slots, etc.).
+      for (const round of [1, 2]) {  // derby typically 2-round; R3 unconfirmed
+        const block = L.derby.rounds[round];
+        for (let j = 0; j < numJudges; j++) {
+          const base = block.start + j * block.stride;
+          const ho    = numOrNull(cols[base]);
+          const score = numOrNull(cols[base + 1]);
+          const handy = block.hasHandy ? numOrNull(cols[base + 2]) : null;
+          if (score == null || score === 0) continue;
+          rows.push({ round, judge_idx: j, base_score: score, high_options: ho, handy_bonus: handy });
+        }
+      }
+    } else {
+      // Non-derby layout A — sequential judge scores, +9 stride between rounds.
+      // Same skip rule: 0 = empty slot, not a real score.
+      for (const round of [1, 2, 3]) {
+        const start = L.judges[round].start;
+        for (let j = 0; j < numJudges; j++) {
+          const score = numOrNull(cols[start + j]);
+          if (score == null || score === 0) continue;
+          rows.push({ round, judge_idx: j, base_score: score, high_options: null, handy_bonus: null });
+        }
+      }
+    }
+
+    if (rows.length > 0) {
+      entries.push({ entry_num: rawEntryNum, rows });
+    }
+  }
+
+  return { entries, status: `parsed: ${entries.length} entries with judge data` };
 }
 
 // Phase 2c: parse entry rows. Called after header parse decides which lens
@@ -440,26 +530,42 @@ function parseClsHeaderV3(bytes) {
   }
 
   if (rawType === 'H') {
-    // Hunter lens.
-    //   col[2]  = classMode (0=Over Fences, 1=Flat, 2=Derby, 3=Special)
-    //   col[3]  semantics unconfirmed — left NULL rather than guessed (Article 1)
-    //   col[5]  = scoringType (0=Forced, 1=Scored, 2=Hi-Lo) — changes placement rule
-    //   col[7]  = numJudges
-    //   col[10] = is_equitation (boolean "True"/"False" in header)
-    const n = parseInt(cols[2], 10);
-    const st = parseInt(cols[5], 10);
-    const nj = parseInt(cols[7], 10);
-    const isEqRaw = (cols[10] || '').trim().toLowerCase();
-    const isEq = isEqRaw === 'true' ? 1 : isEqRaw === 'false' ? 0 : null;
+    // Hunter lens. Known header positions (per CLS-FORMAT.md H[XX]):
+    //   col[2]  classMode       (0=O/F, 1=Flat, 2=Derby, 3=Special)
+    //   col[3]  numRounds       (1, 2, or 3)
+    //   col[5]  scoringType     (0=Forced, 1=Scored, 2=Hi-Lo)
+    //   col[6]  scoreMethod     (0=Total, 1=Average)
+    //   col[7]  numJudges
+    //   col[8]  ribbonCount     (8 standard, 12 derby/special)
+    //   col[10] isEquitation    (True/False)
+    //   col[11] isChampionship  (True/False)
+    //   col[29] sponsor         (text)
+    //   col[37] derbyType       (0-8)
+    //   col[38] ihsa            (True/False)
+    const bool01 = (v) => {
+      const s = (v || '').trim().toLowerCase();
+      return s === 'true' ? 1 : s === 'false' ? 0 : null;
+    };
+    const intOrNullHelper = (v) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) ? n : null;
+    };
     return {
-      class_type: 'H',
-      class_name: className,
-      class_mode: Number.isFinite(n) ? n : null,
-      scoring_type: Number.isFinite(st) ? st : null,
-      num_judges: Number.isFinite(nj) ? nj : null,
-      is_equitation: isEq,
-      parse_status: 'parsed',
-      parse_notes: null,
+      class_type:      'H',
+      class_name:      className,
+      class_mode:      intOrNullHelper(cols[2]),
+      num_rounds:      intOrNullHelper(cols[3]),
+      scoring_type:    intOrNullHelper(cols[5]),
+      score_method:    intOrNullHelper(cols[6]),
+      num_judges:      intOrNullHelper(cols[7]),
+      ribbon_count:    intOrNullHelper(cols[8]),
+      is_equitation:   bool01(cols[10]),
+      is_championship: bool01(cols[11]),
+      sponsor:         (cols[29] || '').trim() || null,
+      derby_type:      intOrNullHelper(cols[37]),
+      ihsa:            bool01(cols[38]),
+      parse_status:    'parsed',
+      parse_notes:     null,
     };
   }
 
@@ -2213,9 +2319,11 @@ export default {
           INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
                                scoring_method, scoring_modifier, class_mode,
                                scoring_type, num_judges, is_equitation,
+                               num_rounds, score_method, ribbon_count,
+                               is_championship, sponsor, ihsa, derby_type,
                                parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name       = excluded.class_name,
             class_type       = excluded.class_type,
@@ -2225,6 +2333,13 @@ export default {
             scoring_type     = excluded.scoring_type,
             num_judges       = excluded.num_judges,
             is_equitation    = excluded.is_equitation,
+            num_rounds       = excluded.num_rounds,
+            score_method     = excluded.score_method,
+            ribbon_count     = excluded.ribbon_count,
+            is_championship  = excluded.is_championship,
+            sponsor          = excluded.sponsor,
+            ihsa             = excluded.ihsa,
+            derby_type       = excluded.derby_type,
             parse_status     = excluded.parse_status,
             parse_notes      = excluded.parse_notes,
             r2_key           = excluded.r2_key,
@@ -2240,6 +2355,13 @@ export default {
           parsed.scoring_type ?? null,
           parsed.num_judges ?? null,
           parsed.is_equitation ?? null,
+          parsed.num_rounds ?? null,
+          parsed.score_method ?? null,
+          parsed.ribbon_count ?? null,
+          parsed.is_championship ?? null,
+          parsed.sponsor ?? null,
+          parsed.ihsa ?? null,
+          parsed.derby_type ?? null,
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,
           r2Key,
@@ -2441,6 +2563,44 @@ export default {
                 }
               }
               entriesStatus += ` | ${scoreParse.status}`;
+
+              // Per-judge score capture (Phase 2d completion).
+              // Runs after round totals — idempotent, CLASS-level fresh-replace.
+              // Wiping at class level (not per-entry) so entries whose data
+              // legitimately dropped to zero rows get their stale rows purged.
+              try {
+                const jsParse = parseHunterJudgeScores(
+                  text,
+                  parsed.class_mode,
+                  parsed.num_judges,
+                  parsed.scoring_type
+                );
+                // Wipe all existing judge rows for this class's entries.
+                await env.WEST_DB_V3.prepare(
+                  'DELETE FROM entry_hunter_judge_scores WHERE entry_id IN (SELECT id FROM entries WHERE class_id = ?)'
+                ).bind(classDbId).run();
+                // Insert current judge rows.
+                for (const js of jsParse.entries) {
+                  const entryId = idByNum.get(js.entry_num);
+                  if (!entryId) continue;
+                  for (const r of js.rows) {
+                    await env.WEST_DB_V3.prepare(`
+                      INSERT INTO entry_hunter_judge_scores (
+                        entry_id, round, judge_idx,
+                        base_score, high_options, handy_bonus,
+                        first_seen_at, updated_at
+                      ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                    `).bind(
+                      entryId, r.round, r.judge_idx,
+                      r.base_score, r.high_options, r.handy_bonus
+                    ).run();
+                  }
+                }
+                entriesStatus += ` | ${jsParse.status}`;
+              } catch (jsErr) {
+                console.log(`[v3/postCls] hunter judge-scores failed for ${slug}/${ringNum}/${classId}: ${jsErr.message}`);
+                entriesStatus += ` | judge-scores error: ${jsErr.message}`;
+              }
             } catch (scErr) {
               console.log(`[v3/postCls] hunter scoring failed for ${slug}/${ringNum}/${classId}: ${scErr.message}`);
               entriesStatus += ` | hunter scoring error: ${scErr.message}`;

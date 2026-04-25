@@ -316,6 +316,134 @@ RUNNING STATE AFTER FORCED FIX
   - Forced classes (4) now render placed entries correctly in admin
 
 ═══════════════════════════════════════════════════════════════════════════
+PART 4 — HUNTER COMPLETION: PER-JUDGE + HEADER EXPANSION (evening)
+═══════════════════════════════════════════════════════════════════════════
+
+Closed the "collect everything knowable for hunters" scope. All
+capture plumbing now in place; display polish still deferred.
+
+MIGRATION 012 — hunter_judge_scores_and_header.sql
+  NEW: entry_hunter_judge_scores (entry_id + round + judge_idx PK,
+       base_score REAL, high_options REAL nullable, handy_bonus REAL
+       nullable, timestamps). Single table handles both non-derby
+       sequential and derby interleaved layouts via nullable cols.
+  ALTER: classes gets num_rounds, score_method, ribbon_count,
+         is_championship, sponsor, ihsa, derby_type — 7 new fields
+         from hunter header positions.
+
+PARSER — parseClsHeaderV3 H-branch
+  Now reads 11 hunter header fields (previously 4):
+    col[2]  class_mode       ← existing
+    col[3]  num_rounds       ← NEW (H[03])
+    col[5]  scoring_type     ← from earlier today
+    col[6]  score_method     ← NEW (H[06] Total/Average)
+    col[7]  num_judges       ← existing
+    col[8]  ribbon_count     ← NEW (H[08])
+    col[10] is_equitation    ← existing
+    col[11] is_championship  ← NEW (H[11])
+    col[29] sponsor          ← NEW (H[29] text)
+    col[37] derby_type       ← NEW (H[37] 0-8)
+    col[38] ihsa             ← NEW (H[38])
+
+PARSER — parseHunterJudgeScores (new function)
+  Reads per-judge scores per round. Layout switches on class_mode:
+    Non-derby (0/1/3): sequential at col[15+j]/[24+j]/[33+j]
+    Derby (2): interleaved — R1 stride=2 per judge [HighOpt, Base],
+               R2 stride=3 [HighOpt, Base, Handy]
+    Forced (scoring_type=0): skipped — no scores exist
+  Skip rule: base_score null or 0 = judge didn't score that round
+  (hunter scores range 40-100; 0 is Ryegate's empty-slot sentinel).
+
+WORKER /v3/postCls
+  - Classes INSERT/UPSERT binds 7 additional header fields
+  - Hunter branch gains judge-score write block
+  - Fresh-replace at CLASS level (not per-entry) — ensures entries
+    whose data legitimately dropped to zero rows get stale rows
+    purged. (Per-entry wipe was initially used and caused 379 stale
+    zero-score rows to persist through the filter tightening.)
+
+VALIDATION after final backfill (v_86ac9e00 live)
+  classes with num_rounds populated:    16/16 hunter ✓
+  classes with derby_type populated:    16/16 hunter ✓
+  classes with is_championship=1:        8 (the "C" suffix classes)
+  classes with sponsor text:             1 (most test classes unsponsored)
+  classes with ihsa=1:                   0 (no IHSA test data)
+
+  Judge score data:
+    total judge rows:           86
+    entries with judge data:    31 (of 221 hunter entries — rest are
+                                    forced/EL/DNS with no score data)
+    rows with real score > 0:   86 (all clean after zero-skip fix)
+    derby HighOptions rows:     33
+    derby HandyBonus rows:      15
+
+  Spot-check class 1001 derby 2-judge entry 111 PEACHES:
+    R1 J0: base=89, ho=4 ✓
+    R1 J1: base=90, ho=4 ✓
+    R2 J0: base=89, ho=4, handy=10 ✓
+    R2 J1: base=83, ho=4, handy=5 ✓
+
+  Spot-check class 1002 non-derby 7-judge test entry 117 RULE ON:
+    R1 J0-J6: base_score 1-7 (test values) ✓
+    R2 J0-J6: base_score 1-7 ✓
+    R3: 0 rows (class is 2-round; R3 cols were all zero)  ✓
+
+STILL DEFERRED (display / polish layer)
+  - HUNTER_MODES labels (Bill auditing Ryegate settings)
+  - Ribbon graphics placement using ribbon_count
+  - Ch/Res graphics on is_championship=1 classes for places 1-2
+  - Sponsor rendering on public page
+  - Derby component breakdown in admin display
+  - Per-judge breakdown rendering
+  - Public results page (Phase 2e) with ELIM→EL collapse
+
+DATA COLLECTION FOR HUNTERS: ✓ COMPLETE
+  Every column known per CLS-FORMAT spec is now captured when
+  present. Nothing more to extract from the .cls for hunters.
+  Display work is separate concern.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL NOTE — VENDOR PLUGGABILITY (Bill, end of session)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill asked: could the lens module be factored to support other scoring
+software vendors (not just Ryegate)? Not a directive — exploration.
+
+Answer: yes, architecture is ALREADY half-decomposed correctly.
+
+Vendor-NEUTRAL (works regardless of source):
+  - D1 schema (entries, entry_jumper_*, entry_hunter_*) is canonical
+  - west-rules.js — placement rules are domain-level (sport rules,
+    not Ryegate rules)
+  - west-status.js — EL/RT/WD/DNS are USEF/FEI standard codes
+  - Admin / results / stats pages read canonical schema
+
+Vendor-SPECIFIC today (Ryegate-only, would need siblings to plug in):
+  - west-cls-jumper.js / west-cls-hunter.js (column positions)
+  - parseEntriesScoreJ / parseEntriesScoreH in worker (read CSV)
+  - Engine watches Ryegate folder + Ryegate UDP
+
+Future shape (hypothetical, not built):
+  v3/js/vendors/ryegate/cls-{jumper,hunter}.js     ← move existing here
+  v3/js/vendors/fei/xml-{jumper,hunter}-spec.js    ← future
+  classes table gains source_vendor TEXT
+  Engine config has vendor field
+
+Three optional structural moves available anytime to keep the door
+open without building generalization:
+  1. Rename v3/js/west-cls-* → v3/js/vendors/ryegate/cls-*
+  2. ALTER TABLE classes ADD COLUMN source_vendor TEXT DEFAULT 'ryegate'
+  3. Add vendor field to engine config (default 'ryegate')
+
+Each ~10 min, zero risk. Pays off when a second vendor materializes.
+Until then, current single-vendor code is fine.
+
+NOT premature-generalizing now: no plugin registries, no abstract
+parser interfaces, no vendor-agnostic refactor of the existing
+Ryegate parser. Build the second vendor's adapter when a second
+vendor is real.
+
+═══════════════════════════════════════════════════════════════════════════
 NEXT UP (post-session-33)
 ═══════════════════════════════════════════════════════════════════════════
 
