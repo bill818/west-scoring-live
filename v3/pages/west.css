@@ -258,6 +258,83 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .no-results{padding:60px 20px;text-align:center;color:var(--text-muted);display:none;}
 .no-results h2{font-family:'Playfair Display',serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
 
+/* ── PUBLIC SHOW PAGE: BREADCRUMBS / HERO / RING CARDS ───────────────── */
+.breadcrumbs{max-width:900px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);}
+.bc-link{color:var(--blue);text-decoration:none;}
+.bc-link:hover{text-decoration:underline;}
+.bc-sep{color:#ccc;}
+.bc-current{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.hero{max-width:900px;margin:0 auto;padding:20px 16px 18px;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.hero-name{font-family:'Playfair Display',serif;font-weight:900;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
+.hero-dates{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:6px;}
+.hero-venue{font-size:15px;color:var(--text-body);margin-bottom:2px;}
+.hero-location{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
+.status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:10px;}
+.status-active{background:var(--green-bg);color:var(--green);}
+.status-pending,.status-upcoming{background:var(--blue-bg);color:var(--blue);}
+.status-complete,.status-archived{background:var(--off-white);color:var(--gray);}
+
+.section-block{max-width:900px;margin:0 auto;padding:20px 16px 0;}
+.section-block-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;}
+
+.ring-grid{display:grid;grid-template-columns:1fr;gap:10px;}
+@media(min-width:600px){.ring-grid{grid-template-columns:repeat(2,1fr);}}
+.ring-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 18px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;transition:border-color .15s;}
+.ring-card:hover{border-color:var(--blue);text-decoration:none;}
+.ring-card-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:8px 12px;border-radius:6px;min-width:52px;text-align:center;flex-shrink:0;}
+.ring-card-body{flex:1;min-width:0;}
+.ring-card-name{font-family:'Playfair Display',serif;font-weight:700;font-size:17px;color:var(--black);line-height:1.2;margin-bottom:2px;}
+.ring-card-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
+.ring-card-chevron{font-size:20px;color:#ccc;flex-shrink:0;}
+
+/* ── PUBLIC RING PAGE: CLASS LIST ────────────────────────────────────── */
+.day-section{margin-top:20px;}
+.day-section:first-child{margin-top:0;}
+.day-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:0 4px 8px;}
+.cls-list{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
+.cls-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;transition:background .1s;}
+.cls-row:last-child{border-bottom:none;}
+.cls-row:hover{background:var(--off-white);text-decoration:none;}
+.cls-num{font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--red);min-width:42px;flex-shrink:0;}
+.cls-body{flex:1;min-width:0;}
+.cls-name{font-size:15px;color:var(--text-body);line-height:1.3;overflow:hidden;text-overflow:ellipsis;}
+.cls-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.cls-arrow{color:#ccc;font-size:20px;flex-shrink:0;line-height:1;}
+.cls-row.is-unscheduled .cls-name{font-style:italic;color:var(--text-muted);}
+.cls-row.is-unscheduled .cls-num{opacity:.5;font-style:italic;}
+.cls-row.is-unscheduled .cls-meta{opacity:.7;}
+
+/* Sort/view toggle bar — pill buttons, single active state */
+.sort-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.sort-btn{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--text-muted);background:#fff;border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;transition:all .12s;}
+.sort-btn:hover{color:var(--text-body);border-color:#999;}
+.sort-btn.is-active{background:var(--black);color:#fff;border-color:var(--black);}
+
+/* ── PUBLIC CLASS PAGE: RESULTS TABLE ────────────────────────────────── */
+/* Independent namespace from admin's .entries-table — public table has
+   fewer columns, larger row height, and a hero-to-table visual flow. */
+.results-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
+.results-table thead th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:500;background:var(--off-white);}
+.results-table tbody td{padding:10px 12px;border-bottom:1px solid var(--off-white);color:var(--text-body);vertical-align:middle;font-size:13px;}
+.results-table tbody tr:last-child td{border-bottom:none;}
+.results-table tbody tr:hover{background:var(--off-white);}
+.results-table .entry-place,
+.results-table .entry-num{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
+.results-table .entry-place{width:48px;}
+.results-table .entry-num{width:48px;}
+.results-table .entry-horse{font-weight:600;color:var(--black);line-height:1.2;}
+.results-table .entry-rider{font-size:12px;color:var(--text-muted);line-height:1.3;}
+.results-table .entry-round{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.results-table .entry-score{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;width:80px;}
+.results-table .round-faults{font-weight:600;color:var(--text-body);}
+.results-table .round-time{color:var(--text-muted);font-size:11px;margin-left:4px;}
+.results-table .round-status{color:var(--red);font-weight:600;letter-spacing:.04em;}
+.results-table .round-blank,
+.results-table .place-blank{color:var(--text-muted);}
+.results-table .place-num{font-weight:700;font-size:14px;color:var(--black);}
+.results-table .entry-flag{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-left:6px;}
+
 .spinner{margin:40px auto;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 

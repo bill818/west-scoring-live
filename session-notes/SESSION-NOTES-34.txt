@@ -1,0 +1,536 @@
+SESSION-NOTES-34 — public pages + jumper templates + flags
+Date: 2026-04-25
+Duration: long focused session
+Outcome: Lean public pages (index → show → ring → class) shipped end-
+         to-end with a centralized template architecture for jumper
+         results. Country flag rendering wired in (with the operator's
+         Ryegate ShowFlags toggle as the single source of truth).
+         Worker auth + deploy now possible from this Mac.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Engine can't run on this Mac, so the focus shifted to what doesn't need
+ingest: the public-facing pages reading from existing WEST_DB_V3 data.
+Built four pages and the template architecture under them, plus added
+country-flag rendering with a hard policy gate so future surfaces can't
+accidentally bypass the operator's Ryegate ShowFlags setting.
+
+Bill's three architectural directives this session shaped most of the
+work:
+
+1. "Centralized JS, central by jumper" — every formatting decision
+   goes through shared modules; jumper-specific concerns live in a
+   jumper-specific module (parallel hunter module later). No
+   inline duplication across pages.
+
+2. "Round labels stay generic R1/R2/R3 for now — i cant keep of two
+   manny thing in my head at once." Defer Phase 1/Phase 2, JO, Winning
+   Round labels until the framework is settled.
+
+3. "The only place to change flags should rest on the scoring
+   computer." Operator's H[26] ShowFlags toggle is THE override. Code
+   enforces this via WEST.format.flagFor(cls, entry); a primitive
+   flag(code) exists but is documented "use flagFor instead."
+
+═══════════════════════════════════════════════════════════════════════════
+PART 1 — PUBLIC SHOW PAGE (lean v3 index → show landing)
+═══════════════════════════════════════════════════════════════════════════
+
+[v3/pages/show.html] (NEW)
+  - Hero: name, date range, venue, location, status badge
+  - Ring cards: ring # + name + class count, links to ring page
+  - Breadcrumbs: All shows / <show name>
+  - Reads /v3/getShow + /v3/listRings + /v3/listClasses (parallel)
+  - Class counts exclude soft-deleted classes
+  - Rendering loops via inline shape (later refactored — see Part 8)
+
+[v3/pages/index.html] modified
+  - Show-card href changed from `#${slug}` to `show.html?slug=${slug}`
+  - showGroup() rewritten twice this session:
+    1st pass — used status field as fully authoritative (broke past
+               shows by ignoring expired end_date)
+    2nd pass — Bill's correct lifecycle:
+                 built       → upcoming (status=pending)
+                 heartbeat   → active   (status=active, auto-promote
+                                          from Session 31)
+                 end_date <  → past     (hard ceiling, regardless of
+                   today        any stale 'active' status)
+  - End_date hard ceiling means a show that ended yesterday but never
+    got marked complete drops out of "Active" automatically. No more
+    stale-active shows.
+
+[v3/pages/west.css] additions
+  - Public-page selectors: .breadcrumbs, .hero, .section-block,
+    .ring-grid, .ring-card. Distinct namespace from admin's
+    .ring-row to avoid collision (per existing code comment in
+    west.css line 7).
+
+═══════════════════════════════════════════════════════════════════════════
+PART 2 — TIMEZONE PER SHOW
+═══════════════════════════════════════════════════════════════════════════
+
+Bill flagged that the show "ends at 11:59pm of the last day" — and that
+should be in the show's local timezone, not UTC. Test show was Devon PA
+which is Eastern time; the existing UTC-driven date math was off by up
+to 5 hours.
+
+Decision: explicit per-show timezone field, not derived from the
+location text. "Devon, PA" → "America/New_York" parsing is fragile;
+operator picks from a fixed list in admin.
+
+MIGRATION 013 — shows_timezone
+  ALTER TABLE shows ADD COLUMN timezone TEXT DEFAULT 'America/New_York'
+  Backfill is automatic via the DEFAULT — existing test show got
+  America/New_York set on the migration commit.
+
+WORKER (/v3/createShow + /v3/updateShow)
+  Both endpoints now accept `timezone` field. createShow defaults to
+  America/New_York if missing/empty. updateShow rejects empty string
+  but allows the field to be omitted.
+
+ADMIN (v3/pages/admin.html)
+  Show dialog gains a Timezone select with 10 options:
+    Eastern, Central, Mountain, Phoenix (no DST), Pacific, Alaska,
+    Hawaii, London, Paris, Sydney
+  Form-hint: "Drives when the show flips to Past on the public index
+  (11:59pm local)."
+
+PUBLIC PAGES (index.html, show.html)
+  Both compute "today" in the show's local timezone:
+    new Date().toLocaleDateString('en-CA', { timeZone: tz })
+  en-CA gives YYYY-MM-DD format. Compared to show.end_date directly.
+
+═══════════════════════════════════════════════════════════════════════════
+PART 3 — WRANGLER ON THIS MAC
+═══════════════════════════════════════════════════════════════════════════
+
+This Mac had no Node, no Homebrew, no wrangler. Couldn't deploy
+worker changes from here. Fixed — without sudo:
+
+  1. Install nvm (curl-bash to ~/.nvm)
+  2. nvm install --lts → Node v24.15.0
+  3. npm install -g wrangler → 4.85.0
+  4. Cloudflare API token from dashboard → ~/.cloudflare-env (mode 600)
+  5. .zshrc sources ~/.cloudflare-env automatically
+
+ACCOUNT
+  Bill@west-solutions.com's Account
+  ID: acb801ad4373d9f48ac4ce6814d330c0
+
+REQUIRED TOKEN SCOPES (learned the hard way; first token was missing
+the last two):
+  - Workers Scripts · Edit
+  - D1 · Edit
+  - Workers KV Storage · Edit       (for env.WEST_LIVE binding)
+  - Workers R2 Storage · Edit       (for env.WEST_R2_CLS binding)
+  Optional: Cloudflare Pages · Edit (for future Pages deploys)
+
+To deploy in a fresh shell:
+  source ~/.cloudflare-env
+  export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"
+  wrangler deploy
+
+Cloudflare MCP (d1_database_query) used for migration application —
+no wrangler needed for D1 schema changes from here.
+
+Memory: worker_deploy_setup.md captures this for future sessions.
+
+═══════════════════════════════════════════════════════════════════════════
+PART 4 — PUBLIC RING PAGE (per-ring class list)
+═══════════════════════════════════════════════════════════════════════════
+
+[v3/pages/ring.html] (NEW)
+  Hero: ring name, "Show Name · Ring N", class count
+  Breadcrumbs: All shows / Show / Ring
+  Sort bar: 4 modes
+    Scheduled (default) — only scheduled classes, day-grouped
+    Class Name          — flat A-Z, unscheduled italic+dim
+    Class Number        — flat 1-9, unscheduled italic+dim
+    Unscheduled         — only unscheduled, numeric sort
+  Asc/desc toggle on Class Name + Class Number (re-click to flip).
+  Arrow indicator (↑/↓) appears next to the active reversible button.
+  Day labels via "Friday, Apr 25" long form (WEST.format.dayLabelLong).
+  Rows: bare class number (no #), class name, entry count, schedule
+        flag if present. Type badge dropped per Bill's directive
+        (operator can read H/J/T from the class name).
+
+CSS additions (west.css)
+  .day-section, .day-label, .cls-list, .cls-row, .cls-num, .cls-body,
+  .cls-name, .cls-meta, .cls-arrow, .sort-bar, .sort-btn,
+  .cls-row.is-unscheduled (italic + dim).
+
+═══════════════════════════════════════════════════════════════════════════
+PART 5 — JUMPER TEMPLATE ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill's framing — quoted verbatim because it's the architectural
+contract for the rest of the rebuild:
+
+  "we should make page type standards (all centrally formatted)
+   1 Round Jumper
+   2 Round Jumper
+   3 Round Jumper
+   Team
+   Equitation"
+
+Plus the detection ladder:
+  Equitation flag → EQ template
+  scoring_method → 1R / 2R / 3R / TEAM via lookup
+  Method 6 modifier=1 → 2R override (the only modifier-based override)
+
+[v3/js/west-jumper-templates.js] (NEW MODULE)
+  Public API:
+    WEST.jumperTemplates.detect(cls)               → '1R' | '2R' | '3R' | 'EQ' | 'TEAM'
+    WEST.jumperTemplates.templates['1R'|'2R'|'3R'|'EQ'|'TEAM']
+                                  .columns(cls)    → string[]
+                                  .renderRow(e,c)  → '<tr>...</tr>' HTML
+    WEST.jumperTemplates.renderTable(cls, entries) → full <table> HTML
+
+  METHOD_TEMPLATE map (sourced from JUMPER-METHODS-REFERENCE.md plus
+  Bill's session 2026-04-25 corrections):
+     0:'1R'   Table III
+     2:'2R'   II.2a (R1 + delayed JO)
+     3:'3R'   2 rounds + JO
+     4:'1R'   II.1 Speed
+     5:'1R'   Top Score (dropped — defensive default)
+     6:'1R'   IV.1 Optimum (modifier=1 → '2R' override)
+     7:'EQ'   Timed Equitation
+     8:'1R'   Table II  (re-added per Bill — was missing from initial map)
+     9:'2R'   II.2d Two-Phase
+    10:'2R'   II.2f Stratified
+    11:'2R'   II.2c Two-Phase (clears only)
+    13:'2R'   II.2b Immediate JO  ★ workhorse (only template with real
+                                              test data validation)
+    14:'TEAM' Team Competition
+    15:'2R'   Winning Round
+
+  1R/2R/3R built from a parameterized factory (makeRoundTemplate(N))
+  so they stay in lockstep. Round labels intentionally generic R1/R2/R3
+  per Bill's directive — Phase 1/Phase 2, JO, Winning Round labeling
+  layers in later when the rest is settled.
+
+  EQ template:
+    Forced (method 7 modifier=0): place + entry # + RIDER/horse only,
+                                  no score column — operator pins the
+                                  placements
+    Scored (modifier=1):           adds Score column reading
+                                  r1_jump_faults (col[19] per Method 7
+                                  spec: jumper protocol, equitation
+                                  identity)
+    Rider primary (inverse of round templates' horse-primary).
+
+  TEAM template stub:
+    Falls back to 3R layout. Team aggregation deferred until a real
+    test case lands.
+
+[v3/pages/class.html] (NEW)
+  Loads: west-api, west-status, west-format, west-rules,
+         west-jumper-templates
+  4-call cascade: getShow + listRings + listClasses (parallel) →
+                  find class by class_id match → listEntries(db_id)
+  Hero: class number + name, show + ring + day, method label
+  Renders entire results table via WEST.jumperTemplates.renderTable.
+  Hunter / non-jumper: renders "coming soon" placeholder rather than
+  a broken table.
+  Deleted classes: explicit "removed" message, no data table.
+
+CSS (.results-table family)
+  Independent namespace from admin's .entries-table — fewer columns,
+  larger row height, hero-to-table visual flow. Round cells share
+  semantic class names (.round-faults, .round-time, .round-status,
+  .round-blank, .place-num, .place-blank) for consistency.
+
+═══════════════════════════════════════════════════════════════════════════
+PART 6 — COUNTRY FLAGS (operator-controlled via Ryegate H[26])
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "now these are all standardize nothing embedded in the page."
+Then: "the only place to change flags should rest on the scoring
+computer.. (uncheck show flags, flags dissappear)."
+
+Two new columns + parser changes + 200-entry FLAGS map ported from v1
+(`Working site mid march/results.html`).
+
+MIGRATION 014 — show_flags_and_country
+  ALTER TABLE classes ADD COLUMN show_flags INTEGER DEFAULT 0
+  ALTER TABLE entries ADD COLUMN country_code TEXT
+
+PARSER (west-worker.js)
+  parseClsHeaderV3 H[26] capture (jumper lens only — hunter's H[26]
+    is Phase2Label, different field). True/false → 1/0.
+  parseClsEntriesV3 col[4] capture → country_code, uppercased and
+    trimmed. Most entries have empty col[4] (only populated when
+    operator types nationality in Ryegate).
+
+WORKER (UPSERTs + SELECTs)
+  classes UPSERT: show_flags column added.
+  entries UPSERT: country_code column added.
+  /v3/listEntries SELECT: e.country_code joined onto the wide
+                          jumper+hunter projection.
+  /v3/listClasses returns c.* so show_flags flows automatically.
+
+RE-PARSE (verified backfill)
+  Re-POSTed all 71 .cls files via /v3/postCls (curl-loop pulling
+  from /v3/downloadCls). Surprise: test data DOES have FEI-flavor
+  examples:
+    - 2 of 51 J/T classes have show_flags=1
+        Class 18 "$500 1.0M AMATEUR JUMPER II.2d"
+        Class 900 "New Class with OOG"
+    - 9 entries have country_code populated (USA × 7, GBR × 1, AUS × 1)
+    - Class 900 specifically has the multi-nation mix
+      (USA, GBR, AUS) — perfect end-to-end validation target.
+
+DEPLOYS
+  c049b0d9 — timezone (Part 2)
+  c7fc5478 — show_flags + country_code (Part 6)
+
+FRONT-END
+  FLAGS map: ~200 FEI 3-letter codes → Unicode flag emojis. Ported
+    verbatim from v1 results.html line 507.
+  Render style: "🇺🇸 USA" inline next to the rider name (v1 visual
+    pattern). Wrapped in <span class="entry-flag"> with a small DM
+    Mono treatment (font-size 11px, dim color, slight letter-spacing).
+  Empty/unknown codes render as the bare 3-letter string (no broken
+    image, no error).
+
+═══════════════════════════════════════════════════════════════════════════
+PART 7 — CENTRALIZATION REFACTOR (final shape of shared modules)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "i dont want to monkey with Flag graphics in future locations
+(display, results, Stats, Live, other possible display configurations)."
+
+Pulled all duplicated page-glue out of the four public pages and the
+templates module. Final state below. Every public surface is now thin
+glue over shared modules.
+
+NEW: [v3/js/west-api.js]
+  WEST.api.AUTH = 'west-scoring-2026'
+  WEST.api.BASE = 'https://west-worker.bill-acb.workers.dev'
+  WEST.api.fetchJson(path)  → JSON, throws on !ok
+  WEST.api.queryParam(name) → URL search param helper
+  Why: single place to change worker URL or rotate auth.
+
+EXTENDED: [v3/js/west-format.js]
+  Added: escapeHtml, time(sec), faults(n), ordinal(n),
+         dayLabel(iso), dayLabelLong(iso),
+         flag(code) — primitive,
+         flagFor(cls, entry) — POLICY GATE (the important one)
+  FLAGS map (200 codes) lives here; templates module consumes via
+  WEST.format.flag.
+
+POLICY GATE — flagFor(cls, entry)
+  Returns the rendered flag string ONLY when cls.show_flags is
+  truthy AND entry.country_code is non-empty. Code-level enforcement
+  of Bill's "scoring computer is the only override" directive.
+  All current and future surfaces (results, live, stats, display,
+  any new layout) MUST route through flagFor — they CAN'T accidentally
+  bypass the operator's Ryegate ShowFlags toggle by reaching for
+  flag(code) directly. Documented as such in the JS-MODULES doc.
+
+PAGES STRIPPED OF DUPLICATION
+  show.html, ring.html, class.html each lost their inline copies of:
+    - escapeHtml
+    - fetchJson + AUTH/BASE constants
+    - getQueryParam
+    - fmtDayLabel
+  Each now has a 4-line preamble:
+    const escapeHtml    = WEST.format.escapeHtml;
+    const fetchJson     = WEST.api.fetchJson;
+    const getQueryParam = WEST.api.queryParam;
+    const fmtDayLabel   = WEST.format.dayLabel;  // or dayLabelLong
+  Page bodies stay page-specific (breadcrumbs, hero composition,
+  fetch orchestration). No more diverging primitives.
+
+TEMPLATES MODULE FOLLOW-UP
+  west-jumper-templates removed its private FLAGS map — uses
+  WEST.format.flagFor inline. escapeHtml is a thin alias to
+  WEST.format.escapeHtml. The module's surface is purely
+  jumper-template logic now; no general utility duplication.
+
+═══════════════════════════════════════════════════════════════════════════
+PART 8 — JS-MODULES-AND-PAGES.md (quick-reference doc)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "can you make that table in a document on the git up for
+quick refferal (maybe put every template page in there)"
+
+[docs/v3-planning/JS-MODULES-AND-PAGES.md] (NEW)
+  Companion to existing CENTRALIZED-JS-ARCHITECTURE.txt (which is the
+  2026-04-17 PLANNING doc). New file is the CURRENT-STATE quick-ref.
+  Sections:
+    - Shared modules table (file → responsibility → key exports)
+    - Public pages table (page → URL → modules loaded → renders)
+    - Single-source-of-truth ledger ("when you want to change X,
+      edit Y; nowhere else")
+    - Data flow ASCII diagram
+    - "Adding a new page" cookbook
+  Bump the "Last updated" date when modules or pages change.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+13. SHOW LIFECYCLE:
+    built → status=pending (UI: "upcoming")
+    heartbeat → status=active (UI: "active")
+    end_date < today (in show timezone) → UI: "past"
+                       regardless of stored status
+    Status field is authoritative within the date window. End_date is
+    a hard ceiling — past it, show goes to past group always.
+    (Adds to SESSION-32/33 decisions 1-12.)
+
+14. SHOW TIMEZONE IS EXPLICIT.
+    Per-show field, not derived from location text. Default
+    America/New_York. Operator picks from a fixed admin list. All
+    "today"/"past"/"active" comparisons compute today in the show's
+    local TZ. Avoids 5-hour UTC drift on East Coast shows.
+
+15. JUMPER LENS USES TEMPLATES MODULE; HUNTER LENS WILL MIRROR.
+    west-jumper-templates.js owns: detection (method → template id),
+    1R/2R/3R/EQ/TEAM renderers, jumper-specific helpers (round cell,
+    flag span, place check via west-rules). When hunter results
+    land: parallel west-hunter-templates.js with the equivalent
+    surface for hunter modes. The two never reach into each other.
+
+16. SCORING-COMPUTER IS THE SINGLE SOURCE OF TRUTH FOR FLAG VISIBILITY.
+    Operator's Ryegate H[26] ShowFlags toggle is THE authority.
+    Code-level enforcement: every public surface routes through
+    WEST.format.flagFor(cls, entry). No per-page "always show"
+    bypass exists. Unchecking ShowFlags in Ryegate erases flags
+    everywhere on next /v3/postCls.
+
+17. ROUND LABELS STAY GENERIC R1/R2/R3 — FOR NOW.
+    Phase 1/Phase 2 (Method 9), Jump-Off (Methods 2/13), Winning Round
+    (Method 15) etc. labeling layers in later. Pinned to keep the
+    template framework simple while the rest of the public surface
+    is being built out. Bill: "i cant keep of two manny thing in my
+    head at once."
+
+18. CENTRAL-BY-LENS ARCHITECTURE.
+    Cross-lens primitives (status, format, rules) shared. Lens-
+    specific concerns (jumper templates / hunter templates / lens
+    parsers) split into per-lens modules. Templates within a lens
+    are parameterized by detection (method) but live in one module
+    per lens. Three layers:
+      Cross-lens primitives: west-status, west-format, west-rules
+      Lens-specific:         west-{jumper,hunter}-templates,
+                             west-cls-{jumper,hunter}
+      Page glue:             show/ring/class.html (and future
+                             live/display/stats)
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION 34
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare:
+  Worker version: c7fc5478-2389-40ee-a01b-f791633b591e
+                  (deployed 2026-04-25 from this Mac via wrangler)
+  WEST_DB_V3 schema: + shows.timezone (default America/New_York)
+                     + classes.show_flags (default 0)
+                     + entries.country_code (nullable)
+  Migrations applied: 013, 014
+
+Test data (slug v3-smoke-test-2026-04, renamed to "Smoke Show"):
+  - 1 ring "Jumper 1" (renamed from "Grand Prix Ring")
+  - 71 classes (51 J/T, 16 H, 4 U)
+  - 959 jumper summary rows, 1,127 jumper round rows
+  - 221 hunter summary rows, 58 hunter round rows
+  - 86 hunter judge score rows
+  - 2 J/T classes with show_flags=1 (classes 18 and 900)
+  - 9 entries with country_code (USA × 7, GBR × 1, AUS × 1)
+  - 0 unexpected parse warnings
+
+Pages (file:// only — not deployed to Cloudflare Pages yet):
+  index.html  — all-shows landing, lifecycle-correct grouping
+  show.html   — per-show landing
+  ring.html   — per-ring class list, 4-mode sort + asc/desc
+  class.html  — per-class results (jumper templates working;
+                hunter shows "coming soon")
+  admin.html  — operator UI (timezone dropdown added)
+
+Engine still cannot run on this Mac — Windows-side concern. wrangler
+covers Workers + D1 + KV + R2 deploys; the .cls watcher stays Windows.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-34)
+═══════════════════════════════════════════════════════════════════════════
+
+- HUNTER TEMPLATES MODULE — west-hunter-templates.js mirroring the
+  jumper one. Templates: Forced (place + rider only), Scored (per-round
+  totals), Hi-Lo, Derby (component breakdown). Per-judge expand
+  deferred (Session 33 already deferred display polish).
+
+- ROUND LABELS (when ready) — per-method layer on top of generic
+  R1/R2/R3. Method-aware label resolver in west-jumper-templates,
+  consumed via templates[t].columns(cls). Easy add when Bill is ready.
+
+- CLEAN URLs — Cloudflare Pages _redirects file (/show/:slug,
+  /show/:slug/:ring, /show/:slug/:ring/:class). Not built this
+  session per Bill's "it can wait too." When real audience lands
+  on the deployed site, this is the first polish.
+
+- DEPLOY V3 PAGES TO PAGES — deploy-preview.bat is Windows + only
+  copies root *.html. v3/pages/* not deployed anywhere yet. When
+  Bill is ready to make v3 publicly visible, extend deploy script
+  (or stand up a separate Pages project for v3).
+
+- STATS PAGE (Phase 3) — the sortable/aggregating view across rounds.
+  Per-round schema (Session 33's pivot) is ready for native SQL
+  aggregation. Reuses west-jumper-templates renderRow for individual
+  row formatting; adds aggregation primitives in west-stats.js.
+
+- LIVE PAGE — per-ring live scoreboard for currently-running class.
+  Loads west-clock (planned). Poll-based until WebSockets phase.
+  Reuses class.html's results table for the standings block.
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  v3/migrations/013_shows_timezone.sql
+  v3/migrations/014_show_flags_and_country.sql
+  v3/pages/show.html
+  v3/pages/ring.html
+  v3/pages/class.html
+  v3/js/west-api.js
+  v3/js/west-jumper-templates.js
+  docs/v3-planning/JS-MODULES-AND-PAGES.md
+  session-notes/SESSION-NOTES-34.txt (this file)
+
+MODIFIED:
+  v3/pages/admin.html        — timezone dropdown + load/save wiring
+  v3/pages/index.html        — show.html linkage + status/timezone-aware grouping
+  v3/pages/west.css          — public page styles (breadcrumbs, hero,
+                               ring grid, class list, sort bar, results table)
+  v3/js/west-format.js       — escapeHtml, time, faults, ordinal,
+                               dayLabel + dayLabelLong, FLAGS map +
+                               flag/flagFor primitives
+  west-worker.js             — timezone in createShow/updateShow,
+                               H[26] capture in jumper header parser,
+                               col[4] capture in entry parser, classes
+                               + entries UPSERTs gain new columns,
+                               listEntries SELECT projects country_code
+
+═══════════════════════════════════════════════════════════════════════════
+EXTERNAL CHANGES
+═══════════════════════════════════════════════════════════════════════════
+
+Mac dev environment:
+  ~/.nvm/                   — nvm install (no sudo)
+  ~/.nvm/versions/node/v24.15.0/bin/wrangler  — wrangler 4.85.0
+  ~/.cloudflare-env         — API token + account ID, mode 600
+  ~/.zshrc                  — appended `[ -f ~/.cloudflare-env ] && source ~/.cloudflare-env`
+
+Cloudflare:
+  D1 (WEST_DB_V3) — migrations 013 + 014 applied
+                  — re-parse of all 71 .cls files populated new
+                    columns
+  Worker          — v_c049b0d9 then v_c7fc5478
+
+Test show in admin (operator-driven, not via code):
+  name:        "v3 Smoke Test" → "Smoke Show"
+  ring 1 name: "Grand Prix Ring" → "Jumper 1"

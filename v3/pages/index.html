@@ -68,12 +68,24 @@ function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-function showGroup(show, todayStr) {
-  if (show.start_date && show.end_date) {
-    if (show.end_date < todayStr) return 'past';
-    if (show.start_date > todayStr) return 'upcoming';
-    return 'active';
+function todayInTz(tz) {
+  // YYYY-MM-DD in show's local time. en-CA locale gives ISO format.
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: tz || 'America/New_York' });
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
   }
+}
+
+function showGroup(show) {
+  // Lifecycle: built=pending → heartbeat=active → past end_date=past.
+  // end_date is the hard ceiling — once a show's last day has passed
+  // (in the show's local timezone) it belongs in 'past' regardless of
+  // any stale status flag.
+  const localToday = todayInTz(show.timezone);
+  if (show.end_date && show.end_date < localToday) return 'past';
+  if (show.status === 'active') return 'active';
+  if (show.status === 'complete' || show.status === 'archived') return 'past';
   return 'upcoming';
 }
 
@@ -158,7 +170,7 @@ function render() {
   const filtered = applyFilter(SHOWS);
 
   // Active count always reflects truly-active shows regardless of filter
-  const activeCount = SHOWS.filter(s => showGroup(s, today) === 'active').length;
+  const activeCount = SHOWS.filter(s => showGroup(s) === 'active').length;
   document.getElementById('statNumber').textContent = activeCount;
 
   if (!filtered.length) {
@@ -172,7 +184,7 @@ function render() {
   noResults.style.display = 'none';
 
   const groups = { active: [], upcoming: [], past: [] };
-  for (const s of filtered) groups[showGroup(s, today)].push(s);
+  for (const s of filtered) groups[showGroup(s)].push(s);
 
   const order = [
     ['active', 'Active now'],
@@ -184,7 +196,7 @@ function render() {
     if (!groups[key].length) continue;
     html += `<div class="group"><div class="group-header">${label} (${groups[key].length})</div><ul class="show-list">`;
     for (const s of groups[key]) {
-      html += `<li><a class="show-card" href="#${escapeHtml(s.slug)}">
+      html += `<li><a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
         <span class="show-dot ${key}"></span>
         <div class="show-body">
           <div class="show-name">${escapeHtml(s.name)}</div>

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — Show</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="west.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="index.html" class="logo-tap">
+      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-tag">V3</div>
+  </div>
+</header>
+
+<nav class="breadcrumbs" id="breadcrumbs">
+  <a class="bc-link" href="index.html">All shows</a>
+  <span class="bc-sep">/</span>
+  <span class="bc-current" id="bcCurrent">…</span>
+</nav>
+
+<div id="hero" class="hero">
+  <div class="spinner"></div>
+</div>
+
+<div class="section-block">
+  <div class="section-block-title">Rings</div>
+  <div id="rings"><div class="spinner"></div></div>
+</div>
+
+<footer>
+  WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
+</footer>
+
+<!-- Shared utilities: format helpers + API client. Single source of truth
+     for escape, day labels, country flags, AUTH header, worker URL. -->
+<script src="../js/west-format.js"></script>
+<script src="../js/west-api.js"></script>
+
+<script>
+const escapeHtml = WEST.format.escapeHtml;
+
+function getSlug() {
+  return WEST.api.queryParam('slug');
+}
+
+function fmtDateRange(show) {
+  const f = (iso) => {
+    if (!iso) return null;
+    const p = iso.split('-');
+    return p.length === 3 ? `${p[1]}-${p[2]}-${p[0]}` : iso;
+  };
+  const a = f(show.start_date);
+  const b = f(show.end_date);
+  if (!a && !b) return '';
+  if (a && b && a === b) return a;
+  if (a && b) return `${a} → ${b}`;
+  return a || b;
+}
+
+function todayInTz(tz) {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: tz || 'America/New_York' });
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function deriveStatus(show) {
+  // End date in show's local timezone is the hard ceiling — past 11:59pm
+  // local on the last day, the show is complete regardless of stale status.
+  const localToday = todayInTz(show.timezone);
+  if (show.end_date && show.end_date < localToday) return 'complete';
+  if (show.status === 'active') return 'active';
+  if (show.status === 'complete' || show.status === 'archived') return show.status;
+  if (show.start_date && show.end_date) {
+    if (show.start_date > localToday) return 'upcoming';
+    return 'active';
+  }
+  return show.status || 'pending';
+}
+
+function renderHero(show) {
+  const status = deriveStatus(show);
+  const dates = fmtDateRange(show);
+  const parts = [];
+  parts.push(`<div class="hero-name">${escapeHtml(show.name)}</div>`);
+  if (dates) parts.push(`<div class="hero-dates">${escapeHtml(dates)}</div>`);
+  if (show.venue) parts.push(`<div class="hero-venue">${escapeHtml(show.venue)}</div>`);
+  if (show.location) parts.push(`<div class="hero-location">${escapeHtml(show.location)}</div>`);
+  parts.push(`<div class="status-badge status-${escapeHtml(status)}">${escapeHtml(status)}</div>`);
+  document.getElementById('hero').innerHTML = parts.join('');
+  document.getElementById('bcCurrent').textContent = show.name || show.slug;
+  document.title = `${show.name} — WEST Scoring`;
+}
+
+function renderRings(rings, classCounts) {
+  const root = document.getElementById('rings');
+  if (!rings.length) {
+    root.innerHTML = '<div class="placeholder">No rings yet.</div>';
+    return;
+  }
+  const slug = getSlug();
+  const html = rings.map(r => {
+    const count = classCounts[r.ring_num] || 0;
+    const countLabel = count === 1 ? '1 class' : `${count} classes`;
+    return `<a class="ring-card" href="ring.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}">
+      <div class="ring-card-num">R${r.ring_num}</div>
+      <div class="ring-card-body">
+        <div class="ring-card-name">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</div>
+        <div class="ring-card-meta">${countLabel}</div>
+      </div>
+      <div class="ring-card-chevron">›</div>
+    </a>`;
+  }).join('');
+  root.innerHTML = `<div class="ring-grid">${html}</div>`;
+}
+
+function countByRing(classes) {
+  const out = {};
+  for (const c of classes) {
+    if (c.deleted_at) continue;
+    out[c.ring_num] = (out[c.ring_num] || 0) + 1;
+  }
+  return out;
+}
+
+const fetchJson = WEST.api.fetchJson;
+
+async function load() {
+  const slug = getSlug();
+  if (!slug) {
+    document.getElementById('hero').innerHTML = '<div class="hero-name">No show specified</div><div class="hero-location">Add ?slug=&lt;slug&gt; to the URL</div>';
+    document.getElementById('rings').innerHTML = '';
+    return;
+  }
+  try {
+    const [showRes, ringsRes, classesRes] = await Promise.all([
+      fetchJson(`/v3/getShow?slug=${encodeURIComponent(slug)}`),
+      fetchJson(`/v3/listRings?slug=${encodeURIComponent(slug)}`),
+      fetchJson(`/v3/listClasses?slug=${encodeURIComponent(slug)}`),
+    ]);
+    renderHero(showRes.show);
+    renderRings(ringsRes.rings || [], countByRing(classesRes.classes || []));
+  } catch (e) {
+    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load show</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
+    document.getElementById('rings').innerHTML = '';
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>

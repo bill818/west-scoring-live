@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — Ring</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="west.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="index.html" class="logo-tap">
+      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-tag">V3</div>
+  </div>
+</header>
+
+<nav class="breadcrumbs">
+  <a class="bc-link" href="index.html">All shows</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcShow" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <span class="bc-current" id="bcRing">…</span>
+</nav>
+
+<div id="hero" class="hero">
+  <div class="spinner"></div>
+</div>
+
+<div class="section-block">
+  <div class="section-block-title">Classes</div>
+  <div class="sort-bar" id="sortBar">
+    <button class="sort-btn is-active" data-mode="scheduled" data-label="Scheduled">Scheduled</button>
+    <button class="sort-btn" data-mode="name" data-label="Class Name">Class Name</button>
+    <button class="sort-btn" data-mode="number" data-label="Class Number">Class Number</button>
+    <button class="sort-btn" data-mode="unscheduled" data-label="Unscheduled">Unscheduled</button>
+  </div>
+  <div id="classes"><div class="spinner"></div></div>
+</div>
+
+<footer>
+  WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
+</footer>
+
+<!-- Shared utilities: format helpers + API client. Single source of truth
+     for escape, day labels, country flags, AUTH header, worker URL. -->
+<script src="../js/west-format.js"></script>
+<script src="../js/west-api.js"></script>
+
+<script>
+const escapeHtml = WEST.format.escapeHtml;
+const fetchJson = WEST.api.fetchJson;
+const fmtDayLabel = WEST.format.dayLabelLong;
+
+const state = {
+  slug: '',
+  ringNum: 1,
+  show: null,
+  ring: null,
+  classes: [],
+  viewMode: 'scheduled',
+  sortDir: 'asc',
+};
+
+const getQueryParam = WEST.api.queryParam;
+
+function renderHero() {
+  const ring = state.ring;
+  const show = state.show;
+  const liveCount = state.classes.filter(c => !c.deleted_at).length;
+  const parts = [];
+  parts.push(`<div class="hero-name">${escapeHtml(ring.name || `Ring ${ring.ring_num}`)}</div>`);
+  parts.push(`<div class="hero-dates">${escapeHtml(show.name)} · Ring ${ring.ring_num}</div>`);
+  parts.push(`<div class="hero-location">${liveCount === 1 ? '1 class' : `${liveCount} classes`}</div>`);
+  document.getElementById('hero').innerHTML = parts.join('');
+  document.getElementById('bcShow').textContent = show.name;
+  document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
+  document.getElementById('bcRing').textContent = ring.name || `Ring ${ring.ring_num}`;
+  document.title = `${ring.name || `Ring ${ring.ring_num}`} — ${show.name}`;
+}
+
+function classRow(c, dimAsUnscheduled) {
+  const url = `class.html?slug=${encodeURIComponent(state.slug)}&ring=${state.ringNum}&class=${encodeURIComponent(c.class_id)}`;
+  const meta = [];
+  meta.push(`${c.entry_count || 0} ${c.entry_count === 1 ? 'entry' : 'entries'}`);
+  if (c.schedule_flag) meta.push(escapeHtml(c.schedule_flag));
+  const rowCls = dimAsUnscheduled ? 'cls-row is-unscheduled' : 'cls-row';
+  return `<a class="${rowCls}" href="${url}">
+    <div class="cls-num">${escapeHtml(c.class_id)}</div>
+    <div class="cls-body">
+      <div class="cls-name">${escapeHtml(c.class_name || '—')}</div>
+      <div class="cls-meta">${meta.join('<span style="opacity:.4">·</span>')}</div>
+    </div>
+    <div class="cls-arrow">›</div>
+  </a>`;
+}
+
+function partition() {
+  const scheduled = [];
+  const unscheduled = [];
+  for (const c of state.classes) {
+    if (c.deleted_at) continue;
+    if (c.scheduled_date) scheduled.push(c);
+    else unscheduled.push(c);
+  }
+  return { scheduled, unscheduled };
+}
+
+function sortByNumber(arr, dir) {
+  const sign = dir === 'desc' ? -1 : 1;
+  return [...arr].sort((a, b) =>
+    sign * String(a.class_id).localeCompare(String(b.class_id), undefined, { numeric: true })
+  );
+}
+
+function sortByName(arr, dir) {
+  const sign = dir === 'desc' ? -1 : 1;
+  return [...arr].sort((a, b) =>
+    sign * String(a.class_name || '').localeCompare(String(b.class_name || ''))
+  );
+}
+
+function renderClasses() {
+  const root = document.getElementById('classes');
+  const { scheduled, unscheduled } = partition();
+
+  if (state.viewMode === 'scheduled') {
+    if (!scheduled.length) {
+      root.innerHTML = '<div class="placeholder">No scheduled classes.</div>';
+      return;
+    }
+    const groups = new Map();
+    for (const c of scheduled) {
+      if (!groups.has(c.scheduled_date)) groups.set(c.scheduled_date, []);
+      groups.get(c.scheduled_date).push(c);
+    }
+    const keys = [...groups.keys()].sort();
+    let html = '';
+    for (const k of keys) {
+      const rows = sortByNumber(groups.get(k), 'asc').map(c => classRow(c, false)).join('');
+      html += `<div class="day-section">
+        <div class="day-label">${escapeHtml(fmtDayLabel(k))}</div>
+        <div class="cls-list">${rows}</div>
+      </div>`;
+    }
+    root.innerHTML = html;
+    return;
+  }
+
+  if (state.viewMode === 'unscheduled') {
+    if (!unscheduled.length) {
+      root.innerHTML = '<div class="placeholder">No unscheduled classes.</div>';
+      return;
+    }
+    const rows = sortByNumber(unscheduled, 'asc').map(c => classRow(c, false)).join('');
+    root.innerHTML = `<div class="cls-list">${rows}</div>`;
+    return;
+  }
+
+  // 'name' or 'number' — flat list across all live classes;
+  // unscheduled rows render dimmed and italic.
+  const all = [...scheduled, ...unscheduled];
+  if (!all.length) {
+    root.innerHTML = '<div class="placeholder">No classes yet.</div>';
+    return;
+  }
+  const sorted = state.viewMode === 'name'
+    ? sortByName(all, state.sortDir)
+    : sortByNumber(all, state.sortDir);
+  const rows = sorted.map(c => classRow(c, !c.scheduled_date)).join('');
+  root.innerHTML = `<div class="cls-list">${rows}</div>`;
+}
+
+function updateSortBarUI() {
+  document.querySelectorAll('#sortBar .sort-btn').forEach(b => {
+    const isActive = b.dataset.mode === state.viewMode;
+    b.classList.toggle('is-active', isActive);
+    const reversible = (b.dataset.mode === 'name' || b.dataset.mode === 'number');
+    if (isActive && reversible) {
+      b.textContent = `${b.dataset.label} ${state.sortDir === 'asc' ? '↑' : '↓'}`;
+    } else {
+      b.textContent = b.dataset.label;
+    }
+  });
+}
+
+function wireSortBar() {
+  document.querySelectorAll('#sortBar .sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      const reversible = (mode === 'name' || mode === 'number');
+      if (reversible && state.viewMode === mode) {
+        // Re-clicking the same reversible mode flips the direction.
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.viewMode = mode;
+        state.sortDir = 'asc';
+      }
+      updateSortBarUI();
+      renderClasses();
+    });
+  });
+}
+
+async function load() {
+  state.slug = getQueryParam('slug');
+  state.ringNum = parseInt(getQueryParam('ring') || '1', 10);
+  if (!state.slug || !Number.isFinite(state.ringNum)) {
+    document.getElementById('hero').innerHTML = '<div class="hero-name">Missing show or ring</div><div class="hero-location">Add ?slug=&lt;slug&gt;&amp;ring=&lt;n&gt;</div>';
+    document.getElementById('classes').innerHTML = '';
+    return;
+  }
+  try {
+    const [showRes, ringsRes, classesRes] = await Promise.all([
+      fetchJson(`/v3/getShow?slug=${encodeURIComponent(state.slug)}`),
+      fetchJson(`/v3/listRings?slug=${encodeURIComponent(state.slug)}`),
+      fetchJson(`/v3/listClasses?slug=${encodeURIComponent(state.slug)}&ring=${state.ringNum}`),
+    ]);
+    state.show = showRes.show;
+    state.ring = (ringsRes.rings || []).find(r => r.ring_num === state.ringNum);
+    if (!state.ring) {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Ring ${state.ringNum} not found</div>`;
+      document.getElementById('classes').innerHTML = '';
+      return;
+    }
+    state.classes = classesRes.classes || [];
+    renderHero();
+    renderClasses();
+  } catch (e) {
+    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load ring</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
+    document.getElementById('classes').innerHTML = '';
+  }
+}
+
+wireSortBar();
+load();
+</script>
+
+</body>
+</html>

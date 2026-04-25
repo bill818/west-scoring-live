@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — Class</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="west.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="index.html" class="logo-tap">
+      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-tag">V3</div>
+  </div>
+</header>
+
+<nav class="breadcrumbs">
+  <a class="bc-link" href="index.html">All shows</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcShow" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcRing" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <span class="bc-current" id="bcClass">…</span>
+</nav>
+
+<div id="hero" class="hero">
+  <div class="spinner"></div>
+</div>
+
+<div class="section-block">
+  <div class="section-block-title">Results</div>
+  <div id="results"><div class="spinner"></div></div>
+</div>
+
+<footer>
+  WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
+</footer>
+
+<!-- Shared modules (load before page script). Order matters: west-api +
+     west-format have no deps; west-rules depends on west-status; jumper-
+     templates depends on format/status/rules. -->
+<script src="../js/west-api.js"></script>
+<script src="../js/west-status.js"></script>
+<script src="../js/west-format.js"></script>
+<script src="../js/west-rules.js"></script>
+<script src="../js/west-jumper-templates.js"></script>
+
+<script>
+const escapeHtml = WEST.format.escapeHtml;
+const fetchJson = WEST.api.fetchJson;
+const getQueryParam = WEST.api.queryParam;
+const fmtDayLabel = WEST.format.dayLabel;
+
+function renderHero(show, ring, cls) {
+  const parts = [];
+  parts.push(`<div class="hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')}</div>`);
+  const sub = [escapeHtml(show.name), `Ring ${ring.ring_num}${ring.name ? ' · ' + escapeHtml(ring.name) : ''}`];
+  if (cls.scheduled_date) sub.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
+  parts.push(`<div class="hero-dates">${sub.join(' · ')}</div>`);
+  // Method label from shared formatter — same string admin shows.
+  const methodStr = WEST.format.methodLabel(cls.class_type, cls.scoring_method, cls.class_mode, cls.scoring_modifier);
+  if (methodStr) parts.push(`<div class="hero-location">${escapeHtml(methodStr)}</div>`);
+  document.getElementById('hero').innerHTML = parts.join('');
+
+  document.getElementById('bcShow').textContent = show.name;
+  document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
+  document.getElementById('bcRing').textContent = ring.name || `Ring ${ring.ring_num}`;
+  document.getElementById('bcRing').href = `ring.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}`;
+  document.getElementById('bcClass').textContent = `#${cls.class_id}`;
+  document.title = `${cls.class_id} · ${cls.class_name || ''} — ${show.name}`;
+}
+
+function renderResults(cls, entries) {
+  const root = document.getElementById('results');
+
+  // Hunter / unknown — explicit "coming soon" rather than a broken table.
+  if (cls.class_type !== 'J' && cls.class_type !== 'T') {
+    root.innerHTML = '<div class="placeholder">Hunter results display is being built. Check back soon.</div>';
+    return;
+  }
+
+  if (!entries.length) {
+    root.innerHTML = '<div class="placeholder">No entries yet.</div>';
+    return;
+  }
+
+  // Single source of truth — the templates module decides everything.
+  root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries);
+}
+
+async function load() {
+  const slug = getQueryParam('slug');
+  const ringNum = parseInt(getQueryParam('ring') || '1', 10);
+  const classNum = getQueryParam('class');
+  if (!slug || !classNum || !Number.isFinite(ringNum)) {
+    document.getElementById('hero').innerHTML = '<div class="hero-name">Missing parameters</div><div class="hero-location">Need ?slug=&lt;slug&gt;&amp;ring=&lt;n&gt;&amp;class=&lt;c&gt;</div>';
+    document.getElementById('results').innerHTML = '';
+    return;
+  }
+  try {
+    // Three-call cascade: show + rings + classes for breadcrumbs/hero +
+    // class lookup. Then a fourth call for entries once we know the
+    // database PK for the class.
+    const [showRes, ringsRes, classesRes] = await Promise.all([
+      fetchJson(`/v3/getShow?slug=${encodeURIComponent(slug)}`),
+      fetchJson(`/v3/listRings?slug=${encodeURIComponent(slug)}`),
+      fetchJson(`/v3/listClasses?slug=${encodeURIComponent(slug)}&ring=${ringNum}`),
+    ]);
+    const show = showRes.show;
+    const ring = (ringsRes.rings || []).find(r => r.ring_num === ringNum);
+    if (!ring) {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Ring ${ringNum} not found</div>`;
+      document.getElementById('results').innerHTML = '';
+      return;
+    }
+    const cls = (classesRes.classes || []).find(c => String(c.class_id) === String(classNum));
+    if (!cls) {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Class ${escapeHtml(classNum)} not found</div>`;
+      document.getElementById('results').innerHTML = '';
+      return;
+    }
+    if (cls.deleted_at) {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Class ${escapeHtml(cls.class_id)} removed</div><div class="hero-location">This class was removed from the show.</div>`;
+      document.getElementById('results').innerHTML = '';
+      return;
+    }
+    // /v3/listEntries keys off the DB PK, not the .cls class number.
+    const entriesRes = await fetchJson(`/v3/listEntries?class_id=${cls.id}`);
+    renderHero(show, ring, cls);
+    renderResults(cls, entriesRes.entries || []);
+  } catch (e) {
+    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load class</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
+    document.getElementById('results').innerHTML = '';
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>

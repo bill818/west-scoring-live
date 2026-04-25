@@ -467,15 +467,16 @@ function parseClsEntriesV3(text, lensKnown) {
     if (!/^[A-Za-z0-9_-]{1,16}$/.test(entryNum)) continue;
     entries.push({
       entry_num: entryNum,
-      horse_name: (cols[1] || '').trim() || null,
-      rider_name: (cols[2] || '').trim() || null,
-      owner_name: (cols[5] || '').trim() || null,
-      city:       (cols[8] || '').trim() || null,
-      state:      (cols[9] || '').trim() || null,
-      horse_usef: (cols[10] || '').trim() || null,
-      rider_usef: (cols[11] || '').trim() || null,
-      owner_usef: (cols[12] || '').trim() || null,
-      raw_row:    line,
+      horse_name:   (cols[1]  || '').trim() || null,
+      rider_name:   (cols[2]  || '').trim() || null,
+      country_code: (cols[4]  || '').trim().toUpperCase() || null,
+      owner_name:   (cols[5]  || '').trim() || null,
+      city:         (cols[8]  || '').trim() || null,
+      state:        (cols[9]  || '').trim() || null,
+      horse_usef:   (cols[10] || '').trim() || null,
+      rider_usef:   (cols[11] || '').trim() || null,
+      owner_usef:   (cols[12] || '').trim() || null,
+      raw_row:      line,
     });
   }
   return { entries, status: `parsed: ${entries.length} entries` };
@@ -570,13 +571,17 @@ function parseClsHeaderV3(bytes) {
   }
 
   // J or T — jumper lens. col[2] = scoring_method, col[3] = scoring_modifier.
+  // col[26] = ShowFlags (jumper lens only — hunter's H[26] is Phase2Label).
   const n = parseInt(cols[2], 10);
   const mod = parseInt(cols[3], 10);
+  const flagsRaw = (cols[26] || '').trim().toLowerCase();
+  const showFlags = flagsRaw === 'true' ? 1 : 0;
   return {
     class_type: rawType,
     class_name: className,
     scoring_method: Number.isFinite(n) ? n : null,
     scoring_modifier: Number.isFinite(mod) ? mod : null,
+    show_flags: showFlags,
     parse_status: 'parsed',
     parse_notes: null,
   };
@@ -2122,7 +2127,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone } = body;
       if (!slug) return err('Missing slug');
       if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
         return err('Invalid slug — must match ^[a-z][a-z0-9-]{2,59}$');
@@ -2130,14 +2135,15 @@ export default {
       if (!name || !name.trim()) return err('Missing name');
       const statusVal = status && ['pending','active','complete','archived'].includes(status) ? status : 'pending';
       const statsVal = stats_eligible === false || stats_eligible === 0 ? 0 : 1;
+      const tzVal = (timezone && typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'America/New_York';
       try {
         await env.WEST_DB_V3.prepare(`
-          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           slug, name.trim(), start_date || null, end_date || null,
           (venue || '').trim() || null, (location || '').trim() || null,
-          statusVal, statsVal
+          statusVal, statsVal, tzVal
         ).run();
         const show = await env.WEST_DB_V3.prepare(
           'SELECT * FROM shows WHERE slug = ?'
@@ -2184,7 +2190,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
@@ -2205,6 +2211,10 @@ export default {
       if (stats_eligible !== undefined) {
         updates.push('stats_eligible = ?');
         binds.push(stats_eligible === false || stats_eligible === 0 ? 0 : 1);
+      }
+      if (timezone !== undefined) {
+        if (!timezone || typeof timezone !== 'string' || !timezone.trim()) return err('Timezone cannot be empty');
+        updates.push('timezone = ?'); binds.push(timezone.trim());
       }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
@@ -2321,9 +2331,10 @@ export default {
                                scoring_type, num_judges, is_equitation,
                                num_rounds, score_method, ribbon_count,
                                is_championship, sponsor, ihsa, derby_type,
+                               show_flags,
                                parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name       = excluded.class_name,
             class_type       = excluded.class_type,
@@ -2340,6 +2351,7 @@ export default {
             sponsor          = excluded.sponsor,
             ihsa             = excluded.ihsa,
             derby_type       = excluded.derby_type,
+            show_flags       = excluded.show_flags,
             parse_status     = excluded.parse_status,
             parse_notes      = excluded.parse_notes,
             r2_key           = excluded.r2_key,
@@ -2362,6 +2374,7 @@ export default {
           parsed.sponsor ?? null,
           parsed.ihsa ?? null,
           parsed.derby_type ?? null,
+          parsed.show_flags ?? 0,
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,
           r2Key,
@@ -2406,22 +2419,24 @@ export default {
               await env.WEST_DB_V3.prepare(`
                 INSERT INTO entries (class_id, entry_num, horse_name, rider_name, owner_name,
                                       horse_usef, rider_usef, owner_usef, city, state,
-                                      raw_row, first_seen_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                                      country_code, raw_row, first_seen_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 ON CONFLICT(class_id, entry_num) DO UPDATE SET
-                  horse_name  = excluded.horse_name,
-                  rider_name  = excluded.rider_name,
-                  owner_name  = excluded.owner_name,
-                  horse_usef  = excluded.horse_usef,
-                  rider_usef  = excluded.rider_usef,
-                  owner_usef  = excluded.owner_usef,
-                  city        = excluded.city,
-                  state       = excluded.state,
-                  raw_row     = excluded.raw_row,
-                  updated_at  = datetime('now')
+                  horse_name   = excluded.horse_name,
+                  rider_name   = excluded.rider_name,
+                  owner_name   = excluded.owner_name,
+                  horse_usef   = excluded.horse_usef,
+                  rider_usef   = excluded.rider_usef,
+                  owner_usef   = excluded.owner_usef,
+                  city         = excluded.city,
+                  state        = excluded.state,
+                  country_code = excluded.country_code,
+                  raw_row      = excluded.raw_row,
+                  updated_at   = datetime('now')
               `).bind(
                 classDbId, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
-                e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state, e.raw_row
+                e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state,
+                e.country_code, e.raw_row
               ).run();
             }
           }
@@ -2897,6 +2912,7 @@ export default {
         const { results } = await env.WEST_DB_V3.prepare(
           `SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
                   e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state,
+                  e.country_code,
                   e.first_seen_at, e.updated_at,
                   s.ride_order, s.overall_place,
                   s.score_parse_status, s.score_parse_notes,
