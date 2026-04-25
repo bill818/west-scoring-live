@@ -38,6 +38,8 @@
   <div class="spinner"></div>
 </div>
 
+<div id="notices" class="class-notices"></div>
+
 <div class="section-block">
   <div class="section-block-title">Results</div>
   <div id="results"><div class="spinner"></div></div>
@@ -55,6 +57,7 @@
 <script src="../js/west-format.js"></script>
 <script src="../js/west-rules.js"></script>
 <script src="../js/west-jumper-templates.js"></script>
+<script src="../js/west-hunter-templates.js"></script>
 
 <script>
 const escapeHtml = WEST.format.escapeHtml;
@@ -62,15 +65,32 @@ const fetchJson = WEST.api.fetchJson;
 const getQueryParam = WEST.api.queryParam;
 const fmtDayLabel = WEST.format.dayLabel;
 
+// Page state. Results layout is driven by the show's admin setting
+// (shows.results_layout). Templates module defaults to 'stacked' when
+// the field is missing, so older shows / pre-migration data still works.
+const state = { cls: null, entries: null, show: null };
+
 function renderHero(show, ring, cls) {
   const parts = [];
   parts.push(`<div class="hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')}</div>`);
-  const sub = [escapeHtml(show.name), `Ring ${ring.ring_num}${ring.name ? ' · ' + escapeHtml(ring.name) : ''}`];
+  // Ring number ("Ring 1") is dropped from the subtitle when the ring has
+  // a custom name — the named form ("Jumper 1") is already in breadcrumbs
+  // and saying both is redundant. Falls back to "Ring N" only if unnamed.
+  const ringLabel = ring.name || `Ring ${ring.ring_num}`;
+  const sub = [escapeHtml(show.name), escapeHtml(ringLabel)];
   if (cls.scheduled_date) sub.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
   parts.push(`<div class="hero-dates">${sub.join(' · ')}</div>`);
-  // Method label from shared formatter — same string admin shows.
-  const methodStr = WEST.format.methodLabel(cls.class_type, cls.scoring_method, cls.class_mode, cls.scoring_modifier);
+  // Human English class description — synthesized from mode + scoring
+  // type + round count + judges + derby subtype. Single shared formatter
+  // so admin / stats / live can use the same wording when they need it.
+  const methodStr = WEST.format.classDescription(cls);
   if (methodStr) parts.push(`<div class="hero-location">${escapeHtml(methodStr)}</div>`);
+  // Sponsor text (when operator sets H[29] in Ryegate). Rendered as a
+  // dedicated subtitle so it reads as patron / award context.
+  if (cls.sponsor) parts.push(`<div class="hero-sponsor">${escapeHtml(cls.sponsor)}</div>`);
+  // Trophy text comes from the @foot row in the .cls (operator-typed
+  // award name). Italicized red Playfair to read as a patron / prize line.
+  if (cls.trophy) parts.push(`<div class="hero-trophy">${escapeHtml(cls.trophy)}</div>`);
   document.getElementById('hero').innerHTML = parts.join('');
 
   document.getElementById('bcShow').textContent = show.name;
@@ -81,22 +101,37 @@ function renderHero(show, ring, cls) {
   document.title = `${cls.class_id} · ${cls.class_name || ''} — ${show.name}`;
 }
 
-function renderResults(cls, entries) {
+function renderResults() {
   const root = document.getElementById('results');
-
-  // Hunter / unknown — explicit "coming soon" rather than a broken table.
-  if (cls.class_type !== 'J' && cls.class_type !== 'T') {
-    root.innerHTML = '<div class="placeholder">Hunter results display is being built. Check back soon.</div>';
-    return;
-  }
+  const cls = state.cls;
+  const entries = state.entries;
 
   if (!entries.length) {
     root.innerHTML = '<div class="placeholder">No entries yet.</div>';
     return;
   }
 
-  // Single source of truth — the templates module decides everything.
-  root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries);
+  // Single source of truth — the templates module per lens decides
+  // everything. Layout flows from the show's admin setting
+  // (shows.results_layout); templates default to 'stacked'.
+  const layout = state.show && state.show.results_layout;
+  if (cls.class_type === 'H') {
+    root.innerHTML = WEST.hunterTemplates.renderTable(cls, entries, { layout });
+  } else if (cls.class_type === 'J' || cls.class_type === 'T') {
+    root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries, { layout });
+  } else {
+    root.innerHTML = '<div class="placeholder">Class type not yet supported on the public results page.</div>';
+  }
+}
+
+function renderNotices(cls) {
+  const root = document.getElementById('notices');
+  if (!root) return;
+  const notices = WEST.format.classNotices(cls);
+  if (!notices.length) { root.innerHTML = ''; return; }
+  root.innerHTML = notices.map(n =>
+    `<div class="class-notice">${escapeHtml(n)}</div>`
+  ).join('');
 }
 
 async function load() {
@@ -137,8 +172,12 @@ async function load() {
     }
     // /v3/listEntries keys off the DB PK, not the .cls class number.
     const entriesRes = await fetchJson(`/v3/listEntries?class_id=${cls.id}`);
+    state.cls = cls;
+    state.entries = entriesRes.entries || [];
+    state.show = show;
     renderHero(show, ring, cls);
-    renderResults(cls, entriesRes.entries || []);
+    renderNotices(cls);
+    renderResults();
   } catch (e) {
     document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load class</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
     document.getElementById('results').innerHTML = '';

@@ -451,15 +451,23 @@ function parseHunterJudgeScores(text, classMode, numJudges, scoringType) {
 // cols diverge by lens — handled by parseEntriesScoreJ (jumper, above) and
 // parseEntriesScoreH (hunter, above).
 function parseClsEntriesV3(text, lensKnown) {
-  if (!lensKnown) return { entries: [], status: 'skipped: no lens' };
+  if (!lensKnown) return { entries: [], status: 'skipped: no lens', trophy: null };
   const lines = text.split(/\r?\n/);
   const entries = [];
+  let trophy = null;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
-    // Skip rows that start with '@' (e.g., "@foot,Trophie Line" seen in
-    // some hunter .cls files — Ryegate metadata, not an entry).
-    if (line.startsWith('@')) continue;
+    // Special metadata rows prefixed '@' — capture the ones we care
+    // about, skip the rest. @foot carries trophy/footer text at cols[1].
+    if (line.startsWith('@')) {
+      if (line.startsWith('@foot')) {
+        const ftCols = parseCsvLineV3(line);
+        const t = (ftCols[1] || '').trim();
+        if (t) trophy = t;
+      }
+      continue;
+    }
     const cols = parseCsvLineV3(line);
     if (!cols[0] || !cols[0].trim()) continue;
     // entry_num must look reasonable — alphanumeric short string
@@ -471,6 +479,8 @@ function parseClsEntriesV3(text, lensKnown) {
       rider_name:   (cols[2]  || '').trim() || null,
       country_code: (cols[4]  || '').trim().toUpperCase() || null,
       owner_name:   (cols[5]  || '').trim() || null,
+      sire:         (cols[6]  || '').trim() || null,
+      dam:          (cols[7]  || '').trim() || null,
       city:         (cols[8]  || '').trim() || null,
       state:        (cols[9]  || '').trim() || null,
       horse_usef:   (cols[10] || '').trim() || null,
@@ -479,7 +489,7 @@ function parseClsEntriesV3(text, lensKnown) {
       raw_row:      line,
     });
   }
-  return { entries, status: `parsed: ${entries.length} entries` };
+  return { entries, status: `parsed: ${entries.length} entries`, trophy };
 }
 
 function parseClsHeaderV3(bytes) {
@@ -552,21 +562,27 @@ function parseClsHeaderV3(bytes) {
       return Number.isFinite(n) ? n : null;
     };
     return {
-      class_type:      'H',
-      class_name:      className,
-      class_mode:      intOrNullHelper(cols[2]),
-      num_rounds:      intOrNullHelper(cols[3]),
-      scoring_type:    intOrNullHelper(cols[5]),
-      score_method:    intOrNullHelper(cols[6]),
-      num_judges:      intOrNullHelper(cols[7]),
-      ribbon_count:    intOrNullHelper(cols[8]),
-      is_equitation:   bool01(cols[10]),
-      is_championship: bool01(cols[11]),
-      sponsor:         (cols[29] || '').trim() || null,
-      derby_type:      intOrNullHelper(cols[37]),
-      ihsa:            bool01(cols[38]),
-      parse_status:    'parsed',
-      parse_notes:     null,
+      class_type:         'H',
+      class_name:         className,
+      class_mode:         intOrNullHelper(cols[2]),
+      num_rounds:         intOrNullHelper(cols[3]),
+      scoring_type:       intOrNullHelper(cols[5]),
+      score_method:       intOrNullHelper(cols[6]),
+      num_judges:         intOrNullHelper(cols[7]),
+      ribbon_count:       intOrNullHelper(cols[8]),
+      is_equitation:      bool01(cols[10]),
+      is_championship:    bool01(cols[11]),
+      is_jogged:          bool01(cols[12]),
+      print_judge_scores: bool01(cols[15]),
+      reverse_rank:       bool01(cols[16]),
+      sponsor:            (cols[29] || '').trim() || null,
+      is_team:            bool01(cols[34]),
+      show_all_rounds:    bool01(cols[35]),
+      derby_type:         intOrNullHelper(cols[37]),
+      ihsa:               bool01(cols[38]),
+      ribbons_only:       bool01(cols[39]),
+      parse_status:       'parsed',
+      parse_notes:        null,
     };
   }
 
@@ -2127,7 +2143,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout } = body;
       if (!slug) return err('Missing slug');
       if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
         return err('Invalid slug — must match ^[a-z][a-z0-9-]{2,59}$');
@@ -2136,14 +2152,15 @@ export default {
       const statusVal = status && ['pending','active','complete','archived'].includes(status) ? status : 'pending';
       const statsVal = stats_eligible === false || stats_eligible === 0 ? 0 : 1;
       const tzVal = (timezone && typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'America/New_York';
+      const layoutVal = (results_layout === 'inline' || results_layout === 'stacked') ? results_layout : 'stacked';
       try {
         await env.WEST_DB_V3.prepare(`
-          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           slug, name.trim(), start_date || null, end_date || null,
           (venue || '').trim() || null, (location || '').trim() || null,
-          statusVal, statsVal, tzVal
+          statusVal, statsVal, tzVal, layoutVal
         ).run();
         const show = await env.WEST_DB_V3.prepare(
           'SELECT * FROM shows WHERE slug = ?'
@@ -2190,7 +2207,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
@@ -2215,6 +2232,12 @@ export default {
       if (timezone !== undefined) {
         if (!timezone || typeof timezone !== 'string' || !timezone.trim()) return err('Timezone cannot be empty');
         updates.push('timezone = ?'); binds.push(timezone.trim());
+      }
+      if (results_layout !== undefined) {
+        if (results_layout !== 'inline' && results_layout !== 'stacked') {
+          return err("Invalid results_layout — must be 'stacked' or 'inline'");
+        }
+        updates.push('results_layout = ?'); binds.push(results_layout);
       }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
@@ -2332,31 +2355,39 @@ export default {
                                num_rounds, score_method, ribbon_count,
                                is_championship, sponsor, ihsa, derby_type,
                                show_flags,
+                               is_jogged, print_judge_scores, reverse_rank,
+                               is_team, show_all_rounds, ribbons_only,
                                parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
-            class_name       = excluded.class_name,
-            class_type       = excluded.class_type,
-            scoring_method   = excluded.scoring_method,
-            scoring_modifier = excluded.scoring_modifier,
-            class_mode       = excluded.class_mode,
-            scoring_type     = excluded.scoring_type,
-            num_judges       = excluded.num_judges,
-            is_equitation    = excluded.is_equitation,
-            num_rounds       = excluded.num_rounds,
-            score_method     = excluded.score_method,
-            ribbon_count     = excluded.ribbon_count,
-            is_championship  = excluded.is_championship,
-            sponsor          = excluded.sponsor,
-            ihsa             = excluded.ihsa,
-            derby_type       = excluded.derby_type,
-            show_flags       = excluded.show_flags,
-            parse_status     = excluded.parse_status,
-            parse_notes      = excluded.parse_notes,
-            r2_key           = excluded.r2_key,
-            parsed_at        = datetime('now'),
-            deleted_at       = NULL
+            class_name         = excluded.class_name,
+            class_type         = excluded.class_type,
+            scoring_method     = excluded.scoring_method,
+            scoring_modifier   = excluded.scoring_modifier,
+            class_mode         = excluded.class_mode,
+            scoring_type       = excluded.scoring_type,
+            num_judges         = excluded.num_judges,
+            is_equitation      = excluded.is_equitation,
+            num_rounds         = excluded.num_rounds,
+            score_method       = excluded.score_method,
+            ribbon_count       = excluded.ribbon_count,
+            is_championship    = excluded.is_championship,
+            sponsor            = excluded.sponsor,
+            ihsa               = excluded.ihsa,
+            derby_type         = excluded.derby_type,
+            show_flags         = excluded.show_flags,
+            is_jogged          = excluded.is_jogged,
+            print_judge_scores = excluded.print_judge_scores,
+            reverse_rank       = excluded.reverse_rank,
+            is_team            = excluded.is_team,
+            show_all_rounds    = excluded.show_all_rounds,
+            ribbons_only       = excluded.ribbons_only,
+            parse_status       = excluded.parse_status,
+            parse_notes        = excluded.parse_notes,
+            r2_key             = excluded.r2_key,
+            parsed_at          = datetime('now'),
+            deleted_at         = NULL
         `).bind(
           showId, ringId, classId,
           parsed.class_name || null,
@@ -2375,6 +2406,12 @@ export default {
           parsed.ihsa ?? null,
           parsed.derby_type ?? null,
           parsed.show_flags ?? 0,
+          parsed.is_jogged ?? 0,
+          parsed.print_judge_scores ?? 0,
+          parsed.reverse_rank ?? 0,
+          parsed.is_team ?? 0,
+          parsed.show_all_rounds ?? 0,
+          parsed.ribbons_only ?? 0,
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,
           r2Key,
@@ -2402,6 +2439,15 @@ export default {
           const entryParse = parseClsEntriesV3(text, lensKnown);
           entriesStatus = entryParse.status;
           const currentNums = entryParse.entries.map(e => e.entry_num);
+          // Trophy text comes from the body's @foot row, not the header.
+          // Persist it on the class row regardless of entry-write outcome.
+          try {
+            await env.WEST_DB_V3.prepare(
+              'UPDATE classes SET trophy = ? WHERE id = ?'
+            ).bind(entryParse.trophy || null, classDbId).run();
+          } catch (e) {
+            console.log(`[v3/postCls] trophy update failed: ${e.message}`);
+          }
           // Delete stale entries (removed by operator since last parse)
           if (lensKnown) {
             if (currentNums.length > 0) {
@@ -2419,8 +2465,8 @@ export default {
               await env.WEST_DB_V3.prepare(`
                 INSERT INTO entries (class_id, entry_num, horse_name, rider_name, owner_name,
                                       horse_usef, rider_usef, owner_usef, city, state,
-                                      country_code, raw_row, first_seen_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                                      country_code, sire, dam, raw_row, first_seen_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 ON CONFLICT(class_id, entry_num) DO UPDATE SET
                   horse_name   = excluded.horse_name,
                   rider_name   = excluded.rider_name,
@@ -2431,12 +2477,14 @@ export default {
                   city         = excluded.city,
                   state        = excluded.state,
                   country_code = excluded.country_code,
+                  sire         = excluded.sire,
+                  dam          = excluded.dam,
                   raw_row      = excluded.raw_row,
                   updated_at   = datetime('now')
               `).bind(
                 classDbId, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
                 e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state,
-                e.country_code, e.raw_row
+                e.country_code, e.sire, e.dam, e.raw_row
               ).run();
             }
           }
@@ -2912,7 +2960,7 @@ export default {
         const { results } = await env.WEST_DB_V3.prepare(
           `SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
                   e.horse_usef, e.rider_usef, e.owner_usef, e.city, e.state,
-                  e.country_code,
+                  e.country_code, e.sire, e.dam,
                   e.first_seen_at, e.updated_at,
                   s.ride_order, s.overall_place,
                   s.score_parse_status, s.score_parse_notes,

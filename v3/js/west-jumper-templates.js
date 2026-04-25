@@ -45,6 +45,29 @@
     15: '2R',   // Winning Round
   };
 
+  // ── Per-method round-cell display tweaks ─────────────────────────────
+  //
+  // Most methods render faults bold + time muted. A few methods invert
+  // that hierarchy because the ranking signal lives in time, not faults.
+  // Add an entry here when a method has display quirks; defaults apply
+  // when a method isn't listed.
+  //
+  //   faultsStyle: 'primary' (default — bold)
+  //                'secondary' (italic + dim — Table III)
+  //   timeStyle:   'secondary' (default — small + muted)
+  //                'primary' (bold + body color — Table III)
+  var METHOD_DISPLAY_CONFIG = {
+    // Method 0 (Table III / Table C): faults are CONVERTED to penalty
+    // seconds and added to time. Final rank is by total_time only.
+    // Show faults as informational context, time as the authority.
+    0: { faultsStyle: 'secondary', timeStyle: 'primary' },
+  };
+
+  function configFor(cls) {
+    if (!cls) return {};
+    return METHOD_DISPLAY_CONFIG[cls.scoring_method] || {};
+  }
+
   WEST.jumperTemplates.detect = function (cls) {
     if (!cls) return '1R';
     var method = cls.scoring_method;
@@ -86,8 +109,10 @@
 
   // Render a jumper round cell. Killing-status rounds show the public
   // status code in red, hiding faults/time per Decision 1. Clean rounds
-  // show "<faults> <time>" or just <time> when faults=0.
-  function renderRoundCell(rnd) {
+  // show "<faults> <time>" or just <time> when faults=0. Per-method
+  // display config (METHOD_DISPLAY_CONFIG) can flip the visual hierarchy
+  // when a method ranks by time-only (Table III) etc.
+  function renderRoundCell(rnd, cls) {
     if (!roundHasData(rnd)) return '<span class="round-blank">—</span>';
     if (WEST.status.isKillingStatus(rnd.status)) {
       var label = WEST.status.publicLabel(rnd.status) || rnd.status;
@@ -95,11 +120,16 @@
     }
     var faults = Number(rnd.total_faults) || 0;
     var timeStr = WEST.format.time(rnd.time);
-    if (faults > 0) {
-      return '<span class="round-faults">' + faults + '</span> ' +
-             '<span class="round-time">' + escapeHtml(timeStr) + '</span>';
-    }
-    return '<span class="round-time">' + escapeHtml(timeStr) + '</span>';
+    var cfg = configFor(cls);
+    var faultsCls = 'round-faults'
+      + (faults > 0 ? ' is-faulted' : '')
+      + (cfg.faultsStyle === 'secondary' ? ' is-secondary' : '');
+    var timeCls = 'round-time'
+      + (cfg.timeStyle === 'primary' ? ' is-primary' : '');
+    // Always show fault count — clean rounds read "0 Flts 32.757" so the
+    // column shape is uniform and "Flts" is a recognizable cue.
+    return '<span class="' + faultsCls + '">' + faults + ' Flts</span> ' +
+           '<span class="' + timeCls + '">' + escapeHtml(timeStr) + '</span>';
   }
 
   // Module-local alias so existing template code reads naturally. The
@@ -117,7 +147,10 @@
   }
 
   // Place column — defers to jumperPlaceFor (suppresses if R1 killed
-  // under the method's ladder rules).
+  // under the method's ladder rules). Adds a Ch/Res marker on places
+  // 1 and 2 when the class is_championship — single source via
+  // WEST.format.championshipMarker so future hunter templates and
+  // surfaces use the same chip.
   function renderPlaceCell(entry, cls) {
     var place = WEST.rules.jumperPlaceFor(
       entry.overall_place,
@@ -125,7 +158,9 @@
       statusesOf(entry)
     );
     if (place == null) return '<span class="place-blank">—</span>';
-    return '<span class="place-num">' + place + '</span>';
+    var marker = WEST.format.championshipMarker(place, cls.is_championship === 1);
+    var markerHtml = marker ? ' <span class="place-marker">' + marker + '</span>' : '';
+    return '<span class="place-num">' + place + '</span>' + markerHtml;
   }
 
   // Inline flag span for a class+entry pair. The show_flags policy is
@@ -139,11 +174,32 @@
     return ' <span class="entry-flag">' + escapeHtml(rendered) + '</span>';
   }
 
-  // Identity: horse on top, rider underneath. Owner intentionally omitted
-  // from the public table — it's available on a future entry-detail page.
+  // Identity for the round templates (1R/2R/3R/TEAM). Three-line stack,
+  // each line conditional on data present:
+  //   Line 1: Horse — Rider + flag    (single line, hyphen separator)
+  //   Line 2: Owner                   (regular, muted)
+  //   Line 3: Sire × Dam              (smaller + italic — pedigree)
+  // EQ template uses its own composer (rider primary, city/state line).
   function renderHorseRider(entry, cls) {
-    return '<div class="entry-horse">' + escapeHtml(entry.horse_name || '—') + '</div>' +
-           '<div class="entry-rider">' + escapeHtml(entry.rider_name || '') + flagify(cls, entry) + '</div>';
+    var horse = escapeHtml(entry.horse_name || '—');
+    var rider = escapeHtml(entry.rider_name || '');
+    var flag  = flagify(cls, entry);
+    // Horse + rider share line 1 with the rider rendered as a sibling
+    // span so the flag can sit at the rider end without affecting horse.
+    var html = '<div class="entry-horse-line">' +
+      '<span class="entry-horse">' + horse + '</span>' +
+      (rider ? ' <span class="entry-sep">—</span> <span class="entry-rider">' + rider + flag + '</span>' : '') +
+      '</div>';
+    if (entry.owner_name) {
+      html += '<div class="entry-owner">' + escapeHtml(entry.owner_name) + '</div>';
+    }
+    var pedigree = '';
+    if (entry.sire && entry.dam) pedigree = entry.sire + ' x ' + entry.dam;
+    else if (entry.sire || entry.dam) pedigree = entry.sire || entry.dam;
+    if (pedigree) {
+      html += '<div class="entry-pedigree">' + escapeHtml(pedigree) + '</div>';
+    }
+    return html;
   }
 
   // ── Round-count templates (1R / 2R / 3R) ─────────────────────────────
@@ -151,9 +207,25 @@
   // Same shape, parameterized by N. Generated once below — keeps the
   // three round templates in lockstep for future tweaks.
   function makeRoundTemplate(N) {
-    var roundCols = [];
-    for (var i = 1; i <= N; i++) roundCols.push('R' + i);
-    var headers = ['Pl', '#', 'Horse / Rider'].concat(roundCols);
+    // Column descriptors: { label, cls }. The cls drives both the
+    // <th> alignment and the <td> styling so headers and cells stay
+    // in lockstep when a column's alignment / width changes.
+    // Round labels themselves come from WEST.format.roundLabel — single
+    // source of truth shared across templates / live / stats / display.
+    function buildHeaders(cls) {
+      var hdrs = [
+        { label: 'Pl',            cls: 'entry-place'        },
+        { label: '#',             cls: 'entry-num'          },
+        { label: 'Horse / Rider', cls: 'entry-horse-rider'  },
+      ];
+      var method   = cls && cls.scoring_method;
+      var modifier = cls && cls.scoring_modifier;
+      for (var i = 1; i <= N; i++) {
+        var lbl = WEST.format.roundLabel(method, modifier, i);
+        hdrs.push({ label: lbl, cls: 'entry-round' });
+      }
+      return hdrs;
+    }
 
     function renderRow(entry, cls) {
       var cells = [];
@@ -161,13 +233,13 @@
       cells.push('<td class="entry-num">' + escapeHtml(entry.entry_num || '') + '</td>');
       cells.push('<td class="entry-horse-rider">' + renderHorseRider(entry, cls) + '</td>');
       for (var i = 1; i <= N; i++) {
-        cells.push('<td class="entry-round">' + renderRoundCell(roundOf(entry, i)) + '</td>');
+        cells.push('<td class="entry-round">' + renderRoundCell(roundOf(entry, i), cls) + '</td>');
       }
       return '<tr>' + cells.join('') + '</tr>';
     }
 
     return {
-      columns: function () { return headers; },
+      columns: buildHeaders,
       renderRow: renderRow,
     };
   }
@@ -183,20 +255,35 @@
   // Other methods with is_equitation=true fall through Scored display.
   var EQ_TEMPLATE = {
     columns: function (cls) {
-      var base = ['Pl', '#', 'Rider / Horse'];
+      var base = [
+        { label: 'Pl',            cls: 'entry-place'        },
+        { label: '#',             cls: 'entry-num'          },
+        { label: 'Rider / Horse', cls: 'entry-horse-rider'  },
+      ];
       // Forced eq has no score column — operator just pins placements.
       if (cls && cls.scoring_method === 7 && cls.scoring_modifier === 0) return base;
-      return base.concat(['Score']);
+      return base.concat([{ label: 'Score', cls: 'entry-score' }]);
     },
     renderRow: function (entry, cls) {
       var cells = [];
       cells.push('<td class="entry-place">' + renderPlaceCell(entry, cls) + '</td>');
       cells.push('<td class="entry-num">' + escapeHtml(entry.entry_num || '') + '</td>');
       // Rider primary, horse secondary — inverse of the round templates.
+      // Second line shows the rider's home city/state (since the rider is
+      // the subject of an equitation class). CSS scoping via the
+      // results-eq table class flips the bold/muted styling so rider
+      // reads bold and horse reads muted.
+      var locParts = [];
+      if (entry.city)  locParts.push(entry.city);
+      if (entry.state) locParts.push(entry.state);
+      var locLine = locParts.length
+        ? '<div class="entry-meta">' + escapeHtml(locParts.join(', ')) + '</div>'
+        : '';
       cells.push(
         '<td class="entry-horse-rider">' +
           '<div class="entry-rider">' + escapeHtml(entry.rider_name || '—') + flagify(cls, entry) + '</div>' +
           '<div class="entry-horse">' + escapeHtml(entry.horse_name || '') + '</div>' +
+          locLine +
         '</td>'
       );
       var isForcedEq = cls && cls.scoring_method === 7 && cls.scoring_modifier === 0;
@@ -219,9 +306,13 @@
   // with a placeholder team header so the page works against any test
   // data that lands.
   var TEAM_TEMPLATE = {
-    columns: function () { return ['Pl', '#', 'Horse / Rider', 'R1', 'R2', 'R3']; },
+    // Delegate to 3R for both columns and rows — picks up the
+    // method-14 round labels (Round 1 / Round 2 / Jump Off) automatically
+    // through WEST.format.roundLabel. Team aggregation layer comes later.
+    columns: function (cls) {
+      return WEST.jumperTemplates.templates['3R'].columns(cls);
+    },
     renderRow: function (entry, cls) {
-      // Reuse the 3R row layout for now. Team aggregation comes later.
       return WEST.jumperTemplates.templates['3R'].renderRow(entry, cls);
     },
     isStub: true,
@@ -237,12 +328,31 @@
   };
 
   // Convenience: render a full <table> given a class + entries.
-  WEST.jumperTemplates.renderTable = function (cls, entries) {
+  // options.layout: 'stacked' (default — rounds collapsed into one
+  //                 column, latest round on top: Jump Off above Round 1)
+  //                 or 'inline' (round columns side-by-side).
+  // Default is 'stacked' per Bill's session-34 directive — public-facing
+  // pages get the compact layout. Future: layout becomes a show-level
+  // admin setting (shows.results_layout) so operator can flip per show.
+  // Stacked only differs visually for 2R / 3R / TEAM; 1R and EQ render
+  // the same either way.
+  WEST.jumperTemplates.renderTable = function (cls, entries, options) {
+    options = options || {};
+    var layout = options.layout || 'stacked';
     var tplId = WEST.jumperTemplates.detect(cls);
+    var multiRound = (tplId === '2R' || tplId === '3R' || tplId === 'TEAM');
+    // Filter DNS-like entries (no place + no round data + no status) —
+    // public consumers don't need to see registrations that never rode.
+    entries = (entries || []).filter(function (e) { return !WEST.rules.isDnsLike(e); });
+    if (layout === 'stacked' && multiRound) {
+      return renderStackedTable(cls, entries, tplId);
+    }
     var tpl = WEST.jumperTemplates.templates[tplId];
     var headers = tpl.columns(cls);
     var thead = '<thead><tr>' +
-      headers.map(function (h) { return '<th>' + escapeHtml(h) + '</th>'; }).join('') +
+      headers.map(function (h) {
+        return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
+      }).join('') +
       '</tr></thead>';
     var tbody = '<tbody>' +
       (entries || []).map(function (e) { return tpl.renderRow(e, cls); }).join('') +
@@ -250,6 +360,61 @@
     return '<table class="results-table results-' + tplId.toLowerCase() + '">' +
       thead + tbody + '</table>';
   };
+
+  // Stacked render: collapses 2-3 round columns into one "Rounds" column.
+  // Each entry's rounds render top-down latest-first (Jump Off above
+  // Round 1, etc.) per Bill's session-34 spec — saves horizontal space.
+  function renderStackedTable(cls, entries, tplId) {
+    var headers = [
+      { label: 'Pl',            cls: 'entry-place'        },
+      { label: '#',             cls: 'entry-num'          },
+      { label: 'Horse / Rider', cls: 'entry-horse-rider'  },
+      { label: 'Rounds',        cls: 'entry-round-stack'  },
+    ];
+    var thead = '<thead><tr>' +
+      headers.map(function (h) {
+        return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
+      }).join('') +
+      '</tr></thead>';
+    var tbody = '<tbody>' +
+      (entries || []).map(function (e) {
+        return renderStackedRow(e, cls);
+      }).join('') +
+      '</tbody>';
+    return '<table class="results-table results-' + tplId.toLowerCase() + ' is-stacked">' +
+      thead + tbody + '</table>';
+  }
+
+  function renderStackedRow(entry, cls) {
+    var method   = cls && cls.scoring_method;
+    var modifier = cls && cls.scoring_modifier;
+    var stacks = [];
+    for (var i = 1; i <= 3; i++) {
+      var rnd = roundOf(entry, i);
+      if (!roundHasData(rnd)) continue;
+      stacks.push({
+        n: i,
+        label: WEST.format.roundLabel(method, modifier, i),
+        cellHtml: renderRoundCell(rnd, cls),
+      });
+    }
+    // Latest round on top — Jump Off / Phase 2 / Round N reads first.
+    stacks.reverse();
+    var stackHtml = stacks.length
+      ? stacks.map(function (s) {
+          var lbl = s.label
+            ? '<span class="round-label">' + escapeHtml(s.label) + '</span> '
+            : '';
+          return '<div class="round-stacked">' + lbl + s.cellHtml + '</div>';
+        }).join('')
+      : '<span class="round-blank">—</span>';
+    var cells = [];
+    cells.push('<td class="entry-place">' + renderPlaceCell(entry, cls) + '</td>');
+    cells.push('<td class="entry-num">' + escapeHtml(entry.entry_num || '') + '</td>');
+    cells.push('<td class="entry-horse-rider">' + renderHorseRider(entry, cls) + '</td>');
+    cells.push('<td class="entry-round-stack">' + stackHtml + '</td>');
+    return '<tr>' + cells.join('') + '</tr>';
+  }
 
   // CommonJS export for tests / future Node consumers.
   if (typeof module !== 'undefined' && module.exports) {

@@ -1,0 +1,507 @@
+SESSION-NOTES-35 — hunter templates, named gates, results polish
+Date: 2026-04-25 (continuation of session 34, afternoon → evening)
+Outcome: Hunter lens fully wired through public results page (5
+         templates: EQ / Over Fences / Flat / Derby / Special). Cross-
+         lens DNS filter introduced. Centralized "named gate" pattern
+         locked in for conditional rendering. Migrations 015–017 capture
+         sire/dam, results-layout admin setting, and hunter compositional
+         flags (reverse_rank, ribbons_only, is_jogged, is_team,
+         show_all_rounds, print_judge_scores, trophy). Worker deploys
+         f0001507. Substantial UX polish on jumper layout (right-align,
+         stacked default, sponsor / Ch+Res chips, 4-line identity).
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Two architectural directives from Bill anchored the afternoon's work:
+
+1. "WHY NOT JUST USE THE LABELS WE GAVE IT"
+   The hero subtitle was rendering "Hunter Hunter Derby · 2 rounds, 2
+   judges" because the code prefixed "Hunter " on top of a label that
+   already started with "Hunter". Bill: "we gotta work on your human
+   speak". Rule: code uses canonical labels as-is, never re-prefixes.
+   Page context (we're already on a horse-show page) does the rest of
+   the work.
+
+2. "MAKE SURE THAT LOGIC TEST IS IN THERE … LOTS THIS WILL BE USED FOR"
+   The derby-type override needed gating on class_mode === 2. Bill
+   pushed for that to be a NAMED gate function — derbyTypeLabel(cls) —
+   so the same pattern applies to judges grid, derby components,
+   combined-total column, forced-placings layout, etc. Six gates now
+   live in west-format.js. Future surfaces (judges grid render, stats
+   page, live ticker) just call the gate; the policy can't be skipped.
+
+═══════════════════════════════════════════════════════════════════════════
+PART A — JUMPER UX POLISH
+═══════════════════════════════════════════════════════════════════════════
+
+Round columns right-aligned
+  - .entry-horse-rider gets width:100%; round columns push to the right
+    edge of the table.
+  - <th> column descriptors carry the cls so headers right-align too.
+  - Affects all round counts (1R/2R/3R) — uniform.
+
+Ring number dropped from class hero subtitle
+  - Before: "Smoke Show · Ring 1 · Jumper 1 · Wed Apr 8" (redundant —
+    Ring 1 + Jumper 1 said the same thing twice).
+  - After:  "Smoke Show · Jumper 1 · Wed Apr 8". Falls back to "Ring N"
+    if a ring has no custom name.
+
+Per-method display config (METHOD_DISPLAY_CONFIG)
+  - Method 0 (Table III) ranks by time-only — config flips visual
+    hierarchy: faults dim+italic (is-secondary), time bold+body color
+    + slightly larger (is-primary).
+  - Other methods stay default.
+  - Config map is the structural home for future Method 8 / 6 / 9
+    quirks.
+
+4-LINE ENTRY IDENTITY STACK (round templates)
+  Layout finalized after a couple revisions per Bill's direction:
+    Line 1: Horse — Rider (Flag)        ← bold horse, rider muted, sep
+    Line 2: Owner                        ← regular muted DM Mono 11px
+    Line 3: Sire × Dam                   ← italic muted DM Mono 10px
+  Each line independent — drops if data missing.
+  EQ template inverts to rider-primary via .results-eq CSS scoping.
+
+ROUND-CELL FAULTS + TIME FORMAT
+  - Always show "<n> Flts" — clean rounds read "0 Flts 32.757" so the
+    column shape is uniform.
+  - Time promoted: bold body-color 13px (with 14px is-primary for Method 0).
+  - Faults default: dim 11px secondary.
+  - Faults > 0 (any non-clean round) renders RED + bold via .is-faulted
+    modifier — recognizable at-a-glance "this rider had faults".
+
+STACKED LAYOUT (jumper)
+  - Round columns collapse into one "Rounds" column; latest round on
+    top (Jump Off above Round 1 etc.).
+  - Default layout per Bill — public surface gets compact view.
+  - Per-page toggle (briefly built and then removed per Bill: control
+    belongs at admin/show level, not per-viewer).
+
+CLASS-LEVEL LAYOUT SETTING (admin → public)
+  - Migration 016 — shows.results_layout TEXT DEFAULT 'stacked'
+  - /v3/createShow + /v3/updateShow accept the field
+  - Admin show dialog gains a Layout dropdown ("Stacked" / "Side by side")
+  - class.html reads show.results_layout, passes to renderTable.
+  - Templates default to 'stacked' if field is missing — older data
+    gracefully degrades.
+
+PAGE-WIDTH POLISH
+  - Public containers: max-width 1100px (was 900px), horizontal padding
+    12px (was 16px). Frees ~220px of usable width on wide displays for
+    the results table while keeping mobile breathing room.
+  - Affects index / show / ring / class consistently.
+
+═══════════════════════════════════════════════════════════════════════════
+PART B — PER-METHOD ROUND LABELS (jumper) IN west-format.js
+═══════════════════════════════════════════════════════════════════════════
+
+WEST.format.roundLabel(method, modifier, n) — single source of truth
+for jumper round-column labels:
+
+  0,4,5,7,8: ['']                                 (no label — 1R)
+  6:        [''] / ['Round 1','Jump Off'] (modifier=1)
+  2,10,11,13: ['Round 1','Jump Off']
+  3:          ['Round 1','Round 2','Jump Off']
+  9:          ['Phase 1','Phase 2']               (II.2d two-phase)
+  14:         ['Round 1','Round 2','Jump Off']    (Team — display TBD)
+  15:         ['Round 1','Round 2']               (Winning Round)
+
+Templates module's makeRoundTemplate.columns(cls) calls
+WEST.format.roundLabel — no inline label logic. Stats / live / display
+pages reuse the same map for free.
+
+JUMPER_METHODS map cleaned (label corrections):
+  5: 'Gamblers Choice / Top Score' (was 'V.1 · Top Score')
+  8: 'Table II'                    (was missing)
+
+═══════════════════════════════════════════════════════════════════════════
+PART C — SIRE / DAM CAPTURE (migration 015)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "i know we have city state use city state for eq … Put owner
+and sire damn".
+
+Sire and dam columns existed in the lens spec (west-cls-jumper.js
+country_code:4, sire:6, dam:7) but weren't persisted to v3 entries.
+
+MIGRATION 015 — entries.sire + entries.dam (TEXT, nullable)
+PARSER       — parseClsEntriesV3 captures cols[6]/cols[7]
+WORKER       - entries UPSERT binds sire + dam; /v3/listEntries SELECT
+                projects them
+RE-PARSE     — 71 .cls files; 1,120 entries got sire populated
+
+Templates render as the third subtitle line (italic 10px DM Mono).
+
+═══════════════════════════════════════════════════════════════════════════
+PART D — HUNTER PRE-AUDIT
+═══════════════════════════════════════════════════════════════════════════
+
+Confirmed before pivoting to hunter templates:
+  - /v3/listEntries already returns hunter fields (go_order,
+    current_place, combined_total, r{1,2,3}_score_total +
+    r{1,2,3}_h_status). All hunter identity / score data flows.
+  - 16 hunter classes covering every variant we need:
+      Mode 0 (OF):    13 classes — mix of Forced (4) + Scored (9),
+                                    1-judge AND 7-judge, 1 equitation,
+                                    8 championships
+      Mode 2 (Derby):  2 classes — 1+2 judge, 2 rounds, with HighOptions
+                                    and HandyBonus data captured
+      Mode 3 (Special): 1 class  — 3 rounds, 2 judges
+  - Cross-lens primitives reusable as-is: west-status, west-format,
+    west-rules (hunterIsPlaced/hunterPlaceFor from session 33).
+
+═══════════════════════════════════════════════════════════════════════════
+PART E — HUNTER DETECTION LADDER (Bill's simplified shape)
+═══════════════════════════════════════════════════════════════════════════
+
+First proposed an over-layered ladder (forced/equitation/mode/derby-
+type as parallel branches). Bill: "i don't like this detection scheme
+… needs to break it down simpler."
+
+Final ladder:
+  1. is_equitation === 1   → EQ           (overrides mode)
+  2. else, class_mode:
+       0 → OVER_FENCES
+       1 → FLAT
+       2 → DERBY
+       3 → SPECIAL
+
+Five templates total. Sub-decisions (scoring_type, num_rounds,
+is_championship, derby_type label, num_judges → judges grid) live
+INSIDE each template, not in detection.
+
+═══════════════════════════════════════════════════════════════════════════
+PART F — WAVE A: SPONSOR + Ch/Res CHIPS (no migration)
+═══════════════════════════════════════════════════════════════════════════
+
+Sponsor text rendered in hero (italic body-color line, below method
+label). Already in schema (classes.sponsor from migration 012).
+
+Championship chip:
+  WEST.format.championshipMarker(place, isChampionship) — returns
+  "Ch" on place 1, "Res" on place 2, '' otherwise. Cross-lens.
+  Templates' renderPlaceCell appends a small red-pill chip. 8
+  championship hunter classes in test data; no jumper champs but the
+  chip is universal.
+
+═══════════════════════════════════════════════════════════════════════════
+PART G — WAVE B: MIGRATION 017 + HUNTER TEMPLATES + DNS FILTER
+═══════════════════════════════════════════════════════════════════════════
+
+MIGRATION 017 — classes.{is_jogged, print_judge_scores, reverse_rank,
+is_team, show_all_rounds, ribbons_only, trophy}
+  - Captures 6 compositional flags from hunter header (H[12], H[15],
+    H[16], H[34], H[35], H[39])
+  - trophy comes from a special @foot row in the .cls (not header) —
+    parseClsEntriesV3 detects @foot and captures cols[1]; classes UPDATE
+    runs after entry parsing
+  - Bill: most flags exist but operator-side rules — we just mirror so
+    public can render explanatory text
+
+WORKER (post-migration deploy: f0001507)
+  - parseClsHeaderV3 hunter branch reads the new flags
+  - parseClsEntriesV3 captures @foot trophy text
+  - classes UPSERT binds all new fields; trophy via separate UPDATE
+    after entries parse
+  - /v3/listClasses returns c.* (already)
+  - /v3/listEntries SELECT unchanged (entries don't carry these)
+
+RE-PARSE  — 71 .cls files; flag distribution post-parse:
+  trophy populated:     1
+  reverse_rank:          0
+  ribbons_only:          0
+  is_jogged:             0
+  is_team:               0
+  show_all_rounds:       1
+  print_judge_scores:   16  (all hunter classes — operator default)
+
+HUNTER TEMPLATES — v3/js/west-hunter-templates.js (NEW)
+  - 5 templates: EQ, OVER_FENCES, FLAT, DERBY, SPECIAL
+  - Internal scoring_type branch per template:
+      Forced → place + identity, no score columns
+      Scored → R1...RN columns + Total
+  - Round count from cls.num_rounds (clamped 1-3)
+  - FLAT special-cases num_rounds → always 1
+  - EQ flips identity to rider-primary via .results-h-eq scope
+  - Stacked variant — Round 1 on top (chronological, NOT reversed
+    like jumper) — independently-scored rounds, no climactic JO
+  - DERBY currently delegates to scored rendering; per-judge
+    HighOptions/HandyBonus columns deferred (data is captured in
+    entry_hunter_judge_scores from migration 012)
+
+DNS FILTER — WEST.rules.isDnsLike(entry)
+  Cross-lens helper. Returns true when entry has zero competition data:
+    - no place (overall_place / current_place 0 or null)
+    - no combined total
+    - every round null/zero with no status
+  Both jumperTemplates.renderTable and hunterTemplates.renderTable
+  filter through it before rendering.
+  Class 23 spot check: 32 entries → 3 DNS-shaped (ZEALOUS,
+  STAKKATONI, MMR DRUMRANKIN IRISH) drop out cleanly. Remaining 29
+  match the previously-good rendering exactly.
+  Class 1001 entry 120 (CC TOP 4 / SHANE RADIMER, registered but
+  never rode) — caught by the filter; was rendering as a row of
+  dashes before.
+
+CLASS NOTICES — WEST.format.classNotices(cls) → string[]
+  Maps flags → human English banner strings:
+    is_championship  → "Championship class — placings may incorporate
+                        qualifying-class points"
+    reverse_rank      → "Lower score wins (pinned lowest to highest)"
+    ribbons_only      → "Ribbons only — numeric scores not published"
+    is_jogged         → "Horses jogged after class for soundness"
+    is_team           → "Team class"
+    ihsa              → "IHSA rules apply"
+  Rendered as discrete banner divs between hero and results table.
+  Empty for current test data (no flags set), but plumbing is alive.
+
+═══════════════════════════════════════════════════════════════════════════
+PART H — classDescription(cls) — HUMAN ENGLISH HERO LINE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "instead of telling us the useless class mode 2 can we put
+what we know about the class in human english". Then later: "we gotta
+work on your human speak ... why not just use labels we gave it".
+
+WEST.format.classDescription(cls) synthesizes mode + scoring type +
+round count + judges + derby variant + equitation flag into one line.
+
+Lookup tables:
+  HUNTER_MODES = { 0: 'Over Fences', 1: 'Flat',
+                   2: 'Hunter Derby', 3: 'Special' }
+  HUNTER_SCORING_TYPES = { 0: 'Forced placings',
+                           1: 'Scored',
+                           2: 'Hi-Lo (drop high + low judges)' }
+  DERBY_TYPES (zero-indexed — see DECISION below)
+
+Examples:
+  Class 1001 (Mode 2, derby_type=0): "International Derby · 2 rounds, 2 judges"
+  Class 800  (Mode 0, 7 judges):     "Over Fences · 7 judges"
+  Class 901  (Mode 0, Forced):       "Over Fences · Forced placings"
+  Class 902  (Mode 0, Forced + Eq):  "Equitation · Forced placings"
+  Class 925  (Mode 3, 3R, 2J):       "Special · 3 rounds, 2 judges"
+  Jumper 23  (Method 13):            "II.2b · Immediate JO"  (unchanged)
+
+Rules:
+  - Use canonical labels as-is — never re-prefix "Hunter " onto
+    "Hunter Derby"
+  - "Scored" is implicit (skipped); Forced and Hi-Lo called out
+  - Counts only mentioned when > 1
+  - is_equitation overrides headline to "Equitation"
+  - derby variant overrides "Hunter Derby" with the specific name (only
+    when class_mode === 2)
+  - Sponsor and trophy stay separate hero subtitle lines (not part of
+    classDescription).
+
+═══════════════════════════════════════════════════════════════════════════
+PART I — DERBY_TYPES IS ZERO-INDEXED (correction)
+═══════════════════════════════════════════════════════════════════════════
+
+Initial map followed HUNTER-METHODS-REFERENCE.md (1-indexed:
+1=International, 2=National, ...). Bill verified empirically:
+  set Ryegate dropdown to "National" → header H[37] read as 1
+  → therefore International = 0, indexing is zero-based
+
+DERBY_TYPES corrected:
+  0: 'International Derby'
+  1: 'National Derby'
+  2: 'National H&G'
+  3: 'International H&G'
+  4: 'USHJA Pony'
+  5: 'USHJA Pony H&G'
+  6: 'USHJA 2'6" Junior'
+  7: 'USHJA 2'6" Junior H&G'
+  8: 'WCHR Spec'
+
+Doc HUNTER-METHODS-REFERENCE.md table (line 313+) has off-by-one
+table and needs update (deferred). Code is now source of truth —
+project memory + code comment flag the discrepancy.
+
+═══════════════════════════════════════════════════════════════════════════
+PART J — NAMED GATES PATTERN (architectural lock-in)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "make sure that logic test is in there ... lots this will be
+used for". Triggered by the derby-type-only-when-class_mode-2 rule;
+expanded into a general policy.
+
+Pattern: every conditional render decision gets a NAMED gate function
+that bakes in EVERY relevant condition. Callers get a single yes/no.
+No `if (cls.class_mode === 2 && cls.derby_type != null && ...)` chains
+scattered across templates.
+
+GATES NOW IN west-format.js:
+
+  derbyTypeLabel(cls)     → variant name only when class_mode === 2
+                              and derby_type is in map; null otherwise
+  judgesGridApplies(cls)  → true if num_judges > 1 AND scoring_type !== 0
+  combinedTotalApplies(cls) → true if num_rounds > 1 AND scoring_type !== 0
+  derbyComponentsApply(cls) → true if class_mode === 2 AND scoring_type !== 0
+  forcedPlacings(cls)     → true for hunter scoring_type=0 OR jumper
+                              method=7 modifier=0 (cross-lens)
+  riderPrimary(cls)       → true if is_equitation === 1
+  championshipMarker(place, isChampionship) → "Ch"/"Res"/"" (place gate)
+
+ARCHITECTURAL DECISION 19 (added below): gate functions are the only
+public API for "should I render X" — direct field reads in template
+code are a smell; refactor into a gate.
+
+When the JUDGES GRID render lands (future phase), the template just
+calls WEST.format.judgesGridApplies(cls). Gate is already there;
+policy can never be skipped.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION (continued from session 34)
+═══════════════════════════════════════════════════════════════════════════
+
+19. NAMED GATES FOR CONDITIONAL RENDERING.
+    Every "should I show X?" decision lives in a named gate function
+    in west-format.js. Templates call the gate and get yes/no — they
+    never reach into class fields directly to compose a condition.
+    See Part J for the seven gates currently in place; pattern extends
+    to future flags (championship variants, derby components, judges
+    grid, etc.).
+
+20. CANONICAL LABELS, NEVER RE-PREFIX.
+    Lookup tables (HUNTER_MODES, DERBY_TYPES, JUMPER_METHODS,
+    HUNTER_SCORING_TYPES) hold the human-facing strings. Code does not
+    decorate them with "Hunter " or other prefixes — page context is
+    enough. Adding a prefix is the bug that produced "Hunter Hunter
+    Derby" before this session.
+
+21. DERBY_TYPES IS ZERO-INDEXED.
+    Ryegate dropdown writes 0 for the first option (International).
+    Spec doc HUNTER-METHODS-REFERENCE.md was 1-indexed and is wrong;
+    code is the source of truth. Verified empirically by Bill setting
+    the dropdown to "National" and reading the header byte as 1.
+
+22. DNS-LIKE ENTRIES ARE FILTERED FROM PUBLIC RESULTS.
+    isDnsLike(entry) — cross-lens. No place + no round data + no status
+    + no combined total → drop the row entirely. Operator still sees
+    them in admin; public viewers don't need to see entries that never
+    rode.
+
+23. RESULTS LAYOUT IS A PER-SHOW ADMIN SETTING.
+    shows.results_layout (migration 016): 'stacked' (default) or
+    'inline'. Operator picks via admin show dialog; public class.html
+    honors. No per-page toggle — single point of control.
+
+24. HUNTER ROUNDS STACK CHRONOLOGICALLY.
+    Stacked layout for hunters renders Round 1 on top, Round 2 below
+    (no reversal). Hunter rounds are independently scored, not
+    cumulative — there's no climactic round to put on top.
+    Jumper still reverses (Jump Off above Round 1) per its convention.
+
+25. PUBLIC SURFACES NEVER BYPASS flagFor.
+    (Restated from session 34.) Country flag visibility is gated by
+    operator's Ryegate ShowFlags toggle. Code-level enforcement via
+    WEST.format.flagFor(cls, entry). flag(code) is a primitive that
+    bypasses; the policy gate is flagFor.
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION 35
+═══════════════════════════════════════════════════════════════════════════
+
+Worker version: f0001507-72cd-41c6-94a9-391e6c969f38
+                (deployed 2026-04-25 from this Mac via wrangler)
+
+Migrations applied: 015 (sire + dam), 016 (results_layout),
+                    017 (extra hunter flags + trophy)
+
+WEST_DB_V3 schema additions since session 34:
+  entries.sire, entries.dam
+  shows.results_layout
+  classes.is_jogged, .print_judge_scores, .reverse_rank, .is_team,
+          .show_all_rounds, .ribbons_only, .trophy
+
+Test data populated:
+  1,120 entries with sire data (out of 1,185)
+  1   class with trophy text
+  16  classes with print_judge_scores=1
+  1   class with show_all_rounds=1
+  Other flags all 0 in test data — plumbing is alive but unverified
+  visually until real flag-bearing classes load.
+
+Public pages fully functional:
+  index.html  → all-shows landing (timezone-aware grouping)
+  show.html   → per-show landing, ring cards
+  ring.html   → per-ring class list, sort modes, day groupings
+  class.html  → per-class results — BOTH lenses now render
+                (jumper: 5 templates, hunter: 5 templates)
+
+Engine still cannot run on this Mac. wrangler covers Workers + D1 +
+KV + R2; .cls watcher stays Windows-side.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-35)
+═══════════════════════════════════════════════════════════════════════════
+
+- JUDGES GRID rendering — gate already in place
+  (WEST.format.judgesGridApplies). Data captured in
+  entry_hunter_judge_scores. UI: expandable per-row "View judges"
+  affordance showing each judge's score per round.
+
+- DERBY COMPONENT BREAKDOWN — gate in place
+  (WEST.format.derbyComponentsApply). Data captured. UI: per-judge
+  HighOptions + HandyBonus columns or expandable detail.
+
+- HUNTER-METHODS-REFERENCE.md — fix derby_type table (currently
+  1-indexed, should be 0-indexed). Drop a NOTE line confirming
+  Bill's 2026-04-25 verification.
+
+- INFO BANNER POPULATION — ribbon_count, sponsor "Sponsored by",
+  championship Ch/Res chip styling, banner on real class with
+  `is_jogged=1` to verify wiring.
+
+- DEPLOY V3 PAGES TO PAGES — deploy-preview.bat doesn't include
+  v3/pages yet. When ready to ship publicly, extend the script.
+
+- CLEAN URLs (_redirects) — deferred per Bill earlier. Layer in once
+  v3 lives on Cloudflare Pages.
+
+- STATS PAGE — first non-template-results consumer of the gates.
+  Tests whether the named-gate pattern scales.
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION (since SESSION-NOTES-34 commit f12bcaf)
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  v3/migrations/015_entries_sire_dam.sql
+  v3/migrations/016_shows_results_layout.sql
+  v3/migrations/017_classes_extra_flags_and_trophy.sql
+  v3/js/west-hunter-templates.js
+  session-notes/SESSION-NOTES-35.txt (this file)
+
+MODIFIED:
+  v3/js/west-format.js  — escapeHtml/dayLabel/etc. extended;
+                            FLAGS/HUNTER_MODES/HUNTER_SCORING_TYPES/
+                            DERBY_TYPES maps; classDescription;
+                            classNotices; championshipMarker; six
+                            named gates (derbyTypeLabel,
+                            judgesGridApplies, combinedTotalApplies,
+                            derbyComponentsApply, forcedPlacings,
+                            riderPrimary); roundLabel
+  v3/js/west-jumper-templates.js — METHOD_DISPLAY_CONFIG (Method 0
+                            faults dim/time bold); 4-line identity
+                            stack; faults+time formatting overhaul;
+                            stacked layout default; column descriptors
+                            for right-align; uses flagFor + roundLabel
+                            + classNotices etc.
+  v3/js/west-rules.js   — isDnsLike cross-lens DNS filter
+  v3/pages/admin.html   — results_layout dropdown
+  v3/pages/class.html   — hunter routing; classDescription consumer;
+                            sponsor/trophy hero lines; notices area
+  v3/pages/west.css     — hunter score columns; entry-pedigree;
+                            entry-owner; entry-horse-line; .place-marker
+                            chip; hero-trophy/.hero-sponsor;
+                            .class-notices; max-width 1100px
+  west-worker.js        — header-flag captures (H[12], [15], [16],
+                            [34], [35], [37], [39]); @foot trophy row
+                            capture; entry sire/dam capture;
+                            results_layout in createShow/updateShow;
+                            classes UPSERT new fields; trophy UPDATE
+  docs/v3-planning/JS-MODULES-AND-PAGES.md — hunter templates entry
+                            populated

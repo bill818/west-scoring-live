@@ -153,6 +153,14 @@
       <input type="text" id="f_showLocation" placeholder="Devon, PA">
     </div>
     <div class="form-group">
+      <label for="f_showLayout">Results layout</label>
+      <select id="f_showLayout">
+        <option value="stacked">Stacked (Jump Off above Round 1)</option>
+        <option value="inline">Side by side (separate columns)</option>
+      </select>
+      <div class="form-hint">Controls how multi-round jumper results render on the public class page.</div>
+    </div>
+    <div class="form-group">
       <label for="f_showTimezone">Timezone</label>
       <select id="f_showTimezone">
         <option value="America/New_York">Eastern (America/New_York)</option>
@@ -831,6 +839,7 @@ function openShowDialog(mode, show) {
   document.getElementById('f_showVenue').value         = s.venue         || '';
   document.getElementById('f_showLocation').value      = s.location      || '';
   document.getElementById('f_showTimezone').value      = s.timezone      || 'America/New_York';
+  document.getElementById('f_showLayout').value        = s.results_layout || 'stacked';
   document.getElementById('f_showStatus').value        = s.status        || 'pending';
   document.getElementById('f_showStatsEligible').checked = s.stats_eligible === 0 ? false : true;
   document.getElementById('f_showError').classList.remove('visible');
@@ -852,6 +861,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
   const venue    = document.getElementById('f_showVenue').value.trim();
   const location = document.getElementById('f_showLocation').value.trim();
   const timezone = document.getElementById('f_showTimezone').value;
+  const results_layout = document.getElementById('f_showLayout').value;
   const status   = document.getElementById('f_showStatus').value;
   const stats_eligible = document.getElementById('f_showStatsEligible').checked ? 1 : 0;
   const errEl = document.getElementById('f_showError');
@@ -862,7 +872,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
     errEl.classList.add('visible'); return;
   }
   try {
-    const payload = { slug, name, start_date, end_date, venue, location, timezone, status, stats_eligible };
+    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible };
     if (showDialogMode === 'edit') {
       await api('POST', '/v3/updateShow', payload);
       dlgShow.close();

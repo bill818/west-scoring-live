@@ -127,6 +127,40 @@
     return currentPlace;
   };
 
+  // ── DNS / no-data filter (cross-lens) ────────────────────────────────
+  //
+  // True when an entry has zero competition data: no place, no round
+  // times/scores, no round statuses, no combined total. Public results
+  // pages hide these entries entirely — they're registered in the .cls
+  // but never rode. Operator still sees them in admin for visibility.
+  //
+  // Distinct from EL/RT/WD: those entries have status codes and are
+  // shown (with their status). DNS-like entries don't even have that —
+  // pure zeros across the board, the ".cls says nothing happened" shape.
+  //
+  // Cross-lens helper: works on the wide-projection shape returned by
+  // /v3/listEntries (jumper r1_time/r1_status etc. + hunter
+  // r1_score_total/r1_h_status etc.).
+  WEST.rules.isDnsLike = function(entry) {
+    if (!entry) return false;
+    // Any placement counts as "competed" — even unplaced entries with
+    // EL get a position-by-time at the bottom of the field.
+    if (Number(entry.overall_place) > 0) return false;
+    if (Number(entry.current_place) > 0) return false;
+    // Any combined / overall total
+    if (Number(entry.combined_total) > 0) return false;
+    // Any round data — time, score, OR status code (including DNS code).
+    for (var n = 1; n <= 3; n++) {
+      if (entry['r' + n + '_time'])         return false;
+      if (entry['r' + n + '_status'])       return false;
+      if (entry['r' + n + '_total_faults']) return false;
+      if (entry['r' + n + '_score_total'])  return false;
+      if (entry['r' + n + '_h_status'])     return false;
+    }
+    // Pure-zero, statusless entry — never competed.
+    return true;
+  };
+
   // CommonJS export
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.rules;

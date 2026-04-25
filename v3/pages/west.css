@@ -234,13 +234,13 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .toast.success{background:var(--green);}
 
 /* ── INDEX: TOOLBAR + SEARCH BAR + SHOW CARDS ────────────────────────── */
-.toolbar{max-width:900px;margin:0 auto;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.toolbar{max-width:1100px;margin:0 auto;padding:16px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .toolbar-left{display:flex;align-items:center;gap:16px;}
 .active-block{display:flex;align-items:center;gap:10px;}
 .active-num{font-family:'Playfair Display',serif;font-weight:900;font-size:32px;line-height:1;color:var(--red);}
 .active-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);line-height:1.2;}
 
-.search-bar{background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;max-width:900px;margin:0 auto;}
+.search-bar{background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;max-width:1100px;margin:0 auto;}
 .search-wrap{flex:1;position:relative;}
 .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;pointer-events:none;}
 .search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Source Sans 3',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
@@ -248,7 +248,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .search-input:focus{border-color:var(--black);}
 .year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
 
-.page{max-width:900px;margin:0 auto;padding:20px 16px 80px;}
+.page{max-width:1100px;margin:0 auto;padding:20px 12px 80px;}
 .show-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .15s;}
 .show-card:hover{border-color:var(--blue);}
 .show-card .show-dot{width:10px;height:10px;}
@@ -259,23 +259,25 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .no-results h2{font-family:'Playfair Display',serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
 
 /* ── PUBLIC SHOW PAGE: BREADCRUMBS / HERO / RING CARDS ───────────────── */
-.breadcrumbs{max-width:900px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);}
+.breadcrumbs{max-width:1100px;margin:0 auto;padding:10px 12px;display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);}
 .bc-link{color:var(--blue);text-decoration:none;}
 .bc-link:hover{text-decoration:underline;}
 .bc-sep{color:#ccc;}
 .bc-current{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-.hero{max-width:900px;margin:0 auto;padding:20px 16px 18px;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.hero{max-width:1100px;margin:0 auto;padding:20px 12px 18px;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
 .hero-name{font-family:'Playfair Display',serif;font-weight:900;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
 .hero-dates{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:6px;}
 .hero-venue{font-size:15px;color:var(--text-body);margin-bottom:2px;}
 .hero-location{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
+/* Sponsor (H[29] text) — patron / award context line in the hero. */
+.hero-sponsor{font-family:'Source Sans 3',sans-serif;font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
 .status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:10px;}
 .status-active{background:var(--green-bg);color:var(--green);}
 .status-pending,.status-upcoming{background:var(--blue-bg);color:var(--blue);}
 .status-complete,.status-archived{background:var(--off-white);color:var(--gray);}
 
-.section-block{max-width:900px;margin:0 auto;padding:20px 16px 0;}
+.section-block{max-width:1100px;margin:0 auto;padding:20px 12px 0;}
 .section-block-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;}
 
 .ring-grid{display:grid;grid-template-columns:1fr;gap:10px;}
@@ -323,17 +325,72 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table .entry-num{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
 .results-table .entry-place{width:48px;}
 .results-table .entry-num{width:48px;}
-.results-table .entry-horse{font-weight:600;color:var(--black);line-height:1.2;}
-.results-table .entry-rider{font-size:12px;color:var(--text-muted);line-height:1.3;}
-.results-table .entry-round{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.results-table .entry-horse-rider{width:100%;}
+/* Round templates: horse + rider share a single line. Wrapper sets
+   the block context; horse/rider/separator are inline siblings. */
+.results-table .entry-horse-line{line-height:1.25;}
+.results-table .entry-horse{font-weight:600;color:var(--black);}
+.results-table .entry-rider{font-size:12px;color:var(--text-muted);}
+.results-table .entry-sep{color:#bbb;font-size:11px;margin:0 2px;}
+/* Subtitle lines beneath horse/rider — pedigree (sire × dam) and owner
+   for round templates, city/state for EQ. Pedigree is the smallest +
+   italic so it reads as definitively secondary; owner is the same dim
+   muted treatment but normal style. */
+.results-table .entry-pedigree{font-family:'DM Mono',monospace;font-size:10px;font-style:italic;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
+.results-table .entry-owner{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:1px;}
+/* EQ city/state subtitle — single line, same treatment as owner. */
+.results-table .entry-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
+/* EQ template flips emphasis: rider primary (bold + body color),
+   horse secondary (smaller + muted). Cross-template overrides scoped
+   to the .results-eq class added by jumper-templates.renderTable. */
+.results-table.results-eq .entry-rider{font-size:inherit;font-weight:600;color:var(--black);line-height:1.2;}
+.results-table.results-eq .entry-horse{font-size:12px;font-weight:normal;color:var(--text-muted);line-height:1.3;}
+.results-table .entry-round{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
 .results-table .entry-score{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;width:80px;}
-.results-table .round-faults{font-weight:600;color:var(--text-body);}
-.results-table .round-time{color:var(--text-muted);font-size:11px;margin-left:4px;}
+/* Default round-cell hierarchy:
+     "0 Flts"   — secondary, smaller, dim (the "in/out" gate signal)
+     "32.757"   — primary, bold, body color (the ranking number) */
+.results-table .round-faults{font-size:11px;color:var(--text-muted);font-weight:normal;}
+.results-table .round-faults.is-faulted{color:var(--red);font-weight:600;}
+.results-table .round-time{font-weight:600;color:var(--text-body);font-size:13px;margin-left:6px;font-variant-numeric:tabular-nums;}
+/* Per-method display tweaks. Table III is ALREADY time-only ranked
+   (default already gives time prominence) but tags the faults further
+   with italic to flag that they were converted to seconds; primary
+   modifier on time bumps size slightly for emphasis. */
+.results-table .round-faults.is-secondary{font-style:italic;}
+.results-table .round-time.is-primary{font-size:14px;}
 .results-table .round-status{color:var(--red);font-weight:600;letter-spacing:.04em;}
 .results-table .round-blank,
 .results-table .place-blank{color:var(--text-muted);}
 .results-table .place-num{font-weight:700;font-size:14px;color:var(--black);}
+/* Championship marker — small "Ch" / "Res" chip beside place 1/2 on
+   is_championship classes. Red on white pill, DM Mono. */
+.results-table .place-marker{display:inline-block;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fef3f3;border:1px solid var(--red);border-radius:3px;padding:1px 4px;line-height:1.1;vertical-align:middle;margin-left:4px;}
 .results-table .entry-flag{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-left:6px;}
+/* Stacked layout — rounds collapse into one column, latest round on top.
+   round-label is the small "Round 1 / Jump Off / Phase 2" prefix. */
+.results-table .entry-round-stack{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;vertical-align:top;}
+.results-table .round-stacked{line-height:1.4;}
+.results-table .round-stacked + .round-stacked{margin-top:2px;padding-top:4px;border-top:1px dashed #eee;}
+.results-table .round-label{font-size:10px;color:var(--text-muted);letter-spacing:.04em;text-transform:uppercase;margin-right:6px;}
+.results-table .round-stacked.round-combined-row{padding-top:6px;border-top:1px solid var(--border);font-weight:600;}
+
+/* Hunter score columns. Per-round total is medium weight; combined
+   total is bold + larger to read as the authoritative ranking number. */
+.results-table .hunter-score{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;font-weight:600;color:var(--text-body);font-size:13px;}
+.results-table .entry-combined{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+.results-table .hunter-combined{font-weight:700;font-size:14px;color:var(--black);}
+/* EQ template — rider primary, horse muted (mirrors the jumper EQ
+   override pattern). */
+.results-table.results-h-eq .entry-rider{font-size:inherit;font-weight:600;color:var(--black);}
+.results-table.results-h-eq .entry-horse{font-weight:normal;color:var(--text-muted);font-size:12px;}
+
+/* Hero trophy + class info banner area. Trophy reads as the patron
+   line; banners surface non-obvious format rules (Reverse rank,
+   Ribbons only, Jogged, etc.) so spectators understand the class. */
+.hero-trophy{font-family:'Playfair Display',serif;font-size:14px;font-style:italic;color:var(--red);margin-top:6px;letter-spacing:.02em;}
+.class-notices{max-width:1100px;margin:0 auto;padding:0 12px 0;}
+.class-notice{display:block;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);background:var(--off-white);border-left:3px solid var(--border);padding:8px 12px;margin-top:8px;border-radius:3px;}
 
 .spinner{margin:40px auto;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}

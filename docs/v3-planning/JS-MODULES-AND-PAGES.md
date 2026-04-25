@@ -17,7 +17,7 @@ Every public page loads these via `<script>` tags. Worker and engine share them 
 | [west-status.js](../../v3/js/west-status.js) | Status code dictionary. ELIM/PARTIAL/HIDDEN categories. | `WEST.status.TEXT_CODES`, `categoryOf(code)`, `isKillingStatus(code)`, `publicLabel(code)` (collapses ELIM family → "EL") |
 | [west-rules.js](../../v3/js/west-rules.js) | Method-aware placement rules ("ladder" model). | `WEST.rules.JUMPER_METHODS`, `jumperIsPlaced`, `jumperPlaceFor`, `hunterIsPlaced`, `hunterPlaceFor` |
 | [west-jumper-templates.js](../../v3/js/west-jumper-templates.js) | Detection + per-template renderers for the jumper lens (1R/2R/3R/EQ/TEAM). | `WEST.jumperTemplates.detect(cls)`, `templates['1R']`, `templates['2R']`, `templates['3R']`, `templates['EQ']`, `templates['TEAM']`, `renderTable(cls, entries)` |
-| `west-hunter-templates.js` (planned) | Hunter lens templates — Forced / Scored / Hi-Lo / Derby. Not built yet. | TBD |
+| [west-hunter-templates.js](../../v3/js/west-hunter-templates.js) | Hunter lens templates — EQ / OVER_FENCES / FLAT / DERBY / SPECIAL. Detection on `is_equitation` then `class_mode`. | `WEST.hunterTemplates.detect(cls)`, `templates['EQ']`, `templates['OVER_FENCES']`, `templates['FLAT']`, `templates['DERBY']`, `templates['SPECIAL']`, `renderTable(cls, entries, opts)` |
 | [west-cls-jumper.js](../../v3/js/west-cls-jumper.js) | Jumper lens .cls column-position spec. Read by parser. | layout descriptor object |
 | [west-cls-hunter.js](../../v3/js/west-cls-hunter.js) | Hunter lens .cls column-position spec. Read by parser. | layout descriptor object |
 | [west-data.js](../../v3/js/west-data.js) | Network/transport layer (planned future home for WebSocket subscription). | (currently minimal) |
