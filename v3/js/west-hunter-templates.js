@@ -87,7 +87,9 @@
   }
 
   // Place column — defers to hunterPlaceFor for the R1-gate / forced-pin
-  // logic. Adds Ch/Res chip on places 1/2 when class is_championship.
+  // logic. On championship classes, the Ch/Res chip REPLACES the place
+  // number on places 1/2 (Ch implies 1, Res implies 2 — number is
+  // redundant). All other places render as the bare place number.
   function renderPlaceCell(entry, cls) {
     var place = WEST.rules.hunterPlaceFor(
       entry.current_place,
@@ -97,8 +99,10 @@
     );
     if (place == null) return '<span class="place-blank">—</span>';
     var marker = WEST.format.championshipMarker(place, cls.is_championship === 1);
-    var markerHtml = marker ? ' <span class="place-marker">' + marker + '</span>' : '';
-    return '<span class="place-num">' + place + '</span>' + markerHtml;
+    if (marker) {
+      return '<span class="place-marker place-marker-solo">' + marker + '</span>';
+    }
+    return '<span class="place-num">' + place + '</span>';
   }
 
   // Inline flag span — same policy gate as jumper (operator's ShowFlags).
@@ -258,13 +262,21 @@
     // Filter DNS-like entries (no place + no round data + no status) —
     // shared cross-lens rule via WEST.rules.isDnsLike.
     entries = (entries || []).filter(function (e) { return !WEST.rules.isDnsLike(e); });
+    // Build entry_id → grid-row map when judges-grid data is available.
+    // Used to emit per-entry drop-down detail rows beneath each main
+    // row (multi-judge hunter classes only — gate decides).
+    var gridById = null;
+    if (options.judgeGrid && options.judgeGrid.rows && WEST.format.judgesGridApplies(cls)) {
+      gridById = new Map();
+      options.judgeGrid.rows.forEach(function (gr) { gridById.set(gr.entry_id, gr); });
+    }
     var multiRound = false;
     var roundCount = forcedSafeRoundCount(cls, 1);
     if (cls && cls.scoring_type !== 0 && tplId !== 'FLAT' && roundCount > 1) {
       multiRound = true;
     }
     if (layout === 'stacked' && multiRound) {
-      return renderStackedTable(cls, entries, tplId, tpl);
+      return renderStackedTable(cls, entries, tplId, tpl, gridById);
     }
     var headers = tpl.columns(cls);
     var thead = '<thead><tr>' +
@@ -272,16 +284,153 @@
         return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
       }).join('') +
       '</tr></thead>';
-    var tbody = '<tbody>' +
-      (entries || []).map(function (e) { return tpl.renderRow(e, cls); }).join('') +
-      '</tbody>';
+    var colspan = headers.length;
+    var tbody = '<tbody>' + entries.map(function (e) {
+      var rowHtml = tpl.renderRow(e, cls);
+      if (gridById && gridById.has(e.id)) {
+        // Mark the main row clickable + inject "▸ View judges" hint +
+        // append a hidden drop-down row with this entry's per-judge
+        // grid. Class.html attaches the toggle handler after innerHTML.
+        rowHtml = rowHtml.replace(/^<tr>/,
+          '<tr class="has-judges-toggle" data-entry-id="' + e.id + '">');
+        rowHtml = injectJudgesHint(rowHtml);
+        rowHtml += renderJudgeDropdownRow(gridById.get(e.id), cls, colspan);
+      }
+      return rowHtml;
+    }).join('') + '</tbody>';
     return '<table class="results-table results-h-' + tplId.toLowerCase() + '">' +
       thead + tbody + '</table>';
   };
 
+  // Inject a small "▸ View judges" hint chip at the bottom of the
+  // last cell of the row (the rightmost score column — entry-combined
+  // for multi-round, last entry-round for 1-round). Positions the
+  // affordance directly under the score so users see expandability
+  // where their eye naturally lands. CSS rotates the arrow to ▾
+  // when the row is open.
+  function injectJudgesHint(rowHtml) {
+    var lastClose = rowHtml.lastIndexOf('</td>');
+    if (lastClose === -1) return rowHtml;
+    return rowHtml.slice(0, lastClose) +
+      '<div class="judges-hint">View judges</div>' +
+      rowHtml.slice(lastClose);
+  }
+
+  // Per-entry drop-down detail (one <tr> with single colspan'd <td>
+  // containing the inline judge grid for this entry). Rendered hidden
+  // by default; class.html toggles .is-open on click.
+  function renderJudgeDropdownRow(gridEntry, cls, colspan) {
+    return '<tr class="judges-detail-row" data-entry-id="' + gridEntry.entry_id + '">' +
+      '<td colspan="' + colspan + '">' +
+        renderEntryJudgeGrid(gridEntry, cls) +
+      '</td>' +
+    '</tr>';
+  }
+
+  // Inline mini-grid for ONE entry — header row + per-round rows +
+  // per-judge totals row. Self-contained CSS grid so the columns line
+  // up within this entry's box (no shared header dependency).
+  function renderEntryJudgeGrid(gridEntry, cls) {
+    var judgeCount = Math.max(1, Number(cls.num_judges) || 1);
+    var numRounds  = Math.max(1, Math.min(3, Number(cls.num_rounds) || 1));
+    var isDerby    = WEST.format.derbyComponentsApply(cls);
+    var showTotalCol  = judgeCount > 1;
+    var showTotalsRow = numRounds > 1;
+
+    // Grid-template-columns shared by header + all rows so columns are
+    // UNIFORM (every J-column the same width regardless of which row's
+    // content is widest). v2-style adaptive widths — narrower judge
+    // columns when there are many judges, wider for derby (room for
+    // base+hi+handy components).
+    var judgeColW = isDerby ? 100 : 70;
+    if (judgeCount >= 5) judgeColW = isDerby ? 80 : 50;
+    var totalColW = 90;
+    var gridCols = '28px';
+    for (var ji = 0; ji < judgeCount; ji++) gridCols += ' ' + judgeColW + 'px';
+    if (showTotalCol) gridCols += ' ' + totalColW + 'px';
+
+    // Header — concise. Derby cells already read as "base+hi+handy"
+    // visually; we used to put "J1 + HiOpt + Handy" in the column header
+    // but it inflated each column width way past the data. Just J1 / J2
+    // / etc. now; the cell format speaks for itself.
+    // "(Place)" annotation tells the viewer the parenthesized numbers
+    // (N) shown next to each score are the rank, not part of the score.
+    var hdr = ['<span class="ejg-rnd-lbl"></span>'];
+    for (var jh = 0; jh < judgeCount; jh++) {
+      hdr.push('<span class="ejg-hdr">J' + (jh + 1) + ' <span class="ejg-hdr-note">(Place)</span></span>');
+    }
+    if (showTotalCol) hdr.push('<span class="ejg-hdr">Total <span class="ejg-hdr-note">(Place)</span></span>');
+
+    var html = '<div class="entry-judge-grid">';
+    html += '<div class="ejg-row ejg-header" style="grid-template-columns:' + gridCols + '">' +
+      hdr.join('') + '</div>';
+
+    // Per-round rows
+    for (var n = 1; n <= numRounds; n++) {
+      var rd = gridEntry.rounds && gridEntry.rounds.find(function (r) { return r.round === n; });
+      if (rd && WEST.status.isKillingStatus(rd.status)) {
+        var lbl = WEST.status.publicLabel(rd.status) || rd.status;
+        html += '<div class="ejg-row" style="grid-template-columns:' + gridCols + '">' +
+          '<span class="ejg-rnd-lbl">R' + n + '</span>' +
+          '<span class="ejg-status" style="grid-column: 2 / -1">' +
+            escapeHtml(lbl) +
+          '</span>' +
+        '</div>';
+        continue;
+      }
+      var cells = ['<span class="ejg-rnd-lbl">R' + n + '</span>'];
+      for (var jc = 0; jc < judgeCount; jc++) {
+        var j = rd && rd.judges && rd.judges.find(function (x) { return x.idx === jc; });
+        var cellTxt = '';
+        if (j) {
+          if (isDerby) {
+            var parts = [];
+            if (j.base != null)  parts.push(j.base);
+            if (j.hiopt)         parts.push('+' + j.hiopt);
+            if (j.handy)         parts.push('+' + j.handy);
+            cellTxt = parts.join('');
+          } else {
+            cellTxt = j.base != null ? String(j.base) : '';
+          }
+        }
+        var rkTxt = (j && j.rank) ? ' <span class="ejg-rank">(' + j.rank + ')</span>' : '';
+        cells.push('<span class="ejg-cell">' + escapeHtml(cellTxt) + rkTxt + '</span>');
+      }
+      if (showTotalCol) {
+        var totTxt = (rd && rd.total != null) ? rd.total : '';
+        var totRk  = (rd && rd.overallRank) ? ' <span class="ejg-rank">(' + rd.overallRank + ')</span>' : '';
+        cells.push('<span class="ejg-cell ejg-round-total">' + escapeHtml(totTxt) + totRk + '</span>');
+      }
+      html += '<div class="ejg-row" style="grid-template-columns:' + gridCols + '">' + cells.join('') + '</div>';
+    }
+
+    // Per-judge totals row + combined
+    if (showTotalsRow) {
+      var trCells = ['<span class="ejg-rnd-lbl"></span>'];
+      for (var jt = 0; jt < judgeCount; jt++) {
+        var card = gridEntry.judgeCards && gridEntry.judgeCards.find(function (x) { return x.idx === jt; });
+        if (card) {
+          var rk = card.rank ? ' <span class="ejg-rank">(' + card.rank + ')</span>' : '';
+          trCells.push('<span class="ejg-judge-card">J' + (jt + 1) + ' ' + card.total + rk + '</span>');
+        } else {
+          trCells.push('<span class="ejg-judge-card"></span>');
+        }
+      }
+      if (showTotalCol) {
+        var combined = gridEntry.combined != null ? gridEntry.combined : '';
+        trCells.push('<span class="ejg-combined">' + escapeHtml(combined) + '</span>');
+      }
+      html += '<div class="ejg-row ejg-totals" style="grid-template-columns:' + gridCols + '">' +
+        trCells.join('') + '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
   // Stacked variant — collapses round columns into one column with each
   // round on its own line, latest round on top.
-  function renderStackedTable(cls, entries, tplId, tpl) {
+  function renderStackedTable(cls, entries, tplId, tpl, gridById) {
     var headers = tpl.columns(cls).slice(0, 3);  // Pl + # + identity
     headers.push({ label: 'Rounds', cls: 'entry-round-stack' });
     var thead = '<thead><tr>' +
@@ -289,11 +438,17 @@
         return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
       }).join('') +
       '</tr></thead>';
-    var tbody = '<tbody>' +
-      (entries || []).map(function (e) {
-        return renderStackedRow(e, cls, tplId);
-      }).join('') +
-      '</tbody>';
+    var colspan = headers.length;
+    var tbody = '<tbody>' + entries.map(function (e) {
+      var rowHtml = renderStackedRow(e, cls, tplId);
+      if (gridById && gridById.has(e.id)) {
+        rowHtml = rowHtml.replace(/^<tr>/,
+          '<tr class="has-judges-toggle" data-entry-id="' + e.id + '">');
+        rowHtml = injectJudgesHint(rowHtml);
+        rowHtml += renderJudgeDropdownRow(gridById.get(e.id), cls, colspan);
+      }
+      return rowHtml;
+    }).join('') + '</tbody>';
     return '<table class="results-table results-h-' + tplId.toLowerCase() + ' is-stacked">' +
       thead + tbody + '</table>';
   }
@@ -333,6 +488,174 @@
     cells.push('<td class="entry-horse-rider">' + renderIdentity(entry, cls, riderPrimary) + '</td>');
     cells.push('<td class="entry-round-stack">' + stackHtml + '</td>');
     return '<tr>' + cells.join('') + '</tr>';
+  }
+
+  // ── JUDGES GRID RENDERER ─────────────────────────────────────────────
+  //
+  // Consumes the /v3/listJudgeGrid response shape and returns a full
+  // table HTML string. Mirrors v2's renderJudgeGrid layout — header row
+  // (J1, J2, …, Round Total) at top, then per-entry sections containing
+  // identity column on the left and score grid on the right (per-round
+  // rows + per-judge totals row + combined).
+  //
+  // Mode awareness: derby cells show "base+hiopt+handy"; non-derby cells
+  // show just the base score. Header label includes "+ HiOpt + Bonus"
+  // for derby. Same gate (WEST.format.derbyComponentsApply) controls
+  // both decisions.
+  //
+  // Smart collapses:
+  //   1 judge × 1 round: caller shouldn't be calling this — basic table
+  //                       handles it.
+  //   1 judge × multi-round: drops the Round Total column (redundant).
+  //   multi-judge × 1 round: drops the per-judge totals row (round total
+  //                          IS the overall).
+  //   eliminated entry:       status code in red replaces the scores.
+
+  WEST.hunterTemplates.renderJudgeGrid = function (gridData, cls) {
+    if (!gridData || !gridData.rows || !cls) return '';
+    var rows = gridData.rows.filter(function (r) {
+      return !WEST.rules.isDnsLike(r);
+    });
+    if (!rows.length) return '<div class="placeholder">No entries yet.</div>';
+
+    var judgeCount = Math.max(1, Number(cls.num_judges) || 1);
+    var numRounds  = Math.max(1, Math.min(3, Number(cls.num_rounds) || 1));
+    var isDerby    = WEST.format.derbyComponentsApply(cls);
+    var showTotalCol  = judgeCount > 1;
+    var showTotalsRow = numRounds > 1;
+
+    // Header — built once at the top, identity column left of the grid
+    var grid_cols = 'auto'; // round label
+    for (var jh = 0; jh < judgeCount; jh++) grid_cols += ' minmax(0, 1fr)';
+    if (showTotalCol) grid_cols += ' minmax(80px, auto)';
+
+    var hdrCells = ['<span class="jg-rnd-lbl"></span>'];
+    for (var i = 0; i < judgeCount; i++) {
+      hdrCells.push('<span class="jg-hdr">J' + (i + 1) +
+        (isDerby ? ' + HiOpt + Handy' : '') + '</span>');
+    }
+    if (showTotalCol) hdrCells.push('<span class="jg-hdr">Round Total</span>');
+    var headerHtml =
+      '<div class="judge-grid-header" style="grid-template-columns:' + grid_cols + '">' +
+      hdrCells.join('') +
+      '</div>';
+
+    var html = '<div class="judge-grid">';
+    html += '<div class="judge-grid-header-wrap">' + headerHtml + '</div>';
+
+    rows.forEach(function (e) {
+      html += '<div class="judge-grid-entry">' +
+        '<div class="jg-identity">' +
+          '<div class="jg-place">' + renderJudgeGridPlace(e, cls) + '</div>' +
+          '<div class="jg-id-stack">' +
+            '<div class="entry-num">#' + escapeHtml(e.entry_num) + '</div>' +
+            renderJudgeGridIdentity(e, cls) +
+          '</div>' +
+        '</div>' +
+        '<div class="jg-scores">' +
+          renderJudgeGridScores(e, cls, judgeCount, numRounds, isDerby, grid_cols, showTotalCol, showTotalsRow) +
+        '</div>' +
+      '</div>';
+    });
+
+    html += '</div>';
+    return html;
+  };
+
+  function renderJudgeGridPlace(entry, cls) {
+    if (entry.place == null) return '<span class="place-blank">—</span>';
+    var marker = WEST.format.championshipMarker(entry.place, cls.is_championship === 1);
+    if (marker) {
+      return '<span class="place-marker place-marker-solo">' + marker + '</span>';
+    }
+    return '<span class="place-num">' + entry.place + '</span>';
+  }
+
+  // Identity for the grid — mirrors the round-template stack (Horse — Rider /
+  // Owner / Sire×Dam) but compacted; flag rides with rider via flagFor.
+  function renderJudgeGridIdentity(entry, cls) {
+    var horse = escapeHtml(entry.horse_name || '—');
+    var rider = escapeHtml(entry.rider_name || '');
+    var flag  = WEST.format.flagFor(cls, entry);
+    var flagHtml = flag ? ' <span class="entry-flag">' + escapeHtml(flag) + '</span>' : '';
+    var html =
+      '<div class="entry-horse-line">' +
+        '<span class="entry-horse">' + horse + '</span>' +
+        (rider ? ' <span class="entry-sep">—</span> <span class="entry-rider">' + rider + flagHtml + '</span>' : '') +
+      '</div>';
+    if (entry.owner_name) {
+      html += '<div class="entry-owner">' + escapeHtml(entry.owner_name) + '</div>';
+    }
+    var pedigree = '';
+    if (entry.sire && entry.dam) pedigree = entry.sire + ' x ' + entry.dam;
+    else if (entry.sire || entry.dam) pedigree = entry.sire || entry.dam;
+    if (pedigree) html += '<div class="entry-pedigree">' + escapeHtml(pedigree) + '</div>';
+    return html;
+  }
+
+  function renderJudgeGridScores(entry, cls, judgeCount, numRounds, isDerby, gridCols, showTotalCol, showTotalsRow) {
+    var html = '';
+    // Per-round rows
+    for (var n = 1; n <= numRounds; n++) {
+      var rd = entry.rounds && entry.rounds.find(function (r) { return r.round === n; });
+      // Killing-status round → status-only row (red)
+      if (rd && WEST.status.isKillingStatus(rd.status)) {
+        var lbl = WEST.status.publicLabel(rd.status) || rd.status;
+        html += '<div class="jg-round-row" style="grid-template-columns:' + gridCols + '">' +
+          '<span class="jg-rnd-lbl">R' + n + '</span>' +
+          '<span class="jg-status" style="grid-column:span ' + judgeCount + (showTotalCol ? ' / -1' : '') + '">' +
+            escapeHtml(lbl) +
+          '</span>' +
+        '</div>';
+        continue;
+      }
+      // Normal round row — render each judge cell
+      var cells = ['<span class="jg-rnd-lbl">R' + n + '</span>'];
+      for (var ji = 0; ji < judgeCount; ji++) {
+        var j = rd && rd.judges && rd.judges.find(function (x) { return x.idx === ji; });
+        var cellTxt = '';
+        if (j) {
+          if (isDerby) {
+            var parts = [];
+            if (j.base != null) parts.push(j.base);
+            if (j.hiopt)        parts.push('+' + j.hiopt);
+            if (j.handy)        parts.push('+' + j.handy);
+            cellTxt = parts.join('');
+          } else {
+            cellTxt = j.base != null ? String(j.base) : '';
+          }
+        }
+        var rkTxt = (j && j.rank) ? ' <span class="jg-rank">(' + j.rank + ')</span>' : '';
+        cells.push('<span class="jg-cell">' + escapeHtml(cellTxt) + rkTxt + '</span>');
+      }
+      if (showTotalCol) {
+        var totTxt = (rd && rd.total != null) ? rd.total : '';
+        var totRk  = (rd && rd.overallRank) ? ' <span class="jg-rank">(' + rd.overallRank + ')</span>' : '';
+        cells.push('<span class="jg-cell jg-round-total">' + escapeHtml(totTxt) + totRk + '</span>');
+      }
+      html += '<div class="jg-round-row" style="grid-template-columns:' + gridCols + '">' + cells.join('') + '</div>';
+    }
+    // Per-judge totals row + combined
+    if (showTotalsRow) {
+      var trCells = ['<span class="jg-rnd-lbl"></span>'];
+      for (var jt = 0; jt < judgeCount; jt++) {
+        var jc = entry.judgeCards && entry.judgeCards.find(function (x) { return x.idx === jt; });
+        if (jc) {
+          var rk = jc.rank ? ' <span class="jg-rank">(' + jc.rank + ')</span>' : '';
+          trCells.push('<span class="jg-judge-card">J' + (jt + 1) + ' ' + jc.total + rk + '</span>');
+        } else {
+          trCells.push('<span class="jg-judge-card"></span>');
+        }
+      }
+      if (showTotalCol) {
+        var combined = entry.combined != null ? entry.combined : '';
+        trCells.push('<span class="jg-combined">' + escapeHtml(combined) + '</span>');
+      }
+      html += '<div class="jg-round-row jg-totals" style="grid-template-columns:' + gridCols + '">' +
+        trCells.join('') +
+      '</div>';
+    }
+    return html;
   }
 
   // CommonJS export for tests / future Node consumers.

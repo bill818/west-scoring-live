@@ -133,9 +133,24 @@
 
   // riderPrimary(cls) — should the identity column lead with rider
   // (and dim the horse), inverting the standard horse-primary layout?
-  // True for equitation classes regardless of mode/lens.
+  // True for equitation classes regardless of mode/lens, including the
+  // jumper Method 7 (Timed Equitation) variant which doesn't carry the
+  // is_equitation header flag but is conceptually equitation.
   WEST.format.riderPrimary = function (cls) {
-    return !!(cls && cls.is_equitation === 1);
+    if (!cls) return false;
+    if (cls.is_equitation === 1) return true;
+    if (cls.scoring_method === 7) return true; // Timed Equitation jumper
+    return false;
+  };
+
+  // singleLineIdentity(cls) — render rider and horse on ONE line
+  // (separator between, flag with rider) instead of stacking. Fires
+  // for ANY equitation class regardless of scoring mode (Forced or
+  // Scored). The hunter renderIdentity already single-lines all
+  // rider-primary entries; this gate is the formal source of truth
+  // so future surfaces don't have to re-derive the rule.
+  WEST.format.singleLineIdentity = function (cls) {
+    return WEST.format.riderPrimary(cls);
   };
 
   // ── Per-method round column labels (jumper lens) ─────────────────────

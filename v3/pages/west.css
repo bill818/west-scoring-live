@@ -363,9 +363,12 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table .round-blank,
 .results-table .place-blank{color:var(--text-muted);}
 .results-table .place-num{font-weight:700;font-size:14px;color:var(--black);}
-/* Championship marker — small "Ch" / "Res" chip beside place 1/2 on
-   is_championship classes. Red on white pill, DM Mono. */
+/* Championship marker — "Ch" / "Res" chip on places 1/2 of is_championship
+   classes. When solo (place-marker-solo) it REPLACES the place number
+   entirely (Ch implies 1, Res implies 2 — number is redundant), so it
+   needs to read as prominently as a place number would. */
 .results-table .place-marker{display:inline-block;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fef3f3;border:1px solid var(--red);border-radius:3px;padding:1px 4px;line-height:1.1;vertical-align:middle;margin-left:4px;}
+.results-table .place-marker-solo{font-size:11px;padding:3px 7px;letter-spacing:.08em;margin-left:0;}
 .results-table .entry-flag{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-left:6px;}
 /* Stacked layout — rounds collapse into one column, latest round on top.
    round-label is the small "Round 1 / Jump Off / Phase 2" prefix. */
@@ -384,6 +387,40 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
    override pattern). */
 .results-table.results-h-eq .entry-rider{font-size:inherit;font-weight:600;color:var(--black);}
 .results-table.results-h-eq .entry-horse{font-weight:normal;color:var(--text-muted);font-size:12px;}
+
+/* ── HUNTER PER-ENTRY JUDGE DROPDOWN ─────────────────────────────────────
+   Multi-judge hunter results. Each entry row in the standard table is
+   clickable; the row beneath holds an inline mini-grid with the per-
+   judge / per-round detail. Hidden by default; .is-open reveals it.
+   CSS Grid inside each detail keeps the column-to-cell alignment
+   self-contained per entry. */
+.results-table tr.has-judges-toggle{cursor:pointer;}
+.results-table tr.has-judges-toggle:hover{background:var(--off-white);}
+.results-table tr.has-judges-toggle.is-open{background:var(--off-white);}
+/* "▸ View judges" hint chip — appears under the score (last cell of
+   the row) so the affordance lives where the eye lands after reading
+   the total. Arrow flips to ▾ when row is open. */
+.results-table .judges-hint{display:inline-flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:3px 7px;margin-top:6px;background:#fafafa;white-space:nowrap;width:fit-content;margin-left:auto;}
+.results-table .judges-hint::before{content:'▸';font-size:9px;}
+.results-table tr.has-judges-toggle:hover .judges-hint{color:var(--text-body);border-color:#999;}
+.results-table tr.has-judges-toggle.is-open .judges-hint{color:var(--red);border-color:#ffd0d0;background:#fff8f8;}
+.results-table tr.has-judges-toggle.is-open .judges-hint::before{content:'▾';}
+.results-table tr.judges-detail-row{display:none;}
+.results-table tr.judges-detail-row.is-open{display:table-row;}
+.results-table tr.judges-detail-row > td{padding:14px 16px 18px;background:#fafafa;border-top:1px dashed var(--border);}
+.entry-judge-grid{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;width:fit-content;margin-left:auto;}
+.entry-judge-grid .ejg-row{display:grid;gap:16px;align-items:baseline;text-align:right;font-size:13px;padding:3px 0;justify-content:end;}
+.entry-judge-grid .ejg-row.ejg-header{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:6px;}
+.entry-judge-grid .ejg-hdr{font-weight:500;color:var(--text-body);text-decoration:underline;}
+.entry-judge-grid .ejg-hdr-note{font-size:9px;opacity:.7;font-weight:normal;text-decoration:none;letter-spacing:0;text-transform:none;margin-left:2px;}
+.entry-judge-grid .ejg-rnd-lbl{text-align:left;color:var(--text-muted);font-size:12px;}
+.entry-judge-grid .ejg-cell{color:var(--text-muted);}
+.entry-judge-grid .ejg-cell.ejg-round-total{color:var(--text-body);font-weight:600;}
+.entry-judge-grid .ejg-rank{color:#999;font-size:10px;font-weight:normal;}
+.entry-judge-grid .ejg-status{color:var(--red);font-weight:700;}
+.entry-judge-grid .ejg-row.ejg-totals{margin-top:5px;padding-top:8px;border-top:1px solid var(--border);}
+.entry-judge-grid .ejg-judge-card{color:var(--text-body);font-weight:600;font-size:13px;}
+.entry-judge-grid .ejg-combined{color:var(--black);font-weight:700;font-size:16px;}
 
 /* Hero trophy + class info banner area. Trophy reads as the patron
    line; banners surface non-obvious format rules (Reverse rank,

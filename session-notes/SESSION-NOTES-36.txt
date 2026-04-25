@@ -1,0 +1,431 @@
+SESSION-NOTES-36 — judges grid + championship chips + display polish
+Date: 2026-04-25 (continuation of sessions 34/35, evening)
+Outcome: Hunter judges grid wired end-to-end via a pre-computed
+         "Hunter Stats" pattern — raw rows → SQL compute pass → derived
+         rank columns → /v3/listJudgeGrid endpoint → per-entry inline
+         drop-down UI. Championship chip now REPLACES the place number
+         for Ch/Res. Various column-width / identity-stack / header-
+         annotation polish on both lenses. Five migrations / two
+         endpoints / two new renderers landed since session 35.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill's architectural directive on judges grid:
+
+  "Or grab from our database — process — store"
+
+Translation: don't compute ranks at read time. Don't recompute on the
+client. Pre-compute on .cls write, store derived columns alongside the
+raw tables, serve grid-ready JSON. Multiple consumers (results today,
+stats / live / display tomorrow) all read the same denormalized data —
+no drift between pages.
+
+Result: a 4-step SQL pass (window-function ranks + judge-card
+aggregate) running synchronously inside /v3/postCls hunter branch,
+plus a manual /v3/recomputeJudgeRanks safety valve for changes that
+land outside the normal /v3/postCls path (admin edits, direct D1
+console). No JS rank math anywhere downstream.
+
+Bill also pushed back on initial UX:
+  Page-level "View Judge Scores" toggle → changed to PER-ENTRY
+    inline drop-down (one click per row) so users see one entry's
+    detail without flipping the whole table.
+  "View judges" hint chip moved from the horse-rider cell to under
+    the score column (last cell of the row) where the eye lands
+    after reading the total.
+  Column widths: started 1fr (uniform but too wide), then auto
+    (collapsed too tight), final form is FIXED-WIDTH adaptive
+    (70px judges / 100px derby; 50px / 80px when 5+ judges) — true
+    uniform alignment across rows.
+
+═══════════════════════════════════════════════════════════════════════════
+PART A — JUDGES GRID PIPELINE (parser → DB → compute pass → endpoint → UI)
+═══════════════════════════════════════════════════════════════════════════
+
+MIGRATION 018 — judge_grid_ranks
+  ALTER TABLE entry_hunter_judge_scores ADD COLUMN judge_round_rank INTEGER
+  ALTER TABLE entry_hunter_rounds       ADD COLUMN round_overall_rank INTEGER
+  CREATE TABLE entry_hunter_judge_cards (
+    entry_id, judge_idx, card_total, card_rank,
+    PRIMARY KEY (entry_id, judge_idx)
+  )
+  CREATE INDEX idx_judge_cards_entry ON entry_hunter_judge_cards(entry_id)
+
+  Three additions linked back to entries.id via existing PKs.
+  Mode-agnostic at the storage layer — derby's high_options +
+  handy_bonus columns are nullable, so COALESCE math works for both
+  derby and non-derby.
+
+WORKER — computeJudgeGridRanks(env, classDbId)
+  New helper near other class-level helpers. Four SQL operations:
+
+    1. judge_round_rank   — RANK() OVER (PARTITION BY round, judge_idx
+                            ORDER BY (base + COALESCE(hi,0) + COALESCE(handy,0)) DESC)
+    2. round_overall_rank — RANK() OVER (PARTITION BY round
+                            ORDER BY total DESC)
+    3. entry_hunter_judge_cards refresh — DELETE then INSERT card_total
+       = SUM of effective per-judge per-round scores GROUP BY (entry, judge)
+    4. card_rank — RANK() OVER (PARTITION BY judge_idx
+                   ORDER BY card_total DESC)
+
+  Idempotent. All operations scope WHERE entry_id IN (SELECT id FROM
+  entries WHERE class_id = ?) — never touches other classes. Each
+  class is independent, no cross-class staleness.
+
+WORKER — /v3/postCls hunter branch
+  After the existing parseClsEntriesV3 + raw UPSERTs, calls
+  computeJudgeGridRanks(env, classDbId). Failures log but don't fail
+  the whole POST — raw data remains good, ranks just go stale until
+  next post or recompute.
+
+WORKER — /v3/recomputeJudgeRanks (POST)
+  Body: { class_id: N }. Re-runs the compute pass for one class.
+  Used as a safety valve when raw rows change outside /v3/postCls
+  (admin edit, direct D1 console). Idempotent.
+
+WORKER — /v3/listJudgeGrid?class_id=N (GET)
+  Returns grid-ready JSON for one class. Single SQL JOIN across
+  entries + entry_hunter_summary + entry_hunter_rounds +
+  entry_hunter_judge_scores + entry_hunter_judge_cards. Worker
+  reshapes the flat rows into per-entry → per-round → per-judge tree:
+
+    {
+      ok: true,
+      class: { id, class_id, class_mode, scoring_type, num_rounds,
+               num_judges, derby_type, is_equitation, is_championship },
+      rows: [
+        { entry_id, entry_num, horse_name, rider_name, country_code,
+          sire, dam, owner_name, city, state, place, combined,
+          rounds: [
+            { round, total, status, overallRank,
+              judges: [ { idx, base, hiopt, handy, rank }, ... ]
+            }
+          ],
+          judgeCards: [ { idx, total, rank }, ... ]
+        }
+      ]
+    }
+
+  Page consumes directly — no JS rank math.
+
+BACKFILL
+  After deploy, ran /v3/recomputeJudgeRanks for all 16 hunter
+  classes via curl loop — populates the new rank columns from the
+  existing raw data. Class 1001 (2-judge derby, LEO THE LION) spot-
+  checked: place 1 entry has J0 rank 1 / J1 rank 1 across both
+  rounds, card totals 204 + 199 = combined 403. Math correct.
+
+WORKER VERSION POST-DEPLOY: 8aee70a0-2892-4183-8a57-d7f5daa96603
+
+═══════════════════════════════════════════════════════════════════════════
+PART B — PER-ENTRY DROP-DOWN UI (renderer + page wiring)
+═══════════════════════════════════════════════════════════════════════════
+
+Initial design: page-level "Combined / View Judge Scores" toggle bar.
+Bill: "we also have to be able to hide that screen that should only
+come up on the Click to view judges score too... and it expands down
+(drop down). it only expands on the entry that is clicked not all of
+them."
+
+Restructured:
+
+HUNTER TEMPLATES MODULE
+  - renderTable accepts options.judgeGrid; when present AND
+    judgesGridApplies(cls), builds entry_id → grid-row Map.
+  - For each entry that has grid data:
+      • Main row gets class="has-judges-toggle" + data-entry-id
+      • injectJudgesHint() inserts a "▸ View judges" chip into the
+        last cell of the row (under the score) so users see the
+        affordance where their eye lands
+      • Hidden detail <tr class="judges-detail-row"> appended after
+        the main row, containing renderEntryJudgeGrid(gridEntry, cls)
+  - Same logic threaded through both inline (renderTable) and stacked
+    (renderStackedTable) layout paths.
+
+renderEntryJudgeGrid(gridEntry, cls)
+  Self-contained mini-grid for ONE entry:
+    Header:    [empty] J1 (Place)  J2 (Place) ... Total (Place)
+    R1 row:    R1   <judge cells>   <round total + rank>
+    R2 row:    R2   <judge cells>   <round total + rank>
+    Divider line
+    Totals:    [empty] J1 X (rk) ... <combined>
+
+  Uniform fixed column widths (CSS-grid template):
+    Round label:  28px
+    Each judge:   70px (90px when derby; 50px / 80px when 5+ judges)
+    Round Total:  90px
+    Gap:          16px
+
+  Mode-aware cell composition:
+    Non-derby: just the base score (e.g. "89")
+    Derby:     "base+hi+handy" composite (e.g. "92+4+10")
+
+  "(Place)" annotation in headers (smaller font, 70% opacity) tells
+  the viewer the parenthesized numbers next to scores are the rank,
+  not part of the score.
+
+  Killing-status row → status code in red, replaces the score cells.
+
+  Smart collapses (from v2):
+    1 judge × 1 round → grid not applicable, single score in main table
+    1 judge × multi-round → drops the Round Total column (redundant)
+    multi-judge × 1 round → drops the per-judge totals row (round total
+                            IS the overall)
+    eliminated entry → status code only
+
+  Inline grid is right-aligned (margin-left:auto, width:fit-content)
+  inside the drop-down td so it sits flush against the right edge of
+  the dropdown box.
+
+CLASS.HTML
+  - state.judgeGrid populated on initial fetch when judgesGridApplies(cls).
+    Single fetch alongside /v3/listEntries; no lazy load.
+  - state.judgeGrid passed to WEST.hunterTemplates.renderTable as an
+    option.
+  - wireJudgeDropdowns() attaches click handlers after every render —
+    clicking a .has-judges-toggle row toggles .is-open on both the
+    main row and the detail row. Pure DOM toggle, no re-render.
+  - Removed earlier page-level toggle bar + state.showJudgeGrid.
+
+CSS
+  - tr.has-judges-toggle{cursor:pointer;...}
+  - tr.judges-detail-row{display:none;} → .is-open{display:table-row}
+  - .judges-hint chip: small bordered DM Mono badge with ▸ that flips
+    to ▾ when row is open. Color shifts to red on open. Right-aligned
+    under the score (margin-left:auto inside the cell).
+  - .entry-judge-grid CSS for the inline mini-grid: tabular-nums,
+    text-align:right, ejg-row grid layout, divider before totals,
+    combined in larger font.
+
+═══════════════════════════════════════════════════════════════════════════
+PART C — CHAMPIONSHIP CHIP REPLACES PLACE NUMBER
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "For champ reserver the Chip Champ Reserve can replace the
+number"
+
+Before: place 1 rendered as "1 CH" (number + chip side-by-side); place
+2 as "2 RES". Number was redundant — Ch implies 1, Res implies 2.
+
+After: when class.is_championship === 1 AND place ∈ {1, 2}, the chip
+REPLACES the number entirely. Place 3+ render as bare numbers.
+
+Implementation:
+  - Both jumper and hunter renderPlaceCell branch on
+    WEST.format.championshipMarker(place, isChamp)
+  - When marker present → emit only the chip (with class
+    .place-marker-solo for prominent sizing)
+  - Same logic in renderJudgeGridPlace inside the hunter judges grid
+
+CSS
+  .place-marker (default — small, sits beside number when used as add-on)
+  .place-marker-solo (larger, no margin — reads as the place itself)
+
+═══════════════════════════════════════════════════════════════════════════
+PART D — OTHER UX POLISH SINCE SESSION 35
+═══════════════════════════════════════════════════════════════════════════
+
+DNS-LIKE FILTER NOW HANDLES BOTH SHAPES
+  isDnsLike(entry) initially only knew about wide-shape (listEntries
+  projection: r1_time, combined_total etc.). When the judges grid
+  endpoint started returning entries with grid-shape fields (rounds[],
+  combined, place), all rows got filtered out → "No entries yet."
+  Extended isDnsLike to recognize either shape:
+    - place / current_place / overall_place  → has place
+    - combined / combined_total              → has combined
+    - r{n}_time / r{n}_status / etc.         → wide-shape rounds
+    - entry.rounds[].total / .status         → grid-shape rounds
+  Cross-lens, single-source DNS rule.
+
+CHAMPIONSHIP CHIP STYLE PROMOTED
+  .place-marker-solo: 11px font (was 9px), more padding, no left
+  margin since it stands alone. Reads as the place itself.
+
+JUDGES-HINT CHIP MOVED
+  Previously injected into the entry-horse-rider cell. Bill: needs to
+  be under the score. Now inserted in the LAST cell of the row
+  (entry-combined for multi-round, last entry-round for 1-round).
+  margin-left:auto so it right-aligns within its column under the
+  score number.
+
+GRID HEADER ANNOTATION
+  Each column header reads `J1 (Place)` / `Total (Place)` instead of
+  `J1 + HiOpt + Handy` (which made columns balloon). The "(Place)" is
+  a smaller, dimmer note explaining the (N) numbers shown next to
+  scores. Cell content "92+4+10" speaks for itself for derby — no
+  need to repeat the format in the header.
+
+GRID COLUMN WIDTHS LOCKED UNIFORM
+  Iteration:
+    v1: minmax(0, 1fr) — uniform, but stretched to 720px max-width
+    v2: auto — collapsed to content, varied per column, no longer uniform
+    v3 (final): fixed pixel widths — uniform across rows, content-fitting
+                judges (70/100px non-derby/derby; 50/80 for 5+ judges),
+                28px label, 90px total, 16px gap.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+26. HUNTER STATS ARE PRE-COMPUTED, NOT CLIENT-COMPUTED.
+    Bill: "I dont want it computered client side. … Or grab from our
+    database — process — store." Per-judge ranks, per-round ranks,
+    and judge-card aggregates are computed by SQL window functions
+    inside /v3/postCls and stored in dedicated columns/tables. Pages
+    SELECT pre-computed values; no JS math. Same data feeds future
+    stats / live / display surfaces.
+
+27. JUDGES GRID IS A PER-ENTRY DROPDOWN, NOT A PAGE-LEVEL VIEW.
+    Default class.html shows the standard combined table. Multi-judge
+    rows (gate: WEST.format.judgesGridApplies) are clickable; clicking
+    a row reveals only that entry's per-judge grid in an inline drop-
+    down beneath. Other entries unaffected. Visual cue: "▸ View
+    judges" chip under the score column.
+
+28. CHIP REPLACES PLACE NUMBER ON CHAMPIONSHIP CLASSES.
+    For is_championship=1 classes: place 1 renders as "Ch" chip
+    (no "1"); place 2 renders as "Res" chip (no "2"); 3+ render as
+    bare numbers. Chip implies the position; number was redundant.
+
+29. RAW + DERIVED STAY IN SAME-CLASS SCOPE.
+    The compute pass operates strictly on entries where class_id = ?.
+    No cross-class dependencies, no cascading invalidation. Class
+    re-posts can never destabilize ranks of other classes.
+
+30. MANUAL RECOMPUTE ENDPOINT EXISTS AS SAFETY VALVE.
+    /v3/recomputeJudgeRanks (POST { class_id }) re-runs the compute
+    pass for one class. For the day someone edits raw rows outside
+    /v3/postCls (admin edit, D1 console). Idempotent.
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION 36
+═══════════════════════════════════════════════════════════════════════════
+
+Worker version: 8aee70a0-2892-4183-8a57-d7f5daa96603
+                (deployed 2026-04-25 from this Mac via wrangler)
+
+Migrations applied since session 35:
+  018 — judge_grid_ranks
+        + entry_hunter_judge_scores.judge_round_rank
+        + entry_hunter_rounds.round_overall_rank
+        + entry_hunter_judge_cards (new table)
+
+WEST_DB_V3 state:
+  All 16 hunter classes have ranks computed (via post-deploy
+  recompute loop).
+  Per-judge data: 86 judge rows across 31 entries from session 33's
+  Phase 2d capture; ranks now populated for all of them.
+  Class 1001 (International Derby, 2 judges, 2 rounds) is the
+  primary live-data validation target.
+
+Test data summary unchanged (no new ingest):
+  Migrations 015 / 016 / 017 / 018 all applied
+  71 classes (51 J/T, 16 H, 4 U)
+  1,185 entries; 1,120 with sire data
+  9 entries with country codes
+  2 J/T classes with show_flags=1
+  1 class with trophy text
+
+Public pages working:
+  index.html → all-shows landing
+  show.html  → per-show landing
+  ring.html  → per-ring class list
+  class.html → per-class results, both lenses, with multi-judge
+               drop-down on hunter classes
+
+Engine still cannot run on this Mac. wrangler covers Workers + D1 +
+KV + R2 deploys; .cls watcher stays Windows-side.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-36)
+═══════════════════════════════════════════════════════════════════════════
+
+- CLASS-FINALIZATION SIGNAL
+  Currently no signal flips a class to "complete" automatically.
+  Bill: "we're working on a way to make classes final now... but it
+  will be coming from the LIVE udps when we get there." Tabled.
+
+- RIBBON GRAPHICS (when class-finalization lands)
+  Place 1-N gets a USEF-spec ribbon SVG (Blue / Red / Yellow / White
+  / Pink / Green / Purple / Brown for places 1-8, plus the Tri-color
+  for Champion). Gate: WEST.format.showsRibbons(cls) — fires on
+  cls.status === 'complete'. ribbon_count column on classes (8
+  standard, 12 derby/special) drives how many places get one.
+
+- PRIZE MONEY UNDER RIBBON (alongside ribbon graphics)
+  Bill 2026-04-25: "the ability to display the prize money under the
+  ribbon too." Prize money is already in the .cls — the @money row
+  carries an array of prizes per place (v2 watcher reads
+  cols.slice(1) per result.prizes). When the ribbon work lands:
+    1. Migration: entry.prize_money REAL OR class.prizes JSON
+    2. Parser: capture @money row in parseClsEntriesV3, write to
+       store
+    3. Renderer: under the ribbon → "$1,500" formatted
+    4. Same gate that controls ribbon visibility controls prize
+       visibility (showsRibbons + place ≤ ribbon_count + prize > 0)
+
+- JUDGES GRID ENHANCEMENTS (deferred, working baseline shipped)
+  - Compact-mode variant for narrow contexts (live page sidebar,
+    display.html). v2 had this; we don't yet.
+  - Per-judge HighOptions / HandyBonus column breakdown for derby
+    (vs the inline composite "base+hi+handy"). Data captured
+    already; just rendering deferred.
+  - "By judge" view — group entries by judge, sort by that judge's
+    card total. v2's renderByJudgeList equivalent. When stats page
+    arrives, this is one of its first features.
+
+- DEPLOY V3 PAGES TO PAGES
+  deploy-preview.bat doesn't include v3/pages yet. When ready to
+  ship publicly. Clean URLs (_redirects) follow.
+
+- REVERSE-ENGINEER FAILED FIELDS
+  Class compositional flags reverse_rank / ribbons_only / is_jogged /
+  is_team / show_all_rounds: schema captures them, info banner
+  triggers wired, but no test data has them set — plumbing alive but
+  unverified visually until real data lands.
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  v3/migrations/018_judge_grid_ranks.sql
+  session-notes/SESSION-NOTES-36.txt (this file)
+
+MODIFIED:
+  west-worker.js — computeJudgeGridRanks helper; /v3/postCls hunter
+    branch invokes it after parse; /v3/listJudgeGrid endpoint;
+    /v3/recomputeJudgeRanks endpoint
+  v3/js/west-hunter-templates.js — judges-grid plumbing into
+    renderTable + renderStackedTable; injectJudgesHint;
+    renderJudgeDropdownRow; renderEntryJudgeGrid; uniform fixed
+    column widths; "(Place)" header annotations; renderPlaceCell
+    chip-replaces-number for championship
+  v3/js/west-jumper-templates.js — renderPlaceCell chip-replaces-
+    number for championship (parity)
+  v3/js/west-rules.js — isDnsLike now recognizes both wide-shape
+    (listEntries) and grid-shape (listJudgeGrid) entry shapes
+  v3/pages/class.html — page-level toggle removed; per-entry
+    dropdown click handler (wireJudgeDropdowns); judgesGrid fetched
+    parallel to listEntries when gate fires
+  v3/pages/west.css — .judges-hint chip + open state arrow flip;
+    .judges-detail-row hidden + .is-open reveal; .entry-judge-grid
+    layout (grid template, gap, alignment); .place-marker-solo for
+    prominent championship chip
+
+═══════════════════════════════════════════════════════════════════════════
+EXTERNAL CHANGES
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare D1 (WEST_DB_V3):
+  Migration 018 applied
+  All 16 hunter classes ranked via post-deploy recompute loop
+  Total writes for the rank backfill: ~150 across the 4-step pass
+  per class
+
+Cloudflare Worker:
+  v_8aee70a0-2892-4183-8a57-d7f5daa96603 deployed via wrangler
+
+No memory token rotation required.

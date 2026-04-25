@@ -2664,6 +2664,20 @@ export default {
                 console.log(`[v3/postCls] hunter judge-scores failed for ${slug}/${ringNum}/${classId}: ${jsErr.message}`);
                 entriesStatus += ` | judge-scores error: ${jsErr.message}`;
               }
+
+              // Compute judge-grid ranks (judge_round_rank, round_overall_rank,
+              // entry_hunter_judge_cards). Reads what we just wrote; mode-
+              // agnostic SQL handles derby + non-derby alike. Failures here
+              // are logged but don't fail the whole POST — raw data is still
+              // good; ranks just go stale until next /v3/postCls or manual
+              // recompute.
+              try {
+                await computeJudgeGridRanks(env, classDbId);
+                entriesStatus += ` | ranks computed`;
+              } catch (rkErr) {
+                console.log(`[v3/postCls] judge-grid rank compute failed for ${slug}/${ringNum}/${classId}: ${rkErr.message}`);
+                entriesStatus += ` | rank compute error: ${rkErr.message}`;
+              }
             } catch (scErr) {
               console.log(`[v3/postCls] hunter scoring failed for ${slug}/${ringNum}/${classId}: ${scErr.message}`);
               entriesStatus += ` | hunter scoring error: ${scErr.message}`;
@@ -3004,6 +3018,176 @@ export default {
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
+    // ── GET /v3/listJudgeGrid?class_id=N ──────────────────────────────────────
+    // Returns grid-ready hunter judge data for one class. Reads pre-computed
+    // ranks from the derived columns (judge_round_rank, round_overall_rank,
+    // card_rank) so the client doesn't compute. Reshapes the flat join into
+    // per-entry → per-round → per-judge JSON. Empty when class has no
+    // judge data (jumper class, single-judge collapse, forced eq, etc.).
+    if (method === 'GET' && path === '/v3/listJudgeGrid') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const classIdStr = url.searchParams.get('class_id');
+      if (!classIdStr) return err('Missing class_id');
+      const classDbId = parseInt(classIdStr, 10);
+      if (!Number.isFinite(classDbId)) return err('Invalid class_id');
+      try {
+        const cls = await env.WEST_DB_V3.prepare(
+          `SELECT id, class_id, class_name, class_type, class_mode,
+                  scoring_type, num_rounds, num_judges, derby_type,
+                  is_equitation, is_championship
+           FROM classes WHERE id = ?`
+        ).bind(classDbId).first();
+        if (!cls) return err('Class not found', 404);
+
+        // Pull the per-entry summary + per-round + per-judge in one
+        // wide join. SQL ordering keeps it deterministic for the
+        // reshape pass.
+        const { results: rows } = await env.WEST_DB_V3.prepare(
+          `SELECT e.id AS entry_id, e.entry_num, e.horse_name, e.rider_name,
+                  e.country_code, e.sire, e.dam, e.owner_name, e.city, e.state,
+                  hs.current_place, hs.combined_total,
+                  hr.round, hr.total AS round_total, hr.status AS round_status,
+                  hr.numeric_status AS round_numeric_status,
+                  hr.round_overall_rank,
+                  hjs.judge_idx, hjs.base_score, hjs.high_options, hjs.handy_bonus,
+                  hjs.judge_round_rank,
+                  hjc.card_total, hjc.card_rank
+           FROM entries e
+           LEFT JOIN entry_hunter_summary       hs  ON hs.entry_id  = e.id
+           LEFT JOIN entry_hunter_rounds        hr  ON hr.entry_id  = e.id
+           LEFT JOIN entry_hunter_judge_scores  hjs ON hjs.entry_id = e.id
+                                                  AND hjs.round    = hr.round
+           LEFT JOIN entry_hunter_judge_cards   hjc ON hjc.entry_id = e.id
+                                                  AND hjc.judge_idx = hjs.judge_idx
+           WHERE e.class_id = ?
+           ORDER BY
+             CASE WHEN hs.current_place IS NULL THEN 999
+                  ELSE hs.current_place END,
+             CAST(e.entry_num AS INTEGER),
+             hr.round, hjs.judge_idx`
+        ).bind(classDbId).all();
+
+        // Reshape flat join → per-entry / per-round / per-judge tree.
+        const byEntry = new Map();
+        for (const row of (rows || [])) {
+          let entry = byEntry.get(row.entry_id);
+          if (!entry) {
+            entry = {
+              entry_id:    row.entry_id,
+              entry_num:   row.entry_num,
+              horse_name:  row.horse_name,
+              rider_name:  row.rider_name,
+              country_code: row.country_code,
+              sire:        row.sire,
+              dam:         row.dam,
+              owner_name:  row.owner_name,
+              city:        row.city,
+              state:       row.state,
+              place:       row.current_place,
+              combined:    row.combined_total,
+              rounds:      new Map(),
+              judgeCards:  new Map(),
+            };
+            byEntry.set(row.entry_id, entry);
+          }
+          if (row.round != null) {
+            let rd = entry.rounds.get(row.round);
+            if (!rd) {
+              rd = {
+                round:       row.round,
+                total:       row.round_total,
+                status:      row.round_status,
+                numericStatus: row.round_numeric_status,
+                overallRank: row.round_overall_rank,
+                judges:      [],
+              };
+              entry.rounds.set(row.round, rd);
+            }
+            if (row.judge_idx != null) {
+              const exists = rd.judges.find(j => j.idx === row.judge_idx);
+              if (!exists) {
+                rd.judges.push({
+                  idx:   row.judge_idx,
+                  base:  row.base_score,
+                  hiopt: row.high_options,
+                  handy: row.handy_bonus,
+                  rank:  row.judge_round_rank,
+                });
+              }
+            }
+          }
+          if (row.judge_idx != null && row.card_total != null) {
+            if (!entry.judgeCards.has(row.judge_idx)) {
+              entry.judgeCards.set(row.judge_idx, {
+                idx:   row.judge_idx,
+                total: row.card_total,
+                rank:  row.card_rank,
+              });
+            }
+          }
+        }
+
+        const outRows = [...byEntry.values()].map(e => ({
+          entry_id:    e.entry_id,
+          entry_num:   e.entry_num,
+          horse_name:  e.horse_name,
+          rider_name:  e.rider_name,
+          country_code: e.country_code,
+          sire:        e.sire,
+          dam:         e.dam,
+          owner_name:  e.owner_name,
+          city:        e.city,
+          state:       e.state,
+          place:       e.place,
+          combined:    e.combined,
+          rounds:      [...e.rounds.values()].sort((a, b) => a.round - b.round),
+          judgeCards:  [...e.judgeCards.values()].sort((a, b) => a.idx - b.idx),
+        }));
+
+        return json({
+          ok: true,
+          class: {
+            id:               cls.id,
+            class_id:         cls.class_id,
+            class_name:       cls.class_name,
+            class_type:       cls.class_type,
+            class_mode:       cls.class_mode,
+            scoring_type:     cls.scoring_type,
+            num_rounds:       cls.num_rounds,
+            num_judges:       cls.num_judges,
+            derby_type:       cls.derby_type,
+            is_equitation:    cls.is_equitation,
+            is_championship:  cls.is_championship,
+          },
+          rows: outRows,
+        });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/recomputeJudgeRanks ─────────────────────────────────────────
+    // Manually re-runs the judge-grid compute pass for a class. Used as a
+    // safety valve when raw rows change outside /v3/postCls (admin edit,
+    // direct D1 console) so derived ranks don't go stale. Idempotent.
+    // Body: { class_id: N }
+    if (method === 'POST' && path === '/v3/recomputeJudgeRanks') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const classDbId = parseInt(body.class_id, 10);
+      if (!Number.isFinite(classDbId)) return err('Invalid class_id');
+      try {
+        const cls = await env.WEST_DB_V3.prepare(
+          'SELECT id, class_id FROM classes WHERE id = ?'
+        ).bind(classDbId).first();
+        if (!cls) return err('Class not found', 404);
+        await computeJudgeGridRanks(env, classDbId);
+        console.log(`[v3] recomputed judge ranks for class ${cls.class_id} (id=${classDbId})`);
+        return json({ ok: true, class_id: cls.class_id });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
     // ── POST /v3/engineHeartbeat ─────────────────────────────────────────────
     // Engine identifies itself to the worker every ~10s. Proves the engine is
     // alive + reports its identity (show slug + ring num) + version. Stored in
@@ -3151,6 +3335,91 @@ export default {
 
 // ── ACTIVATE SHOW ─────────────────────────────────────────────────────────────
 // Called on heartbeat — flips status pending→active, updates name if set
+// ── HUNTER JUDGE-GRID RANK COMPUTE PASS ──────────────────────────────────────
+// Reads the raw per-judge / per-round / per-entry tables and writes back the
+// derived rank columns + entry_hunter_judge_cards aggregate. Idempotent —
+// safe to re-run any time the underlying raw data for a class changes
+// (every /v3/postCls runs it; the standalone /v3/recomputeJudgeRanks
+// endpoint also calls it for manual edits or backfill).
+//
+// Mode-agnostic: derby high_options + handy_bonus are nullable, so the
+// COALESCE math works for non-derby (where they're null/0) and derby alike.
+//
+// All four steps scope strictly to entries WHERE class_id = ? — never
+// touches other classes.
+async function computeJudgeGridRanks(env, classDbId) {
+  const db = env.WEST_DB_V3;
+
+  // (1) judge_round_rank — RANK over (round, judge_idx) by effective score.
+  await db.prepare(`
+    UPDATE entry_hunter_judge_scores AS hjs
+    SET judge_round_rank = (
+      SELECT rk FROM (
+        SELECT entry_id, round, judge_idx,
+               RANK() OVER (
+                 PARTITION BY round, judge_idx
+                 ORDER BY (base_score + COALESCE(high_options, 0) + COALESCE(handy_bonus, 0)) DESC
+               ) AS rk
+        FROM entry_hunter_judge_scores
+        WHERE entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
+      ) AS r
+      WHERE r.entry_id  = hjs.entry_id
+        AND r.round     = hjs.round
+        AND r.judge_idx = hjs.judge_idx
+    )
+    WHERE hjs.entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
+  `).bind(classDbId).run();
+
+  // (2) round_overall_rank — RANK over (round) by round total.
+  await db.prepare(`
+    UPDATE entry_hunter_rounds AS hr
+    SET round_overall_rank = (
+      SELECT rk FROM (
+        SELECT entry_id, round,
+               RANK() OVER (PARTITION BY round ORDER BY total DESC) AS rk
+        FROM entry_hunter_rounds
+        WHERE entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
+      ) AS r
+      WHERE r.entry_id = hr.entry_id
+        AND r.round    = hr.round
+    )
+    WHERE hr.entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
+  `).bind(classDbId).run();
+
+  // (3) Refresh entry_hunter_judge_cards aggregate. Wipe + insert keeps
+  //     stale rows from accumulating when a judge or entry drops out.
+  await db.prepare(`
+    DELETE FROM entry_hunter_judge_cards
+    WHERE entry_id IN (SELECT id FROM entries WHERE class_id = ?)
+  `).bind(classDbId).run();
+
+  await db.prepare(`
+    INSERT INTO entry_hunter_judge_cards (entry_id, judge_idx, card_total)
+    SELECT entry_id, judge_idx,
+           SUM(base_score + COALESCE(high_options, 0) + COALESCE(handy_bonus, 0))
+    FROM entry_hunter_judge_scores
+    WHERE entry_id IN (SELECT id FROM entries WHERE class_id = ?)
+    GROUP BY entry_id, judge_idx
+  `).bind(classDbId).run();
+
+  // (4) card_rank — RANK over judge_idx by card_total (this entry vs other
+  //     entries on the same judge's full card).
+  await db.prepare(`
+    UPDATE entry_hunter_judge_cards AS hjc
+    SET card_rank = (
+      SELECT rk FROM (
+        SELECT entry_id, judge_idx,
+               RANK() OVER (PARTITION BY judge_idx ORDER BY card_total DESC) AS rk
+        FROM entry_hunter_judge_cards
+        WHERE entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
+      ) AS r
+      WHERE r.entry_id  = hjc.entry_id
+        AND r.judge_idx = hjc.judge_idx
+    )
+    WHERE hjc.entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
+  `).bind(classDbId).run();
+}
+
 async function activateShow(env, slug) {
   try {
     // Pending → Active on first heartbeat (never touches complete)

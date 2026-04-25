@@ -147,10 +147,11 @@
   }
 
   // Place column — defers to jumperPlaceFor (suppresses if R1 killed
-  // under the method's ladder rules). Adds a Ch/Res marker on places
-  // 1 and 2 when the class is_championship — single source via
-  // WEST.format.championshipMarker so future hunter templates and
-  // surfaces use the same chip.
+  // under the method's ladder rules). On championship classes the
+  // Ch/Res chip REPLACES the place number for places 1/2 (Ch implies
+  // 1, Res implies 2 — number is redundant). Single source via
+  // WEST.format.championshipMarker so hunter and other surfaces share
+  // the rule.
   function renderPlaceCell(entry, cls) {
     var place = WEST.rules.jumperPlaceFor(
       entry.overall_place,
@@ -159,8 +160,10 @@
     );
     if (place == null) return '<span class="place-blank">—</span>';
     var marker = WEST.format.championshipMarker(place, cls.is_championship === 1);
-    var markerHtml = marker ? ' <span class="place-marker">' + marker + '</span>' : '';
-    return '<span class="place-num">' + place + '</span>' + markerHtml;
+    if (marker) {
+      return '<span class="place-marker place-marker-solo">' + marker + '</span>';
+    }
+    return '<span class="place-num">' + place + '</span>';
   }
 
   // Inline flag span for a class+entry pair. The show_flags policy is
@@ -268,24 +271,34 @@
       var cells = [];
       cells.push('<td class="entry-place">' + renderPlaceCell(entry, cls) + '</td>');
       cells.push('<td class="entry-num">' + escapeHtml(entry.entry_num || '') + '</td>');
-      // Rider primary, horse secondary — inverse of the round templates.
-      // Second line shows the rider's home city/state (since the rider is
-      // the subject of an equitation class). CSS scoping via the
-      // results-eq table class flips the bold/muted styling so rider
-      // reads bold and horse reads muted.
+      // Identity: rider primary, horse secondary — inverse of the round
+      // templates. WEST.format.singleLineIdentity gates the layout —
+      // forced EQ collapses rider + horse onto a single line (with a
+      // separator and the flag riding with the rider). Other EQ variants
+      // keep rider stacked above horse. CSS scoping via .results-eq
+      // flips the bold/muted styling so rider reads bold and horse muted.
+      var horseTxt = escapeHtml(entry.horse_name || '');
+      var riderTxt = escapeHtml(entry.rider_name || '—');
+      var flagSpan = flagify(cls, entry);
       var locParts = [];
       if (entry.city)  locParts.push(entry.city);
       if (entry.state) locParts.push(entry.state);
       var locLine = locParts.length
         ? '<div class="entry-meta">' + escapeHtml(locParts.join(', ')) + '</div>'
         : '';
-      cells.push(
-        '<td class="entry-horse-rider">' +
-          '<div class="entry-rider">' + escapeHtml(entry.rider_name || '—') + flagify(cls, entry) + '</div>' +
-          '<div class="entry-horse">' + escapeHtml(entry.horse_name || '') + '</div>' +
-          locLine +
-        '</td>'
-      );
+      var identityHtml;
+      if (WEST.format.singleLineIdentity(cls)) {
+        identityHtml = '<div class="entry-horse-line">' +
+          '<span class="entry-rider">' + riderTxt + flagSpan + '</span>' +
+          (horseTxt ? ' <span class="entry-sep">—</span> <span class="entry-horse">' + horseTxt + '</span>' : '') +
+        '</div>' + locLine;
+      } else {
+        identityHtml =
+          '<div class="entry-rider">' + riderTxt + flagSpan + '</div>' +
+          '<div class="entry-horse">' + horseTxt + '</div>' +
+          locLine;
+      }
+      cells.push('<td class="entry-horse-rider">' + identityHtml + '</td>');
       var isForcedEq = cls && cls.scoring_method === 7 && cls.scoring_modifier === 0;
       if (!isForcedEq) {
         // Method 7 scored stores the equitation score in r1_jump_faults

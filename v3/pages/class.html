@@ -68,7 +68,12 @@ const fmtDayLabel = WEST.format.dayLabel;
 // Page state. Results layout is driven by the show's admin setting
 // (shows.results_layout). Templates module defaults to 'stacked' when
 // the field is missing, so older shows / pre-migration data still works.
-const state = { cls: null, entries: null, show: null };
+// judgeGrid populated only for multi-judge hunter classes (see gate
+// WEST.format.judgesGridApplies); null otherwise. Per-entry judges
+// detail expands inline as a drop-down beneath each row when the
+// entry is clicked — managed via DOM class toggle, not React-style
+// re-render.
+const state = { cls: null, entries: null, show: null, judgeGrid: null };
 
 function renderHero(show, ring, cls) {
   const parts = [];
@@ -116,12 +121,37 @@ function renderResults() {
   // (shows.results_layout); templates default to 'stacked'.
   const layout = state.show && state.show.results_layout;
   if (cls.class_type === 'H') {
-    root.innerHTML = WEST.hunterTemplates.renderTable(cls, entries, { layout });
-  } else if (cls.class_type === 'J' || cls.class_type === 'T') {
+    // Standard combined table is the default. For multi-judge classes
+    // we pass the grid data into renderTable so each row can include
+    // a hidden per-entry drop-down with the judge detail.
+    root.innerHTML = WEST.hunterTemplates.renderTable(cls, entries, {
+      layout,
+      judgeGrid: state.judgeGrid,
+    });
+    wireJudgeDropdowns();
+    return;
+  }
+  if (cls.class_type === 'J' || cls.class_type === 'T') {
     root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries, { layout });
   } else {
     root.innerHTML = '<div class="placeholder">Class type not yet supported on the public results page.</div>';
   }
+}
+
+// Attach click handlers to multi-judge hunter rows so clicking the
+// row toggles the inline per-entry judges drop-down. Pure DOM toggle —
+// no re-render. Detail row is rendered inline by the templates module
+// next to the main row but hidden via CSS until .is-open is added.
+function wireJudgeDropdowns() {
+  document.querySelectorAll('tr.has-judges-toggle').forEach(row => {
+    row.addEventListener('click', () => {
+      const detail = row.nextElementSibling;
+      if (!detail || !detail.classList.contains('judges-detail-row')) return;
+      const willOpen = !detail.classList.contains('is-open');
+      detail.classList.toggle('is-open', willOpen);
+      row.classList.toggle('is-open', willOpen);
+    });
+  });
 }
 
 function renderNotices(cls) {
@@ -171,10 +201,20 @@ async function load() {
       return;
     }
     // /v3/listEntries keys off the DB PK, not the .cls class number.
-    const entriesRes = await fetchJson(`/v3/listEntries?class_id=${cls.id}`);
+    // For multi-judge hunter classes we ALSO pull the judges grid —
+    // grid renders below (or in place of) the standard combined table.
+    const entriesPromise = fetchJson(`/v3/listEntries?class_id=${cls.id}`);
+    const gridPromise = WEST.format.judgesGridApplies(cls)
+      ? fetchJson(`/v3/listJudgeGrid?class_id=${cls.id}`).catch(e => {
+          console.warn('judges grid fetch failed:', e.message);
+          return null;
+        })
+      : Promise.resolve(null);
+    const [entriesRes, gridRes] = await Promise.all([entriesPromise, gridPromise]);
     state.cls = cls;
     state.entries = entriesRes.entries || [];
     state.show = show;
+    state.judgeGrid = gridRes;
     renderHero(show, ring, cls);
     renderNotices(cls);
     renderResults();

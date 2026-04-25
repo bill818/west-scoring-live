@@ -1,7 +1,7 @@
 # JS Modules and Pages — Current State
 
 > Quick reference for "where does X live?" and "who consumes Y?"
-> Last updated: 2026-04-25 (Session 34, public pages refactor).
+> Last updated: 2026-04-25 (Session 36, judges grid + display polish).
 > Companion to [CENTRALIZED-JS-ARCHITECTURE.txt](CENTRALIZED-JS-ARCHITECTURE.txt) (the planning doc).
 
 ---
@@ -17,7 +17,7 @@ Every public page loads these via `<script>` tags. Worker and engine share them 
 | [west-status.js](../../v3/js/west-status.js) | Status code dictionary. ELIM/PARTIAL/HIDDEN categories. | `WEST.status.TEXT_CODES`, `categoryOf(code)`, `isKillingStatus(code)`, `publicLabel(code)` (collapses ELIM family → "EL") |
 | [west-rules.js](../../v3/js/west-rules.js) | Method-aware placement rules ("ladder" model). | `WEST.rules.JUMPER_METHODS`, `jumperIsPlaced`, `jumperPlaceFor`, `hunterIsPlaced`, `hunterPlaceFor` |
 | [west-jumper-templates.js](../../v3/js/west-jumper-templates.js) | Detection + per-template renderers for the jumper lens (1R/2R/3R/EQ/TEAM). | `WEST.jumperTemplates.detect(cls)`, `templates['1R']`, `templates['2R']`, `templates['3R']`, `templates['EQ']`, `templates['TEAM']`, `renderTable(cls, entries)` |
-| [west-hunter-templates.js](../../v3/js/west-hunter-templates.js) | Hunter lens templates — EQ / OVER_FENCES / FLAT / DERBY / SPECIAL. Detection on `is_equitation` then `class_mode`. | `WEST.hunterTemplates.detect(cls)`, `templates['EQ']`, `templates['OVER_FENCES']`, `templates['FLAT']`, `templates['DERBY']`, `templates['SPECIAL']`, `renderTable(cls, entries, opts)` |
+| [west-hunter-templates.js](../../v3/js/west-hunter-templates.js) | Hunter lens templates — EQ / OVER_FENCES / FLAT / DERBY / SPECIAL. Detection on `is_equitation` then `class_mode`. Inline judges-grid drop-down for multi-judge classes. | `WEST.hunterTemplates.detect(cls)`, `templates['EQ' / 'OVER_FENCES' / 'FLAT' / 'DERBY' / 'SPECIAL']`, `renderTable(cls, entries, { layout, judgeGrid })` (judgeGrid optional — when present and `judgesGridApplies` fires, each row gets a "▸ View judges" chip + hidden drop-down detail) |
 | [west-cls-jumper.js](../../v3/js/west-cls-jumper.js) | Jumper lens .cls column-position spec. Read by parser. | layout descriptor object |
 | [west-cls-hunter.js](../../v3/js/west-cls-hunter.js) | Hunter lens .cls column-position spec. Read by parser. | layout descriptor object |
 | [west-data.js](../../v3/js/west-data.js) | Network/transport layer (planned future home for WebSocket subscription). | (currently minimal) |
@@ -81,16 +81,36 @@ Engine (west-watcher / electron) — Windows-side
      ▼
 Cloudflare Worker (west-worker.js)
      │  parses with west-cls-{jumper,hunter}.js layout
-     │  writes WEST_DB_V3 (D1)
+     │  writes RAW tables (entries, entry_*_summary,
+     │                     entry_*_rounds, entry_hunter_judge_scores)
      │
-     │  GET /v3/listEntries, /v3/listClasses, /v3/getShow…
+     │  HUNTER STATS: SQL window-function compute pass writes
+     │   DERIVED columns / tables (judge_round_rank,
+     │   round_overall_rank, entry_hunter_judge_cards)
+     │
+     │  GET /v3/listEntries, /v3/listClasses, /v3/getShow,
+     │     /v3/listJudgeGrid …
      ▼
 Public page (show.html / ring.html / class.html)
      │  west-api.fetchJson()
-     │  west-jumper-templates.renderTable() ← uses status/rules/format
+     │  west-{jumper,hunter}-templates.renderTable() ← uses
+     │    status/rules/format
      ▼
 DOM
 ```
+
+**Worker endpoints (the read API surface):**
+
+| Endpoint | Returns |
+|---|---|
+| `GET /v3/listShows` | All shows (admin + public landing) |
+| `GET /v3/getShow?slug=X` | One show with full metadata |
+| `GET /v3/listRings?slug=X` | Rings for a show |
+| `GET /v3/listClasses?slug=X[&ring=N]` | Classes (entry counts included) |
+| `GET /v3/listEntries?class_id=N` | Wide-shape entries with both jumper + hunter round projections (single big JOIN) |
+| `GET /v3/listJudgeGrid?class_id=N` | Hunter judges-grid response — per-entry → per-round → per-judge tree with pre-computed ranks |
+| `POST /v3/postCls` | Engine .cls upload — parses + writes raw + runs compute pass |
+| `POST /v3/recomputeJudgeRanks` | Manual safety valve to re-run hunter judges-grid compute pass for one class |
 
 ---
 

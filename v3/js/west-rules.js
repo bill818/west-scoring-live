@@ -145,17 +145,29 @@
     if (!entry) return false;
     // Any placement counts as "competed" — even unplaced entries with
     // EL get a position-by-time at the bottom of the field.
+    // Wide-shape (listEntries): overall_place / current_place
     if (Number(entry.overall_place) > 0) return false;
     if (Number(entry.current_place) > 0) return false;
-    // Any combined / overall total
+    // Grid-shape (listJudgeGrid): place
+    if (Number(entry.place) > 0) return false;
+    // Any combined / overall total — wide vs grid field names
     if (Number(entry.combined_total) > 0) return false;
-    // Any round data — time, score, OR status code (including DNS code).
+    if (Number(entry.combined) > 0) return false;
+    // Wide-shape round fields — listEntries projection.
     for (var n = 1; n <= 3; n++) {
       if (entry['r' + n + '_time'])         return false;
       if (entry['r' + n + '_status'])       return false;
       if (entry['r' + n + '_total_faults']) return false;
       if (entry['r' + n + '_score_total'])  return false;
       if (entry['r' + n + '_h_status'])     return false;
+    }
+    // Grid-shape rounds array — listJudgeGrid response.
+    if (entry.rounds && entry.rounds.length) {
+      for (var i = 0; i < entry.rounds.length; i++) {
+        var rd = entry.rounds[i];
+        if (rd.total != null && Number(rd.total) > 0) return false;
+        if (rd.status) return false;
+      }
     }
     // Pure-zero, statusless entry — never competed.
     return true;
