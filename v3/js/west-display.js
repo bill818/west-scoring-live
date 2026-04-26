@@ -12,16 +12,24 @@
 // (live, display.html, show-level stats) start consuming the same
 // primitives. "We've duplicated chip styling 4-5 places" → one home.
 //
-// REFACTOR TARGETS (TODO — left for a future session):
-//   - show.html        → renderHero status-badge → WEST.display.statusBadge
-//   - index.html       → show-card status indicator (currently text-only)
-//   - admin.html       → show list status + sidebar dot
-//   - class.html       → hero-stats-tag chip
-//   - hunter-templates → judges-hint chip (▸ View judges)
-//   - jumper-templates → place-marker (Ch / Res)
+// CONSUMERS (current):
+//   - stats.html       → countryChip in entry-summary "By Country" list
+//   - show.html        → statusBadge in renderHero
 //
-// Today only stats.html consumes from west-display directly. Helpers
-// below are stable; refactor each page on its own schedule.
+// CONSUMERS (deferred / out-of-scope for refactor):
+//   - index.html / admin.html — status today is a colored dot, not a
+//     chip; switching to chip = feature change, not refactor. Decide
+//     visual direction before adopting.
+//   - class.html / ring.html — only static .header-tag / .hero-action
+//     elements; helper would just JS-render a static chip = no dedup.
+//   - hunter-templates judges-hint — a dropdown affordance with its
+//     own CSS + behavior; not really a chip.
+//   - jumper-templates / hunter-templates place-marker — Ch/Res
+//     already routed through WEST.format.championshipMarker; .wd-chip
+//     swap risks visual drift without coordinated CSS retirement.
+//
+// Helpers below are stable; expand when a NEW chip pattern appears
+// across pages, not to retroactively refactor settled code.
 //
 // Dual-env IIFE — browser pages load via <script>.
 
