@@ -2582,6 +2582,17 @@ export default {
               console.log(`[v3/postCls] jumper scoring failed for ${slug}/${ringNum}/${classId}: ${scErr.message}`);
               entriesStatus += ` | scoring error: ${scErr.message}`;
             }
+
+            // Pre-compute class_jumper_stats. Mirrors the hunter
+            // computeJudgeGridRanks pattern — reads what we just wrote;
+            // failures here are logged but don't fail the whole POST.
+            try {
+              await computeJumperStats(env, classDbId);
+              entriesStatus += ` | jumper-stats computed`;
+            } catch (jsErr) {
+              console.log(`[v3/postCls] jumper stats compute failed for ${slug}/${ringNum}/${classId}: ${jsErr.message}`);
+              entriesStatus += ` | jumper-stats error: ${jsErr.message}`;
+            }
           }
 
           // Phase 2d hunter: hunter-scoring pass. Only runs for H lens.
@@ -3204,6 +3215,55 @@ export default {
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
+    // ── POST /v3/recomputeJumperStats ────────────────────────────────────────
+    // Manual recompute of class_jumper_stats. Safety valve when raw rows
+    // change outside /v3/postCls (admin edit, direct D1 console) so derived
+    // stats don't go stale. Idempotent.
+    //   Body: {}                       → recompute every J/T class
+    //   Body: { slug: 'X' }            → recompute every J/T class in show
+    //   Body: { class_id: N }          → recompute one class
+    if (method === 'POST' && path === '/v3/recomputeJumperStats') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body = {};
+      try { body = await request.json(); } catch (e) { /* empty body ok */ }
+      const oneClassId = body && body.class_id != null ? parseInt(body.class_id, 10) : null;
+      const slug       = body && body.slug ? String(body.slug) : null;
+      try {
+        let rows;
+        if (oneClassId != null) {
+          if (!Number.isFinite(oneClassId)) return err('Invalid class_id');
+          const r = await env.WEST_DB_V3.prepare(
+            `SELECT id FROM classes WHERE id = ? AND class_type IN ('J','T') AND deleted_at IS NULL`
+          ).bind(oneClassId).all();
+          rows = r.results || [];
+        } else if (slug) {
+          const r = await env.WEST_DB_V3.prepare(
+            `SELECT c.id FROM classes c
+             JOIN shows s ON s.id = c.show_id
+             WHERE s.slug = ? AND c.class_type IN ('J','T') AND c.deleted_at IS NULL`
+          ).bind(slug).all();
+          rows = r.results || [];
+        } else {
+          const r = await env.WEST_DB_V3.prepare(
+            `SELECT id FROM classes WHERE class_type IN ('J','T') AND deleted_at IS NULL`
+          ).all();
+          rows = r.results || [];
+        }
+        let updated = 0, errors = 0;
+        for (const row of rows) {
+          try {
+            await computeJumperStats(env, row.id);
+            updated++;
+          } catch (e) {
+            console.warn('[v3/recomputeJumperStats] class id=' + row.id + ': ' + e.message);
+            errors++;
+          }
+        }
+        return json({ ok: true, scanned: rows.length, updated, errors });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
     // ── POST /v3/reparseClassHeaders ─────────────────────────────────────────
     // Backfill / replay tool. Walks classes (optionally filtered by slug)
     // and re-runs parseClsHeaderV3 against each class's archived .cls bytes
@@ -3492,6 +3552,274 @@ async function computeJudgeGridRanks(env, classDbId) {
     )
     WHERE hjc.entry_id IN (SELECT id FROM entries WHERE class_id = ?1)
   `).bind(classDbId).run();
+}
+
+// ─── computeJumperStats ───────────────────────────────────────────────────
+//
+// Pre-compute per-class jumper aggregations into class_jumper_stats. The
+// jumper analog of computeJudgeGridRanks. Runs synchronously inside
+// /v3/postCls jumper branch right after entry_jumper_rounds writes —
+// stats refresh the moment new .cls bytes land.
+//
+// One row per class. DELETE-then-INSERT pattern via UPSERT. Mode-aware:
+// fault histogram scheme (standard / speed / optimum / none) selected
+// per round via bucketSchemeFor(method, modifier, round).
+//
+// Design doc: docs/v3-planning/JUMPER-STATS-DESIGN.md
+async function computeJumperStats(env, classDbId) {
+  const db = env.WEST_DB_V3;
+
+  // Class metadata — needed for scheme dispatch (method, modifier) and
+  // optimum-scheme baseline (r1_time_allowed - 4).
+  const cls = await db.prepare(
+    'SELECT scoring_method, scoring_modifier, r1_time_allowed FROM classes WHERE id = ?'
+  ).bind(classDbId).first();
+  if (!cls) {
+    console.warn('[computeJumperStats] class not found:', classDbId);
+    return;
+  }
+  const method   = Number(cls.scoring_method);
+  const modifier = Number(cls.scoring_modifier);
+
+  // Entry-level counts.
+  const counts = await db.prepare(`
+    SELECT
+      COUNT(*) AS total_entries,
+      SUM(CASE
+        WHEN NOT EXISTS (
+          SELECT 1 FROM entry_jumper_rounds r
+          WHERE r.entry_id = e.id
+            AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+        ) THEN 1 ELSE 0
+      END) AS scratched,
+      SUM(CASE
+        WHEN EXISTS (
+          SELECT 1 FROM entry_jumper_rounds r
+          WHERE r.entry_id = e.id
+            AND r.status IN ('EL','RF','DNF','OC')
+        ) THEN 1 ELSE 0
+      END) AS eliminated
+    FROM entries e
+    WHERE e.class_id = ?
+  `).bind(classDbId).first();
+
+  // Per-round stats (always run all 3; empty rounds produce zeros).
+  const rounds = [null, null, null, null]; // 1-indexed
+  for (let n = 1; n <= 3; n++) {
+    rounds[n] = await computeJumperRoundStats(db, classDbId, n, method, modifier, cls.r1_time_allowed);
+  }
+
+  // UPSERT.
+  const r1 = rounds[1], r2 = rounds[2], r3 = rounds[3];
+  await db.prepare(`
+    INSERT INTO class_jumper_stats (
+      class_id,
+      total_entries, scratched, eliminated,
+      r1_competed, r1_clears, r1_time_faults, r1_avg_total_time, r1_avg_clear_time,
+      r1_fastest_clear_entry_id, r1_fastest_clear_time, r1_fault_buckets,
+      r2_competed, r2_clears, r2_time_faults, r2_avg_total_time, r2_avg_clear_time,
+      r2_fastest_clear_entry_id, r2_fastest_clear_time, r2_fault_buckets,
+      r3_competed, r3_clears, r3_time_faults, r3_avg_total_time, r3_avg_clear_time,
+      r3_fastest_clear_entry_id, r3_fastest_clear_time, r3_fault_buckets,
+      computed_at
+    ) VALUES (
+      ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?,
+      datetime('now')
+    )
+    ON CONFLICT(class_id) DO UPDATE SET
+      total_entries             = excluded.total_entries,
+      scratched                 = excluded.scratched,
+      eliminated                = excluded.eliminated,
+      r1_competed               = excluded.r1_competed,
+      r1_clears                 = excluded.r1_clears,
+      r1_time_faults            = excluded.r1_time_faults,
+      r1_avg_total_time         = excluded.r1_avg_total_time,
+      r1_avg_clear_time         = excluded.r1_avg_clear_time,
+      r1_fastest_clear_entry_id = excluded.r1_fastest_clear_entry_id,
+      r1_fastest_clear_time     = excluded.r1_fastest_clear_time,
+      r1_fault_buckets          = excluded.r1_fault_buckets,
+      r2_competed               = excluded.r2_competed,
+      r2_clears                 = excluded.r2_clears,
+      r2_time_faults            = excluded.r2_time_faults,
+      r2_avg_total_time         = excluded.r2_avg_total_time,
+      r2_avg_clear_time         = excluded.r2_avg_clear_time,
+      r2_fastest_clear_entry_id = excluded.r2_fastest_clear_entry_id,
+      r2_fastest_clear_time     = excluded.r2_fastest_clear_time,
+      r2_fault_buckets          = excluded.r2_fault_buckets,
+      r3_competed               = excluded.r3_competed,
+      r3_clears                 = excluded.r3_clears,
+      r3_time_faults            = excluded.r3_time_faults,
+      r3_avg_total_time         = excluded.r3_avg_total_time,
+      r3_avg_clear_time         = excluded.r3_avg_clear_time,
+      r3_fastest_clear_entry_id = excluded.r3_fastest_clear_entry_id,
+      r3_fastest_clear_time     = excluded.r3_fastest_clear_time,
+      r3_fault_buckets          = excluded.r3_fault_buckets,
+      computed_at               = datetime('now')
+  `).bind(
+    classDbId,
+    counts.total_entries || 0, counts.scratched || 0, counts.eliminated || 0,
+    r1.competed, r1.clears, r1.time_faults, r1.avg_total_time, r1.avg_clear_time,
+    r1.fastest_clear_entry_id, r1.fastest_clear_time, r1.fault_buckets,
+    r2.competed, r2.clears, r2.time_faults, r2.avg_total_time, r2.avg_clear_time,
+    r2.fastest_clear_entry_id, r2.fastest_clear_time, r2.fault_buckets,
+    r3.competed, r3.clears, r3.time_faults, r3.avg_total_time, r3.avg_clear_time,
+    r3.fastest_clear_entry_id, r3.fastest_clear_time, r3.fault_buckets,
+  ).run();
+}
+
+async function computeJumperRoundStats(db, classDbId, round, method, modifier, r1TimeAllowed) {
+  const empty = {
+    competed: 0, clears: 0, time_faults: 0,
+    avg_total_time: null, avg_clear_time: null,
+    fastest_clear_entry_id: null, fastest_clear_time: null,
+    fault_buckets: null,
+  };
+  const agg = await db.prepare(`
+    SELECT
+      COUNT(*) AS competed,
+      SUM(CASE WHEN r.total_faults = 0 AND r.status IS NULL THEN 1 ELSE 0 END) AS clears,
+      SUM(CASE WHEN r.time_faults > 0 THEN 1 ELSE 0 END) AS time_faults,
+      AVG(r.total_time) AS avg_total_time,
+      AVG(CASE WHEN r.total_faults = 0 AND r.status IS NULL THEN r.total_time END) AS avg_clear_time
+    FROM entry_jumper_rounds r
+    JOIN entries e ON e.id = r.entry_id
+    WHERE e.class_id = ?
+      AND r.round = ?
+      AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+  `).bind(classDbId, round).first();
+  if (!agg || (agg.competed || 0) === 0) return empty;
+
+  const fastest = await db.prepare(`
+    SELECT r.entry_id, r.total_time
+    FROM entry_jumper_rounds r
+    JOIN entries e ON e.id = r.entry_id
+    WHERE e.class_id = ?
+      AND r.round = ?
+      AND r.total_faults = 0
+      AND r.status IS NULL
+      AND r.total_time IS NOT NULL
+    ORDER BY r.total_time ASC
+    LIMIT 1
+  `).bind(classDbId, round).first();
+
+  const scheme = bucketSchemeFor(method, modifier, round);
+  const buckets = await computeJumperBuckets(db, classDbId, round, scheme, r1TimeAllowed);
+
+  return {
+    competed:               agg.competed || 0,
+    clears:                 agg.clears   || 0,
+    time_faults:            agg.time_faults || 0,
+    avg_total_time:         agg.avg_total_time,
+    avg_clear_time:         agg.avg_clear_time,
+    fastest_clear_entry_id: fastest ? fastest.entry_id   : null,
+    fastest_clear_time:     fastest ? fastest.total_time : null,
+    fault_buckets:          buckets ? JSON.stringify(buckets) : null,
+  };
+}
+
+// Method → bucket scheme. Round-aware so method 6 modifier=1 (1R optimum
+// promoted to 2R+JO) can mix optimum (R1) + standard (R2 = JO).
+function bucketSchemeFor(method, modifier, round) {
+  if (method === 6) {
+    if (round === 1) return 'optimum';
+    if (Number(modifier) === 1 && round === 2) return 'standard';
+    return 'none';
+  }
+  if ([2, 3, 8, 9, 10, 11, 13, 14, 15].includes(method)) return 'standard';
+  if ([0, 4].includes(method)) return 'speed';
+  return 'none';
+}
+
+async function computeJumperBuckets(db, classDbId, round, scheme, r1TimeAllowed) {
+  if (scheme === 'none') return null;
+
+  if (scheme === 'standard') {
+    const r = await db.prepare(`
+      SELECT
+        SUM(CASE WHEN r.total_faults = 0 AND r.status IS NULL    THEN 1 ELSE 0 END) AS clear,
+        SUM(CASE WHEN r.total_faults BETWEEN 1 AND 3             THEN 1 ELSE 0 END) AS flts1_3,
+        SUM(CASE WHEN r.total_faults = 4                         THEN 1 ELSE 0 END) AS flts4,
+        SUM(CASE WHEN r.total_faults BETWEEN 5 AND 7             THEN 1 ELSE 0 END) AS flts5_7,
+        SUM(CASE WHEN r.total_faults = 8                         THEN 1 ELSE 0 END) AS flts8,
+        SUM(CASE WHEN r.total_faults BETWEEN 9 AND 12            THEN 1 ELSE 0 END) AS flts9_12,
+        SUM(CASE WHEN r.total_faults >= 13                       THEN 1 ELSE 0 END) AS flts13p,
+        SUM(CASE WHEN r.status IN ('EL','RF','DNF','OC')         THEN 1 ELSE 0 END) AS elim
+      FROM entry_jumper_rounds r
+      JOIN entries e ON e.id = r.entry_id
+      WHERE e.class_id = ? AND r.round = ?
+        AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+    `).bind(classDbId, round).first();
+    return {
+      scheme: 'standard',
+      buckets: [
+        { label: 'Clear',     count: r.clear    || 0 },
+        { label: '1-3 flts',  count: r.flts1_3  || 0 },
+        { label: '4 flts',    count: r.flts4    || 0 },
+        { label: '5-7 flts',  count: r.flts5_7  || 0 },
+        { label: '8 flts',    count: r.flts8    || 0 },
+        { label: '9-12 flts', count: r.flts9_12 || 0 },
+        { label: '13+ flts',  count: r.flts13p  || 0 },
+        { label: 'EL/RF/OC',  count: r.elim     || 0 },
+      ],
+    };
+  }
+
+  if (scheme === 'speed') {
+    const r = await db.prepare(`
+      SELECT
+        SUM(CASE WHEN r.jump_faults = 0 AND r.status IS NULL THEN 1 ELSE 0 END) AS clean,
+        SUM(CASE WHEN r.jump_faults BETWEEN 1 AND 4          THEN 1 ELSE 0 END) AS one_rail,
+        SUM(CASE WHEN r.jump_faults BETWEEN 5 AND 8          THEN 1 ELSE 0 END) AS two_rails,
+        SUM(CASE WHEN r.jump_faults >= 9                     THEN 1 ELSE 0 END) AS three_plus,
+        SUM(CASE WHEN r.status IN ('EL','RF','DNF','OC')     THEN 1 ELSE 0 END) AS elim
+      FROM entry_jumper_rounds r
+      JOIN entries e ON e.id = r.entry_id
+      WHERE e.class_id = ? AND r.round = ?
+        AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+    `).bind(classDbId, round).first();
+    return {
+      scheme: 'speed',
+      buckets: [
+        { label: 'Clean',       count: r.clean      || 0 },
+        { label: '1 rail (4)',  count: r.one_rail   || 0 },
+        { label: '2 rails (8)', count: r.two_rails  || 0 },
+        { label: '3+ rails',    count: r.three_plus || 0 },
+        { label: 'EL/RF/OC',    count: r.elim       || 0 },
+      ],
+    };
+  }
+
+  if (scheme === 'optimum') {
+    if (!r1TimeAllowed || r1TimeAllowed <= 4) return null;
+    const optimum = r1TimeAllowed - 4;
+    const r = await db.prepare(`
+      SELECT
+        SUM(CASE WHEN r.status IS NULL AND ABS(r.total_time - ?) <= 1                                         THEN 1 ELSE 0 END) AS d0_1,
+        SUM(CASE WHEN r.status IS NULL AND ABS(r.total_time - ?) >  1 AND ABS(r.total_time - ?) <= 3          THEN 1 ELSE 0 END) AS d1_3,
+        SUM(CASE WHEN r.status IS NULL AND ABS(r.total_time - ?) >  3 AND ABS(r.total_time - ?) <= 5          THEN 1 ELSE 0 END) AS d3_5,
+        SUM(CASE WHEN r.status IS NULL AND ABS(r.total_time - ?) >  5                                         THEN 1 ELSE 0 END) AS d5p,
+        SUM(CASE WHEN r.status IN ('EL','RF','DNF','OC')                                                       THEN 1 ELSE 0 END) AS elim
+      FROM entry_jumper_rounds r
+      JOIN entries e ON e.id = r.entry_id
+      WHERE e.class_id = ? AND r.round = ?
+        AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+    `).bind(optimum, optimum, optimum, optimum, optimum, optimum, classDbId, round).first();
+    return {
+      scheme: 'optimum',
+      buckets: [
+        { label: '0-1s off', count: r.d0_1 || 0 },
+        { label: '1-3s off', count: r.d1_3 || 0 },
+        { label: '3-5s off', count: r.d3_5 || 0 },
+        { label: '5+s off',  count: r.d5p  || 0 },
+        { label: 'EL/RF/OC', count: r.elim || 0 },
+      ],
+    };
+  }
+
+  return null;
 }
 
 async function activateShow(env, slug) {
