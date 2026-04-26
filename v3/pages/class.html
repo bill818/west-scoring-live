@@ -9,7 +9,7 @@
 <title>WEST Scoring — Class</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="west.css">
 </head>
 <body>
@@ -94,7 +94,7 @@ function renderHero(show, ring, cls) {
   // dedicated subtitle so it reads as patron / award context.
   if (cls.sponsor) parts.push(`<div class="hero-sponsor">${escapeHtml(cls.sponsor)}</div>`);
   // Trophy text comes from the @foot row in the .cls (operator-typed
-  // award name). Italicized red Playfair to read as a patron / prize line.
+  // award name). Italicized red display sans to read as a patron / prize line.
   if (cls.trophy) parts.push(`<div class="hero-trophy">${escapeHtml(cls.trophy)}</div>`);
   document.getElementById('hero').innerHTML = parts.join('');
 

@@ -28,7 +28,8 @@
 
 /* ── RESETS + BASE ───────────────────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--off-white);color:var(--text-body);font-family:'Source Sans 3',sans-serif;min-height:100vh;}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body{background:var(--off-white);color:var(--text-body);font-family:'Lato',sans-serif;min-height:100vh;}
 button{font-family:inherit;cursor:pointer;border:none;background:none;}
 input,select{font-family:inherit;}
 a{color:var(--blue);text-decoration:none;}
@@ -39,7 +40,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .header-inner{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
 .logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
 .logo-img{height:30px;width:auto;filter:invert(1);}
-.logo-west{font-family:'Playfair Display',serif;font-weight:900;font-size:24px;color:#fff;line-height:1;}
+.logo-west{font-family:'Oswald',sans-serif;font-weight:700;font-size:24px;color:#fff;line-height:1;}
 .logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
 .logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
 @media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
@@ -91,19 +92,19 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 
 .detail{min-height:400px;}
 .empty-state{padding:60px 20px;text-align:center;color:var(--text-muted);}
-.empty-state h2{font-family:'Playfair Display',serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
+.empty-state h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
 .empty-state p{font-size:14px;max-width:400px;margin:0 auto;}
 
 .show-header{padding:20px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin-bottom:20px;}
 .show-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px;}
-.show-title{font-family:'Playfair Display',serif;font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
+.show-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
 .show-title-actions{display:flex;gap:8px;flex-shrink:0;}
 .show-meta{display:flex;gap:20px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
 .show-meta-item span{color:var(--text-body);}
 
 .section{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:20px;margin-bottom:16px;}
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;}
-.section-title{font-family:'Playfair Display',serif;font-weight:700;font-size:18px;color:var(--text-body);}
+.section-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);border-left:3px solid var(--red);padding-left:10px;line-height:1.1;}
 .section-actions{display:flex;gap:8px;align-items:center;}
 .section-search{padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;width:180px;}
 .section-sort{padding:6px 10px;font-size:12px;font-family:'DM Mono',monospace;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;}
@@ -211,7 +212,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 dialog{border:none;border-radius:var(--card-radius);padding:0;max-width:450px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);}
 dialog::backdrop{background:rgba(0,0,0,.4);}
 .dialog-header{padding:20px 24px 0;}
-.dialog-header h2{font-family:'Playfair Display',serif;font-weight:700;font-size:20px;}
+.dialog-header h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:20px;}
 .dialog-body{padding:20px 24px;}
 .dialog-footer{padding:16px 24px;background:var(--off-white);border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;border-radius:0 0 var(--card-radius) var(--card-radius);}
 .form-group{margin-bottom:16px;}
@@ -237,13 +238,13 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .toolbar{max-width:1100px;margin:0 auto;padding:16px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .toolbar-left{display:flex;align-items:center;gap:16px;}
 .active-block{display:flex;align-items:center;gap:10px;}
-.active-num{font-family:'Playfair Display',serif;font-weight:900;font-size:32px;line-height:1;color:var(--red);}
+.active-num{font-family:'Oswald',sans-serif;font-weight:700;font-size:32px;line-height:1;color:var(--red);}
 .active-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);line-height:1.2;}
 
 .search-bar{background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;max-width:1100px;margin:0 auto;}
 .search-wrap{flex:1;position:relative;}
 .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;pointer-events:none;}
-.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Source Sans 3',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
+.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Lato',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
 .search-input::placeholder{color:#aaa;}
 .search-input:focus{border-color:var(--black);}
 .year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
@@ -256,7 +257,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .show-body .show-name{font-size:17px;font-weight:500;margin-bottom:2px;}
 
 .no-results{padding:60px 20px;text-align:center;color:var(--text-muted);display:none;}
-.no-results h2{font-family:'Playfair Display',serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
+.no-results h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
 
 /* ── PUBLIC SHOW PAGE: BREADCRUMBS / HERO / RING CARDS ───────────────── */
 .breadcrumbs{max-width:1100px;margin:0 auto;padding:10px 12px;display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);}
@@ -266,12 +267,12 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .bc-current{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 .hero{max-width:1100px;margin:0 auto;padding:20px 12px 18px;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
-.hero-name{font-family:'Playfair Display',serif;font-weight:900;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
+.hero-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
 .hero-dates{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:6px;}
 .hero-venue{font-size:15px;color:var(--text-body);margin-bottom:2px;}
 .hero-location{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
 /* Sponsor (H[29] text) — patron / award context line in the hero. */
-.hero-sponsor{font-family:'Source Sans 3',sans-serif;font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
+.hero-sponsor{font-family:'Lato',sans-serif;font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
 .status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:10px;}
 .status-active{background:var(--green-bg);color:var(--green);}
 .status-pending,.status-upcoming{background:var(--blue-bg);color:var(--blue);}
@@ -286,7 +287,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .ring-card:hover{border-color:var(--blue);text-decoration:none;}
 .ring-card-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:8px 12px;border-radius:6px;min-width:52px;text-align:center;flex-shrink:0;}
 .ring-card-body{flex:1;min-width:0;}
-.ring-card-name{font-family:'Playfair Display',serif;font-weight:700;font-size:17px;color:var(--black);line-height:1.2;margin-bottom:2px;}
+.ring-card-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:17px;color:var(--black);line-height:1.2;margin-bottom:2px;}
 .ring-card-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
 .ring-card-chevron{font-size:20px;color:#ccc;flex-shrink:0;}
 
@@ -326,18 +327,24 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table .entry-place{width:48px;}
 .results-table .entry-num{width:48px;}
 .results-table .entry-horse-rider{width:100%;}
+.results-table thead .entry-horse-rider .hd-line{display:block;line-height:1.35;}
+@media(max-width:480px){
+  .results-table thead .entry-horse-rider .hd-breeding{display:none;}
+  .results-table .entry-pedigree{display:none;}
+}
 /* Round templates: horse + rider share a single line. Wrapper sets
    the block context; horse/rider/separator are inline siblings. */
 .results-table .entry-horse-line{line-height:1.25;}
 .results-table .entry-horse{font-weight:600;color:var(--black);}
 .results-table .entry-rider{font-size:12px;color:var(--text-muted);}
 .results-table .entry-sep{color:#bbb;font-size:11px;margin:0 2px;}
-/* Subtitle lines beneath horse/rider — pedigree (sire × dam) and owner
-   for round templates, city/state for EQ. Pedigree is the smallest +
-   italic so it reads as definitively secondary; owner is the same dim
-   muted treatment but normal style. */
-.results-table .entry-pedigree{font-family:'DM Mono',monospace;font-size:10px;font-style:italic;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
-.results-table .entry-owner{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:1px;}
+/* Subtitle lines beneath horse/rider — owner (italic) and pedigree
+   (sire × dam, wrapped in parens via ::before/::after). Breeding hides
+   below 480px (see media query above). */
+.results-table .entry-owner{font-family:'DM Mono',monospace;font-size:11px;font-style:italic;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:1px;}
+.results-table .entry-pedigree{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
+.results-table .entry-pedigree::before{content:'(';}
+.results-table .entry-pedigree::after{content:')';}
 /* EQ city/state subtitle — single line, same treatment as owner. */
 .results-table .entry-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
 /* EQ template flips emphasis: rider primary (bold + body color),
@@ -425,7 +432,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 /* Hero trophy + class info banner area. Trophy reads as the patron
    line; banners surface non-obvious format rules (Reverse rank,
    Ribbons only, Jogged, etc.) so spectators understand the class. */
-.hero-trophy{font-family:'Playfair Display',serif;font-size:14px;font-style:italic;color:var(--red);margin-top:6px;letter-spacing:.02em;}
+.hero-trophy{font-family:'Oswald',sans-serif;font-size:14px;font-style:italic;color:var(--red);margin-top:6px;letter-spacing:.02em;}
 .class-notices{max-width:1100px;margin:0 auto;padding:0 12px 0;}
 .class-notice{display:block;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);background:var(--off-white);border-left:3px solid var(--border);padding:8px 12px;margin-top:8px;border-radius:3px;}
 

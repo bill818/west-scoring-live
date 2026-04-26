@@ -1,0 +1,37 @@
+name = "west-worker"
+main = "west-worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# V3_ENABLED gates all v3 code paths in the worker. Flipped ON 2026-04-21
+# during Phase 1 development — v3 endpoints under /v3/* are reachable and
+# write to WEST_DB_V3 (separate DB). v2 endpoints are unaffected because they
+# don't check this flag. At v2 cutover, v2 code gets deleted/walled off; this
+# flag becomes redundant and can be removed.
+V3_ENABLED = "true"
+
+[[kv_namespaces]]
+binding = "WEST_LIVE"
+id = "838b38e150d24177be0bbdccf7a3e530"
+
+[[d1_databases]]
+binding = "WEST_DB"
+database_name = "west-scoring"
+database_id = "085ce299-f591-441b-8edf-b4327b924422"
+
+# v3 database. Separate from v2 so v3 schema decisions don't constrain v2
+# and vice versa. v2 stays readable (historical reference for stats
+# training / parser validation) but nothing writes to it from v3 code.
+# v3 endpoints use env.WEST_DB_V3 exclusively.
+[[d1_databases]]
+binding = "WEST_DB_V3"
+database_name = "west-scoring-v3"
+database_id = "93f7a6dd-4b4a-4e45-9730-d27aff7dfb19"
+
+# v3 raw .cls archive. Engine POSTs raw file bytes; worker writes to R2
+# at key "{slug}/{ring_num}/{class_num}.cls" — one object per class,
+# overwritten on every change (Option B, locked 2026-04-21). Historical
+# snapshots can be added later if needed.
+[[r2_buckets]]
+binding = "WEST_R2_CLS"
+bucket_name = "v3-cls"

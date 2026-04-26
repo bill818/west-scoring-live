@@ -182,7 +182,7 @@
     return [
       { label: 'Pl', cls: 'entry-place' },
       { label: '#',  cls: 'entry-num'   },
-      { label: riderPrimary ? 'Rider / Horse' : 'Horse / Rider', cls: 'entry-horse-rider' },
+      { html: '<span class="hd-line">' + (riderPrimary ? 'Rider-Horse' : 'Horse-Rider') + '</span><span class="hd-line">Owner</span><span class="hd-line hd-breeding">Breeding</span>', cls: 'entry-horse-rider' },
     ];
   }
 
@@ -281,7 +281,8 @@
     var headers = tpl.columns(cls);
     var thead = '<thead><tr>' +
       headers.map(function (h) {
-        return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
+        var content = h.html != null ? h.html : escapeHtml(h.label);
+        return '<th class="' + escapeHtml(h.cls) + '">' + content + '</th>';
       }).join('') +
       '</tr></thead>';
     var colspan = headers.length;
@@ -435,7 +436,8 @@
     headers.push({ label: 'Rounds', cls: 'entry-round-stack' });
     var thead = '<thead><tr>' +
       headers.map(function (h) {
-        return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
+        var content = h.html != null ? h.html : escapeHtml(h.label);
+        return '<th class="' + escapeHtml(h.cls) + '">' + content + '</th>';
       }).join('') +
       '</tr></thead>';
     var colspan = headers.length;

@@ -217,9 +217,9 @@
     // source of truth shared across templates / live / stats / display.
     function buildHeaders(cls) {
       var hdrs = [
-        { label: 'Pl',            cls: 'entry-place'        },
-        { label: '#',             cls: 'entry-num'          },
-        { label: 'Horse / Rider', cls: 'entry-horse-rider'  },
+        { label: 'Pl', cls: 'entry-place' },
+        { label: '#',  cls: 'entry-num'   },
+        { html: '<span class="hd-line">Horse-Rider</span><span class="hd-line">Owner</span><span class="hd-line hd-breeding">Breeding</span>', cls: 'entry-horse-rider' },
       ];
       var method   = cls && cls.scoring_method;
       var modifier = cls && cls.scoring_modifier;
@@ -364,7 +364,8 @@
     var headers = tpl.columns(cls);
     var thead = '<thead><tr>' +
       headers.map(function (h) {
-        return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
+        var content = h.html != null ? h.html : escapeHtml(h.label);
+        return '<th class="' + escapeHtml(h.cls) + '">' + content + '</th>';
       }).join('') +
       '</tr></thead>';
     var tbody = '<tbody>' +
@@ -379,14 +380,15 @@
   // Round 1, etc.) per Bill's session-34 spec — saves horizontal space.
   function renderStackedTable(cls, entries, tplId) {
     var headers = [
-      { label: 'Pl',            cls: 'entry-place'        },
-      { label: '#',             cls: 'entry-num'          },
-      { label: 'Horse / Rider', cls: 'entry-horse-rider'  },
-      { label: 'Rounds',        cls: 'entry-round-stack'  },
+      { label: 'Pl', cls: 'entry-place' },
+      { label: '#',  cls: 'entry-num'   },
+      { html: '<span class="hd-line">Horse-Rider</span><span class="hd-line">Owner</span><span class="hd-line hd-breeding">Breeding</span>', cls: 'entry-horse-rider' },
+      { label: 'Rounds', cls: 'entry-round-stack' },
     ];
     var thead = '<thead><tr>' +
       headers.map(function (h) {
-        return '<th class="' + escapeHtml(h.cls) + '">' + escapeHtml(h.label) + '</th>';
+        var content = h.html != null ? h.html : escapeHtml(h.label);
+        return '<th class="' + escapeHtml(h.cls) + '">' + content + '</th>';
       }).join('') +
       '</tr></thead>';
     var tbody = '<tbody>' +
