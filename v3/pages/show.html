@@ -47,6 +47,7 @@
      for escape, day labels, country flags, AUTH header, worker URL. -->
 <script src="../js/west-format.js"></script>
 <script src="../js/west-api.js"></script>
+<script src="../js/west-display.js"></script>
 
 <script>
 const escapeHtml = WEST.format.escapeHtml;
@@ -99,7 +100,7 @@ function renderHero(show) {
   if (dates) parts.push(`<div class="hero-dates">${escapeHtml(dates)}</div>`);
   if (show.venue) parts.push(`<div class="hero-venue">${escapeHtml(show.venue)}</div>`);
   if (show.location) parts.push(`<div class="hero-location">${escapeHtml(show.location)}</div>`);
-  parts.push(`<div class="status-badge status-${escapeHtml(status)}">${escapeHtml(status)}</div>`);
+  parts.push(WEST.display.statusBadge(status));
   document.getElementById('hero').innerHTML = parts.join('');
   document.getElementById('bcCurrent').textContent = show.name || show.slug;
   document.title = `${show.name} — WEST Scoring`;
