@@ -548,3 +548,29 @@ footer a{color:var(--blue);}
 .s-gap.leader{color:var(--green);font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;}
 .s-gap.behind{color:var(--amber);}
 .s-gap.fault-gap{color:var(--red);}
+
+/* ── DISPLAY PRIMITIVES (v3/js/west-display.js) ──────────────────────
+   wd-chip = small uppercase-mono pill. Variants tint the background
+   and color; .wd-chip-solid swaps to filled background + white text. */
+.wd-chip{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.1em;font-weight:600;border-radius:3px;padding:3px 8px;line-height:1.3;}
+.wd-chip-sm{font-size:10px;}
+.wd-chip-md{font-size:12px;letter-spacing:.08em;padding:4px 10px;}
+/* Tinted variants — soft background, colored text */
+.wd-chip-default{background:var(--off-white);color:var(--text-body);border:1px solid var(--border);}
+.wd-chip-red    {background:#fef3f3;color:var(--red);}
+.wd-chip-blue   {background:var(--blue-bg);color:var(--blue);}
+.wd-chip-green  {background:var(--green-bg);color:var(--green);}
+.wd-chip-amber  {background:var(--amber-bg);color:var(--amber);}
+.wd-chip-muted  {background:var(--off-white);color:var(--gray);}
+/* Solid variants — filled background, white text */
+.wd-chip-solid.wd-chip-red   {background:var(--red);color:#fff;}
+.wd-chip-solid.wd-chip-blue  {background:var(--blue);color:#fff;}
+.wd-chip-solid.wd-chip-green {background:var(--green);color:#fff;}
+.wd-chip-solid.wd-chip-amber {background:var(--amber);color:#fff;}
+/* Solo sizing — championship Ch/Res in hero etc. */
+.wd-chip-solo{font-size:11px;padding:4px 10px;letter-spacing:.12em;}
+
+/* Country chip — flag + code + optional count, inline. */
+.wd-country-chip{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text-body);}
+.wd-country-code{font-weight:600;letter-spacing:.04em;}
+.wd-country-count{color:var(--text-muted);font-size:11px;}

@@ -54,6 +54,7 @@
 <script src="../js/west-status.js"></script>
 <script src="../js/west-format.js"></script>
 <script src="../js/west-rules.js"></script>
+<script src="../js/west-display.js"></script>
 
 <script>
 const escapeHtml = WEST.format.escapeHtml;
@@ -293,10 +294,7 @@ function renderEntrySummary(stats) {
   parts.push(`<div class="es-cards">${cards.join('')}</div>`);
 
   if (es.countries && es.countries.length) {
-    const flagSpans = es.countries.map(c => {
-      const flag = WEST.format.flag(c.code) || '';
-      return `<span class="es-country">${flag} <span class="es-country-code">${escapeHtml(c.code)}</span> <span class="es-country-count">(${c.count})</span></span>`;
-    }).join('');
+    const flagSpans = es.countries.map(c => WEST.display.countryChip(c.code, c.count)).join('');
     parts.push(`<div class="es-sub-label">By Country</div><div class="es-countries">${flagSpans}</div>`);
   }
 
