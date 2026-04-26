@@ -308,21 +308,28 @@ A completely different beast. Multiple rounds with special scoring rules includi
 - Show combined per round
 - Show overall combined
 
-### Derby types (partial knowledge)
+### Derby types (zero-indexed — verified 2026-04-25)
 
-| derbyType | Known meaning | Verified? |
-|---|---|---|
-| 0 | Not a derby (shouldn't have classMode=2) | — |
-| 1 | Type 1 derby | Partially verified in field |
-| 2 | Type 2 derby (most common?) | Seen in field testing |
-| 3 | Type 3 derby | Seen in field testing |
-| 4-8 | Unknown variants | NOT YET VERIFIED |
+H[37] is zero-indexed: Ryegate's first dropdown option writes 0.
+`WEST.format.DERBY_TYPES` in `v3/js/west-format.js` is the source of truth.
+
+| derbyType | Variant |
+|---|---|
+| 0 | International Derby |
+| 1 | National Derby |
+| 2 | National H&G |
+| 3 | International H&G |
+| 4 | USHJA Pony |
+| 5 | USHJA Pony H&G |
+| 6 | USHJA 2'6" Junior |
+| 7 | USHJA 2'6" Junior H&G |
+| 8 | WCHR Spec |
 
 ### Live examples
-- Test show: class 1001 "Another New Derby" (classMode=2, derbyType TBD)
+- Test show: class 1001 "LEO THE LION" (classMode=2, derbyType=0 → International Derby)
 
 ### Gaps / unknowns
-- Full derbyType 4-8 behavior not observed
+- derbyType 4-8 (USHJA / WCHR variants) plumbing live but not yet seen on real shows
 - Handy bonus range not fully tested (max bonus? min bonus?)
 - Derby championship roll-up rules partially unverified
 
