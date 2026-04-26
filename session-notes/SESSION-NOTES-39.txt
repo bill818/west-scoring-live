@@ -1,0 +1,457 @@
+SESSION-NOTES-39 — clean-URLs deferral + jumper stats end-to-end + west-display
+Date: 2026-04-26 (full day; morning + evening continuation)
+Outcome: Three big things landed today.
+  1. Clean URLs attempted, deferred to go-live (Pages Functions). Helpers
+     kept in west-api.js for the future revisit.
+  2. JUMPER STATS END-TO-END — migration 020 (class_jumper_stats) +
+     021 (fastest_clear → fastest_4fault rename) + 022 (entry-list
+     stats columns). New /v3/listJumperStats endpoint with ETag
+     support. New v3/pages/stats.html with chip strip, entry summary,
+     per-round detail, fault histogram, server-rendered standings,
+     10s ETag-aware polling. Stats button on class.html jumper hero.
+  3. west-display.js cleanup — primitives extraction (chip,
+     statusBadge, placeMarker, countryChip). Two real consumers
+     refactored (stats.html countryChip, show.html statusBadge).
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill on the morning sweep: "we cant do the live stuff yet (Clocks, ring
+side displays) yet and we cant update the engine yet... The ribbons will
+have to wait till after we figure out the UDP feed... In small steps lets
+map out the Jumper Stats."
+
+That kicked off the day's main thread — design (step 1, paper-only) →
+implement (steps 2-3, ship) → polish + data fixes (4-faulter swap, JO
+mode, gap label, polling). By the end the jumper stats page was a real
+working surface: data, layout, freshness story, and a path to live
+updates when WS lands.
+
+Side detours along the way: clean URL attempt (deferred) and a small
+display.js extraction at the end of the day.
+
+═══════════════════════════════════════════════════════════════════════════
+PART A — CLEAN URLS ATTEMPTED, DEFERRED
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "lets try the clean urls".
+
+Built `_redirects` with Pages 200-status rewrites + named placeholders
+(`/v3/:slug/:ring/:class → /v3/pages/class.html`). Tested against
+real URLs and discovered Cloudflare Pages doesn't actually do internal
+rewrites for placeholder rules — it 308 redirects to the destination,
+strips the `.html` extension via auto-canonicalization, then matches
+the no-extension URL against the same `_redirects` rules → infinite
+loop (`/v3/pages/class` → `/v3/pages/ring` → `/v3/pages/ring` → ...).
+
+A pass-through identity rule (`/v3/pages/* → /v3/pages/:splat 200`)
+broke the loop, BUT the address bar still showed the ugly destination
+URL after the 308 — and the destination page had no slug/ring/class
+info because the rewrite stripped the original path.
+
+CONCLUSION: `_redirects` placeholder rewrites are advertised as URL-
+preserving but operate as 308 redirects in practice. Address-bar-clean
+URLs require Cloudflare Pages Functions (a tiny inline worker that
+does a real internal rewrite + serves the static asset).
+
+DOC: `docs/v3-planning/CLEAN-URLS-DEFERRED.md` — full context, what we
+tried, why it failed, code sketch for the Functions-based fix that
+ships pre-go-live.
+
+KEPT: `WEST.api.urls.{index,admin,show,ring,cls}` URL builders +
+`WEST.api.pathParam(name)` reader in `v3/js/west-api.js`. Harmless
+no-ops on the current site, ready for the Functions revisit.
+
+REVERTED: link-site changes (back to query strings), `_redirects` file
+deleted, deploy script changes rolled back, getQueryParam ↔ pathParam
+swap reverted on each page.
+
+Trigger: public go-live work (after engine connect + v2 retirement).
+
+═══════════════════════════════════════════════════════════════════════════
+PART B — JUMPER STATS DESIGN (STEP 1, PAPER)
+═══════════════════════════════════════════════════════════════════════════
+
+Doc: `docs/v3-planning/JUMPER-STATS-DESIGN.md` (~600 lines).
+
+Architectural mirror of the hunter pre-compute pattern:
+
+  HUNTER                                JUMPER ANALOG
+  computeJudgeGridRanks                 computeJumperStats
+  migration 018                         migration 020 (this session)
+  /v3/postCls hook (H branch)           /v3/postCls hook (J/T branch)
+  /v3/listJudgeGrid                     /v3/listJumperStats
+  /v3/recomputeJudgeRanks               /v3/recomputeJumperStats
+
+Lock-ins captured in the doc:
+
+- ONE row per class in `class_jumper_stats`. Per-round R1/R2/R3
+  numbered slots match how `entry_jumper_rounds` is structured.
+  Consumer labels rounds via `WEST.format.roundLabel` (no labels
+  in the table).
+- Mode-aware fault histogram via JSON `r{N}_fault_buckets TEXT`
+  columns. Schemes: `standard` / `speed` / `optimum` / `none`.
+  Schema is static; bucket DATA inside the JSON varies per scheme.
+- Backfill via `/v3/recomputeJumperStats` (same pattern as
+  `/v3/recomputeJudgeRanks`).
+
+Bill chose A + C from my menu of "more dynamic":
+  A = method-aware bucket DEFINITIONS (each scheme has its own labels
+      + boundaries)
+  C = JSON-column STORAGE (adding a scheme later = code change only)
+
+Resolved with Bill on schemes:
+  - `OC` = Off Course → eliminated family. `IN ('EL','RF','DNF','OC')`.
+  - "Time fault" = `r.time_faults > 0` (any). Counts entries that
+    exceeded TA (jump faults can coexist).
+  - Standard scheme expanded to 8 buckets with 1-3 and 5-7 splits to
+    distinguish time-fault-only from clean-rail patterns.
+  - Render rule: zero-count buckets always written (comparable across
+    classes); frontend filters at render time so chip strip is
+    clutter-free.
+
+═══════════════════════════════════════════════════════════════════════════
+PART C — JUMPER STATS IMPLEMENTATION (STEPS 2-3)
+═══════════════════════════════════════════════════════════════════════════
+
+MIGRATION 020 — `class_jumper_stats`
+  - One row per class, FK on class_id
+  - Aggregate counts (total / scratched / eliminated)
+  - Per-round R1/R2/R3 columns: competed, clears, time_faults,
+    avg_total_time, avg_clear_time, fastest_clear_entry_id,
+    fastest_clear_time, fault_buckets (TEXT JSON)
+  - computed_at metadata
+
+MIGRATION 021 — fastest_clear → fastest_4fault rename
+  Bill: "show fastest 4 faulter instead of fastest clear"
+  Six column renames via SQLite ALTER TABLE RENAME COLUMN.
+  Filter changes per scheme:
+    - standard: total_faults = 4 (one rail clean)
+    - speed:    jump_faults = 4 (one rail; time penalty in total_time)
+    - optimum / none: NULL (concept doesn't apply)
+
+MIGRATION 022 — entry-list stats (jumper-only)
+  Bill: "lets call these entry specific stats cause they will populate
+  first before any data even starts flowing in" → "no dont apply these
+  to hunters this will stay in the jumper side only"
+  Five new columns on `class_jumper_stats`:
+    unique_riders / unique_horses / unique_owners
+    countries_json    — [{code, count}] desc by count
+    multi_riders_json — [{rider, horses:[...]}] desc by count
+
+WORKER — `computeJumperStats(env, classDbId)`
+  - Lives next to computeJudgeGridRanks
+  - Mode-aware: `bucketSchemeFor(method, modifier, round)` picks per
+    round. Method 6 modifier=1 mixes optimum (R1) + standard (R2 = JO).
+  - Helpers: `computeJumperRoundStats`, `computeJumperBuckets`,
+    `computeJumperEntryStats`, `parseStatsJson`
+  - Hooked into `/v3/postCls` jumper branch: synchronous after the
+    UPSERTs; failures log + entriesStatus, never fail the POST
+  - DELETE-then-UPSERT pattern (full row refresh; no stale columns)
+
+WORKER — `/v3/listJumperStats?class_id=N`
+  Single read endpoint. Returns one envelope:
+    { ok, class:{...}, stats:{ counts, rounds:[{round, ..., standings:[]}],
+                              entry_stats:{ unique_*, countries, multi_riders } } }
+
+  Standings — fully server-rendered. Two SQL paths picked per round:
+
+  Default mode (gap from leader):
+    - Place: RANK() over (total_faults asc, total_time asc) for clean
+    - Killed entries excluded from RANK pool via PARTITION
+    - Gap class/display: leader / behind (+X.XXXs amber) /
+      fault-gap (+N flt red) / "—" for killed
+    - Status filter: NOT IN ('DNS','WD','SC') (didn't compete)
+    - Killed entries (EL/RF/DNF/OC) listed below clean rides
+
+  R1 of multi-round methods (II.2 family + 3R + Two-Phase + Winning
+  Round + Optimum 2R) — JO mode:
+    - Bill: "for these II.2 family (and fei equivalent) Round 1 should
+      have distance from TA, not leader and gap"
+    - Place: 'JO' chip for entries at min_faults; ROW_NUMBER over
+      non-killed entries gives stable position numbers (no RANK gaps
+      from killed entries) — first 4-faulter is rank 18, not 19+
+    - Sort within JO qualifiers: ride_order ASC (Bill: "perfer to keep
+      the R1 Clears in the order they went in if possible")
+    - Sort within faulted-non-killed: faults asc, time asc
+    - Gap = signed distance from r1_time_allowed:
+      "Gap from TA - 73s" header label per round (server-computed)
+      gap_class: leader (>3s under, green) / behind (0-3s under, amber)
+                 / fault-gap (over TA, red) / "—" for killed
+
+  Every display string SQL-rendered: place_display, place_class,
+  fault_class, fault_display, time_display, gap_class, gap_display,
+  gap_label. Bill: "id like it to not be done client side, harder
+  build now easier to cherry pick stat boxes when we build out other
+  pages."
+
+WORKER — ETag support
+  `/v3/listJumperStats` uses the existing `jsonWithEtag(request, data)`
+  helper. CORS expanded with `If-None-Match` (Allow-Headers) + `ETag`
+  (Expose-Headers) so browser polls don't 403.
+
+WORKER — `/v3/recomputeJumperStats` safety valve
+  Body shapes:
+    {}                  → recompute every J/T class
+    { slug: 'X' }       → scoped to one show
+    { class_id: N }     → single class
+  Idempotent. Used post-deploy to backfill the 51 existing T classes.
+
+═══════════════════════════════════════════════════════════════════════════
+PART D — STATS PAGE (`v3/pages/stats.html`)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: "are you building this on a separate stats page right.. with a
+button to view the stats page on the Class page?" — mid-build clarify
+that landed before page work began.
+
+PAGE STRUCTURE
+  - Header (logo + V3 tag) — same as other pages
+  - Breadcrumbs: All shows / Show / Ring / #class / Stats (with the
+    class link clickable back to class.html)
+  - Hero — mirrors class.html's hero composition (lens-tinted gradient
+    via .hero-h/.hero-j/.hero-t, class title + Stats red chip, dates,
+    method description, TA summary)
+  - Top-line chip strip (Entries / Competed / R1 Clears% / JO Clears%
+    / Eliminated / Scratched — zero counts hidden)
+  - "Entry Summary" section (cards row + country breakdown when
+    present + multi-ride riders list)
+  - One section per round with data: stat lines, fastest-4faulter
+    callout, fault histogram (bar chart, zero-count buckets filtered),
+    full standings table
+  - "Updated Xs ago · live · checks every 10s" footer (ticks every
+    second locally between polls)
+
+CHIP TREATMENT (server-rendered place_class)
+  - 'rank'   → numeric place (DM Mono 13px)
+  - 'jo'     → red filled chip (JO badge) — small uppercase pill
+  - 'status' → red small caps text (status code, .is-elim row class
+              for opacity)
+
+CSS
+  Standings table V1/V2 5-column grid:
+    Pl (36px) / Horse / Rider (1fr) / Faults (64px) / Time (70px) /
+    Gap (140px to fit "Gap from TA - 73s")
+
+POLLING (Bill: "could there be something smarter? the worker and the
+brains... knows everything")
+  - Worker `class_jumper_stats.computed_at` is the freshness signal
+  - `WEST.api.fetchJsonEtag(path, etag)` — sends `If-None-Match`,
+    returns `{notModified:true}` on 304 or `{data, etag}` on 200
+  - Stats page: 10s setInterval, gates on document.hidden +
+    cls.status === 'complete'
+  - visibilitychange listener fires immediate refresh when tab returns
+  - Re-render only the #content area on change; hero stays put
+  - 95%+ of polls return 304 with no body (~hundred bytes round-trip)
+  - Future: swap the poll for a WebSocket subscription when DO lands
+    (Phase 7-8) — endpoint contract stays stable
+
+CLASS.HTML BUTTON
+  Stats button in hero, jumper classes only:
+    `<a class="hero-action" href="stats.html?slug=...">📊 Class Stats</a>`
+  Hunter classes don't get the button — endpoint is jumper-only by
+  design (Bill 2026-04-26: "this will stay in the jumper side only").
+
+═══════════════════════════════════════════════════════════════════════════
+PART E — west-display.js EXTRACTION
+═══════════════════════════════════════════════════════════════════════════
+
+End-of-day cleanup pass. Goal: single home for cross-page UI primitives
+before the live page / show-level stats / display.html start
+duplicating chip markup.
+
+NEW MODULE — `v3/js/west-display.js`
+  WEST.display.chip(text, opts)         — generic uppercase-mono pill
+  WEST.display.statusBadge(status)      — show/class lifecycle pill
+  WEST.display.placeMarker(place, opts) — number or Ch/Res chip
+  WEST.display.countryChip(code, count) — flag + code + count
+
+CSS — wd-chip namespace (variant + size + solid modifiers):
+  wd-chip-default / -red / -blue / -green / -amber / -muted
+  wd-chip-solid (filled bg + white text)
+  wd-chip-sm / -md / -solo (size variants)
+  wd-country-chip / wd-country-code / wd-country-count
+
+REAL CONSUMERS
+  - stats.html → countryChip in entry-summary "By Country" list
+    (replaced 4-line inline template with one call)
+  - show.html → statusBadge in renderHero
+    (replaced inline status-badge template literal)
+
+DEFERRED with reasons (in module header):
+  - index.html / admin.html — status uses dots not chips today;
+    switching = feature change, not refactor
+  - class.html / ring.html — only static .header-tag / .hero-action
+    elements; helper would just JS-render static markup (no dedup win)
+  - hunter-templates judges-hint — dropdown affordance, not a chip
+  - jumper-templates / hunter-templates place-marker — already routed
+    through WEST.format.championshipMarker; .wd-chip swap risks visual
+    drift without coordinated CSS retirement
+
+Helpers stable; expand when a NEW chip pattern appears across pages,
+not to retroactively refactor settled code.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+41. CLEAN URLS NEED PAGES FUNCTIONS, NOT _redirects.
+    Cloudflare Pages 200-status `_redirects` with placeholders
+    operates as a 308 redirect in practice (auto `.html` strip causes
+    re-walk + loop without a pass-through; pass-through fixes loop but
+    address bar still shows destination). Pages Functions is the only
+    way to get true URL-preserving rewrites. Documented in
+    `docs/v3-planning/CLEAN-URLS-DEFERRED.md` for go-live work.
+
+42. JUMPER STATS PRE-COMPUTED, NOT CLIENT-COMPUTED (mirrors session-36
+    rule for hunter). class_jumper_stats holds counts, per-round
+    aggregations, server-rendered display strings. Pages render
+    verbatim — every value comes pre-formatted (place_display,
+    fault_class, fault_display, time_display, gap_class, gap_display,
+    gap_label). Cherry-pickable: future pages drop in one row's HTML
+    without re-implementing display logic.
+
+43. ENTRY-LIST STATS ARE JUMPER-ONLY.
+    Bill 2026-04-26: "no dont apply these to hunters this will stay
+    in the jumper side only." unique_riders / horses / owners +
+    country breakdown + multi-ride riders all live on
+    class_jumper_stats. Hunter analog (when wanted) would land on a
+    parallel hunter table.
+
+44. R1 OF MULTI-ROUND METHODS USES JO MODE STANDINGS.
+    Bill: "Round 1 should have distance from TA, not leader and gap."
+    R1 of methods 2/3/9/10/11/13/14/15 + 6+modifier=1 swaps gap-from-
+    leader for distance-from-TA, JO badge for entries at min_faults,
+    qualifiers sorted by ride_order. R2/R3 (placing rounds) stay on
+    default gap-from-leader mode.
+
+45. ETag-AWARE POLLING IS THE SMART-POLL PATTERN.
+    Bill: "could there be something smarter? the worker... knows
+    everything". Server sets ETag from the response body hash; client
+    polls every 10s with If-None-Match; worker returns 304 when nothing
+    changed. Most polls are tiny round-trips (~hundred bytes each).
+    Real push (WebSocket) waits for Durable Objects in Phase 7-8;
+    endpoint contract stays stable so the swap is invisible to
+    consumers.
+
+46. west-display.js IS THE HOME FOR FUTURE CHIP PATTERNS.
+    Today's helpers (chip, statusBadge, placeMarker, countryChip) are
+    stable. Add new helpers when a new chip pattern appears across
+    pages. Don't retroactively refactor settled chip CSS just to use
+    the helper — visual stability wins over uniformity.
+
+47. JUMPER-ONLY STATS BUTTON ON CLASS.HTML HERO.
+    `📊 Class Stats` button rendered in renderHero only when
+    cls.class_type ∈ {J, T}. Hunter classes never see the button
+    because the endpoint is jumper-only.
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION 39
+═══════════════════════════════════════════════════════════════════════════
+
+Worker version: 4fd91e7e (deployed 2026-04-26 from this Mac)
+Pages preview: live at preview.westscoring.pages.dev/v3/pages/...
+
+Migrations applied since session 38:
+  020 — class_jumper_stats (table + indexes)
+  021 — fastest_clear → fastest_4fault (6 column renames)
+  022 — entry stats columns (5 new columns)
+
+WEST_DB_V3 state:
+  All 51 jumper (T) classes have class_jumper_stats rows. Entry stats
+  populated; standings derived on read. Hunter / U classes correctly
+  have NO stats row (compute call site only fires for J/T).
+
+Public pages working:
+  index.html → all-shows landing
+  show.html  → per-show landing (status badge via WEST.display)
+  ring.html  → per-ring class list
+  class.html → per-class results, jumper hero shows Stats button
+  stats.html → NEW — per-class jumper stats page with polling
+  admin.html → operator tool
+
+Branch state:
+  main pushed; origin/main at aa3b28a; clean working tree.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-39)
+═══════════════════════════════════════════════════════════════════════════
+
+Carry-over from sessions 36/38:
+  - Class-finalization signal (waiting on LIVE udps)
+  - Ribbon graphics (gated on finalization)
+  - Prize money under ribbon (gated on ribbons)
+  - Reverse-engineer untested compositional flags (need test data)
+  - Compact 2'6"/USHJA/WCHR derby variants (need test data)
+
+New post-session-39 candidates:
+  - Show-level jumper stats (Tier 2) — top riders / top horses /
+    multi-ride riders aggregated across classes in one show. Surface
+    on show.html. Same compute pattern (server-side); 1-2 sessions.
+  - Stats page polish (histogram visualization, edge cases like
+    no entries / no clear rides / single competitor, mobile layout).
+  - Engine spike (Windows-side; gated on Bill's access).
+  - Live page foundation — west-clock.js (Phase 3) + scaffolding
+    for live.html. Mac-side; doesn't need engine yet.
+  - Pages Functions for clean URLs (deferred to go-live).
+
+═══════════════════════════════════════════════════════════════════════════
+COMMITS THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+  5b6865b  clean-urls helpers (defer the rewrite to go-live)
+  f514b1f  v3: jumper stats compute pass (steps 1-2)
+  e43c8fc  v3 Session 39: jumper stats end-to-end
+  d18b848  v3 ui: extract west-display.js primitives (cleanup pass)
+  7d31fa1  v3 ui: show.html status badge → WEST.display.statusBadge
+  aa3b28a  v3 ui: doc west-display refactor scope honestly
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  docs/v3-planning/CLEAN-URLS-DEFERRED.md
+  docs/v3-planning/JUMPER-STATS-DESIGN.md
+  v3/migrations/020_class_jumper_stats.sql
+  v3/migrations/021_jumper_stats_4faulter.sql
+  v3/migrations/022_jumper_entry_stats.sql
+  v3/pages/stats.html
+  session-notes/SESSION-NOTES-39.txt (this file)
+
+MODIFIED:
+  west-worker.js                  (computeJumperStats + helpers,
+                                    /v3/listJumperStats with ETag,
+                                    /v3/recomputeJumperStats endpoint,
+                                    CORS expansion for ETag headers)
+  v3/js/west-api.js               (urls.* helpers + pathParam +
+                                    fetchJsonEtag)
+  v3/js/west-display.js           (full module — chip / statusBadge /
+                                    placeMarker / countryChip)
+  v3/js/west-format.js            (no changes this session)
+  v3/pages/class.html             (Stats button on jumper hero)
+  v3/pages/stats.html             (new file)
+  v3/pages/show.html              (statusBadge refactor + script load)
+  v3/pages/west.css               (stats page CSS, wd-chip primitives,
+                                    standings table, JO chip, hero-ta,
+                                    entry summary cards/lists)
+
+═══════════════════════════════════════════════════════════════════════════
+EXTERNAL CHANGES
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare D1 (WEST_DB_V3):
+  Migrations 020 / 021 / 022 applied
+  All 51 J/T classes backfilled via /v3/recomputeJumperStats
+
+Cloudflare Worker:
+  Multiple deploys through the session
+  Final version: 4fd91e7e
+
+Cloudflare Pages:
+  preview branch — multiple deploys
+  Stats page reachable at /v3/pages/stats.html?slug=&ring=&class=
+
+GitHub origin/main:
+  Pushed to aa3b28a at session end.
