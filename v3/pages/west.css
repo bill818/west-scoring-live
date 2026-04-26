@@ -250,8 +250,8 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
 
 .page{max-width:1100px;margin:0 auto;padding:20px 12px 80px;}
-.show-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .15s;}
-.show-card:hover{border-color:var(--blue);}
+.show-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .2s,transform .2s,box-shadow .2s;}
+.show-card:hover{border-color:var(--blue);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.10);}
 .show-card .show-dot{width:10px;height:10px;}
 .show-body{flex:1;}
 .show-body .show-name{font-size:17px;font-weight:500;margin-bottom:2px;}
@@ -266,7 +266,14 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .bc-sep{color:var(--red);}
 .bc-current{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-.hero{max-width:1100px;margin:0 auto;padding:20px 12px 18px;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.hero{max-width:1100px;margin:0 auto;padding:20px 12px 18px;background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);transition:background .25s;}
+/* Lens-tinted hero on class.html — subtle vertical gradient from the
+   class-type's accent background (already used by the class-type-badge
+   tokens) fading into white. Set by class.html renderHero based on
+   cls.class_type. */
+.hero.hero-h{background:linear-gradient(180deg,var(--blue-bg) 0%,#fff 70%);}
+.hero.hero-j{background:linear-gradient(180deg,var(--green-bg) 0%,#fff 70%);}
+.hero.hero-t{background:linear-gradient(180deg,var(--amber-bg) 0%,#fff 70%);}
 .hero-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
 .hero-dates{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:6px;}
 .hero-venue{font-size:15px;color:var(--text-body);margin-bottom:2px;}
@@ -283,8 +290,8 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 
 .ring-grid{display:grid;grid-template-columns:1fr;gap:10px;}
 @media(min-width:600px){.ring-grid{grid-template-columns:repeat(2,1fr);}}
-.ring-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 18px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;transition:border-color .15s;}
-.ring-card:hover{border-color:var(--blue);text-decoration:none;}
+.ring-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 18px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;transition:border-color .2s,transform .2s,box-shadow .2s;}
+.ring-card:hover{border-color:var(--blue);text-decoration:none;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.10);}
 .ring-card-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:8px 12px;border-radius:6px;min-width:52px;text-align:center;flex-shrink:0;}
 .ring-card-body{flex:1;min-width:0;}
 .ring-card-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:17px;color:var(--black);line-height:1.2;margin-bottom:2px;}
@@ -376,7 +383,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
    needs to read as prominently as a place number would. */
 .results-table .place-marker{display:inline-block;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fef3f3;border:1px solid var(--red);border-radius:3px;padding:1px 4px;line-height:1.1;vertical-align:middle;margin-left:4px;}
 .results-table .place-marker-solo{font-size:11px;padding:3px 7px;letter-spacing:.08em;margin-left:0;}
-.results-table .entry-flag{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-left:6px;}
+.results-table .entry-flag{font-size:18px;line-height:1;margin-left:6px;vertical-align:-2px;}
 /* Stacked layout — rounds collapse into one column, latest round on top.
    round-label is the small "Round 1 / Jump Off / Phase 2" prefix. */
 .results-table .entry-round-stack{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;vertical-align:top;}

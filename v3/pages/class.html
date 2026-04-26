@@ -96,7 +96,9 @@ function renderHero(show, ring, cls) {
   // Trophy text comes from the @foot row in the .cls (operator-typed
   // award name). Italicized red display sans to read as a patron / prize line.
   if (cls.trophy) parts.push(`<div class="hero-trophy">${escapeHtml(cls.trophy)}</div>`);
-  document.getElementById('hero').innerHTML = parts.join('');
+  const hero = document.getElementById('hero');
+  hero.innerHTML = parts.join('');
+  hero.className = 'hero hero-' + (cls.class_type || 'u').toLowerCase();
 
   document.getElementById('bcShow').textContent = show.name;
   document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
