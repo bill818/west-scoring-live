@@ -33,6 +33,41 @@
     return new URLSearchParams(window.location.search).get(name) || '';
   };
 
+  // Path-based param reader for clean URLs (Pages _redirects rewrites
+  // /v3/{slug}/{ring}/{class} → /v3/pages/class.html but the browser
+  // address bar stays on the clean form, so window.location.pathname
+  // is the real source of truth). Falls back to query params for
+  // direct hits on /v3/pages/*.html (admin link, manual URLs, dev).
+  // Returns the param value or '' when absent.
+  //
+  // Path segment positions (1-indexed after the /v3 prefix):
+  //   1 = slug    2 = ring    3 = class
+  WEST.api.pathParam = function (name) {
+    var segs = window.location.pathname.split('/').filter(Boolean);
+    if (segs[0] === 'v3' && segs.length >= 2 && segs[1] !== 'pages' && segs[1] !== 'admin') {
+      var idx = { slug: 1, ring: 2, 'class': 3 }[name];
+      if (idx != null && segs[idx]) return decodeURIComponent(segs[idx]);
+    }
+    // Fallback — direct hit on /v3/pages/*.html?slug=…
+    return WEST.api.queryParam(name);
+  };
+
+  // Public-page URL builders — single source of truth for the v3 clean
+  // URL scheme. Cloudflare Pages _redirects rewrites these to the actual
+  // /v3/pages/*.html?... destinations, but every link in the codebase
+  // calls these helpers so the pretty form is what users see + share.
+  // Slug / ring / class are URL-encoded so unusual characters survive.
+  var enc = function (v) { return encodeURIComponent(v); };
+  WEST.api.urls = {
+    index: function ()           { return '/v3'; },
+    admin: function ()           { return '/v3/admin'; },
+    show:  function (slug)       { return '/v3/' + enc(slug); },
+    ring:  function (slug, ring) { return '/v3/' + enc(slug) + '/' + enc(ring); },
+    cls:   function (slug, ring, classNum) {
+      return '/v3/' + enc(slug) + '/' + enc(ring) + '/' + enc(classNum);
+    },
+  };
+
   // CommonJS export (harmless in browsers).
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.api;
