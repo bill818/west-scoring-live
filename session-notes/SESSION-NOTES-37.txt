@@ -1,0 +1,317 @@
+SESSION-NOTES-37 — Pages preview deploy + mobile typography pass + small polish
+Date: 2026-04-25 (continuation evening, after session 36)
+Outcome: v3 frontend now reachable on a public preview URL for on-device
+         (phone) testing. Mobile-first typography overhaul: Lato body /
+         Oswald headers / DM Mono labels, with iOS rotation auto-text-
+         inflate disabled. Standings identity column promoted to a 3-line
+         header (Horse-Rider / Owner / Breeding) that hides Breeding
+         under 480px. Owner italic, breeding parenthesized via CSS.
+         Lens-tinted hero on class.html, soft hover lift on cards, bigger
+         country flags. Wrangler config split into Worker + Pages files
+         so both deploy paths are clean. Mac shell counterpart to the
+         existing Windows .bat. Hunter derby_type doc fixed.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill, end of session 36, on getting the v3 frontend onto a public
+preview URL for phone testing:
+
+  "we were talking about trying to publish to the preview site in
+   order to test page width on mobile device like my phone"
+
+Two snags in the way:
+  1. Existing deploy-preview.bat staged only repo-root v2 files; nothing
+     in v3/.
+  2. The Cloudflare API token didn't have the Pages Edit scope.
+
+Bill added the Pages scope; we extended deploy-preview.bat to stage
+v3/pages + v3/js, picked option A (mount v3 under /v3/pages/ on the
+existing preview Pages project so v2 surfaces stay untouched), and
+shipped. From there the rest of the session was iterative on-device
+visual feedback — what reads, what doesn't, what feels right on a
+phone.
+
+═══════════════════════════════════════════════════════════════════════════
+PART A — PAGES PREVIEW PLUMBING
+═══════════════════════════════════════════════════════════════════════════
+
+WRANGLER CONFIG SPLIT
+  - The repo had ONE wrangler.toml — the Worker config (name=
+    west-worker, [[d1_databases]] etc.). Pages would 404-warn on every
+    deploy because the file was missing pages_build_output_dir.
+  - Tried adding a separate wrangler.pages.toml with
+    `wrangler pages deploy --config wrangler.pages.toml` — Cloudflare
+    rejects --config for Pages ("Pages does not support custom paths
+    for the Wrangler configuration file").
+  - Resolution: rename the Worker file to wrangler.worker.toml and let
+    the new pages config take the canonical name.
+      wrangler deploy           --config wrangler.worker.toml   (Worker)
+      wrangler pages deploy ... (no --config — picks up wrangler.toml)
+  - Updated deploy.bat to pass --config wrangler.worker.toml.
+  - Updated worker_deploy_setup.md memory to document the split.
+
+MAC SHELL DEPLOY SCRIPT
+  - Bill thought I'd already done this; I'd only updated the Windows
+    .bat. Created deploy-preview.sh as the Mac counterpart so future
+    deploys from this Mac are a single ./deploy-preview.sh command —
+    sources ~/.cloudflare-env, sources nvm, stages v2 root + v3/pages
+    + v3/js + assets, deploys, cleans up.
+  - chmod +x'd. Tested end-to-end. From this commit onward I use it
+    (not the manual rm-mkdir-cp-wrangler shell sequence).
+
+DEPLOYMENT TARGET
+  - URL: preview.westscoring.pages.dev/v3/pages/{index,show,ring,class,admin}.html
+  - Cloudflare Pages auto-redirects .html → no-extension (308) which
+    is fine; the redirected URL serves the static file.
+  - Browser cache surprised us — Bill needed Firefox (which had a
+    fresh cache) to actually see CSS changes after a Chrome session
+    holding old assets. Documented in the workflow.
+
+═══════════════════════════════════════════════════════════════════════════
+PART B — TYPOGRAPHY OVERHAUL
+═══════════════════════════════════════════════════════════════════════════
+
+THREE PAIRINGS TRIED (Bill iterating per-on-device-look):
+  v1: Playfair Display (serif) + Source Sans 3   → Bill: "no I don't like the serif font"
+  v2: Outfit (geometric sans)  + Source Sans 3   → Bill: "better but still no"
+  v3: Oswald (condensed sport) + Lato            → "yes that is right"
+
+Final state:
+  Headers (logo, hero name, show/section/empty-state titles, ring card
+  names, dialog headers, active-num):
+    'Oswald', sans-serif — weight 700 (Oswald maxes at 700; old 900
+    rules dropped to 700 to avoid synthesized-bold ugliness).
+  Body:
+    'Lato', sans-serif — weights 300/400/700 + 400 italic. Source Sans
+    3 rules removed. Lato lacks 500/600 → existing font-weight:500
+    falls back to 400; font-weight:600 falls back to 700. Acceptable
+    for current usage; no need to remap.
+  Mono / labels:
+    'DM Mono' — unchanged (column headers, DT badges, breadcrumbs,
+    metadata lines).
+
+iOS ROTATION FIX
+  Bill: "i turn my phone side ways and the font gets disproportionately
+  bigger". Default iOS Safari behavior — auto-text-inflate based on
+  viewport width. Killed via:
+    html{-webkit-text-size-adjust:100%; text-size-adjust:100%;}
+  on the global resets.
+
+═══════════════════════════════════════════════════════════════════════════
+PART C — IDENTITY COLUMN HEADER REDESIGN
+═══════════════════════════════════════════════════════════════════════════
+
+Bill: the standings header just says "Horse / Rider" — should say
+  Horse-Rider
+  Owner
+  Breeding
+... and equitation should swap line 1 to Rider-Horse.
+
+IMPLEMENTATION
+  - Header definitions now use a new h.html field on column descriptors
+    (in addition to the existing h.label). The th renderer in 4 places
+    (jumper inline + stacked, hunter inline + stacked) checks
+    `h.html != null ? h.html : escapeHtml(h.label)`. Allows raw HTML
+    spans for the identity column without affecting other columns.
+  - Identity header HTML: three <span class="hd-line"> blocks for
+    Horse-Rider / Owner / Breeding. Equitation flips line 1 to
+    Rider-Horse. Other modes share one rule via the existing
+    riderPrimary flag in hunter buildForcedColumns / jumper builders.
+
+CSS
+  .results-table thead .hd-line{display:block;line-height:1.35;}
+  Generic, scoped only to thead so cell content keeps wrapping
+  normally.
+
+OWNER ITALICS, BREEDING IN PARENS
+  - .entry-owner now italic (DM Mono italic, 11px, muted).
+  - .entry-pedigree wrapped in parens via ::before/::after — keeps
+    data layer clean, no string concatenation in templates:
+        .results-table .entry-pedigree::before{content:'(';}
+        .results-table .entry-pedigree::after{content:')';}
+
+PHONE BREAKPOINT (≤ 480px)
+  Bill: "drop breeding when it gets down to a phone screen"
+  - .results-table thead .entry-horse-rider .hd-breeding{display:none;}
+  - .results-table .entry-pedigree{display:none;}
+  Header and cell hide together — never out of sync.
+
+═══════════════════════════════════════════════════════════════════════════
+PART D — VISUAL POLISH
+═══════════════════════════════════════════════════════════════════════════
+
+LENS-TINTED HERO (class.html only)
+  Bill: "im intrigued about the lens tinted card i like the look of that"
+  - class.html renderHero sets hero.className to
+    `hero hero-{h|j|t|u}` based on cls.class_type.
+  - CSS gradient using existing color tokens (no new tokens):
+        .hero.hero-h{background:linear-gradient(180deg,var(--blue-bg)  0%,#fff 70%);}
+        .hero.hero-j{background:linear-gradient(180deg,var(--green-bg) 0%,#fff 70%);}
+        .hero.hero-t{background:linear-gradient(180deg,var(--amber-bg) 0%,#fff 70%);}
+  Page reads "this is a hunter / jumper / equitation class" before any
+  text registers.
+
+CARD HOVER LIFT (.show-card on index, .ring-card on show.html)
+  Settled at translateY(-2px) + 4px/12px shadow at .10 alpha after
+  Bill iterated: original 2px was invisible-ish, bumped to 4px/.12 was
+  too jumpy ("def jumps lol"), back to 2px with stronger shadow as the
+  sweet spot.
+  Desktop-only by nature (no :hover on touch). Documented for Bill so
+  he doesn't expect it on phone.
+
+BIGGER COUNTRY FLAGS
+  .entry-flag bumped from DM Mono 11px → native emoji 18px with
+  vertical-align tweak. Was invisible on phone; now a real signal.
+
+RED BREADCRUMB SEPARATORS
+  .bc-sep changed from #ccc to var(--red) so breadcrumbs echo the
+  section-title accent.
+
+═══════════════════════════════════════════════════════════════════════════
+PART E — DOC FIX
+═══════════════════════════════════════════════════════════════════════════
+
+HUNTER-METHODS-REFERENCE.md derby_type table was 1-indexed and wrong
+(memory project_derby_type_zero_indexed.md flagged it). Replaced with
+the correct 0-indexed nine-variant table:
+   0 International Derby   5 USHJA Pony H&G
+   1 National Derby        6 USHJA 2'6" Junior
+   2 National H&G          7 USHJA 2'6" Junior H&G
+   3 International H&G     8 WCHR Spec
+   4 USHJA Pony
+Added pointer to WEST.format.DERBY_TYPES in v3/js/west-format.js as the
+source of truth, and updated the live-example line for class 1001
+(class_mode=2, derby_type=0 → International Derby).
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+31. WRANGLER CONFIG SPLIT (worker vs pages).
+    Pages doesn't accept --config <path>, so Pages must own the
+    canonical wrangler.toml. The Worker uses wrangler.worker.toml and
+    is invoked as `wrangler deploy --config wrangler.worker.toml`.
+    deploy.bat / deploy-preview.{bat,sh} updated; memory updated.
+
+32. THREE-FONT STACK FOR PUBLIC SURFACES.
+    Headers Oswald 500/600/700, body Lato 300/400/700+italic, labels
+    DM Mono 400/500. Loaded via shared Google Fonts URL on every v3
+    page. Sport/results vibe with editorial body legibility.
+    iOS auto-text-inflate killed at the html level — non-negotiable.
+
+33. HEADER COLUMN DESCRIPTORS SUPPORT RAW HTML (h.html).
+    Th renderers across both lens templates check `h.html != null ? h.html
+    : escapeHtml(h.label)`. Default path stays escape-safe; raw-HTML
+    columns (identity 3-line stack, future TA second line, future
+    composite headers) opt in explicitly. Pattern documented in the
+    new feedback memory.
+
+34. PHONE BREAKPOINT IS 480px (TYPE-SAFE OVER OTHER WIDTHS).
+    First width-driven hide rule was added for breeding (header + cell
+    in lockstep). Future "hide on phone" rules should reuse 480px so
+    the responsive cliff is consistent.
+
+35. PER-CLASS LENS TINT VIA CSS-CLASS-ON-HERO.
+    Single-element wrapper class (hero + hero-{h|j|t|u}) drives the
+    background gradient. Pattern is reusable: any future surface that
+    wants lens-aware visual treatment can mount the same class names
+    and add tinted CSS rules.
+
+36. WRANGLER CONFIG / MAC DEPLOY SCRIPT IS REPO-CHECKED-IN.
+    deploy-preview.sh joins deploy-preview.bat at the repo root. Both
+    must stay in sync when staging changes (e.g. when a future
+    surface adds a new directory under v3/).
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION 37
+═══════════════════════════════════════════════════════════════════════════
+
+(Pre-session-38 state — TA work landed in session 38 and is captured
+in SESSION-NOTES-38.txt.)
+
+Worker version: unchanged from session 36 (TA work in session 38
+re-deployed; this session was frontend-only and Cloudflare-Pages-only).
+Pages preview: live at https://preview.westscoring.pages.dev/v3/pages/.
+
+Migrations applied since session 36: none in this session.
+
+Public pages working:
+  index.html → all-shows landing
+  show.html  → per-show landing
+  ring.html  → per-ring class list
+  class.html → per-class results, lens-tinted hero (H/J/T)
+  admin.html → operator tool (typography updated; admin internals
+               unchanged)
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-37, before session 38)
+═══════════════════════════════════════════════════════════════════════════
+
+Carry-over from session 36 still applies (class-finalization signal,
+ribbon graphics, prize money, judges grid enhancements, public-pages
+clean URLs, reverse-engineer untested compositional flags). Session 38
+took the next concrete step on Bill's "what's missing" feedback (TA in
+jumper headers — see SESSION-NOTES-38.txt).
+
+═══════════════════════════════════════════════════════════════════════════
+COMMITS THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+  9fbad06  v3 Session 37: Pages preview deploy + mobile typography pass
+  dd8fb99  deploy: Mac shell counterpart of deploy-preview.bat
+  067af11  docs: correct hunter derby_type table; ui: red breadcrumb separators
+  3a041cf  v3 ui: lens-tinted hero + hover lift + bigger flags
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  wrangler.toml                              (Pages config)
+  deploy-preview.sh                          (Mac counterpart)
+  session-notes/SESSION-NOTES-37.txt         (this file)
+
+RENAMED:
+  wrangler.toml → wrangler.worker.toml       (Worker config)
+
+MODIFIED:
+  deploy.bat                                 (--config wrangler.worker.toml)
+  deploy-preview.bat                         (stage v3/pages + v3/js;
+                                              project name from toml)
+  v3/pages/{index,show,ring,class,admin}.html
+                                             (font import URL —
+                                              Playfair → Oswald;
+                                              Source Sans 3 → Lato)
+  v3/pages/class.html                        (renderHero sets
+                                              hero.className for lens)
+  v3/pages/west.css                          (font swaps; lens tints;
+                                              section-title accent;
+                                              hero-th hd-line stack;
+                                              owner italic + pedigree
+                                              parens; phone breakpoint
+                                              hides; bigger flags;
+                                              hover lift; red bc-sep;
+                                              text-size-adjust)
+  v3/js/west-jumper-templates.js             (h.html headers; identity
+                                              3-line spans)
+  v3/js/west-hunter-templates.js             (h.html headers; identity
+                                              3-line spans w/ rider-
+                                              primary swap)
+  docs/v3-planning/HUNTER-METHODS-REFERENCE.md
+                                             (derby_type table fixed)
+
+═══════════════════════════════════════════════════════════════════════════
+EXTERNAL CHANGES
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare Pages (westscoring project):
+  v3 frontend pushed to preview branch (multiple iterations through
+  the session). Final URL alias: preview.westscoring.pages.dev/v3/pages/.
+
+Cloudflare API token:
+  Bill added the Cloudflare Pages · Edit scope to the existing token
+  in ~/.cloudflare-env. Workers / D1 / KV / R2 scopes unchanged.
+
+No D1 / Worker changes this session.

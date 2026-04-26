@@ -1,0 +1,279 @@
+SESSION-NOTES-38 — jumper time-allowed: end-to-end .cls → hero
+Date: 2026-04-25 (continuation of session 37, late evening)
+Outcome: Per-round time_allowed values now flow .cls → worker parser →
+         classes table → /v3/listClasses → hero summary on class.html.
+         Migration 019 + parser update + UPSERT update + new R2-replay
+         backfill endpoint + WEST.format.timeAllowedSummary helper +
+         hero subtitle line. 71/71 existing classes backfilled in one
+         curl. Method-aware format ("R1 79s · JO 30s" / "PH1 35s · PH2
+         36s" / "TA 30s") matches v2 conventions.
+
+═══════════════════════════════════════════════════════════════════════════
+HEADLINE
+═══════════════════════════════════════════════════════════════════════════
+
+Bill, looking at jumper standings on phone after session 37 polish:
+
+  "you know what is missing in the jumpers is the TA by round in the
+   headers of the placings"
+
+First attempt: TA as a second line in each round's column header (and
+inline next to the round label in the stacked layout). Bill rejected
+the per-row treatment after seeing it:
+
+  "huh? No put the TA in the hero portion liek you suggested..."
+
+Pivoted to a single class-level TA chip in the hero. Reverted the
+per-row work, kept the data layer (migration / parser / endpoint), and
+added a method-aware formatter + a hero-ta subtitle.
+
+═══════════════════════════════════════════════════════════════════════════
+PART A — DATA WIRING (.cls → DB)
+═══════════════════════════════════════════════════════════════════════════
+
+MIGRATION 019 — classes_time_allowed
+  ALTER TABLE classes ADD COLUMN r1_time_allowed REAL;
+  ALTER TABLE classes ADD COLUMN r2_time_allowed REAL;
+  ALTER TABLE classes ADD COLUMN r3_time_allowed REAL;
+
+  Jumper-only fields. Hunter classes always NULL — TA isn't a hunter
+  concept. Class-level metadata (not per-entry) so every public surface
+  reads the same value.
+
+WORKER — parseClsHeaderV3 J/T branch
+  Added taOf() helper (parseFloat → null when 0/blank/NaN — 0-second
+  TA never displays as a real value):
+    r1_time_allowed: taOf(cols[8])
+    r2_time_allowed: taOf(cols[11])
+    r3_time_allowed: taOf(cols[14])
+  Column indexes match v2 watcher (west-watcher.js:745-751). Hunter
+  branch unchanged → returns object without these fields → UPSERT
+  binds nullish-coalesce to null.
+
+WORKER — /v3/postCls UPSERT
+  Added the three columns to:
+    - INSERT column list (between ribbons_only and parse_status)
+    - VALUES placeholder count (28 → 31 ?'s)
+    - ON CONFLICT update list
+    - bind() params (parsed.r1_time_allowed ?? null, etc.)
+  /v3/listClasses uses SELECT c.* so the new columns flow through the
+  API automatically — no API code change.
+
+═══════════════════════════════════════════════════════════════════════════
+PART B — BACKFILL ENDPOINT
+═══════════════════════════════════════════════════════════════════════════
+
+POST /v3/reparseClassHeaders
+  Body: { slug?: 'show-slug' }   (omit slug → all classes, all shows)
+
+  Walks classes (optionally filtered by show slug), pulls each class's
+  archived .cls bytes from R2 at the stored r2_key, runs
+  parseClsHeaderV3, and UPDATEs the columns this migration adds.
+  Idempotent. Skips classes with NULL r2_key (shouldn't happen) or
+  missing R2 objects.
+
+  Used today to backfill all 71 existing classes — single curl, single
+  pass, all the new fields populated where applicable. Future
+  migrations that add column-on-classes can reuse the endpoint and
+  swap the UPDATE list to populate their columns. Lives at the same
+  spot as /v3/recomputeJudgeRanks (admin-only safety-valve pattern).
+
+  Auth: requires X-West-Key (same as every other v3 admin endpoint).
+
+  Returns: { ok: true, scanned: N, updated: N, skipped: N, errors: N }
+
+  Backfill verified post-run:
+    - 47/51 T classes have r1_time_allowed (4 classes had blank R1
+      TA in the source .cls — correct per data, not a parse bug)
+    - 51/51 T classes have r2_time_allowed (default 30s often present
+      in Ryegate even on 1R classes — harmless because the formatter
+      gates on method-aware "is multi-round")
+    - 16/16 H classes correctly NULL
+    - 4/4 U classes correctly NULL
+
+═══════════════════════════════════════════════════════════════════════════
+PART C — FORMAT (cross-lens primitive)
+═══════════════════════════════════════════════════════════════════════════
+
+WEST.format.timeAllowedSummary(cls) — method-aware one-liner.
+Returns:
+   1R / Speed / Optimum  →  "TA 30s"
+   Two-Phase (m=9)       →  "PH1 30s · PH2 31s"
+   2R + JO (m=2/etc)     →  "R1 65s · JO 30s"
+   3R + JO (m=3/14)      →  "R1 65s · R2 70s · JO 30s"
+   hunter / no TA        →  "" (empty — caller skips render)
+
+Rounds that don't actually have a TA are silently skipped (not
+rendered as "0s" or "—"). Method 6 with modifier=1 promotes to 2R per
+the same override that roundLabel uses — single source of truth for
+"is this a multi-round method".
+
+Lives in west-format.js (cross-lens primitives module). Consistent
+with classDescription / methodLabel / dayLabel placement — formatters
+that take a class and return display strings.
+
+═══════════════════════════════════════════════════════════════════════════
+PART D — HERO RENDER
+═══════════════════════════════════════════════════════════════════════════
+
+class.html renderHero pushes a new hero-ta subtitle line beneath
+hero-location when the formatter returns non-empty:
+
+  if (taStr) parts.push('<div class="hero-ta">' + escapeHtml(taStr) + '</div>');
+
+CSS:
+  .hero-ta{font-family:'DM Mono',monospace;font-size:11px;
+           color:var(--text-muted);letter-spacing:.04em;margin-top:4px;}
+
+Visually it sits as a third subtitle line — class description, then
+sponsor (if present), then TA. DM Mono matches the other metadata
+lines on the hero. Hunter classes simply never get the line because
+the formatter returns ''.
+
+═══════════════════════════════════════════════════════════════════════════
+PART E — REVERTED FALSE START (per-row TA)
+═══════════════════════════════════════════════════════════════════════════
+
+First attempt put TA in:
+  - Each round column header (inline layout) — added a buildRoundHeader
+    helper that returned h.html with two stacked spans (round label +
+    "TA Ns")
+  - Each round line in the stacked layout — added a `.round-ta` span
+    between `.round-label` and the cell content
+
+Bill saw the stacked-layout version on a JUMPER class and rejected:
+"huh? No put the TA in the hero portion like you suggested". Reverted
+ALL of it cleanly:
+  - renderStackedRow back to the pre-attempt label-then-cellHtml form
+  - buildHeaders back to plain { label, cls: 'entry-round' }
+  - buildRoundHeader helper deleted (no callers after revert)
+  - .round-ta CSS rule removed
+  - .hd-ta CSS rule removed (kept generic .hd-line — still used by the
+    identity column header from session 37)
+
+Lesson recorded as a project memory: when proposing two surfaces for
+the same data ("hero" vs "per-row"), pick one and ship; don't try
+both layered.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL DECISIONS LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+37. TIME-ALLOWED IS CLASS-LEVEL METADATA, NOT PER-ENTRY.
+    Stored on `classes` (one value per class per round, three columns).
+    Same data feeds every surface — hero today, future live page,
+    future per-round timing display, future stats correlations.
+    Hunter classes leave the columns NULL.
+
+38. METHOD-AWARE TA SUMMARY LIVES IN west-format.
+    timeAllowedSummary(cls) — single source of truth for the human-
+    facing TA string. Centralized so the live page, admin tooltips,
+    stats summaries, etc. all render the same wording. Uses the same
+    method-axis logic as roundLabel (method 9 → PH1/PH2; method 6+mod1
+    → 2R; methods 3/14 → 3R).
+
+39. /v3/reparseClassHeaders IS THE BACKFILL POSTERN FOR ANY classes-
+    LEVEL MIGRATION.
+    When a future migration adds new columns to `classes` that
+    parseClsHeaderV3 should populate, the recipe is:
+      1. Migration adds columns
+      2. Update parseClsHeaderV3 to return them
+      3. Update postCls UPSERT to bind them
+      4. Update reparseClassHeaders' UPDATE statement to write them
+      5. Apply migration, deploy worker, curl reparseClassHeaders
+    Steps 1-3 are the existing pattern. Step 4 is the new affordance
+    this session adds — no longer need a one-off backfill script.
+
+40. TA RENDERS IN THE HERO, NOT PER-ROUND-COLUMN.
+    Bill rejected per-row TA after seeing it. The hero subtitle is the
+    single sanctioned surface for TA. Future surfaces (live ticker,
+    display.html) should reuse the same formatter for consistency.
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE AT END OF SESSION 38
+═══════════════════════════════════════════════════════════════════════════
+
+Worker version: 199eacc7-c23f-4a06-851b-a0911b2da569
+                (deployed 2026-04-25 from this Mac via wrangler)
+
+Migrations applied since session 37:
+  019 — classes_time_allowed
+        + classes.r1_time_allowed REAL
+        + classes.r2_time_allowed REAL
+        + classes.r3_time_allowed REAL
+
+WEST_DB_V3 state:
+  All 71 classes backfilled via /v3/reparseClassHeaders. T classes
+  carry TA values; H + U classes correctly NULL.
+
+Public pages working:
+  index.html / show.html / ring.html / class.html / admin.html
+  Class.html hero on jumper classes now shows the TA summary line
+  beneath the class description.
+
+Branch state:
+  Worktree gifted-hertz-6ca673 / branch claude/gifted-hertz-6ca673,
+  5 commits ahead of origin/main, working tree clean. Not yet pushed.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT UP (post-session-38)
+═══════════════════════════════════════════════════════════════════════════
+
+Carry-over from session 36 unchanged:
+  - Class-finalization signal (waiting on LIVE udps)
+  - Ribbon graphics (gated on finalization)
+  - Prize money under ribbon (gated on ribbon work)
+  - Judges grid enhancements (compact-mode, per-judge HighOptions /
+    HandyBonus breakdown, "by judge" view)
+  - Public pages clean URLs via _redirects
+  - Reverse-engineer untested compositional flags (reverse_rank,
+    ribbons_only, is_jogged, is_team, show_all_rounds)
+
+New post-session-38 candidates:
+  - Push branch to origin and merge to main when Bill signs off
+  - Compact 2'6"/USHJA/WCHR variants — backfill verified the data is
+    captured but no test class hits derbyType 4-8 yet
+  - Larger-text hero treatment ideas Bill liked but deferred:
+    place ribbons for top 3, class-number lockup on hero, live-pulse
+    dot for in-progress classes — most are gated on the engine
+    connection landing
+
+═══════════════════════════════════════════════════════════════════════════
+COMMITS THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+  b80ef02  v3 Session 38: jumper time-allowed in hero
+
+═══════════════════════════════════════════════════════════════════════════
+FILES CHANGED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+NEW:
+  v3/migrations/019_classes_time_allowed.sql
+  session-notes/SESSION-NOTES-38.txt (this file)
+
+MODIFIED:
+  west-worker.js                  (parseClsHeaderV3 J/T branch;
+                                    /v3/postCls UPSERT;
+                                    /v3/reparseClassHeaders endpoint)
+  v3/js/west-format.js            (timeAllowedSummary helper)
+  v3/pages/class.html             (renderHero hero-ta line)
+  v3/pages/west.css               (.hero-ta styling)
+
+═══════════════════════════════════════════════════════════════════════════
+EXTERNAL CHANGES
+═══════════════════════════════════════════════════════════════════════════
+
+Cloudflare D1 (WEST_DB_V3):
+  Migration 019 applied via D1 MCP (3 ALTER TABLE statements).
+  Backfilled via /v3/reparseClassHeaders — 71 classes scanned, 71
+  updated, 0 skipped, 0 errors.
+
+Cloudflare Worker:
+  v_199eacc7-c23f-4a06-851b-a0911b2da569 deployed via wrangler.
+
+Cloudflare Pages:
+  Multiple preview deploys through the session iteration. Final state
+  has the hero TA line live at preview.westscoring.pages.dev.
+
+No memory token rotation required.

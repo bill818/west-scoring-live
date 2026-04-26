@@ -1,7 +1,7 @@
 # JS Modules and Pages — Current State
 
 > Quick reference for "where does X live?" and "who consumes Y?"
-> Last updated: 2026-04-25 (Session 36, judges grid + display polish).
+> Last updated: 2026-04-25 (Session 38, jumper time-allowed in hero).
 > Companion to [CENTRALIZED-JS-ARCHITECTURE.txt](CENTRALIZED-JS-ARCHITECTURE.txt) (the planning doc).
 
 ---
@@ -13,7 +13,7 @@ Every public page loads these via `<script>` tags. Worker and engine share them 
 | File | Responsibility | Key exports |
 |---|---|---|
 | [west-api.js](../../v3/js/west-api.js) | Worker URL + auth + fetch helper. Single place to change `BASE` or `AUTH`. | `WEST.api.BASE`, `WEST.api.AUTH`, `WEST.api.fetchJson(path)`, `WEST.api.queryParam(name)` |
-| [west-format.js](../../v3/js/west-format.js) | Pure formatting primitives (no state, no DOM). | `escapeHtml`, `time(sec)`, `faults(n)`, `ordinal(n)`, `date(iso)`, `dayLabel(iso)`, `dayLabelLong(iso)`, `dateWithDay(iso)`, `methodLabel(...)`, `scheduleFlagLabel(flag)`, `flag(code)`, `flagFor(cls,entry)` |
+| [west-format.js](../../v3/js/west-format.js) | Pure formatting primitives (no state, no DOM). | `escapeHtml`, `time(sec)`, `faults(n)`, `ordinal(n)`, `date(iso)`, `dayLabel(iso)`, `dayLabelLong(iso)`, `dateWithDay(iso)`, `methodLabel(...)`, `scheduleFlagLabel(flag)`, `flag(code)`, `flagFor(cls,entry)`, `roundLabel(method,modifier,n)`, `timeAllowedSummary(cls)`, `classDescription(cls)`, `derbyTypeLabel(cls)`, `judgesGridApplies(cls)`, `championshipMarker(place,isChamp)` |
 | [west-status.js](../../v3/js/west-status.js) | Status code dictionary. ELIM/PARTIAL/HIDDEN categories. | `WEST.status.TEXT_CODES`, `categoryOf(code)`, `isKillingStatus(code)`, `publicLabel(code)` (collapses ELIM family → "EL") |
 | [west-rules.js](../../v3/js/west-rules.js) | Method-aware placement rules ("ladder" model). | `WEST.rules.JUMPER_METHODS`, `jumperIsPlaced`, `jumperPlaceFor`, `hunterIsPlaced`, `hunterPlaceFor` |
 | [west-jumper-templates.js](../../v3/js/west-jumper-templates.js) | Detection + per-template renderers for the jumper lens (1R/2R/3R/EQ/TEAM). | `WEST.jumperTemplates.detect(cls)`, `templates['1R']`, `templates['2R']`, `templates['3R']`, `templates['EQ']`, `templates['TEAM']`, `renderTable(cls, entries)` |
