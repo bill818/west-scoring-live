@@ -450,3 +450,101 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 
 footer{text-align:center;padding:24px 16px 40px;color:var(--text-muted);font-size:12px;font-family:'DM Mono',monospace;}
 footer a{color:var(--blue);}
+
+/* ── STATS PAGE ──────────────────────────────────────────────────────── */
+/* "Stats" tag in the hero next to the class title — small chip that
+   reads as the page identifier. */
+.hero-stats-tag{display:inline-block;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:2px;margin-left:8px;vertical-align:middle;font-weight:500;}
+
+/* Stats button on class.html hero — links to stats.html for this class. */
+.hero-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 14px;background:#fff;color:var(--text-body);border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;transition:border-color .15s,color .15s,background .15s;}
+.hero-action:hover{border-color:var(--red);color:var(--red);text-decoration:none;background:#fff;}
+
+/* Stats summary chips — top of stats.html, headline numbers. */
+.stat-chips{display:flex;flex-wrap:wrap;gap:10px;max-width:1100px;margin:20px auto 0;padding:0 12px;}
+.stat-chip{flex:1 1 140px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px 16px;text-align:center;}
+.chip-num{font-family:'Oswald',sans-serif;font-weight:700;font-size:32px;color:var(--black);line-height:1;}
+.chip-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
+.chip-sub{display:block;font-size:11px;color:var(--red);letter-spacing:.04em;margin-top:2px;text-transform:none;font-weight:500;}
+
+/* Per-round stats sections — one card per round. */
+.stats-section{max-width:1100px;margin:16px auto 0;padding:18px 20px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);}
+.stats-section .section-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);border-left:3px solid var(--red);padding-left:10px;line-height:1.1;margin-bottom:14px;}
+.round-stats-lines{font-family:'Lato',sans-serif;font-size:14px;color:var(--text-body);line-height:1.6;margin-bottom:14px;}
+.round-stats-lines strong{font-family:'DM Mono',monospace;font-weight:600;color:var(--black);}
+
+/* Fastest-clear callout — featured per-round line, slightly louder. */
+.fastest-clear{background:var(--off-white);border-left:3px solid var(--green);padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;}
+.fc-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px;}
+.fc-body{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;}
+.fc-horse{font-weight:600;color:var(--black);}
+.fc-rider{font-size:13px;color:var(--text-muted);}
+.fc-sep{color:#bbb;font-size:11px;}
+.fc-time{margin-left:auto;font-family:'DM Mono',monospace;font-size:15px;font-weight:600;color:var(--green);font-variant-numeric:tabular-nums;}
+
+/* Fault histogram — horizontal bars, scaled to the largest non-zero
+   bucket. Zero-count buckets are filtered at render time. */
+.histogram{margin-top:8px;}
+.hist-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;}
+.hist-row{display:grid;grid-template-columns:90px 1fr 36px;gap:10px;align-items:center;margin-bottom:4px;font-family:'DM Mono',monospace;font-size:12px;}
+.hist-lbl{color:var(--text-body);text-align:right;}
+.hist-bar{background:var(--off-white);height:14px;border-radius:3px;overflow:hidden;}
+.hist-fill{display:block;height:100%;background:var(--blue);transition:width .3s;}
+.hist-count{font-weight:600;color:var(--black);text-align:right;font-variant-numeric:tabular-nums;}
+
+.stats-footer{max-width:1100px;margin:18px auto 0;padding:0 12px;text-align:right;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.06em;}
+
+/* Entry Summary section — populates pre-flight from the entries table.
+   Smaller cards than the top-line chip strip (these are secondary). */
+.es-cards{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+.es-card{flex:1 1 110px;background:var(--off-white);border:1px solid var(--border);border-radius:6px;padding:10px 12px;text-align:center;}
+.es-num{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--black);line-height:1;}
+.es-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:4px;}
+
+.es-sub-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px;}
+.es-countries{display:flex;flex-wrap:wrap;gap:12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text-body);line-height:1.5;}
+.es-country{display:inline-flex;align-items:center;gap:4px;}
+.es-country-code{font-weight:600;letter-spacing:.04em;}
+.es-country-count{color:var(--text-muted);font-size:11px;}
+
+.es-multi{border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.es-multi-row{display:flex;align-items:baseline;gap:12px;padding:8px 12px;border-bottom:1px solid var(--border);}
+.es-multi-row:last-child{border-bottom:none;}
+.es-multi-name{font-family:'Lato',sans-serif;font-size:13px;font-weight:700;color:var(--black);min-width:160px;flex-shrink:0;}
+.es-multi-horses{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.02em;}
+
+/* Per-round standings table — V1/V2 5-column layout, fully server-
+   rendered (every value comes pre-formatted from /v3/listJumperStats). */
+.standings-wrap{margin-top:14px;background:#fff;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.standings-hdr{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--off-white);border-bottom:2px solid var(--black);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.col-place{width:36px;text-align:left;flex-shrink:0;}
+.col-entry{flex:1;min-width:0;}
+.col-faults{width:64px;text-align:right;flex-shrink:0;}
+.col-time{width:70px;text-align:right;flex-shrink:0;}
+.col-gap{width:140px;text-align:right;flex-shrink:0;}
+
+.standing-row{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);}
+.standing-row:last-child{border-bottom:none;}
+.standing-row:hover{background:var(--off-white);}
+.standing-row.is-elim{opacity:.65;}
+
+.s-place{width:36px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--text-body);}
+.s-place.s-place-status{color:var(--red);font-size:10px;letter-spacing:.06em;font-weight:600;}
+/* JO qualifier chip — small red pill on R1 of multi-round methods. */
+.s-place.s-place-jo{display:inline-block;padding:2px 6px;background:var(--red);color:#fff;font-size:9px;letter-spacing:.12em;font-weight:700;border-radius:3px;width:auto;text-align:center;line-height:1.3;}
+
+.s-entry{flex:1;min-width:0;}
+.s-horse{font-family:'Lato',sans-serif;font-size:14px;font-weight:600;color:var(--black);line-height:1.2;}
+.s-rider{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.02em;line-height:1.3;margin-top:1px;}
+
+.s-faults{width:64px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:13px;font-variant-numeric:tabular-nums;}
+.s-faults.clear{color:var(--green);font-weight:600;}
+.s-faults.faulted{color:var(--text-body);}
+.s-faults.elim{color:var(--red);font-size:10px;letter-spacing:.06em;font-weight:600;}
+
+.s-time{width:70px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
+
+.s-gap{width:140px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
+.s-gap.leader{color:var(--green);font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;}
+.s-gap.behind{color:var(--amber);}
+.s-gap.fault-gap{color:var(--red);}

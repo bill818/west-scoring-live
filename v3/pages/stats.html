@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST Scoring — Class Stats</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="west.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a href="index.html" class="logo-tap">
+      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-tag">V3</div>
+  </div>
+</header>
+
+<nav class="breadcrumbs">
+  <a class="bc-link" href="index.html">All shows</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcShow" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcRing" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcClass" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <span class="bc-current">Stats</span>
+</nav>
+
+<div id="hero" class="hero">
+  <div class="spinner"></div>
+</div>
+
+<div id="content">
+  <div class="spinner"></div>
+</div>
+
+<footer>
+  WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
+</footer>
+
+<!-- Same module set as class.html — needed for hero rendering parity
+     (classDescription, timeAllowedSummary, roundLabel). -->
+<script src="../js/west-api.js"></script>
+<script src="../js/west-status.js"></script>
+<script src="../js/west-format.js"></script>
+<script src="../js/west-rules.js"></script>
+
+<script>
+const escapeHtml = WEST.format.escapeHtml;
+const fetchJson  = WEST.api.fetchJson;
+const getQueryParam = WEST.api.queryParam;
+const fmtDayLabel = WEST.format.dayLabel;
+
+const state = { cls: null, stats: null, show: null, ring: null, statsEtag: null, lastUpdated: null };
+// Polling cadence — 10s while document is visible AND class isn't
+// complete. Worker returns 304 with no body when nothing changed, so
+// most polls are tiny round-trips. Switches to a real WS subscription
+// when Durable Objects land (build-plan Phase 7-8).
+const POLL_MS = 10000;
+let pollTimer = null;
+
+// Hero render — mirrors class.html so the page reads as a continuation
+// of the class page, just one breadcrumb deeper. Lens tint applies the
+// same way (.hero.hero-{h|j|t}).
+function renderHero(show, ring, cls) {
+  const parts = [];
+  parts.push(`<div class="hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')} <span class="hero-stats-tag">Stats</span></div>`);
+  const ringLabel = ring.name || `Ring ${ring.ring_num}`;
+  const sub = [escapeHtml(show.name), escapeHtml(ringLabel)];
+  if (cls.scheduled_date) sub.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
+  parts.push(`<div class="hero-dates">${sub.join(' · ')}</div>`);
+  const methodStr = WEST.format.classDescription(cls);
+  if (methodStr) parts.push(`<div class="hero-location">${escapeHtml(methodStr)}</div>`);
+  const taStr = WEST.format.timeAllowedSummary(cls);
+  if (taStr) parts.push(`<div class="hero-ta">${escapeHtml(taStr)}</div>`);
+  const hero = document.getElementById('hero');
+  hero.innerHTML = parts.join('');
+  hero.className = 'hero hero-' + (cls.class_type || 'u').toLowerCase();
+  document.getElementById('bcShow').textContent = show.name;
+  document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
+  document.getElementById('bcRing').textContent = ring.name || `Ring ${ring.ring_num}`;
+  document.getElementById('bcRing').href = `ring.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}`;
+  document.getElementById('bcClass').textContent = `#${cls.class_id}`;
+  document.getElementById('bcClass').href = `class.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}&class=${encodeURIComponent(cls.class_id)}`;
+  document.title = `Stats · ${cls.class_id} ${cls.class_name || ''} — ${show.name}`;
+}
+
+// One-line summary chips at the top — class-level numbers + a couple
+// of round-derived top-line stats so the page leads with what people
+// scan for.
+function renderChips(cls, stats) {
+  const r1 = stats.rounds.find(r => r.round === 1);
+  const lastRound = stats.rounds.length ? stats.rounds[stats.rounds.length - 1] : null;
+  const chips = [];
+  chips.push(chip(stats.total_entries, 'Entries'));
+  if (r1) {
+    chips.push(chip(r1.competed, 'Competed'));
+    chips.push(chip(r1.clears, 'R1 Clears', pct(r1.clears, r1.competed)));
+  }
+  // For multi-round methods, the LAST round is typically the JO / final.
+  // Surface its clears separately so the page reads "made it through to
+  // the JO and went clear."
+  if (lastRound && lastRound.round !== 1) {
+    chips.push(chip(lastRound.clears, lastRoundLabel(cls, lastRound.round) + ' Clears', pct(lastRound.clears, lastRound.competed)));
+  }
+  if (stats.eliminated > 0) chips.push(chip(stats.eliminated, 'Eliminated'));
+  if (stats.scratched > 0)  chips.push(chip(stats.scratched, 'Scratched'));
+  return `<div class="stat-chips">${chips.join('')}</div>`;
+}
+
+function chip(num, label, sub) {
+  const subHtml = sub ? `<span class="chip-sub">${escapeHtml(sub)}</span>` : '';
+  return `<div class="stat-chip">
+    <div class="chip-num">${escapeHtml(String(num))}</div>
+    <div class="chip-lbl">${escapeHtml(label)}${subHtml}</div>
+  </div>`;
+}
+
+function pct(part, whole) {
+  if (!whole) return '';
+  return Math.round((part / whole) * 100) + '%';
+}
+
+function lastRoundLabel(cls, n) {
+  // Use roundLabel for the canonical name; fall back to "R{n}" if blank.
+  return WEST.format.roundLabel(Number(cls.scoring_method), Number(cls.scoring_modifier), n) || ('R' + n);
+}
+
+// Per-round detail block — stat lines, fastest 4-faulter callout,
+// fault histogram (zero-count buckets filtered out per design), and
+// the full per-round standings table. Every display string in the
+// standings table is server-rendered (place_display, fault_display,
+// time_display, gap_display + matching CSS classes); the frontend
+// just plugs values into the markup.
+function renderRound(cls, round) {
+  const lbl = WEST.format.roundLabel(Number(cls.scoring_method), Number(cls.scoring_modifier), round.round) || ('Round ' + round.round);
+  const parts = [];
+  parts.push(`<div class="section-title">${escapeHtml(lbl)}</div>`);
+
+  // Stat lines
+  const lines = [];
+  lines.push(`Competed <strong>${round.competed}</strong> · Clears <strong>${round.clears}</strong> ${round.competed ? `(${pct(round.clears, round.competed)})` : ''}`);
+  if (round.time_faults > 0) lines.push(`Time faults: <strong>${round.time_faults}</strong>`);
+  if (round.avg_total_time != null) lines.push(`Avg time (all): <strong>${round.avg_total_time.toFixed(2)}s</strong>`);
+  if (round.avg_clear_time != null) lines.push(`Avg clear time: <strong>${round.avg_clear_time.toFixed(2)}s</strong>`);
+  parts.push(`<div class="round-stats-lines">${lines.map(l => `<div>${l}</div>`).join('')}</div>`);
+
+  // Fastest 4-faulter callout — only present for standard / speed schemes
+  // (optimum and gamblers/equitation have no meaningful 4-fault concept).
+  if (round.fastest_4fault) {
+    const fc = round.fastest_4fault;
+    parts.push(`<div class="fastest-clear">
+      <div class="fc-label">Fastest 4-faulter</div>
+      <div class="fc-body">
+        <span class="fc-horse">${escapeHtml(fc.horse_name || '—')}</span>
+        <span class="fc-sep">—</span>
+        <span class="fc-rider">${escapeHtml(fc.rider_name || '')}</span>
+        <span class="fc-time">${fc.time.toFixed(3)}s</span>
+      </div>
+    </div>`);
+  }
+
+  // Fault histogram (zero-count buckets filtered)
+  if (round.fault_buckets && round.fault_buckets.buckets) {
+    parts.push(renderHistogram(round.fault_buckets));
+  }
+
+  // Standings table — V1/V2 5-column layout. Server pre-rendered.
+  if (round.standings && round.standings.length) {
+    parts.push(renderStandings(round));
+  }
+
+  return `<section class="stats-section">${parts.join('')}</section>`;
+}
+
+// Standings table — fully driven by server-rendered fields. Killed
+// entries get the .elim row class for muted styling. Header gap label
+// flexes per round (e.g. "Gap from TA - 73s" on R1 of JO methods).
+function renderStandings(round) {
+  const rows = round.standings;
+  const gapLabel = round.gap_label || 'Gap';
+  const header = `<div class="standings-hdr">
+    <span class="col-place">Pl</span>
+    <span class="col-entry">Horse / Rider</span>
+    <span class="col-faults">Faults</span>
+    <span class="col-time">Time</span>
+    <span class="col-gap">${escapeHtml(gapLabel)}</span>
+  </div>`;
+  const body = rows.map(r => {
+    const elimRow = r.status ? ' is-elim' : '';
+    return `<div class="standing-row${elimRow}">
+      <span class="s-place s-place-${escapeHtml(r.place_class || 'rank')}">${escapeHtml(r.place_display || '')}</span>
+      <div class="s-entry">
+        <div class="s-horse">${escapeHtml(r.horse_name || '—')}</div>
+        <div class="s-rider">#${escapeHtml(r.entry_num || '')} · ${escapeHtml(r.rider_name || '')}</div>
+      </div>
+      <span class="s-faults ${escapeHtml(r.fault_class)}">${escapeHtml(r.fault_display)}</span>
+      <span class="s-time">${escapeHtml(r.time_display)}</span>
+      <span class="s-gap ${escapeHtml(r.gap_class)}">${escapeHtml(r.gap_display)}</span>
+    </div>`;
+  }).join('');
+  return `<div class="standings-wrap">${header}${body}</div>`;
+}
+
+// Horizontal bar chart, scaled to the largest non-zero bucket.
+// Zero-count buckets dropped per design rule (clutter-free).
+function renderHistogram(fb) {
+  const live = fb.buckets.filter(b => b.count > 0);
+  if (!live.length) return '';
+  const max = Math.max(...live.map(b => b.count));
+  const rows = live.map(b => {
+    const w = max ? Math.round((b.count / max) * 100) : 0;
+    return `<div class="hist-row">
+      <span class="hist-lbl">${escapeHtml(b.label)}</span>
+      <span class="hist-bar"><span class="hist-fill" style="width:${w}%"></span></span>
+      <span class="hist-count">${b.count}</span>
+    </div>`;
+  }).join('');
+  return `<div class="histogram"><div class="hist-title">Fault distribution</div>${rows}</div>`;
+}
+
+// Footer freshness indicator — "Last updated 12s ago" type label.
+// Updated locally (just rerenders the footer line every second) so the
+// "X s ago" counter ticks even between polls.
+function renderStatsFooter() {
+  if (!state.lastUpdated) return '';
+  const ageSec = Math.floor((Date.now() - state.lastUpdated) / 1000);
+  const label = ageSec < 5 ? 'just now'
+              : ageSec < 60 ? `${ageSec}s ago`
+              : ageSec < 3600 ? `${Math.floor(ageSec / 60)}m ago`
+              : `${Math.floor(ageSec / 3600)}h ago`;
+  const isDormant = state.cls && state.cls.status === 'complete';
+  const live = isDormant ? 'class complete · no further updates' : 'live · checks every 10s';
+  return `<div class="stats-footer">Updated ${escapeHtml(label)} · ${escapeHtml(live)}</div>`;
+}
+function repaintFooter() {
+  const el = document.getElementById('statsFooter');
+  if (el) el.innerHTML = renderStatsFooter();
+}
+setInterval(repaintFooter, 1000);
+
+function renderContent(cls, stats) {
+  const root = document.getElementById('content');
+  // Entry summary shows the moment entries are uploaded (no rides
+  // required), so even pre-flight classes get the section. We only
+  // skip the chips + per-round blocks when no one's competed yet.
+  const hasAnyEntries = (stats.entry_stats && stats.entry_stats.unique_riders > 0) || stats.total_entries > 0;
+  if (!stats.rounds.length && !hasAnyEntries) {
+    root.innerHTML = '<div class="placeholder">No entries yet — stats will populate as soon as the entry list lands.</div>';
+    return;
+  }
+  const html = [];
+  if (stats.rounds.length) {
+    html.push(renderChips(cls, stats));
+  }
+  if (stats.entry_stats && hasAnyEntries) {
+    html.push(renderEntrySummary(stats));
+  }
+  for (const r of stats.rounds) html.push(renderRound(cls, r));
+  // Footer is replaced by repaintFooter() every second so "Xs ago"
+  // ticks between polls. We just stamp a hook here.
+  html.push(`<div id="statsFooter">${renderStatsFooter()}</div>`);
+  root.innerHTML = html.join('');
+}
+
+// Entry-list summary — populates the moment entries arrive, before any
+// rides happen. Cards row + country breakdown (when present) +
+// multi-ride riders list (when present).
+function renderEntrySummary(stats) {
+  const es = stats.entry_stats;
+  const cards = [];
+  cards.push(`<div class="es-card"><div class="es-num">${stats.total_entries || 0}</div><div class="es-lbl">Entries</div></div>`);
+  cards.push(`<div class="es-card"><div class="es-num">${es.unique_riders || 0}</div><div class="es-lbl">Unique Riders</div></div>`);
+  cards.push(`<div class="es-card"><div class="es-num">${es.unique_horses || 0}</div><div class="es-lbl">Unique Horses</div></div>`);
+  if (es.unique_owners > 0) {
+    cards.push(`<div class="es-card"><div class="es-num">${es.unique_owners}</div><div class="es-lbl">Unique Owners</div></div>`);
+  }
+  if (es.countries && es.countries.length) {
+    cards.push(`<div class="es-card"><div class="es-num">${es.countries.length}</div><div class="es-lbl">Countries</div></div>`);
+  }
+  const parts = [];
+  parts.push(`<div class="section-title">Entry Summary</div>`);
+  parts.push(`<div class="es-cards">${cards.join('')}</div>`);
+
+  if (es.countries && es.countries.length) {
+    const flagSpans = es.countries.map(c => {
+      const flag = WEST.format.flag(c.code) || '';
+      return `<span class="es-country">${flag} <span class="es-country-code">${escapeHtml(c.code)}</span> <span class="es-country-count">(${c.count})</span></span>`;
+    }).join('');
+    parts.push(`<div class="es-sub-label">By Country</div><div class="es-countries">${flagSpans}</div>`);
+  }
+
+  if (es.multi_riders && es.multi_riders.length) {
+    const rows = es.multi_riders.map(r =>
+      `<div class="es-multi-row">
+        <span class="es-multi-name">${escapeHtml(r.rider)}</span>
+        <span class="es-multi-horses">${r.horses.map(h => escapeHtml(h)).join(' · ')}</span>
+      </div>`
+    ).join('');
+    parts.push(`<div class="es-sub-label">Multi-Ride Riders</div><div class="es-multi">${rows}</div>`);
+  }
+
+  return `<section class="stats-section">${parts.join('')}</section>`;
+}
+
+async function load() {
+  const slug = getQueryParam('slug');
+  const ringNum = parseInt(getQueryParam('ring') || '1', 10);
+  const classNum = getQueryParam('class');
+  if (!slug || !classNum || !Number.isFinite(ringNum)) {
+    document.getElementById('hero').innerHTML = '<div class="hero-name">Missing slug / ring / class in URL</div>';
+    document.getElementById('content').innerHTML = '';
+    return;
+  }
+  try {
+    const [showRes, ringsRes, classesRes] = await Promise.all([
+      fetchJson(`/v3/getShow?slug=${encodeURIComponent(slug)}`),
+      fetchJson(`/v3/listRings?slug=${encodeURIComponent(slug)}`),
+      fetchJson(`/v3/listClasses?slug=${encodeURIComponent(slug)}&ring=${ringNum}`),
+    ]);
+    const show = showRes.show;
+    const ring = (ringsRes.rings || []).find(r => r.ring_num === ringNum);
+    if (!ring) {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Ring ${ringNum} not found</div>`;
+      document.getElementById('content').innerHTML = '';
+      return;
+    }
+    const cls = (classesRes.classes || []).find(c => String(c.class_id) === String(classNum));
+    if (!cls) {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Class ${escapeHtml(classNum)} not found</div>`;
+      document.getElementById('content').innerHTML = '';
+      return;
+    }
+    if (cls.class_type !== 'J' && cls.class_type !== 'T') {
+      document.getElementById('hero').innerHTML = `<div class="hero-name">Stats not available for this class type</div><div class="hero-location">Hunter / equitation stats coming soon.</div>`;
+      document.getElementById('content').innerHTML = '';
+      return;
+    }
+    const fetched = await WEST.api.fetchJsonEtag(`/v3/listJumperStats?class_id=${cls.id}`, null);
+    // First load — should never come back as 304 (no prior etag), but
+    // the helper signals notModified just in case; treat as no-op.
+    if (fetched.notModified) return;
+    state.show = show; state.ring = ring; state.cls = cls;
+    state.stats = fetched.data.stats;
+    state.statsEtag = fetched.etag;
+    state.lastUpdated = Date.now();
+    renderHero(show, ring, cls);
+    renderContent(cls, state.stats);
+    startPolling();
+  } catch (e) {
+    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load stats</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
+    document.getElementById('content').innerHTML = '';
+  }
+}
+
+// Poll loop — every POLL_MS, ask the worker for fresh stats with our
+// last ETag. Worker returns 304 (no body) when nothing changed; we
+// only re-render on a real 200 update.
+//
+// Gates:
+//   - document.hidden: skip (battery saver on phones)
+//   - state.cls.status === 'complete': stop polling (no further updates
+//     expected once the operator marks the class done)
+async function pollStats() {
+  if (!state.cls || !state.statsEtag) return;
+  if (document.hidden) return;
+  if (state.cls.status === 'complete') {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    return;
+  }
+  try {
+    const fetched = await WEST.api.fetchJsonEtag(`/v3/listJumperStats?class_id=${state.cls.id}`, state.statsEtag);
+    if (fetched.notModified) return;  // 304 — no change, do nothing
+    state.stats = fetched.data.stats;
+    state.statsEtag = fetched.etag;
+    state.lastUpdated = Date.now();
+    renderContent(state.cls, state.stats);
+  } catch (e) {
+    // Polling errors are non-fatal — log and try again on next tick.
+    console.warn('[stats poll]', e.message);
+  }
+}
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollStats, POLL_MS);
+}
+
+// Re-poll immediately when the user returns to the tab so they don't
+// have to wait up to POLL_MS for fresh data after a long absence.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) pollStats();
+});
+
+load();
+</script>
+
+</body>
+</html>

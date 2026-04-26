@@ -615,7 +615,8 @@ function parseClsHeaderV3(bytes) {
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-West-Key',
+  'Access-Control-Allow-Headers': 'Content-Type, X-West-Key, If-None-Match',
+  'Access-Control-Expose-Headers': 'ETag',
 };
 
 function json(data, status = 200) {
@@ -3192,6 +3193,308 @@ export default {
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
+    // ── GET /v3/listJumperStats?class_id=N ───────────────────────────────────
+    // Returns the pre-computed class_jumper_stats row reshaped into the JSON
+    // envelope the stats page consumes. Joins against entries (twice per
+    // round, once for fastest_4fault) so horse/rider names ride alongside the
+    // numbers — no extra fetch from the client. Empty rounds (no competed
+    // entries) are filtered out so the consumer iterates only meaningful
+    // rounds.
+    if (method === 'GET' && path === '/v3/listJumperStats') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const classIdStr = url.searchParams.get('class_id');
+      if (!classIdStr) return err('Missing class_id');
+      const classDbId = parseInt(classIdStr, 10);
+      if (!Number.isFinite(classDbId)) return err('Invalid class_id');
+      try {
+        const cls = await env.WEST_DB_V3.prepare(
+          `SELECT id, class_id, class_name, class_type, scoring_method,
+                  scoring_modifier, num_rounds,
+                  r1_time_allowed, r2_time_allowed, r3_time_allowed
+           FROM classes WHERE id = ?`
+        ).bind(classDbId).first();
+        if (!cls) return err('Class not found', 404);
+        if (cls.class_type !== 'J' && cls.class_type !== 'T') {
+          return err('Class is not a jumper class', 400);
+        }
+        const stats = await env.WEST_DB_V3.prepare(
+          `SELECT * FROM class_jumper_stats WHERE class_id = ?`
+        ).bind(classDbId).first();
+        if (!stats) {
+          // No stats row yet (newly added class, never posted). Return an
+          // empty-but-valid envelope so the page renders a clean
+          // placeholder instead of erroring.
+          return json({
+            ok: true,
+            class: cls,
+            stats: { total_entries: 0, scratched: 0, eliminated: 0, rounds: [] }
+          });
+        }
+
+        // Resolve fastest-clear entry FKs to horse/rider/entry_num for the
+        // consumer. One SELECT per non-null FK keeps the join logic clean.
+        async function resolveFastest(entryId) {
+          if (entryId == null) return null;
+          const e = await env.WEST_DB_V3.prepare(
+            `SELECT id, entry_num, horse_name, rider_name FROM entries WHERE id = ?`
+          ).bind(entryId).first();
+          return e;
+        }
+
+        const rounds = [];
+        for (const n of [1, 2, 3]) {
+          const competed = stats[`r${n}_competed`] || 0;
+          if (!competed) continue;
+          const fastEntry = await resolveFastest(stats[`r${n}_fastest_4fault_entry_id`]);
+          const fastTime  = stats[`r${n}_fastest_4fault_time`];
+          let buckets = null;
+          const raw = stats[`r${n}_fault_buckets`];
+          if (raw) {
+            try { buckets = JSON.parse(raw); }
+            catch (e) { console.warn(`[v3/listJumperStats] r${n} bucket JSON parse failed for class ${classDbId}`); }
+          }
+
+          // Per-round standings — fully server-rendered. SQL computes
+          // place_display, fault_class, fault_display, time_display,
+          // gap_class, gap_display so other pages can drop in a row
+          // without re-implementing display logic.
+          //
+          // Two paths:
+          //   R1 of multi-round methods (II.2 family / 3R / Two-Phase /
+          //     Winning Round / Optimum 2R) → JO mode: gap = total_time
+          //     − r1_time_allowed (vs TA), JO badge for entries at the
+          //     qualifying threshold (min_faults), qualifiers sorted by
+          //     ride_order (go order), faulted by faults+time.
+          //   Everything else → default: gap = vs leader, RANK number.
+          //
+          // Killed entries (EL/RF/DNF/OC) listed below clean rides;
+          // DNS/WD/SC skipped entirely (didn't compete).
+          const cMethod   = Number(cls.scoring_method);
+          const cModifier = Number(cls.scoring_modifier);
+          const useR1JoMode = (n === 1) && cls.r1_time_allowed && (
+            (cMethod === 6 && cModifier === 1) ||
+            [2, 3, 9, 10, 11, 13, 14, 15].includes(cMethod)
+          );
+          let standingRows;
+          if (useR1JoMode) {
+            const { results } = await env.WEST_DB_V3.prepare(`
+              WITH all_rows AS (
+                SELECT
+                  e.id AS entry_id, e.entry_num, e.horse_name, e.rider_name, e.country_code,
+                  r.total_faults, r.total_time, r.time_faults, r.jump_faults, r.status,
+                  s.ride_order
+                FROM entry_jumper_rounds r
+                JOIN entries e ON e.id = r.entry_id
+                LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
+                WHERE e.class_id = ?1
+                  AND r.round = ?2
+                  AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+              ),
+              threshold AS (
+                SELECT MIN(total_faults) AS min_faults
+                FROM all_rows WHERE status IS NULL
+              ),
+              -- ROW_NUMBER over non-killed entries in the FINAL standing
+              -- order (qualifiers in ride_order first, then faulted by
+              -- faults+time). Killed entries excluded so they don't
+              -- inflate the next number. JO qualifiers get pos 1-N but
+              -- their place_display overrides to 'JO'; non-qualifiers
+              -- show the numeric position N+1, N+2, …
+              positions AS (
+                SELECT
+                  entry_id,
+                  ROW_NUMBER() OVER (
+                    ORDER BY
+                      CASE WHEN total_faults = (SELECT min_faults FROM threshold) THEN 0 ELSE 1 END ASC,
+                      CASE WHEN total_faults = (SELECT min_faults FROM threshold) THEN COALESCE(ride_order, 9999) END ASC,
+                      total_faults ASC,
+                      total_time ASC,
+                      CAST(entry_num AS INTEGER) ASC
+                  ) AS pos
+                FROM all_rows
+                WHERE status IS NULL
+              )
+              SELECT
+                ar.entry_id, ar.entry_num, ar.horse_name, ar.rider_name, ar.country_code,
+                ar.total_faults, ar.total_time, ar.time_faults, ar.jump_faults, ar.status,
+                CASE
+                  WHEN ar.status IS NOT NULL                                       THEN ar.status
+                  WHEN ar.total_faults = (SELECT min_faults FROM threshold)        THEN 'JO'
+                  ELSE CAST(p.pos AS TEXT)
+                END AS place_display,
+                CASE
+                  WHEN ar.status IS NOT NULL                                       THEN 'status'
+                  WHEN ar.total_faults = (SELECT min_faults FROM threshold)        THEN 'jo'
+                  ELSE 'rank'
+                END AS place_class,
+                CASE
+                  WHEN ar.status IS NOT NULL THEN 'elim'
+                  WHEN ar.total_faults = 0   THEN 'clear'
+                  ELSE 'faulted'
+                END AS fault_class,
+                CASE
+                  WHEN ar.status IS NOT NULL                                THEN ar.status
+                  WHEN ar.total_faults = CAST(ar.total_faults AS INTEGER)
+                    THEN CAST(CAST(ar.total_faults AS INTEGER) AS TEXT)
+                  ELSE printf('%.2f', ar.total_faults)
+                END AS fault_display,
+                CASE
+                  WHEN ar.status IS NOT NULL OR ar.total_time IS NULL THEN '—'
+                  ELSE printf('%.3f', ar.total_time)
+                END AS time_display,
+                -- Gap = signed distance from R1 TA. Color: over = fault-gap (red),
+                -- comfortably under (>3s) = leader (green), else = behind (amber).
+                CASE
+                  WHEN ar.status IS NOT NULL OR ar.total_time IS NULL THEN 'fault-gap'
+                  WHEN (ar.total_time - ?3) > 0                       THEN 'fault-gap'
+                  WHEN (ar.total_time - ?3) < -3                      THEN 'leader'
+                  ELSE 'behind'
+                END AS gap_class,
+                CASE
+                  WHEN ar.status IS NOT NULL OR ar.total_time IS NULL THEN '—'
+                  WHEN (ar.total_time - ?3) >= 0
+                    THEN '+' || printf('%.3f', ar.total_time - ?3) || 's'
+                  ELSE printf('%.3f', ar.total_time - ?3) || 's'
+                END AS gap_display
+              FROM all_rows ar
+              LEFT JOIN positions p ON p.entry_id = ar.entry_id
+              ORDER BY
+                CASE WHEN ar.status IS NULL THEN 0 ELSE 1 END ASC,
+                CASE
+                  WHEN ar.status IS NULL AND ar.total_faults = (SELECT min_faults FROM threshold) THEN 0
+                  WHEN ar.status IS NULL                                                          THEN 1
+                  ELSE 2
+                END ASC,
+                CASE
+                  WHEN ar.status IS NULL AND ar.total_faults = (SELECT min_faults FROM threshold)
+                    THEN COALESCE(ar.ride_order, 9999)
+                  ELSE NULL
+                END ASC,
+                COALESCE(ar.total_faults, 999) ASC,
+                COALESCE(ar.total_time, 999999) ASC,
+                CAST(ar.entry_num AS INTEGER) ASC
+            `).bind(classDbId, n, cls.r1_time_allowed).all();
+            standingRows = results;
+          } else {
+          const { results } = await env.WEST_DB_V3.prepare(`
+            WITH all_rows AS (
+              SELECT
+                e.id AS entry_id, e.entry_num, e.horse_name, e.rider_name, e.country_code,
+                r.total_faults, r.total_time, r.time_faults, r.jump_faults, r.status
+              FROM entry_jumper_rounds r
+              JOIN entries e ON e.id = r.entry_id
+              WHERE e.class_id = ?
+                AND r.round = ?
+                AND (r.status IS NULL OR r.status NOT IN ('DNS','WD','SC'))
+            ),
+            leader AS (
+              SELECT total_faults AS leader_faults, total_time AS leader_time
+              FROM all_rows
+              WHERE status IS NULL
+              ORDER BY total_faults ASC, total_time ASC
+              LIMIT 1
+            )
+            SELECT
+              ar.entry_id, ar.entry_num, ar.horse_name, ar.rider_name, ar.country_code,
+              ar.total_faults, ar.total_time, ar.time_faults, ar.jump_faults, ar.status,
+              CASE WHEN ar.status IS NULL THEN
+                CAST(RANK() OVER (
+                  PARTITION BY (CASE WHEN ar.status IS NULL THEN 0 ELSE 1 END)
+                  ORDER BY ar.total_faults ASC, ar.total_time ASC
+                ) AS TEXT)
+              ELSE ar.status END AS place_display,
+              CASE WHEN ar.status IS NULL THEN 'rank' ELSE 'status' END AS place_class,
+              CASE
+                WHEN ar.status IS NOT NULL THEN 'elim'
+                WHEN ar.total_faults = 0 THEN 'clear'
+                ELSE 'faulted'
+              END AS fault_class,
+              CASE
+                WHEN ar.status IS NOT NULL                                THEN ar.status
+                WHEN ar.total_faults = CAST(ar.total_faults AS INTEGER)
+                  THEN CAST(CAST(ar.total_faults AS INTEGER) AS TEXT)
+                ELSE printf('%.2f', ar.total_faults)
+              END AS fault_display,
+              CASE
+                WHEN ar.status IS NOT NULL OR ar.total_time IS NULL THEN '—'
+                ELSE printf('%.3f', ar.total_time)
+              END AS time_display,
+              CASE
+                WHEN l.leader_faults IS NULL                                              THEN 'fault-gap'
+                WHEN ar.status IS NOT NULL                                                THEN 'fault-gap'
+                WHEN ar.total_faults = l.leader_faults AND ar.total_time = l.leader_time  THEN 'leader'
+                WHEN ar.total_faults > l.leader_faults                                    THEN 'fault-gap'
+                ELSE 'behind'
+              END AS gap_class,
+              CASE
+                WHEN l.leader_faults IS NULL                                              THEN '—'
+                WHEN ar.status IS NOT NULL                                                THEN '—'
+                WHEN ar.total_faults = l.leader_faults AND ar.total_time = l.leader_time  THEN 'Leader'
+                WHEN ar.total_faults > l.leader_faults
+                  THEN '+' || CAST(ar.total_faults - l.leader_faults AS INTEGER) || ' flt'
+                ELSE '+' || printf('%.3f', ar.total_time - l.leader_time) || 's'
+              END AS gap_display
+            FROM all_rows ar
+            LEFT JOIN leader l ON 1=1
+            ORDER BY
+              CASE WHEN ar.status IS NULL THEN 0 ELSE 1 END ASC,
+              COALESCE(ar.total_faults, 999) ASC,
+              COALESCE(ar.total_time, 999999) ASC,
+              CAST(ar.entry_num AS INTEGER) ASC
+          `).bind(classDbId, n).all();
+          standingRows = results;
+          }
+
+          // Header label for the gap column: "Gap from TA - 73s" when
+          // R1 of a multi-round method shows distance-from-TA; plain
+          // "Gap" everywhere else (gap-from-leader). Computed here so
+          // the page renders verbatim with no JS-side mode detection.
+          const gapLabel = useR1JoMode
+            ? `Gap from TA - ${Math.round(cls.r1_time_allowed)}s`
+            : 'Gap';
+
+          rounds.push({
+            round:           n,
+            competed,
+            clears:          stats[`r${n}_clears`]      || 0,
+            time_faults:     stats[`r${n}_time_faults`] || 0,
+            avg_total_time:  stats[`r${n}_avg_total_time`],
+            avg_clear_time:  stats[`r${n}_avg_clear_time`],
+            gap_label:       gapLabel,
+            fastest_4fault:  fastEntry && fastTime != null ? {
+              entry_id:    fastEntry.id,
+              entry_num:   fastEntry.entry_num,
+              horse_name:  fastEntry.horse_name,
+              rider_name:  fastEntry.rider_name,
+              time:        fastTime,
+            } : null,
+            fault_buckets:   buckets,
+            standings:       standingRows || [],
+          });
+        }
+
+        return jsonWithEtag(request, {
+          ok: true,
+          class: cls,
+          stats: {
+            total_entries: stats.total_entries || 0,
+            scratched:     stats.scratched     || 0,
+            eliminated:    stats.eliminated    || 0,
+            computed_at:   stats.computed_at,
+            rounds,
+            entry_stats: {
+              unique_riders: stats.unique_riders || 0,
+              unique_horses: stats.unique_horses || 0,
+              unique_owners: stats.unique_owners || 0,
+              countries:     parseStatsJson(stats.countries_json,    `class ${classDbId} countries_json`),
+              multi_riders:  parseStatsJson(stats.multi_riders_json, `class ${classDbId} multi_riders_json`),
+            },
+          }
+        });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
     // ── POST /v3/recomputeJudgeRanks ─────────────────────────────────────────
     // Manually re-runs the judge-grid compute pass for a class. Used as a
     // safety valve when raw rows change outside /v3/postCls (admin edit,
@@ -3609,6 +3912,10 @@ async function computeJumperStats(env, classDbId) {
     rounds[n] = await computeJumperRoundStats(db, classDbId, n, method, modifier, cls.r1_time_allowed);
   }
 
+  // Entry-list stats (V1 parity). Populate the moment entries land —
+  // independent of any rides happening. Jumper-only per Bill's directive.
+  const entryStats = await computeJumperEntryStats(db, classDbId);
+
   // UPSERT.
   const r1 = rounds[1], r2 = rounds[2], r3 = rounds[3];
   await db.prepare(`
@@ -3616,17 +3923,20 @@ async function computeJumperStats(env, classDbId) {
       class_id,
       total_entries, scratched, eliminated,
       r1_competed, r1_clears, r1_time_faults, r1_avg_total_time, r1_avg_clear_time,
-      r1_fastest_clear_entry_id, r1_fastest_clear_time, r1_fault_buckets,
+      r1_fastest_4fault_entry_id, r1_fastest_4fault_time, r1_fault_buckets,
       r2_competed, r2_clears, r2_time_faults, r2_avg_total_time, r2_avg_clear_time,
-      r2_fastest_clear_entry_id, r2_fastest_clear_time, r2_fault_buckets,
+      r2_fastest_4fault_entry_id, r2_fastest_4fault_time, r2_fault_buckets,
       r3_competed, r3_clears, r3_time_faults, r3_avg_total_time, r3_avg_clear_time,
-      r3_fastest_clear_entry_id, r3_fastest_clear_time, r3_fault_buckets,
+      r3_fastest_4fault_entry_id, r3_fastest_4fault_time, r3_fault_buckets,
+      unique_riders, unique_horses, unique_owners,
+      countries_json, multi_riders_json,
       computed_at
     ) VALUES (
       ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
       datetime('now')
     )
     ON CONFLICT(class_id) DO UPDATE SET
@@ -3638,43 +3948,109 @@ async function computeJumperStats(env, classDbId) {
       r1_time_faults            = excluded.r1_time_faults,
       r1_avg_total_time         = excluded.r1_avg_total_time,
       r1_avg_clear_time         = excluded.r1_avg_clear_time,
-      r1_fastest_clear_entry_id = excluded.r1_fastest_clear_entry_id,
-      r1_fastest_clear_time     = excluded.r1_fastest_clear_time,
+      r1_fastest_4fault_entry_id = excluded.r1_fastest_4fault_entry_id,
+      r1_fastest_4fault_time     = excluded.r1_fastest_4fault_time,
       r1_fault_buckets          = excluded.r1_fault_buckets,
       r2_competed               = excluded.r2_competed,
       r2_clears                 = excluded.r2_clears,
       r2_time_faults            = excluded.r2_time_faults,
       r2_avg_total_time         = excluded.r2_avg_total_time,
       r2_avg_clear_time         = excluded.r2_avg_clear_time,
-      r2_fastest_clear_entry_id = excluded.r2_fastest_clear_entry_id,
-      r2_fastest_clear_time     = excluded.r2_fastest_clear_time,
+      r2_fastest_4fault_entry_id = excluded.r2_fastest_4fault_entry_id,
+      r2_fastest_4fault_time     = excluded.r2_fastest_4fault_time,
       r2_fault_buckets          = excluded.r2_fault_buckets,
       r3_competed               = excluded.r3_competed,
       r3_clears                 = excluded.r3_clears,
       r3_time_faults            = excluded.r3_time_faults,
       r3_avg_total_time         = excluded.r3_avg_total_time,
       r3_avg_clear_time         = excluded.r3_avg_clear_time,
-      r3_fastest_clear_entry_id = excluded.r3_fastest_clear_entry_id,
-      r3_fastest_clear_time     = excluded.r3_fastest_clear_time,
+      r3_fastest_4fault_entry_id = excluded.r3_fastest_4fault_entry_id,
+      r3_fastest_4fault_time     = excluded.r3_fastest_4fault_time,
       r3_fault_buckets          = excluded.r3_fault_buckets,
+      unique_riders             = excluded.unique_riders,
+      unique_horses             = excluded.unique_horses,
+      unique_owners             = excluded.unique_owners,
+      countries_json            = excluded.countries_json,
+      multi_riders_json         = excluded.multi_riders_json,
       computed_at               = datetime('now')
   `).bind(
     classDbId,
     counts.total_entries || 0, counts.scratched || 0, counts.eliminated || 0,
     r1.competed, r1.clears, r1.time_faults, r1.avg_total_time, r1.avg_clear_time,
-    r1.fastest_clear_entry_id, r1.fastest_clear_time, r1.fault_buckets,
+    r1.fastest_4fault_entry_id, r1.fastest_4fault_time, r1.fault_buckets,
     r2.competed, r2.clears, r2.time_faults, r2.avg_total_time, r2.avg_clear_time,
-    r2.fastest_clear_entry_id, r2.fastest_clear_time, r2.fault_buckets,
+    r2.fastest_4fault_entry_id, r2.fastest_4fault_time, r2.fault_buckets,
     r3.competed, r3.clears, r3.time_faults, r3.avg_total_time, r3.avg_clear_time,
-    r3.fastest_clear_entry_id, r3.fastest_clear_time, r3.fault_buckets,
+    r3.fastest_4fault_entry_id, r3.fastest_4fault_time, r3.fault_buckets,
+    entryStats.unique_riders, entryStats.unique_horses, entryStats.unique_owners,
+    entryStats.countries_json, entryStats.multi_riders_json,
   ).run();
+}
+
+// Defensive JSON parse for stats columns. Returns [] on null/blank or
+// parse failure so the JSON envelope shape stays stable.
+function parseStatsJson(raw, contextForLog) {
+  if (!raw) return [];
+  try { return JSON.parse(raw) || []; }
+  catch (e) {
+    console.warn(`[parseStatsJson] failed for ${contextForLog}: ${e.message}`);
+    return [];
+  }
+}
+
+async function computeJumperEntryStats(db, classDbId) {
+  // Counts (DISTINCT case-insensitive after trim, NULL ignored).
+  const counts = await db.prepare(`
+    SELECT
+      COUNT(DISTINCT UPPER(TRIM(rider_name))) AS unique_riders,
+      COUNT(DISTINCT UPPER(TRIM(horse_name))) AS unique_horses,
+      COUNT(DISTINCT UPPER(TRIM(owner_name))) AS unique_owners
+    FROM entries
+    WHERE class_id = ?
+  `).bind(classDbId).first();
+
+  // Country breakdown — only entries with a country code present.
+  const { results: countryRows } = await db.prepare(`
+    SELECT country_code AS code, COUNT(*) AS count
+    FROM entries
+    WHERE class_id = ? AND country_code IS NOT NULL AND TRIM(country_code) != ''
+    GROUP BY country_code
+    ORDER BY count DESC, country_code ASC
+  `).bind(classDbId).all();
+  const countries = (countryRows || []).map(r => ({ code: r.code, count: r.count }));
+
+  // Multi-ride riders — riders with > 1 horse in this class. Group on
+  // upper-trimmed key (collapse case-only duplicates) but render the
+  // original-cased name from MAX(rider_name) (stable within a class).
+  const { results: multiRows } = await db.prepare(`
+    SELECT MAX(rider_name) AS rider,
+           GROUP_CONCAT(horse_name, '|||') AS horses_blob,
+           COUNT(*) AS horse_count
+    FROM entries
+    WHERE class_id = ? AND rider_name IS NOT NULL AND TRIM(rider_name) != ''
+    GROUP BY UPPER(TRIM(rider_name))
+    HAVING COUNT(*) > 1
+    ORDER BY horse_count DESC, rider ASC
+  `).bind(classDbId).all();
+  const multiRiders = (multiRows || []).map(r => ({
+    rider: r.rider,
+    horses: (r.horses_blob || '').split('|||').filter(Boolean),
+  }));
+
+  return {
+    unique_riders: counts.unique_riders || 0,
+    unique_horses: counts.unique_horses || 0,
+    unique_owners: counts.unique_owners || 0,
+    countries_json:    countries.length    ? JSON.stringify(countries)   : null,
+    multi_riders_json: multiRiders.length  ? JSON.stringify(multiRiders) : null,
+  };
 }
 
 async function computeJumperRoundStats(db, classDbId, round, method, modifier, r1TimeAllowed) {
   const empty = {
     competed: 0, clears: 0, time_faults: 0,
     avg_total_time: null, avg_clear_time: null,
-    fastest_clear_entry_id: null, fastest_clear_time: null,
+    fastest_4fault_entry_id: null, fastest_4fault_time: null,
     fault_buckets: null,
   };
   const agg = await db.prepare(`
@@ -3692,31 +4068,51 @@ async function computeJumperRoundStats(db, classDbId, round, method, modifier, r
   `).bind(classDbId, round).first();
   if (!agg || (agg.competed || 0) === 0) return empty;
 
-  const fastest = await db.prepare(`
-    SELECT r.entry_id, r.total_time
-    FROM entry_jumper_rounds r
-    JOIN entries e ON e.id = r.entry_id
-    WHERE e.class_id = ?
-      AND r.round = ?
-      AND r.total_faults = 0
-      AND r.status IS NULL
-      AND r.total_time IS NOT NULL
-    ORDER BY r.total_time ASC
-    LIMIT 1
-  `).bind(classDbId, round).first();
-
+  // Fastest 4-faulter — scheme-aware:
+  //   standard → total_faults = 4 (one rail clean)
+  //   speed    → jump_faults  = 4 (one rail; time penalty stays in total_time)
+  //   optimum / none → concept doesn't apply, returns null.
   const scheme = bucketSchemeFor(method, modifier, round);
+  let fastest = null;
+  if (scheme === 'standard') {
+    fastest = await db.prepare(`
+      SELECT r.entry_id, r.total_time
+      FROM entry_jumper_rounds r
+      JOIN entries e ON e.id = r.entry_id
+      WHERE e.class_id = ?
+        AND r.round = ?
+        AND r.total_faults = 4
+        AND r.status IS NULL
+        AND r.total_time IS NOT NULL
+      ORDER BY r.total_time ASC
+      LIMIT 1
+    `).bind(classDbId, round).first();
+  } else if (scheme === 'speed') {
+    fastest = await db.prepare(`
+      SELECT r.entry_id, r.total_time
+      FROM entry_jumper_rounds r
+      JOIN entries e ON e.id = r.entry_id
+      WHERE e.class_id = ?
+        AND r.round = ?
+        AND r.jump_faults = 4
+        AND r.status IS NULL
+        AND r.total_time IS NOT NULL
+      ORDER BY r.total_time ASC
+      LIMIT 1
+    `).bind(classDbId, round).first();
+  }
+
   const buckets = await computeJumperBuckets(db, classDbId, round, scheme, r1TimeAllowed);
 
   return {
-    competed:               agg.competed || 0,
-    clears:                 agg.clears   || 0,
-    time_faults:            agg.time_faults || 0,
-    avg_total_time:         agg.avg_total_time,
-    avg_clear_time:         agg.avg_clear_time,
-    fastest_clear_entry_id: fastest ? fastest.entry_id   : null,
-    fastest_clear_time:     fastest ? fastest.total_time : null,
-    fault_buckets:          buckets ? JSON.stringify(buckets) : null,
+    competed:                  agg.competed || 0,
+    clears:                    agg.clears   || 0,
+    time_faults:               agg.time_faults || 0,
+    avg_total_time:            agg.avg_total_time,
+    avg_clear_time:            agg.avg_clear_time,
+    fastest_4fault_entry_id:   fastest ? fastest.entry_id   : null,
+    fastest_4fault_time:       fastest ? fastest.total_time : null,
+    fault_buckets:             buckets ? JSON.stringify(buckets) : null,
   };
 }
 

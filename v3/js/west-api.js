@@ -28,6 +28,26 @@
     return data;
   };
 
+  // ETag-aware fetch — used by polling consumers (stats page today,
+  // future live page) to cheaply check for updates. Worker responds 304
+  // Not Modified when nothing changed; we surface that as
+  // {notModified:true} so callers can skip re-rendering.
+  // Pass etag=null on first call; pass the previous response's etag
+  // on subsequent polls.
+  // Returns:
+  //   { notModified: true }                    when 304
+  //   { data, etag }                           when 200
+  // Throws on network error or {ok:false} response body.
+  WEST.api.fetchJsonEtag = async function (path, etag) {
+    var headers = { 'X-West-Key': WEST.api.AUTH };
+    if (etag) headers['If-None-Match'] = etag;
+    var res = await fetch(WEST.api.BASE + path, { headers });
+    if (res.status === 304) return { notModified: true };
+    var data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Request failed');
+    return { data: data, etag: res.headers.get('ETag') };
+  };
+
   // Convenience: read a single URL query param. Returns '' when absent.
   WEST.api.queryParam = function (name) {
     return new URLSearchParams(window.location.search).get(name) || '';
