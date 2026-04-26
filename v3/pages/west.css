@@ -280,6 +280,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .hero-location{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
 /* Sponsor (H[29] text) — patron / award context line in the hero. */
 .hero-sponsor{font-family:'Lato',sans-serif;font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
+.hero-ta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-top:4px;}
 .status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:10px;}
 .status-active{background:var(--green-bg);color:var(--green);}
 .status-pending,.status-upcoming{background:var(--blue-bg);color:var(--blue);}
@@ -334,7 +335,8 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table .entry-place{width:48px;}
 .results-table .entry-num{width:48px;}
 .results-table .entry-horse-rider{width:100%;}
-.results-table thead .entry-horse-rider .hd-line{display:block;line-height:1.35;}
+/* Multi-line header lines (identity column today; reusable elsewhere). */
+.results-table thead .hd-line{display:block;line-height:1.35;}
 @media(max-width:480px){
   .results-table thead .entry-horse-rider .hd-breeding{display:none;}
   .results-table .entry-pedigree{display:none;}

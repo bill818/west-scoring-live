@@ -189,6 +189,47 @@
     return labels[n - 1] || '';
   };
 
+  // ── timeAllowedSummary — method-aware one-liner for the hero card.
+  // Reads cls.r{1,2,3}_time_allowed (jumper-only — null on hunter) and
+  // formats a compact string per v2 conventions:
+  //   1R / Speed / Optimum:    "TA 30s"
+  //   Two-Phase (method 9):    "PH1 30s · PH2 31s"
+  //   2R + JO (methods 2/etc): "R1 65s · JO 30s"
+  //   3R + JO (method 3):      "R1 65s · R2 70s · JO 30s"
+  // Returns '' when the class has no usable TA values (hunter, or
+  // jumper class with all blanks).
+  WEST.format.timeAllowedSummary = function (cls) {
+    if (!cls) return '';
+    const r1 = Number(cls.r1_time_allowed) || 0;
+    const r2 = Number(cls.r2_time_allowed) || 0;
+    const r3 = Number(cls.r3_time_allowed) || 0;
+    if (!r1 && !r2 && !r3) return '';
+    const m = Number(cls.scoring_method);
+    const mod = Number(cls.scoring_modifier);
+    const labels = { r1: 'R1', r2: 'R2', jo: 'JO' };
+    if (m === 9) { labels.r1 = 'PH1'; labels.r2 = 'PH2'; }
+    const parts = [];
+    // Method 6 with modifier=1 promotes to 2-round (matches roundLabel
+    // override). Method 3 / method 14 are 2R + JO.
+    const is3R = (m === 3 || m === 14);
+    const isMultiRound = (m === 2 || m === 9 || m === 10 || m === 11 || m === 13 || m === 15 || is3R || (m === 6 && mod === 1));
+    if (!isMultiRound) {
+      // Single-round methods — only R1 matters.
+      if (r1 > 0) return 'TA ' + Math.round(r1) + 's';
+      return '';
+    }
+    if (r1 > 0) parts.push(labels.r1 + ' ' + Math.round(r1) + 's');
+    if (is3R) {
+      if (r2 > 0) parts.push(labels.r2 + ' ' + Math.round(r2) + 's');
+      if (r3 > 0) parts.push(labels.jo + ' ' + Math.round(r3) + 's');
+    } else {
+      // 2R + JO methods — second slot is the JO unless it's two-phase.
+      const second = (m === 9) ? labels.r2 : labels.jo;
+      if (r2 > 0) parts.push(second + ' ' + Math.round(r2) + 's');
+    }
+    return parts.join(' · ');
+  };
+
   // ── Scoring modifier (col[3]) — only rendered for methods where the
   // value is semantically meaningful to a human. For other methods the
   // modifier is captured in the DB but not shown in list UI.

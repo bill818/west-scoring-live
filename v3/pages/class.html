@@ -90,6 +90,11 @@ function renderHero(show, ring, cls) {
   // so admin / stats / live can use the same wording when they need it.
   const methodStr = WEST.format.classDescription(cls);
   if (methodStr) parts.push(`<div class="hero-location">${escapeHtml(methodStr)}</div>`);
+  // Time-allowed summary (jumper-only — formatter returns '' on hunter
+  // and on classes with no captured TA values). Method-aware: 1-round
+  // shows "TA Ns"; multi-round shows "R1 Ns · JO Ns" / "PH1 Ns · PH2 Ns".
+  const taStr = WEST.format.timeAllowedSummary(cls);
+  if (taStr) parts.push(`<div class="hero-ta">${escapeHtml(taStr)}</div>`);
   // Sponsor text (when operator sets H[29] in Ryegate). Rendered as a
   // dedicated subtitle so it reads as patron / award context.
   if (cls.sponsor) parts.push(`<div class="hero-sponsor">${escapeHtml(cls.sponsor)}</div>`);

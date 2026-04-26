@@ -588,16 +588,25 @@ function parseClsHeaderV3(bytes) {
 
   // J or T — jumper lens. col[2] = scoring_method, col[3] = scoring_modifier.
   // col[26] = ShowFlags (jumper lens only — hunter's H[26] is Phase2Label).
+  // col[8/11/14] = per-round time_allowed (seconds, jumper-only — see
+  // migration 019). 0 / blank → null (no TA on that round).
   const n = parseInt(cols[2], 10);
   const mod = parseInt(cols[3], 10);
   const flagsRaw = (cols[26] || '').trim().toLowerCase();
   const showFlags = flagsRaw === 'true' ? 1 : 0;
+  const taOf = (raw) => {
+    const v = parseFloat(raw);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
   return {
     class_type: rawType,
     class_name: className,
     scoring_method: Number.isFinite(n) ? n : null,
     scoring_modifier: Number.isFinite(mod) ? mod : null,
     show_flags: showFlags,
+    r1_time_allowed: taOf(cols[8]),
+    r2_time_allowed: taOf(cols[11]),
+    r3_time_allowed: taOf(cols[14]),
     parse_status: 'parsed',
     parse_notes: null,
   };
@@ -2357,9 +2366,10 @@ export default {
                                show_flags,
                                is_jogged, print_judge_scores, reverse_rank,
                                is_team, show_all_rounds, ribbons_only,
+                               r1_time_allowed, r2_time_allowed, r3_time_allowed,
                                parse_status, parse_notes,
                                r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name         = excluded.class_name,
             class_type         = excluded.class_type,
@@ -2383,6 +2393,9 @@ export default {
             is_team            = excluded.is_team,
             show_all_rounds    = excluded.show_all_rounds,
             ribbons_only       = excluded.ribbons_only,
+            r1_time_allowed    = excluded.r1_time_allowed,
+            r2_time_allowed    = excluded.r2_time_allowed,
+            r3_time_allowed    = excluded.r3_time_allowed,
             parse_status       = excluded.parse_status,
             parse_notes        = excluded.parse_notes,
             r2_key             = excluded.r2_key,
@@ -2412,6 +2425,9 @@ export default {
           parsed.is_team ?? 0,
           parsed.show_all_rounds ?? 0,
           parsed.ribbons_only ?? 0,
+          parsed.r1_time_allowed ?? null,
+          parsed.r2_time_allowed ?? null,
+          parsed.r3_time_allowed ?? null,
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,
           r2Key,
@@ -3185,6 +3201,64 @@ export default {
         await computeJudgeGridRanks(env, classDbId);
         console.log(`[v3] recomputed judge ranks for class ${cls.class_id} (id=${classDbId})`);
         return json({ ok: true, class_id: cls.class_id });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
+    // ── POST /v3/reparseClassHeaders ─────────────────────────────────────────
+    // Backfill / replay tool. Walks classes (optionally filtered by slug)
+    // and re-runs parseClsHeaderV3 against each class's archived .cls bytes
+    // in R2, then UPDATE classes SET ... with whatever the parser yields.
+    // Used to populate columns added by later migrations on existing classes
+    // without round-tripping through the engine. Idempotent.
+    // Body: { slug?: 'show-slug' }   omit slug to reparse all classes.
+    if (method === 'POST' && path === '/v3/reparseClassHeaders') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body = {};
+      try { body = await request.json(); } catch (e) { /* empty body ok */ }
+      const slug = body && body.slug ? String(body.slug) : null;
+      try {
+        let rows;
+        if (slug) {
+          const r = await env.WEST_DB_V3.prepare(
+            `SELECT c.id, c.r2_key FROM classes c
+             JOIN shows s ON s.id = c.show_id
+             WHERE s.slug = ? AND c.r2_key IS NOT NULL AND c.deleted_at IS NULL`
+          ).bind(slug).all();
+          rows = r.results || [];
+        } else {
+          const r = await env.WEST_DB_V3.prepare(
+            `SELECT id, r2_key FROM classes
+             WHERE r2_key IS NOT NULL AND deleted_at IS NULL`
+          ).all();
+          rows = r.results || [];
+        }
+        let updated = 0, skipped = 0, errors = 0;
+        for (const row of rows) {
+          try {
+            const obj = await env.WEST_R2_CLS.get(row.r2_key);
+            if (!obj) { skipped++; continue; }
+            const bytes = await obj.arrayBuffer();
+            const parsed = parseClsHeaderV3(bytes);
+            await env.WEST_DB_V3.prepare(`
+              UPDATE classes SET
+                r1_time_allowed = ?,
+                r2_time_allowed = ?,
+                r3_time_allowed = ?
+              WHERE id = ?
+            `).bind(
+              parsed.r1_time_allowed ?? null,
+              parsed.r2_time_allowed ?? null,
+              parsed.r3_time_allowed ?? null,
+              row.id
+            ).run();
+            updated++;
+          } catch (e) {
+            console.warn('[v3/reparseClassHeaders] class id=' + row.id + ': ' + e.message);
+            errors++;
+          }
+        }
+        return json({ ok: true, scanned: rows.length, updated, skipped, errors });
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
