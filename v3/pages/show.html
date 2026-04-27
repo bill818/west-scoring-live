@@ -39,6 +39,11 @@
   <div id="rings"><div class="spinner"></div></div>
 </div>
 
+<div class="section-block" id="showStatsSection" style="display:none;">
+  <div class="section-block-title">Show Stats <span class="section-block-sublabel" id="showStatsSubtitle"></span></div>
+  <div id="showStats"></div>
+</div>
+
 <footer>
   WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
 </footer>
@@ -154,10 +159,107 @@ async function load() {
     ]);
     renderHero(showRes.show);
     renderRings(ringsRes.rings || [], countByRing(classesRes.classes || []));
+    // Show-level jumper stats — only render when there's actually a
+    // jumper class in the show. Hunter-only shows skip this section
+    // since the endpoint is jumper-only by design.
+    const hasJumperClass = (classesRes.classes || []).some(c => c.class_type === 'J' || c.class_type === 'T');
+    if (hasJumperClass) loadShowStats(slug);
   } catch (e) {
     document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load show</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
     document.getElementById('rings').innerHTML = '';
   }
+}
+
+// Show-level jumper stats fetch + render. ETag-aware (same smart-poll
+// pattern as stats.html); show-level changes slowly so we use a
+// looser 30s cadence vs class stats' 10s.
+const SHOW_STATS_POLL_MS = 30000;
+let showStatsEtag = null;
+let showStatsTimer = null;
+
+async function loadShowStats(slug) {
+  try {
+    const fetched = await WEST.api.fetchJsonEtag(`/v3/listShowJumperStats?slug=${encodeURIComponent(slug)}`, showStatsEtag);
+    if (fetched.notModified) return;
+    showStatsEtag = fetched.etag;
+    renderShowStats(fetched.data.stats);
+    if (!showStatsTimer) {
+      showStatsTimer = setInterval(() => loadShowStats(slug), SHOW_STATS_POLL_MS);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) loadShowStats(slug);
+      });
+    }
+  } catch (e) {
+    console.warn('[show stats]', e.message);
+  }
+}
+
+function renderShowStats(stats) {
+  const root = document.getElementById('showStats');
+  const section = document.getElementById('showStatsSection');
+  const subtitle = document.getElementById('showStatsSubtitle');
+
+  // Hide entirely when nothing to show (no jumper classes, no entries).
+  if (!stats || (stats.classes_total || 0) === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  subtitle.textContent = `${stats.classes_total} jumper class${stats.classes_total === 1 ? '' : 'es'} · ${stats.total_entries} entries`;
+
+  const html = [];
+
+  // Top riders + horses side-by-side leaderboards.
+  if ((stats.top_riders && stats.top_riders.length) || (stats.top_horses && stats.top_horses.length)) {
+    html.push(`<div class="ss-leaderboards">`);
+    if (stats.top_riders && stats.top_riders.length) {
+      html.push(renderLeaderboard('Top Riders', stats.top_riders, r => ({
+        name: r.rider, wins: r.wins, podiums: r.podiums, sub: `${r.classes_entered} class${r.classes_entered === 1 ? '' : 'es'}`,
+      })));
+    }
+    if (stats.top_horses && stats.top_horses.length) {
+      html.push(renderLeaderboard('Top Horses', stats.top_horses, h => ({
+        name: h.horse, wins: h.wins, podiums: h.podiums, sub: h.sample_rider || '',
+      })));
+    }
+    html.push(`</div>`);
+  }
+
+  // Championship list — when there are championship classes.
+  if (stats.championships && stats.championships.length) {
+    html.push(`<div class="ss-sub-label">Championships</div><div class="ss-champ-list">`);
+    for (const c of stats.championships) {
+      html.push(`<div class="ss-champ-row">
+        <div class="ss-champ-class"><span class="ss-champ-num">${escapeHtml(c.class_id)}</span> <span class="ss-champ-name">${escapeHtml(c.class_name || '—')}</span></div>
+        ${c.champion ? `<div class="ss-champ-line"><span class="ss-champ-tag ss-champ-tag-ch">Ch</span> ${escapeHtml(c.champion.horse_name || '')} <span class="ss-champ-rider">— ${escapeHtml(c.champion.rider_name || '')}</span></div>` : ''}
+        ${c.reserve  ? `<div class="ss-champ-line"><span class="ss-champ-tag ss-champ-tag-res">Res</span> ${escapeHtml(c.reserve.horse_name || '')} <span class="ss-champ-rider">— ${escapeHtml(c.reserve.rider_name || '')}</span></div>` : ''}
+      </div>`);
+    }
+    html.push(`</div>`);
+  }
+
+  root.innerHTML = html.join('');
+}
+
+function renderLeaderboard(title, rows, fmt) {
+  const items = rows.map((r, i) => {
+    const f = fmt(r);
+    return `<div class="ss-lb-row">
+      <span class="ss-lb-rank">${i + 1}</span>
+      <div class="ss-lb-body">
+        <div class="ss-lb-name">${escapeHtml(f.name || '—')}</div>
+        ${f.sub ? `<div class="ss-lb-sub">${escapeHtml(f.sub)}</div>` : ''}
+      </div>
+      <span class="ss-lb-stat">
+        <span class="ss-lb-wins">${f.wins}</span><span class="ss-lb-stat-lbl">W</span>
+        <span class="ss-lb-pods">${f.podiums}</span><span class="ss-lb-stat-lbl">P</span>
+      </span>
+    </div>`;
+  }).join('');
+  return `<div class="ss-lb">
+    <div class="ss-lb-title">${escapeHtml(title)}</div>
+    ${items}
+  </div>`;
 }
 
 load();

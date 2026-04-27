@@ -3518,6 +3518,173 @@ export default {
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
+    // ── GET /v3/listShowJumperStats?slug=X ───────────────────────────────────
+    // Show-level aggregation across all J/T classes in one show. Pure
+    // on-read SQL — no pre-compute table because show-level data
+    // changes whenever ANY class updates and viewers are intermittent;
+    // pre-computing would burn unnecessary work during active scoring.
+    // ETag-wrapped so repeat polls return 304 cheaply.
+    //
+    // Returns: top riders/horses (wins + podiums), championship list,
+    // multi-ride riders (rider with ≥2 distinct horses across the
+    // show), basic counts (jumper classes complete / total / entries).
+    //
+    // Hunter classes deliberately excluded (entry-list stats are
+    // jumper-only per session 39 directive).
+    if (method === 'GET' && path === '/v3/listShowJumperStats') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id, slug, name, start_date, end_date FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Show not found', 404);
+
+        // Aggregate counts. classes_complete is omitted today — class
+        // finalization is gated on engine UDP per session 36 notes;
+        // when that lands, we'll add a status check here.
+        const counts = await env.WEST_DB_V3.prepare(`
+          SELECT
+            COUNT(*)                                                      AS classes_total,
+            COALESCE(SUM(js.total_entries), 0)                            AS total_entries
+          FROM classes c
+          LEFT JOIN class_jumper_stats js ON js.class_id = c.id
+          WHERE c.show_id = ?
+            AND c.class_type IN ('J','T')
+            AND c.deleted_at IS NULL
+        `).bind(show.id).first();
+
+        // Top riders by wins (overall_place = 1) and podiums (1-3).
+        const { results: riderRows } = await env.WEST_DB_V3.prepare(`
+          SELECT
+            MAX(e.rider_name) AS rider,
+            SUM(CASE WHEN s.overall_place = 1                    THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN s.overall_place BETWEEN 1 AND 3        THEN 1 ELSE 0 END) AS podiums,
+            COUNT(DISTINCT e.class_id)                                              AS classes_entered
+          FROM entries e
+          JOIN classes c ON c.id = e.class_id
+          LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
+          WHERE c.show_id = ?
+            AND c.class_type IN ('J','T')
+            AND c.deleted_at IS NULL
+            AND e.rider_name IS NOT NULL AND TRIM(e.rider_name) != ''
+          GROUP BY UPPER(TRIM(e.rider_name))
+          HAVING wins > 0 OR podiums > 0
+          ORDER BY wins DESC, podiums DESC, rider ASC
+          LIMIT 10
+        `).bind(show.id).all();
+
+        // Top horses — same shape, by horse.
+        const { results: horseRows } = await env.WEST_DB_V3.prepare(`
+          SELECT
+            MAX(e.horse_name) AS horse,
+            MAX(e.rider_name) AS sample_rider,
+            SUM(CASE WHEN s.overall_place = 1             THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN s.overall_place BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS podiums,
+            COUNT(DISTINCT e.class_id)                                       AS classes_entered
+          FROM entries e
+          JOIN classes c ON c.id = e.class_id
+          LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
+          WHERE c.show_id = ?
+            AND c.class_type IN ('J','T')
+            AND c.deleted_at IS NULL
+            AND e.horse_name IS NOT NULL AND TRIM(e.horse_name) != ''
+          GROUP BY UPPER(TRIM(e.horse_name))
+          HAVING wins > 0 OR podiums > 0
+          ORDER BY wins DESC, podiums DESC, horse ASC
+          LIMIT 10
+        `).bind(show.id).all();
+
+        // Champion + Reserve list — pulled from is_championship classes.
+        // Champion = overall_place 1, Reserve = overall_place 2.
+        const { results: champRows } = await env.WEST_DB_V3.prepare(`
+          SELECT
+            c.class_id, c.class_name,
+            e.entry_num, e.horse_name, e.rider_name,
+            s.overall_place
+          FROM classes c
+          JOIN entries e ON e.class_id = c.id
+          JOIN entry_jumper_summary s ON s.entry_id = e.id
+          WHERE c.show_id = ?
+            AND c.class_type IN ('J','T')
+            AND c.is_championship = 1
+            AND c.deleted_at IS NULL
+            AND s.overall_place IN (1, 2)
+          ORDER BY c.scheduled_date IS NULL, c.scheduled_date, CAST(c.class_id AS INTEGER), s.overall_place
+        `).bind(show.id).all();
+
+        // Reshape championships: one entry per class with champion + reserve.
+        const champByClass = new Map();
+        for (const r of champRows || []) {
+          if (!champByClass.has(r.class_id)) {
+            champByClass.set(r.class_id, { class_id: r.class_id, class_name: r.class_name, champion: null, reserve: null });
+          }
+          const slot = r.overall_place === 1 ? 'champion' : 'reserve';
+          champByClass.get(r.class_id)[slot] = {
+            entry_num: r.entry_num, horse_name: r.horse_name, rider_name: r.rider_name,
+          };
+        }
+        const championships = Array.from(champByClass.values());
+
+        // Multi-ride riders show-wide — riders with 2+ DISTINCT horses
+        // across the show. Different from per-class multi-ride (same
+        // rider with multiple horses in one class) — this is rider with
+        // multiple mounts across the entire show schedule.
+        // Bill 2026-04-27: not rendered on show.html today; kept in
+        // the response shape because future surfaces may consume it
+        // ("you never know when you need it").
+        const { results: multiRows } = await env.WEST_DB_V3.prepare(`
+          SELECT
+            MAX(e.rider_name) AS rider,
+            COUNT(DISTINCT UPPER(TRIM(e.horse_name))) AS horse_count,
+            GROUP_CONCAT(DISTINCT e.horse_name) AS horses_blob,
+            COUNT(DISTINCT e.class_id) AS class_count
+          FROM entries e
+          JOIN classes c ON c.id = e.class_id
+          WHERE c.show_id = ?
+            AND c.class_type IN ('J','T')
+            AND c.deleted_at IS NULL
+            AND e.rider_name IS NOT NULL AND TRIM(e.rider_name) != ''
+            AND e.horse_name IS NOT NULL AND TRIM(e.horse_name) != ''
+          GROUP BY UPPER(TRIM(e.rider_name))
+          HAVING horse_count >= 2
+          ORDER BY horse_count DESC, class_count DESC, rider ASC
+          LIMIT 25
+        `).bind(show.id).all();
+        const multiRiders = (multiRows || []).map(r => ({
+          rider: r.rider,
+          horse_count: r.horse_count,
+          class_count: r.class_count,
+          horses: (r.horses_blob || '').split(',').filter(Boolean),
+        }));
+
+        return jsonWithEtag(request, {
+          ok: true,
+          show: {
+            slug:       show.slug,
+            name:       show.name,
+            start_date: show.start_date,
+            end_date:   show.end_date,
+          },
+          stats: {
+            classes_total:    counts.classes_total    || 0,
+            total_entries:    counts.total_entries    || 0,
+            top_riders:       (riderRows  || []).map(r => ({
+              rider: r.rider, wins: r.wins || 0, podiums: r.podiums || 0, classes_entered: r.classes_entered || 0,
+            })),
+            top_horses:       (horseRows  || []).map(r => ({
+              horse: r.horse, sample_rider: r.sample_rider,
+              wins: r.wins || 0, podiums: r.podiums || 0, classes_entered: r.classes_entered || 0,
+            })),
+            championships:    championships,
+            multi_riders:     multiRiders,
+          },
+        });
+      } catch (e) { return err('DB error: ' + e.message); }
+    }
+
     // ── POST /v3/recomputeJumperStats ────────────────────────────────────────
     // Manual recompute of class_jumper_stats. Safety valve when raw rows
     // change outside /v3/postCls (admin edit, direct D1 console) so derived

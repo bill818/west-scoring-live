@@ -574,3 +574,39 @@ footer a{color:var(--blue);}
 .wd-country-chip{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text-body);}
 .wd-country-code{font-weight:600;letter-spacing:.04em;}
 .wd-country-count{color:var(--text-muted);font-size:11px;}
+
+/* ── SHOW STATS SECTION (show.html) ──────────────────────────────────
+   Aggregated jumper stats across all classes in a show. Inline section
+   below the rings list. Visual language echoes the per-class stats
+   page (chips, cards, sub-labels). */
+.section-block-sublabel{font-family:'Lato',sans-serif;font-size:13px;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;margin-left:12px;}
+
+.ss-leaderboards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+@media(max-width:640px){.ss-leaderboards{grid-template-columns:1fr;}}
+.ss-lb{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px 16px;}
+.ss-lb-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:15px;color:var(--black);border-left:3px solid var(--red);padding-left:8px;margin-bottom:10px;line-height:1.1;}
+.ss-lb-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);}
+.ss-lb-row:last-child{border-bottom:none;}
+.ss-lb-rank{width:24px;font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--text-muted);}
+.ss-lb-body{flex:1;min-width:0;}
+.ss-lb-name{font-family:'Lato',sans-serif;font-size:14px;font-weight:600;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ss-lb-sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.02em;margin-top:1px;}
+.ss-lb-stat{display:inline-flex;align-items:baseline;gap:3px;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;flex-shrink:0;}
+.ss-lb-wins{font-size:14px;font-weight:700;color:var(--green);}
+.ss-lb-pods{font-size:13px;font-weight:600;color:var(--text-body);margin-left:6px;}
+.ss-lb-stat-lbl{font-size:9px;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;}
+
+.ss-sub-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px;}
+
+.ss-champ-list{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
+.ss-champ-row{padding:10px 14px;border-bottom:1px solid var(--border);}
+.ss-champ-row:last-child{border-bottom:none;}
+.ss-champ-class{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:4px;}
+.ss-champ-num{color:var(--red);font-weight:600;}
+.ss-champ-name{color:var(--text-body);}
+.ss-champ-line{display:flex;align-items:baseline;gap:8px;font-family:'Lato',sans-serif;font-size:14px;color:var(--black);line-height:1.4;}
+.ss-champ-tag{display:inline-block;padding:1px 6px;border-radius:3px;font-family:'DM Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.12em;color:#fff;}
+.ss-champ-tag-ch{background:var(--red);}
+.ss-champ-tag-res{background:#999;}
+.ss-champ-rider{color:var(--text-muted);font-size:13px;font-weight:400;}
+
