@@ -1,0 +1,25 @@
+-- 024: per-show stats display config.
+--
+-- Bill 2026-04-27: "in the admin you click a button it pops out all the
+-- check marks of what stats we offer to toggle them on and off."
+-- Per-show scope (one config applies to every class in the show).
+-- Per-class overrides can come later if needed.
+--
+-- Storage = JSON in TEXT. NULL means "all stats on" (default for both
+-- existing shows and new ones). Operator un-checks what they don't
+-- want shown publicly.
+--
+-- Keys (all booleans, default true):
+--   chips_top_line             — top chip strip (Entries / Competed / Clears% / etc.)
+--   entry_summary              — Entry Summary section (cards + sub-lists)
+--   entry_summary_countries    — country breakdown sub-list within Entry Summary
+--   round_stat_lines           — per-round Competed/Clears/Time-Faults/Avg-time lines
+--   round_fastest_4fault       — Fastest 4-faulter callout per round
+--   round_fault_histogram      — Fault histogram per round
+--
+-- Standings table is NOT toggleable — it's the point of the page.
+-- The chip strip and section blocks are the things you'd want to
+-- mute when the data is misleading or distracting (small fields,
+-- rookie classes, mixed-method shows, etc.).
+
+ALTER TABLE shows ADD COLUMN stats_config TEXT;

@@ -149,16 +149,22 @@ function renderRound(cls, round) {
   parts.push(`<div class="section-title">${escapeHtml(lbl)}</div>`);
 
   // Stat lines
-  const lines = [];
-  lines.push(`Competed <strong>${round.competed}</strong> · Clears <strong>${round.clears}</strong> ${round.competed ? `(${pct(round.clears, round.competed)})` : ''}`);
-  if (round.time_faults > 0) lines.push(`Time faults: <strong>${round.time_faults}</strong>`);
-  if (round.avg_total_time != null) lines.push(`Avg time (all): <strong>${round.avg_total_time.toFixed(2)}s</strong>`);
-  if (round.avg_clear_time != null) lines.push(`Avg clear time: <strong>${round.avg_clear_time.toFixed(2)}s</strong>`);
-  parts.push(`<div class="round-stats-lines">${lines.map(l => `<div>${l}</div>`).join('')}</div>`);
+  if (statEnabled('round_stat_lines')) {
+    const lines = [];
+    lines.push(`Competed <strong>${round.competed}</strong> · Clears <strong>${round.clears}</strong> ${round.competed ? `(${pct(round.clears, round.competed)})` : ''}`);
+    if (round.avg_total_faults != null) lines.push(`Avg faults: <strong>${round.avg_total_faults.toFixed(2)}</strong>`);
+    if (round.time_faults > 0) {
+      const tfPct = round.time_fault_pct != null ? ` (${Math.round(round.time_fault_pct)}%)` : '';
+      lines.push(`Time faults: <strong>${round.time_faults}</strong>${tfPct}`);
+    }
+    if (round.avg_total_time != null) lines.push(`Avg time (all): <strong>${round.avg_total_time.toFixed(2)}s</strong>`);
+    if (round.avg_clear_time != null) lines.push(`Avg clear time: <strong>${round.avg_clear_time.toFixed(2)}s</strong>`);
+    parts.push(`<div class="round-stats-lines">${lines.map(l => `<div>${l}</div>`).join('')}</div>`);
+  }
 
   // Fastest 4-faulter callout — only present for standard / speed schemes
   // (optimum and gamblers/equitation have no meaningful 4-fault concept).
-  if (round.fastest_4fault) {
+  if (round.fastest_4fault && statEnabled('round_fastest_4fault')) {
     const fc = round.fastest_4fault;
     parts.push(`<div class="fastest-clear">
       <div class="fc-label">Fastest 4-faulter</div>
@@ -172,7 +178,7 @@ function renderRound(cls, round) {
   }
 
   // Fault histogram (zero-count buckets filtered)
-  if (round.fault_buckets && round.fault_buckets.buckets) {
+  if (round.fault_buckets && round.fault_buckets.buckets && statEnabled('round_fault_histogram')) {
     parts.push(renderHistogram(round.fault_buckets));
   }
 
@@ -191,7 +197,7 @@ function renderStandings(round) {
   const rows = round.standings;
   const gapLabel = round.gap_label || 'Gap';
   const header = `<div class="standings-hdr">
-    <span class="col-place">Pl</span>
+    <span class="col-place">Round Rank</span>
     <span class="col-entry">Horse / Rider</span>
     <span class="col-faults">Faults</span>
     <span class="col-time">Time</span>
@@ -250,6 +256,13 @@ function repaintFooter() {
 }
 setInterval(repaintFooter, 1000);
 
+// Per-show stats display config gate. Default to true (all on) when
+// the key isn't set — matches how the operator sees it: unchecked
+// boxes hide, everything else shows.
+function statEnabled(key) {
+  return !state.statsConfig || state.statsConfig[key] !== false;
+}
+
 function renderContent(cls, stats) {
   const root = document.getElementById('content');
   // Entry summary shows the moment entries are uploaded (no rides
@@ -261,13 +274,18 @@ function renderContent(cls, stats) {
     return;
   }
   const html = [];
-  if (stats.rounds.length) {
+  if (stats.rounds.length && statEnabled('chips_top_line')) {
     html.push(renderChips(cls, stats));
   }
-  if (stats.entry_stats && hasAnyEntries) {
+  if (stats.entry_stats && hasAnyEntries && statEnabled('entry_summary')) {
     html.push(renderEntrySummary(stats));
   }
-  for (const r of stats.rounds) html.push(renderRound(cls, r));
+  // Latest round first (Bill 2026-04-27: "stack rounds R3-R2-R1
+  // instead of R1-R2-R3"). When viewing a class with a JO, the JO
+  // results read first, then prior rounds below. Slice copy so we
+  // don't mutate state.
+  const roundsByRecency = stats.rounds.slice().reverse();
+  for (const r of roundsByRecency) html.push(renderRound(cls, r));
   // Footer is replaced by repaintFooter() every second so "Xs ago"
   // ticks between polls. We just stamp a hook here.
   html.push(`<div id="statsFooter">${renderStatsFooter()}</div>`);
@@ -293,7 +311,7 @@ function renderEntrySummary(stats) {
   parts.push(`<div class="section-title">Entry Summary</div>`);
   parts.push(`<div class="es-cards">${cards.join('')}</div>`);
 
-  if (es.countries && es.countries.length) {
+  if (es.countries && es.countries.length && statEnabled('entry_summary_countries')) {
     const flagSpans = es.countries.map(c => WEST.display.countryChip(c.code, c.count)).join('');
     parts.push(`<div class="es-sub-label">By Country</div><div class="es-countries">${flagSpans}</div>`);
   }
@@ -350,6 +368,7 @@ async function load() {
     if (fetched.notModified) return;
     state.show = show; state.ring = ring; state.cls = cls;
     state.stats = fetched.data.stats;
+    state.statsConfig = fetched.data.stats_config || {};
     state.statsEtag = fetched.etag;
     state.lastUpdated = Date.now();
     renderHero(show, ring, cls);
@@ -380,6 +399,7 @@ async function pollStats() {
     const fetched = await WEST.api.fetchJsonEtag(`/v3/listJumperStats?class_id=${state.cls.id}`, state.statsEtag);
     if (fetched.notModified) return;  // 304 — no change, do nothing
     state.stats = fetched.data.stats;
+    state.statsConfig = fetched.data.stats_config || {};
     state.statsEtag = fetched.etag;
     state.lastUpdated = Date.now();
     renderContent(state.cls, state.stats);

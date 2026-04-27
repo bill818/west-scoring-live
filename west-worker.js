@@ -2217,7 +2217,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
@@ -2248,6 +2248,17 @@ export default {
           return err("Invalid results_layout — must be 'stacked' or 'inline'");
         }
         updates.push('results_layout = ?'); binds.push(results_layout);
+      }
+      if (stats_config !== undefined) {
+        // null clears the override (back to "all on" default).
+        // Otherwise expect an object; serialize to JSON for storage.
+        if (stats_config === null) {
+          updates.push('stats_config = ?'); binds.push(null);
+        } else if (typeof stats_config === 'object') {
+          updates.push('stats_config = ?'); binds.push(JSON.stringify(stats_config));
+        } else {
+          return err('Invalid stats_config — expected object or null');
+        }
       }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
@@ -3209,7 +3220,7 @@ export default {
       if (!Number.isFinite(classDbId)) return err('Invalid class_id');
       try {
         const cls = await env.WEST_DB_V3.prepare(
-          `SELECT id, class_id, class_name, class_type, scoring_method,
+          `SELECT id, show_id, class_id, class_name, class_type, scoring_method,
                   scoring_modifier, num_rounds,
                   r1_time_allowed, r2_time_allowed, r3_time_allowed
            FROM classes WHERE id = ?`
@@ -3217,6 +3228,18 @@ export default {
         if (!cls) return err('Class not found', 404);
         if (cls.class_type !== 'J' && cls.class_type !== 'T') {
           return err('Class is not a jumper class', 400);
+        }
+        // Show-level stats display config — operator un-checks what they
+        // don't want shown publicly. NULL = all on (default). Parsed
+        // here so /v3/listJumperStats responses carry the resolved
+        // boolean map; client doesn't need a second fetch.
+        const showRow = await env.WEST_DB_V3.prepare(
+          `SELECT stats_config FROM shows WHERE id = ?`
+        ).bind(cls.show_id).first();
+        let statsConfig = {};
+        if (showRow && showRow.stats_config) {
+          try { statsConfig = JSON.parse(showRow.stats_config) || {}; }
+          catch (e) { console.warn(`[v3/listJumperStats] stats_config parse failed for show ${cls.show_id}: ${e.message}`); }
         }
         const stats = await env.WEST_DB_V3.prepare(
           `SELECT * FROM class_jumper_stats WHERE class_id = ?`
@@ -3228,6 +3251,7 @@ export default {
           return json({
             ok: true,
             class: cls,
+            stats_config: statsConfig,
             stats: { total_entries: 0, scratched: 0, eliminated: 0, rounds: [] }
           });
         }
@@ -3276,6 +3300,11 @@ export default {
             (cMethod === 6 && cModifier === 1) ||
             [2, 3, 9, 10, 11, 13, 14, 15].includes(cMethod)
           );
+          // Two-Phase (method 9, II.2d): R1 → Phase 2 advancement isn't
+          // a "Jump-Off." Use JO-mode plumbing (vs-TA gap, ride_order
+          // sort for qualifiers) but DROP the "JO" badge — qualifiers
+          // get a numeric place like the rest. Bill 2026-04-27.
+          const showJoBadge = useR1JoMode && cMethod !== 9 ? 1 : 0;
           let standingRows;
           if (useR1JoMode) {
             const { results } = await env.WEST_DB_V3.prepare(`
@@ -3319,13 +3348,13 @@ export default {
                 ar.entry_id, ar.entry_num, ar.horse_name, ar.rider_name, ar.country_code,
                 ar.total_faults, ar.total_time, ar.time_faults, ar.jump_faults, ar.status,
                 CASE
-                  WHEN ar.status IS NOT NULL                                       THEN ar.status
-                  WHEN ar.total_faults = (SELECT min_faults FROM threshold)        THEN 'JO'
+                  WHEN ar.status IS NOT NULL                                                       THEN ar.status
+                  WHEN ar.total_faults = (SELECT min_faults FROM threshold) AND ?4 = 1             THEN 'JO'
                   ELSE CAST(p.pos AS TEXT)
                 END AS place_display,
                 CASE
-                  WHEN ar.status IS NOT NULL                                       THEN 'status'
-                  WHEN ar.total_faults = (SELECT min_faults FROM threshold)        THEN 'jo'
+                  WHEN ar.status IS NOT NULL                                                       THEN 'status'
+                  WHEN ar.total_faults = (SELECT min_faults FROM threshold) AND ?4 = 1             THEN 'jo'
                   ELSE 'rank'
                 END AS place_class,
                 CASE
@@ -3374,7 +3403,7 @@ export default {
                 COALESCE(ar.total_faults, 999) ASC,
                 COALESCE(ar.total_time, 999999) ASC,
                 CAST(ar.entry_num AS INTEGER) ASC
-            `).bind(classDbId, n, cls.r1_time_allowed).all();
+            `).bind(classDbId, n, cls.r1_time_allowed, showJoBadge).all();
             standingRows = results;
           } else {
           const { results } = await env.WEST_DB_V3.prepare(`
@@ -3457,10 +3486,12 @@ export default {
           rounds.push({
             round:           n,
             competed,
-            clears:          stats[`r${n}_clears`]      || 0,
-            time_faults:     stats[`r${n}_time_faults`] || 0,
-            avg_total_time:  stats[`r${n}_avg_total_time`],
-            avg_clear_time:  stats[`r${n}_avg_clear_time`],
+            clears:           stats[`r${n}_clears`]            || 0,
+            time_faults:      stats[`r${n}_time_faults`]       || 0,
+            avg_total_time:   stats[`r${n}_avg_total_time`],
+            avg_clear_time:   stats[`r${n}_avg_clear_time`],
+            avg_total_faults: stats[`r${n}_avg_total_faults`],
+            time_fault_pct:   stats[`r${n}_time_fault_pct`],
             gap_label:       gapLabel,
             fastest_4fault:  fastEntry && fastTime != null ? {
               entry_id:    fastEntry.id,
@@ -3477,6 +3508,7 @@ export default {
         return jsonWithEtag(request, {
           ok: true,
           class: cls,
+          stats_config: statsConfig,
           stats: {
             total_entries: stats.total_entries || 0,
             scratched:     stats.scratched     || 0,
@@ -4090,19 +4122,22 @@ async function computeJumperStats(env, classDbId) {
       class_id,
       total_entries, scratched, eliminated,
       r1_competed, r1_clears, r1_time_faults, r1_avg_total_time, r1_avg_clear_time,
+      r1_avg_total_faults, r1_time_fault_pct,
       r1_fastest_4fault_entry_id, r1_fastest_4fault_time, r1_fault_buckets,
       r2_competed, r2_clears, r2_time_faults, r2_avg_total_time, r2_avg_clear_time,
+      r2_avg_total_faults, r2_time_fault_pct,
       r2_fastest_4fault_entry_id, r2_fastest_4fault_time, r2_fault_buckets,
       r3_competed, r3_clears, r3_time_faults, r3_avg_total_time, r3_avg_clear_time,
+      r3_avg_total_faults, r3_time_fault_pct,
       r3_fastest_4fault_entry_id, r3_fastest_4fault_time, r3_fault_buckets,
       unique_riders, unique_horses, unique_owners,
       countries_json, multi_riders_json,
       computed_at
     ) VALUES (
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
       datetime('now')
     )
@@ -4115,6 +4150,8 @@ async function computeJumperStats(env, classDbId) {
       r1_time_faults            = excluded.r1_time_faults,
       r1_avg_total_time         = excluded.r1_avg_total_time,
       r1_avg_clear_time         = excluded.r1_avg_clear_time,
+      r1_avg_total_faults       = excluded.r1_avg_total_faults,
+      r1_time_fault_pct         = excluded.r1_time_fault_pct,
       r1_fastest_4fault_entry_id = excluded.r1_fastest_4fault_entry_id,
       r1_fastest_4fault_time     = excluded.r1_fastest_4fault_time,
       r1_fault_buckets          = excluded.r1_fault_buckets,
@@ -4123,6 +4160,8 @@ async function computeJumperStats(env, classDbId) {
       r2_time_faults            = excluded.r2_time_faults,
       r2_avg_total_time         = excluded.r2_avg_total_time,
       r2_avg_clear_time         = excluded.r2_avg_clear_time,
+      r2_avg_total_faults       = excluded.r2_avg_total_faults,
+      r2_time_fault_pct         = excluded.r2_time_fault_pct,
       r2_fastest_4fault_entry_id = excluded.r2_fastest_4fault_entry_id,
       r2_fastest_4fault_time     = excluded.r2_fastest_4fault_time,
       r2_fault_buckets          = excluded.r2_fault_buckets,
@@ -4131,6 +4170,8 @@ async function computeJumperStats(env, classDbId) {
       r3_time_faults            = excluded.r3_time_faults,
       r3_avg_total_time         = excluded.r3_avg_total_time,
       r3_avg_clear_time         = excluded.r3_avg_clear_time,
+      r3_avg_total_faults       = excluded.r3_avg_total_faults,
+      r3_time_fault_pct         = excluded.r3_time_fault_pct,
       r3_fastest_4fault_entry_id = excluded.r3_fastest_4fault_entry_id,
       r3_fastest_4fault_time     = excluded.r3_fastest_4fault_time,
       r3_fault_buckets          = excluded.r3_fault_buckets,
@@ -4144,10 +4185,13 @@ async function computeJumperStats(env, classDbId) {
     classDbId,
     counts.total_entries || 0, counts.scratched || 0, counts.eliminated || 0,
     r1.competed, r1.clears, r1.time_faults, r1.avg_total_time, r1.avg_clear_time,
+    r1.avg_total_faults, r1.time_fault_pct,
     r1.fastest_4fault_entry_id, r1.fastest_4fault_time, r1.fault_buckets,
     r2.competed, r2.clears, r2.time_faults, r2.avg_total_time, r2.avg_clear_time,
+    r2.avg_total_faults, r2.time_fault_pct,
     r2.fastest_4fault_entry_id, r2.fastest_4fault_time, r2.fault_buckets,
     r3.competed, r3.clears, r3.time_faults, r3.avg_total_time, r3.avg_clear_time,
+    r3.avg_total_faults, r3.time_fault_pct,
     r3.fastest_4fault_entry_id, r3.fastest_4fault_time, r3.fault_buckets,
     entryStats.unique_riders, entryStats.unique_horses, entryStats.unique_owners,
     entryStats.countries_json, entryStats.multi_riders_json,
@@ -4217,6 +4261,7 @@ async function computeJumperRoundStats(db, classDbId, round, method, modifier, r
   const empty = {
     competed: 0, clears: 0, time_faults: 0,
     avg_total_time: null, avg_clear_time: null,
+    avg_total_faults: null, time_fault_pct: null,
     fastest_4fault_entry_id: null, fastest_4fault_time: null,
     fault_buckets: null,
   };
@@ -4226,7 +4271,10 @@ async function computeJumperRoundStats(db, classDbId, round, method, modifier, r
       SUM(CASE WHEN r.total_faults = 0 AND r.status IS NULL THEN 1 ELSE 0 END) AS clears,
       SUM(CASE WHEN r.time_faults > 0 THEN 1 ELSE 0 END) AS time_faults,
       AVG(r.total_time) AS avg_total_time,
-      AVG(CASE WHEN r.total_faults = 0 AND r.status IS NULL THEN r.total_time END) AS avg_clear_time
+      AVG(CASE WHEN r.total_faults = 0 AND r.status IS NULL THEN r.total_time END) AS avg_clear_time,
+      AVG(r.total_faults) AS avg_total_faults,
+      100.0 * SUM(CASE WHEN r.time_faults > 0 THEN 1 ELSE 0 END) /
+        NULLIF(COUNT(*), 0) AS time_fault_pct
     FROM entry_jumper_rounds r
     JOIN entries e ON e.id = r.entry_id
     WHERE e.class_id = ?
@@ -4277,6 +4325,8 @@ async function computeJumperRoundStats(db, classDbId, round, method, modifier, r
     time_faults:               agg.time_faults || 0,
     avg_total_time:            agg.avg_total_time,
     avg_clear_time:            agg.avg_clear_time,
+    avg_total_faults:          agg.avg_total_faults,
+    time_fault_pct:            agg.time_fault_pct,
     fastest_4fault_entry_id:   fastest ? fastest.entry_id   : null,
     fastest_4fault_time:       fastest ? fastest.total_time : null,
     fault_buckets:             buckets ? JSON.stringify(buckets) : null,

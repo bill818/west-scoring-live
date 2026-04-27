@@ -66,6 +66,7 @@
           <h1 class="show-title" id="showTitle"></h1>
           <div class="show-title-actions">
             <button class="btn-secondary" id="btnEditShow">Edit</button>
+            <button class="btn-secondary" id="btnStatsConfig" title="Toggle which stats appear on the public stats page for jumper classes in this show.">📊 Stats Display</button>
             <button class="btn-danger" id="btnDeleteShow" disabled title="Wiring coming in a later phase. Will remove show + all rings + classes + entries + R2 archives, with confirmation.">🗑 Delete</button>
           </div>
         </div>
@@ -196,6 +197,39 @@
   <div class="dialog-footer">
     <button class="btn-secondary" data-close-dialog="dlgShow">Cancel</button>
     <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnShowSubmit">Create</button>
+  </div>
+</dialog>
+
+<!-- STATS DISPLAY DIALOG — per-show toggles for the public stats page -->
+<dialog id="dlgStatsConfig">
+  <div class="dialog-header"><h2>Stats Display Settings</h2></div>
+  <div class="dialog-body">
+    <div class="form-hint" style="margin-bottom:12px;">Toggle which stats appear on the public stats page for jumper classes in this show. Standings tables are always shown.</div>
+
+    <div class="form-group">
+      <label class="sc-group-label">Top of page</label>
+      <label class="sc-row"><input type="checkbox" id="f_sc_chips_top_line" checked> Top-line chip strip <span class="sc-row-hint">Entries · Competed · Clears% · etc.</span></label>
+    </div>
+
+    <div class="form-group">
+      <label class="sc-group-label">Entry Summary section</label>
+      <label class="sc-row"><input type="checkbox" id="f_sc_entry_summary" checked> Show the Entry Summary section <span class="sc-row-hint">(unique riders / horses / owners cards)</span></label>
+      <label class="sc-row"><input type="checkbox" id="f_sc_entry_summary_countries" checked> &nbsp;&nbsp;Country breakdown sub-list <span class="sc-row-hint">(flag chips when entries have country codes)</span></label>
+    </div>
+
+    <div class="form-group">
+      <label class="sc-group-label">Per-round detail</label>
+      <label class="sc-row"><input type="checkbox" id="f_sc_round_stat_lines" checked> Stat lines <span class="sc-row-hint">(Competed · Clears · Time Faults · Avg Time)</span></label>
+      <label class="sc-row"><input type="checkbox" id="f_sc_round_fastest_4fault" checked> Fastest 4-faulter callout</label>
+      <label class="sc-row"><input type="checkbox" id="f_sc_round_fault_histogram" checked> Fault histogram</label>
+    </div>
+
+    <div class="form-error" id="f_scError"></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="btn-secondary" data-close-dialog="dlgStatsConfig">Cancel</button>
+    <button class="btn-secondary" id="btnStatsConfigReset" title="Reset all to default (everything on)">Reset to default</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnStatsConfigSave">Save</button>
   </div>
 </dialog>
 
@@ -888,6 +922,71 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
       await loadShows();
       selectShow(slug);
     }
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add('visible');
+  }
+});
+
+// ── stats display config dialog ──────────────────────────────────────
+// Per-show toggles for which stats appear on the public stats page.
+// All keys default to true (all on). NULL stats_config in DB == all on.
+const dlgStatsConfig = document.getElementById('dlgStatsConfig');
+const STATS_CONFIG_KEYS = [
+  'chips_top_line',
+  'entry_summary',
+  'entry_summary_countries',
+  'round_stat_lines',
+  'round_fastest_4fault',
+  'round_fault_histogram',
+];
+
+function openStatsConfigDialog() {
+  const show = state.shows.find(s => s.slug === state.selectedSlug);
+  if (!show) return;
+  let cfg = {};
+  if (show.stats_config) {
+    try { cfg = JSON.parse(show.stats_config) || {}; } catch (e) { cfg = {}; }
+  }
+  // Default each toggle to true (all on) when not specified.
+  for (const key of STATS_CONFIG_KEYS) {
+    const el = document.getElementById('f_sc_' + key);
+    if (el) el.checked = (cfg[key] !== false); // treat undefined as true
+  }
+  document.getElementById('f_scError').classList.remove('visible');
+  dlgStatsConfig.showModal();
+}
+
+document.getElementById('btnStatsConfig').addEventListener('click', openStatsConfigDialog);
+
+document.getElementById('btnStatsConfigReset').addEventListener('click', () => {
+  for (const key of STATS_CONFIG_KEYS) {
+    const el = document.getElementById('f_sc_' + key);
+    if (el) el.checked = true;
+  }
+});
+
+document.getElementById('btnStatsConfigSave').addEventListener('click', async () => {
+  const slug = state.selectedSlug;
+  if (!slug) return;
+  const cfg = {};
+  let allOn = true;
+  for (const key of STATS_CONFIG_KEYS) {
+    const el = document.getElementById('f_sc_' + key);
+    cfg[key] = el ? el.checked : true;
+    if (!cfg[key]) allOn = false;
+  }
+  // When everything is on we send null — keeps the DB clean and
+  // matches the "no override" default state.
+  const payload = { slug, stats_config: allOn ? null : cfg };
+  const errEl = document.getElementById('f_scError');
+  errEl.classList.remove('visible');
+  try {
+    await api('POST', '/v3/updateShow', payload);
+    dlgStatsConfig.close();
+    toast('Stats display settings saved', 'success');
+    await loadShows();
+    selectShow(slug);
   } catch (e) {
     errEl.textContent = e.message;
     errEl.classList.add('visible');
