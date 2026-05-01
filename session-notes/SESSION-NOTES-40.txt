@@ -1,0 +1,226 @@
+SESSION-NOTES-40 — handoff: state of v3 + what's left
+Date: 2026-04-27 (formal session 40 + catch-up conversation 04-28)
+Status: clean working tree, origin/main current.
+Purpose: starting point for next session. This is a state-of-play
+         doc, not a typical session log.
+
+═══════════════════════════════════════════════════════════════════════════
+SESSION 40 (THE COMMITS)
+═══════════════════════════════════════════════════════════════════════════
+
+Two commits landed before catch-up:
+  30a34e0  v3 Session 40: show-level jumper stats + manager-report rails
+  9a51d49  v3 stats polish: per-show display config + avg faults + time-fault rate
+
+Highlights:
+  - Migration 024 — shows.stats_config TEXT (per-show JSON of which
+    stats sections appear on the public stats page; toggleable via new
+    admin "📊 Stats Display" dialog dlgStatsConfig).
+  - Migration 025 — class_jumper_stats per-round avg_total_faults +
+    time_fault_pct. Difficulty gauge + time-fault rate per round.
+  - Two-Phase (II.2d / method 9) R1 polish: JO chip suppressed for
+    Phase 2 (semantically wrong as a JO badge); ride_order sort and
+    vs-TA gap still apply. New SQL bind ?4 (showJoBadge 0/1) gates the
+    badge.
+  - Round stack order flipped to R3-R2-R1 (most recent first) in
+    stats.html — read order matches operator workflow.
+  - "Pl" → "Round Rank" header on stats standings (avoid confusion
+    with official placing). Column widened 36→80px.
+  - 51/51 jumper classes backfilled via /v3/recomputeJumperStats.
+  - Worker version at session close: 4fd91e7e
+
+═══════════════════════════════════════════════════════════════════════════
+CATCH-UP CONVERSATION (04-28, no code changes)
+═══════════════════════════════════════════════════════════════════════════
+
+Bill returned after 9 sessions of progress (34→40) with a fresh Claude.
+Conversation was scoping/orientation only — no commits, no code changes.
+
+Caught up on:
+  - 18 commits since SESSION-NOTES-33 ended (Apr 24 → Apr 27)
+  - 6 new public pages (index, show, ring, class, stats, plus admin)
+  - 7 new shared modules (api, clock, data, display, hunter-templates,
+    jumper-templates, stats)
+  - 13 more migrations (013-025): timezones, show flags, country,
+    sire/dam, results layout, extra class flags, judges grid ranks,
+    time allowed, jumper stats tables (3), ride_timestamps,
+    stats_config, avg_faults
+
+Bill's question: "tell me what is left." Detailed inventory follows
+in the next section.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S LEFT
+═══════════════════════════════════════════════════════════════════════════
+
+BLOCKED ON UDP / LIVE PIPELINE (Phase 3 — needs engine work)
+  - Engine UDP capture in Electron main process (spike pattern
+    validated Session 29; production engine doesn't do it yet)
+  - Live on-course banner ({fr}=11 INTRO)
+  - Real-time scoreboard push (Cloudflare Durable Objects + WebSocket)
+  - Live standings auto-update (currently 10s ETag polling — works
+    but not push)
+  - udp_events / parse_warnings / unknown_quirks observability tables
+  - Ribbon graphics rendering (ribbon_count captured; rendering
+    deferred per Bill: "ribbons will have to wait till after we
+    figure out the UDP feed")
+
+BLOCKED ON CROSS-SHOW DATA INFRASTRUCTURE (Phase 3+)
+  - Identity reconciliation (entry_identity_links table)
+  - Canonical horse/rider IDs across shows
+  - Career stats / season leaderboards
+  - Cross-show search / dedup tooling
+  - Archive replay with versioned lens (lens scaffolding ready;
+    replay job not built)
+
+HUNTER PARITY GAP (jumper has more than hunter today)
+  - Hunter per-class stats rollup table (parallel to
+    class_jumper_stats) — not built
+  - /v3/listHunterStats endpoint — not built
+  - Hunter stats dashboard page (judges grid exists; full stats page
+    parallel to stats.html jumper does not)
+  - Hunter aggregates (avg total, status counts, etc.)
+
+DEFERRED DISPLAY POLISH (data captured, not yet rendered)
+  - Ch / Res graphic on is_championship=1 places 1-2
+  - Sponsor on public class/show pages (partial)
+  - IHSA "hide rider" mode applied to scoreboard renderer
+  - Derby HighOptions / HandyBonus breakdown on public class page
+  - Per-judge breakdown surfaced beyond the judges grid
+  - HUNTER_MODES text labels — pending Bill's Ryegate settings audit
+
+OPERATOR / ADMIN FEATURES PENDING
+  - Delete Show button — disabled placeholder
+  - Migrations admin section — "coming" placeholder
+  - Health admin section — "coming" placeholder
+  - Raw D1 query admin section — "coming" placeholder
+  - Manager-report rails — started Session 40, scope of remaining
+    work unclear from commit message alone (re-read Session 40
+    diff before continuing this thread)
+
+PRODUCTION CUTOVER CONCERNS
+  - Clean URLs (/v3/:slug/:ring/:class) — deferred to go-live, needs
+    Cloudflare Pages Functions (see CLEAN-URLS-DEFERRED.md). Helpers
+    at WEST.api.urls.* + WEST.api.pathParam are kept ready for the
+    Functions-based revisit.
+  - v2 retirement — v2 still serves real shows
+  - Production deploy (vs preview) — preview only currently
+  - Admin auth (currently hardcoded API key in JS) — needs proper
+    auth before public exposure
+  - Engine field-deployment story — engine runs on dev machine only,
+    not at any real show yet
+
+CONFIRMATION BACKLOG (live data only)
+  - Jumper R3 column positions (col[35] numeric, col[84] text on TOD
+    — extrapolated, never observed)
+  - Jumper numeric codes 1, 5, 6 (only 2/3/4 seen)
+  - 3-judge derby layout (only 1- and 2-judge configs observed)
+  - Hunter classMode=1 Flat live behavior
+  - score_method=1 (Average) live behavior
+
+PLAUSIBLY-SMALL NEXT-UP CANDIDATES
+  - Hunter stats parity (apply jumper stats pattern: compute pass +
+    /v3/listHunterStats + hunter stats dashboard page). Biggest of
+    the small items but follows a proven template.
+  - Ch / Res graphic rendering on championship classes (data ready,
+    just CSS + asset)
+  - Public class page derby breakdown
+  - Manager-report polish (whatever Session 40 left pending)
+  - Delete Show button wiring with safety preconditions
+  - HUNTER_MODES labels (after Bill's audit)
+
+═══════════════════════════════════════════════════════════════════════════
+RUNNING STATE — END OF SESSION 40
+═══════════════════════════════════════════════════════════════════════════
+
+GitHub origin/main: 9a51d49
+Worker version:     4fd91e7e (Session 39's deploy, no worker changes
+                    in 9a51d49's content other than handler edits —
+                    confirm latest version before assuming)
+Cloudflare Pages:   preview branch — multiple deploys, current.
+WEST_DB_V3:         migrations 001-025 applied. Backfill clean for
+                    jumper stats; hunter stats not built.
+Engine:             still NOT in production — runs on Bill's dev
+                    machine only. UDP fan-out + live capture deferred.
+
+Schema (D1 WEST_DB_V3):
+  shows, rings, classes (rich header metadata)
+  entries (identity-only)
+  entry_jumper_summary, entry_jumper_rounds
+  entry_hunter_summary, entry_hunter_rounds, entry_hunter_judge_scores
+  judge_grid_ranks (hunter)
+  class_jumper_stats (rich per-class jumper rollup)
+
+Public pages live (Pages preview):
+  /v3/pages/index.html, show.html, ring.html, class.html, stats.html
+  /v3/pages/admin.html (operator)
+
+Shared modules:
+  west-format.js, west-status.js, west-rules.js, west-cls-jumper.js,
+  west-cls-hunter.js, west-api.js, west-clock.js, west-data.js,
+  west-display.js, west-hunter-templates.js, west-jumper-templates.js,
+  west-stats.js
+
+═══════════════════════════════════════════════════════════════════════════
+HOW TO RESUME
+═══════════════════════════════════════════════════════════════════════════
+
+For the next Claude (or returning Bill):
+
+1. Read SESSION-NOTES-39.txt (last formal session log) for the
+   stats end-to-end detail. Session 40's bonus polish is documented
+   in commit 9a51d49's message body.
+
+2. Check origin/main HEAD against this doc. If you're more than a
+   few commits ahead, the "what's left" list is stale — re-derive
+   from session notes 41+.
+
+3. Verify worker version with `wrangler whoami` then redeploy if
+   the latest commit hasn't been deployed yet. Reference the latest
+   session log for what was deployed when.
+
+4. Pick from the "plausibly-small next-up" list above OR ask Bill
+   what's pressing. Hunter stats parity is the biggest single
+   coherent piece left in the data layer; everything else is either
+   live-pipeline (UDP/WS) or display polish.
+
+5. The 5 confirmation-backlog items (R3 cols, codes 1/5/6, 3-judge
+   derby, classMode=1 Flat, Average score_method) DO NOT block any
+   next-up work. They unblock themselves when live data eventually
+   exposes them — parser already logs parse_warning on first sight.
+
+═══════════════════════════════════════════════════════════════════════════
+KEY DOCS / MEMORIES TO READ FIRST
+═══════════════════════════════════════════════════════════════════════════
+
+  docs/v3-planning/SESSION-32-JUMPER-STATUS-FINDINGS.md
+    — Per-round status, parser spec, train-analogy ladder rules.
+      Locked rules: do not re-litigate.
+
+  docs/v3-planning/JUMPER-STATS-DESIGN.md
+    — The hunter pre-compute pattern (Session 36 judges grid)
+      mirrored to jumper. Read this before starting hunter stats.
+
+  docs/v3-planning/CLEAN-URLS-DEFERRED.md
+    — Why /v3/:slug/:ring/:class doesn't work via _redirects, and
+      the Pages Functions sketch for the eventual fix.
+
+  Memory (claude project memory):
+    feedback_class_type_commandment.md  — Article 1
+    project_v3_rebuild.md               — master v3 state
+    reference_session32_jumper_status.md — settled jumper status
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT NOT TO DO
+═══════════════════════════════════════════════════════════════════════════
+
+  - Do not re-open the wide-vs-per-round schema debate (settled
+    Session 33 morning).
+  - Do not re-open the per-round status / Decision 1 / Decision 2
+    rules (settled Session 32).
+  - Do not touch v2 root-level code (still serves real shows).
+  - Do not commit unless Bill asks.
+  - Do not deploy production unless Bill asks (preview is pre-
+    authorized; production requires explicit confirmation).
+  - Do not start UDP / live-pipeline work without Bill green-lighting
+    Phase 3 — it's a multi-session arc with field-deployment risk.
