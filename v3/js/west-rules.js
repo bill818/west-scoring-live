@@ -173,6 +173,55 @@
     return true;
   };
 
+  // ── Split decision detection ─────────────────────────────────────────
+  //
+  // Multi-judge hunter classes: any judge's top-N (by their pre-computed
+  // card rank) differs from the overall placed top-N. Mirrors v2's
+  // west-worker isSplitDecision but reads server-computed card_rank from
+  // the listJudgeGrid response (no resort by raw totals).
+  //
+  // topN: per-show admin setting (shows.split_decision_top_n, default 3).
+  // Effective N = min(topN, count of placed entries). Mid-class with
+  // fewer ribbons than topN pinned, splits over an unfilled slot are
+  // not flagged until that ribbon exists. judge < 2 → never split.
+  WEST.rules.isSplitDecision = function(gridData, judgeCount, topN) {
+    if (!gridData || !gridData.rows || judgeCount < 2) return false;
+    var rows = gridData.rows;
+    var n = Number(topN);
+    if (!Number.isInteger(n) || n < 2) n = 3;
+
+    var placed = rows
+      .filter(function(r) { return Number(r.place) > 0; })
+      .sort(function(a, b) { return Number(a.place) - Number(b.place); });
+    if (placed.length < 2) return false;
+
+    var N = Math.min(n, placed.length);
+    var overallTopN = placed.slice(0, N)
+      .map(function(r) { return r.entry_num; })
+      .sort()
+      .join(',');
+
+    for (var ji = 0; ji < judgeCount; ji++) {
+      var byJudge = rows
+        .filter(function(r) {
+          var c = r.judgeCards && r.judgeCards.find(function(x) { return x.idx === ji; });
+          return c && c.rank;
+        })
+        .sort(function(a, b) {
+          var ca = a.judgeCards.find(function(x) { return x.idx === ji; }).rank;
+          var cb = b.judgeCards.find(function(x) { return x.idx === ji; }).rank;
+          return ca - cb;
+        });
+      if (byJudge.length < N) continue;
+      var judgeTopN = byJudge.slice(0, N)
+        .map(function(r) { return r.entry_num; })
+        .sort()
+        .join(',');
+      if (judgeTopN !== overallTopN) return true;
+    }
+    return false;
+  };
+
   // CommonJS export
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.rules;

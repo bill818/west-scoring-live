@@ -73,7 +73,7 @@ const fmtDayLabel = WEST.format.dayLabel;
 // detail expands inline as a drop-down beneath each row when the
 // entry is clicked — managed via DOM class toggle, not React-style
 // re-render.
-const state = { cls: null, entries: null, show: null, judgeGrid: null };
+const state = { cls: null, entries: null, show: null, judgeGrid: null, judgeView: false };
 
 function renderHero(show, ring, cls) {
   const parts = [];
@@ -107,9 +107,33 @@ function renderHero(show, ring, cls) {
     const statsUrl = `stats.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}&class=${encodeURIComponent(cls.class_id)}`;
     parts.push(`<a class="hero-action" href="${statsUrl}">📊 Class Stats</a>`);
   }
+  // Judges-card toggle — multi-judge hunter classes only. Same gate as the
+  // judges grid fetch, so the button only appears when the data exists.
+  if (cls.class_type === 'H' && WEST.format.judgesGridApplies(cls) && state.judgeGrid) {
+    const label = state.judgeView ? 'View Combined' : 'View Judges Cards';
+    parts.push(`<button class="hero-action judges-toggle${state.judgeView ? ' is-active' : ''}" id="btnJudgeView">📋 ${label}</button>`);
+    // Split-decision pill — judges disagreed on top-N placement.
+    // Pre-computed ranks already in gridData; rules helper just compares
+    // each judge's top-N to overall top-N. N is per-show admin setting
+    // (shows.split_decision_top_n, default 3). Hidden mid-class until
+    // at least 2 entries are placed.
+    const judgeCount = Math.max(1, Number(cls.num_judges) || 1);
+    const splitN = Number((show && show.split_decision_top_n)) || 3;
+    if (WEST.rules.isSplitDecision(state.judgeGrid, judgeCount, splitN)) {
+      parts.push('<span class="split-pill">Split Decision</span>');
+    }
+  }
   const hero = document.getElementById('hero');
   hero.innerHTML = parts.join('');
   hero.className = 'hero hero-' + (cls.class_type || 'u').toLowerCase();
+  const btnJV = document.getElementById('btnJudgeView');
+  if (btnJV) {
+    btnJV.addEventListener('click', () => {
+      state.judgeView = !state.judgeView;
+      renderHero(state.show, ring, cls);
+      renderResults();
+    });
+  }
 
   document.getElementById('bcShow').textContent = show.name;
   document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
@@ -134,9 +158,13 @@ function renderResults() {
   // (shows.results_layout); templates default to 'stacked'.
   const layout = state.show && state.show.results_layout;
   if (cls.class_type === 'H') {
-    // Standard combined table is the default. For multi-judge classes
-    // we pass the grid data into renderTable so each row can include
-    // a hidden per-entry drop-down with the judge detail.
+    // By-judge view (multi-judge classes only) regroups the class by
+    // judge. Combined view is the default — table with optional per-row
+    // dropdown carrying that entry's full judge grid.
+    if (state.judgeView && state.judgeGrid) {
+      root.innerHTML = WEST.hunterTemplates.renderByJudgeView(cls, state.judgeGrid);
+      return;
+    }
     root.innerHTML = WEST.hunterTemplates.renderTable(cls, entries, {
       layout,
       judgeGrid: state.judgeGrid,

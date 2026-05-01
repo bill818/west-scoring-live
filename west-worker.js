@@ -39,6 +39,45 @@ function isV3Enabled(env) {
   return env.V3_ENABLED === 'true' || env.V3_ENABLED === true;
 }
 
+// ── SHOW LOCK (V3) ──────────────────────────────────────────────────────────
+// Engine writes are gated by a per-show lock. Lock state is derived from
+// shows.lock_override:
+//   'locked'   → always locked
+//   'unlocked' → never locked
+//   'auto'     → locked iff end_date < today (UTC date string compare)
+// Returns a small descriptor so callers can include the reason in the
+// response if they want (engine logs it; admin tooltip surfaces it).
+function computeShowLock(showRow) {
+  if (!showRow) return { locked: false, reason: null };
+  const ov = showRow.lock_override || 'auto';
+  if (ov === 'locked')   return { locked: true,  reason: 'manual' };
+  if (ov === 'unlocked') return { locked: false, reason: null };
+  // 'auto' — date-based. Use UTC date for the compare; show end_date is
+  // stored YYYY-MM-DD with no timezone, and the windows we care about
+  // are >= 1 day past, so timezone fuzz is harmless.
+  if (showRow.end_date) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (showRow.end_date < today) return { locked: true, reason: 'auto-after-end-date' };
+  }
+  return { locked: false, reason: null };
+}
+
+async function isShowLockedV3(env, slug) {
+  try {
+    const show = await env.WEST_DB_V3.prepare(
+      'SELECT lock_override, end_date FROM shows WHERE slug = ?'
+    ).bind(slug).first();
+    return computeShowLock(show).locked;
+  } catch (e) { return false; }
+}
+
+function lockedResponse(reason) {
+  return new Response(JSON.stringify({
+    ok: false, locked: true, reason: reason || 'locked',
+    error: 'Show is locked from engine writes',
+  }), { status: 423, headers: { 'Content-Type': 'application/json' } });
+}
+
 // ── .cls HEADER PARSE (Phase 2b) ─────────────────────────────────────────
 // Article 1 enforced: classType at col[0] is THE LENS. Hunter and jumper
 // column meanings are NEVER translated across lenses. We only read the
@@ -2136,14 +2175,45 @@ export default {
     // ═══════════════════════════════════════════════════════════════════════
 
     // ── GET /v3/listShows ─────────────────────────────────────────────────────
+    // Each show carries an `engine_live` boolean — true when any of its
+    // rings has a heartbeat in KV (TTL 600s, so presence ⇒ recent). Drives
+    // the admin sidebar dot — a show whose end_date has passed but whose
+    // engine is still posting stays visually "live" rather than dropping
+    // to the gray Past dot.
     if (method === 'GET' && path === '/v3/listShows') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       try {
         const { results } = await env.WEST_DB_V3.prepare(
-          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
         ).all();
-        return json({ ok: true, shows: results || [] });
+        const shows = results || [];
+        // Computed lock state — admin sidebar reads is_locked directly,
+        // lock_override is the underlying setting for the show edit dialog.
+        for (const s of shows) {
+          s.is_locked = computeShowLock(s).locked ? 1 : 0;
+        }
+        if (shows.length) {
+          const showIds = shows.map(s => s.id);
+          const placeholders = showIds.map(() => '?').join(',');
+          const { results: ringRows } = await env.WEST_DB_V3.prepare(
+            `SELECT show_id, ring_num FROM rings WHERE show_id IN (${placeholders})`
+          ).bind(...showIds).all();
+          const ringsByShow = new Map();
+          for (const r of (ringRows || [])) {
+            if (!ringsByShow.has(r.show_id)) ringsByShow.set(r.show_id, []);
+            ringsByShow.get(r.show_id).push(r.ring_num);
+          }
+          await Promise.all(shows.map(async s => {
+            const rings = ringsByShow.get(s.id) || [];
+            if (!rings.length) { s.engine_live = false; return; }
+            const hbs = await Promise.all(rings.map(rn =>
+              env.WEST_LIVE.get(`engine:${s.slug}:${rn}`)
+            ));
+            s.engine_live = hbs.some(h => h != null);
+          }));
+        }
+        return json({ ok: true, shows });
       } catch (e) { return err('DB error: ' + e.message); }
     }
 
@@ -2204,6 +2274,7 @@ export default {
           'SELECT * FROM shows WHERE slug = ?'
         ).bind(slug).first();
         if (!show) return err('Show not found', 404);
+        show.is_locked = computeShowLock(show).locked ? 1 : 0;
         return json({ ok: true, show });
       } catch (e) { return err('DB error: ' + e.message); }
     }
@@ -2217,7 +2288,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config, split_decision_top_n, lock_override } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
@@ -2260,6 +2331,19 @@ export default {
           return err('Invalid stats_config — expected object or null');
         }
       }
+      if (split_decision_top_n !== undefined) {
+        const n = Number(split_decision_top_n);
+        if (!Number.isInteger(n) || n < 2 || n > 10) {
+          return err('Invalid split_decision_top_n — must be an integer 2-10');
+        }
+        updates.push('split_decision_top_n = ?'); binds.push(n);
+      }
+      if (lock_override !== undefined) {
+        if (!['auto', 'unlocked', 'locked'].includes(lock_override)) {
+          return err("Invalid lock_override — must be 'auto', 'unlocked', or 'locked'");
+        }
+        updates.push('lock_override = ?'); binds.push(lock_override);
+      }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
       binds.push(slug);
@@ -2271,6 +2355,7 @@ export default {
         const show = await env.WEST_DB_V3.prepare(
           'SELECT * FROM shows WHERE slug = ?'
         ).bind(slug).first();
+        if (show) show.is_locked = computeShowLock(show).locked ? 1 : 0;
         console.log(`[v3] Updated show: ${slug}`);
         return json({ ok: true, show });
       } catch (e) { return err('DB error: ' + e.message); }
@@ -2332,14 +2417,17 @@ export default {
         return err('Invalid X-West-Class (expected short alphanumeric)');
       }
       // Verify the show/ring exists and grab both IDs for the classes upsert.
+      // Lock check rolls into the same query — one round-trip.
       let showId, ringId;
       try {
         const row = await env.WEST_DB_V3.prepare(`
-          SELECT r.id AS ring_id, s.id AS show_id
+          SELECT r.id AS ring_id, s.id AS show_id, s.lock_override, s.end_date
           FROM rings r JOIN shows s ON s.id = r.show_id
           WHERE s.slug = ? AND r.ring_num = ?
         `).bind(slug, ringNum).first();
         if (!row) return err('Unknown show/ring pair', 404);
+        const lk = computeShowLock(row);
+        if (lk.locked) return lockedResponse(lk.reason);
         showId = row.show_id;
         ringId = row.ring_id;
       } catch (e) { return err('DB error: ' + e.message); }
@@ -2791,6 +2879,15 @@ export default {
       if (!class_id) return err('Missing class_id');
       const ringNumInt = parseInt(ring_num, 10);
       if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      // Engine-write lock — locked shows reject the soft-delete signal so
+      // a stray engine running on a finished show can't quietly hide rows.
+      try {
+        const showLk = await env.WEST_DB_V3.prepare(
+          'SELECT lock_override, end_date FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        const lk = computeShowLock(showLk);
+        if (lk.locked) return lockedResponse(lk.reason);
+      } catch (e) { /* non-fatal — fall through to UPDATE */ }
       try {
         const res = await env.WEST_DB_V3.prepare(`
           UPDATE classes
@@ -2904,9 +3001,11 @@ export default {
       let showId;
       try {
         const show = await env.WEST_DB_V3.prepare(
-          'SELECT id FROM shows WHERE slug = ?'
+          'SELECT id, lock_override, end_date FROM shows WHERE slug = ?'
         ).bind(slug).first();
         if (!show) return err('Unknown show slug', 404);
+        const lk = computeShowLock(show);
+        if (lk.locked) return lockedResponse(lk.reason);
         showId = show.id;
       } catch (e) { return err('DB error: ' + e.message); }
       const bytes = await request.arrayBuffer();
@@ -3840,13 +3939,16 @@ export default {
       if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
       // Verify show + ring exist in v3 DB before accepting heartbeats —
       // prevents noise from misconfigured engines claiming shows we don't know.
+      // Pull lock fields in the same query so the lock check is one round-trip.
       try {
-        const ring = await env.WEST_DB_V3.prepare(`
-          SELECT r.id FROM rings r
+        const row = await env.WEST_DB_V3.prepare(`
+          SELECT r.id, s.lock_override, s.end_date FROM rings r
           JOIN shows s ON s.id = r.show_id
           WHERE s.slug = ? AND r.ring_num = ?
         `).bind(slug, ringNumInt).first();
-        if (!ring) return err('Unknown show/ring pair', 404);
+        if (!row) return err('Unknown show/ring pair', 404);
+        const lk = computeShowLock(row);
+        if (lk.locked) return lockedResponse(lk.reason);
       } catch (e) { return err('DB error: ' + e.message); }
       const received_at = new Date().toISOString();
       const payload = {

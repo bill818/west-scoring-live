@@ -1,0 +1,309 @@
+SESSION-NOTES-41 — hunter results polish + per-show engine lock
+Date: 2026-04-30
+Branch: main
+Status: clean tree, deployed (worker + preview)
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Picked up after Session 40's catch-up doc. Started with hunter results
+polish (View Breakdown rename + by-judge view + Split Decision pill),
+ended with the per-show engine lock pattern fully shipped — closing a
+v2-era loose end that Bill flagged with "we started this in v2 but
+never really flushed it through."
+
+Phase 2 is functionally complete. Phase 3 candidates teed up; needs
+Bill's pick (live pipeline / observability / identity reconciliation).
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED
+═══════════════════════════════════════════════════════════════════════════
+
+1. HUNTER "VIEW BREAKDOWN" RENAME
+
+   Per-row chip on multi-judge hunter classes renamed from "View judges"
+   to "View Breakdown" (v3/js/west-hunter-templates.js + matching CSS
+   comment in v3/pages/west.css line 416 area).
+
+2. HUNTER BY-JUDGE VIEW
+
+   New "View Judges Cards" toggle in class.html hero (multi-judge hunter
+   classes only). Toggles state.judgeView and re-renders.
+
+   Renderer:  WEST.hunterTemplates.renderByJudgeView(cls, gridData)
+   Layout:    one tight officiating-sheet table per judge
+              (Rank | # | Horse / Rider | R1 | R2 [| R3] | Card Total)
+   Sort:      ascending by gridData.rows[].judgeCards[].rank
+              — server is authoritative; never re-sort by raw card_total
+              on the client. Ties land in row order from the API.
+   Status:    R1 killing-status entries dim and show status label in
+              the rank cell; per-round killing-status (R2/R3) gets a
+              red status pill in that round cell only, earlier rounds
+              still visible.
+   EQ:        Identity reorders to rider-primary via shared renderIdentity.
+   Derby:     Cells show "base+hi+handy" composite when
+              WEST.format.derbyComponentsApply(cls).
+
+   Tried cards first; switched to table per Bill ("looks tight, more
+   officiating-sheet feel").
+
+3. SPLIT DECISION PILL
+
+   Resurrected from v2 (results.html line 354 era).
+
+   Detection: WEST.rules.isSplitDecision(gridData, judgeCount, topN)
+              — compares each judge's pre-computed top-N (by card_rank)
+              against the overall placed top-N. N defaults to 3.
+              Effective N = min(topN, placed.length) so mid-class with
+              only 2 ribbons doesn't false-flag over the unfilled 3rd.
+   UI:        ⚖ "Split Decision" pill next to the View Judges Cards
+              button in class.html hero. CSS: .split-pill in west.css.
+   Per-show admin: shows.split_decision_top_n INTEGER DEFAULT 3
+                   (migration 026). Range 2–10, validated server-side
+                   in updateShow.
+
+4. STATS DISPLAY SETTINGS DIALOG — JUMPERS / HUNTERS GROUPING
+
+   Was a flat list of checkboxes. Now nested sections with header + hint:
+   - Jumpers: existing 6 toggles (chips, entry summary, country
+              breakdown, per-round stat lines, fastest 4-faulter,
+              fault histogram).
+   - Hunters: split-decision top-N input (more knobs land here as
+              hunter features grow).
+
+   CSS: .sc-section, .sc-section-hdr, .sc-section-hint, .sc-input-num.
+
+5. DATE-AWARE ADMIN SIDEBAR GROUPING
+
+   admin.html showGroup() now demotes a show to 'past' if end_date < today
+   regardless of status. Status field stays whatever the operator set
+   (Active, Pending, etc.) — the sidebar bucket just respects the
+   calendar. Updated comment block in admin.html lines 333+ to reflect
+   the new rule.
+
+   Why: smoke show stayed in "Active" forever after the engine first
+   heartbeat-promoted it. End-date passing did nothing. Now it falls
+   into Past automatically.
+
+6. ENGINE-LIVE PULSE OVERRIDE
+
+   listShows now returns engine_live per show (boolean — true when any
+   of its rings has an engine:{slug}:{ring_num} key in KV; TTL is 600s
+   so presence ⇒ recent).
+
+   Admin sidebar paints green pulsing "active" dot when engine_live,
+   regardless of group. So a Past show whose engine is still posting
+   reads visually as live until the heartbeat KV expires.
+
+   CSS: .show-dot.live + @keyframes dot-pulse.
+
+7. PER-SHOW ENGINE LOCK — full pattern (the big one)
+
+   Schema (migration 027):
+     shows.lock_override TEXT NOT NULL DEFAULT 'auto'
+       CHECK IN ('auto', 'unlocked', 'locked')
+
+   Effective lock:
+     'locked'   → always locked
+     'unlocked' → never locked
+     'auto'     → locked iff end_date < today (UTC string compare)
+
+   Worker plumbing (west-worker.js):
+     - computeShowLock(showRow) → { locked, reason }
+       reason is one of: 'manual' (lock_override='locked'),
+                         'auto-after-end-date',
+                         null (unlocked).
+     - isShowLockedV3(env, slug) → boolean (convenience).
+     - lockedResponse(reason) → 423 Response with
+       { ok:false, locked:true, reason, error: 'Show is locked from engine writes' }
+
+   Enforced on engine-write endpoints:
+     POST /v3/postCls
+     POST /v3/deleteCls
+     POST /v3/postTsked
+     POST /v3/engineHeartbeat
+
+   Lock check rolls into the same SELECT that validates show/ring
+   (one round-trip — no extra query). Pattern:
+
+     SELECT r.id AS ring_id, s.id AS show_id, s.lock_override, s.end_date
+     FROM rings r JOIN shows s ON s.id = r.show_id
+     WHERE s.slug = ? AND r.ring_num = ?
+
+   Admin endpoints bypass the lock by design — the lock is about
+   engine writes, not operator intervention. Endpoints that bypass:
+     - hardDeleteCls (operator deletes a soft-deleted class)
+     - recomputeJudgeRanks / recomputeJumperStats / reparseClassHeaders
+     - updateShow / updateRing / createShow / createRing
+     - downloadCls (read-only)
+
+   API surface:
+     - listShows now emits is_locked (0/1) AND lock_override (raw).
+     - getShow emits is_locked.
+     - updateShow accepts lock_override and validates the enum.
+
+   Admin UI:
+     - Show edit dialog (dlgShow) has a 3-way "Engine lock" dropdown
+       at the bottom: Auto / Unlocked / Locked, default Auto.
+       Hint text mentions HTTP 423 and the "morning-after correction"
+       use case for Unlocked.
+     - Sidebar shows 🔒 next to locked shows. Tooltip names the
+       lock reason ('manual' vs 'auto-after-end-date').
+
+   Operator escape hatch: flip to "Unlocked" to make corrections
+   without rolling back end_date.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL RULES LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. SERVER IS AUTHORITATIVE FOR RANKS. When porting v2 logic that
+   resorted by raw totals on the client, prefer reading the
+   pre-computed rank columns. By-judge view sorts by judge_card_rank
+   ASC, not judge_card_total DESC. Tied ranks become a small known
+   ambiguity in client display — fine for now.
+
+2. ONE LOCK-CHECK PATTERN ACROSS ENGINE ENDPOINTS. Pull
+   lock_override + end_date in the same SELECT that validates
+   show/ring. Call computeShowLock(row). If locked, return
+   lockedResponse(reason). Template applies to any new engine
+   endpoint added later.
+
+3. PAST GROUPING IN ADMIN IS CALENDAR-AWARE. Status field is the
+   authoritative manual state; sidebar grouping is a presentation-
+   layer enrichment that respects end_date. Public pages have always
+   been calendar-driven; admin is now aligned at the bucket level
+   even though the underlying status field is still operator-owned.
+
+4. BARE "DEPLOY" / PREVIEW PUSHES PRE-AUTHORIZED — NO ASKING.
+   Bill reaffirmed 2026-04-30 after I asked twice. deploy-preview.bat
+   runs without confirmation. deploy.bat (worker production) still
+   requires explicit ok per existing style memory. feedback_style.md
+   was strengthened to make this unambiguous.
+
+═══════════════════════════════════════════════════════════════════════════
+MIGRATIONS APPLIED
+═══════════════════════════════════════════════════════════════════════════
+
+  026 — shows.split_decision_top_n INTEGER NOT NULL DEFAULT 3
+  027 — shows.lock_override TEXT NOT NULL DEFAULT 'auto'
+                                   CHECK IN ('auto','unlocked','locked')
+
+WEST_DB_V3 state: 027 migrations applied. All existing shows
+  default to lock_override='auto', so any show with end_date in the
+  past auto-locks immediately on next engine write.
+
+═══════════════════════════════════════════════════════════════════════════
+DEPLOYS THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Pages preview: 5 deploys via deploy-preview.bat
+Worker production: 3 deploys via deploy.bat (each one explicitly
+                   confirmed by Bill before I ran it).
+
+Final worker version ID: 2df45893-3e85-431c-9e24-38260efd43eb
+Preview alias: https://preview.westscoring.pages.dev (current)
+
+═══════════════════════════════════════════════════════════════════════════
+WHERE WE STAND
+═══════════════════════════════════════════════════════════════════════════
+
+PHASE 2 IS FUNCTIONALLY COMPLETE.
+  - Public results page renders both lenses via templates modules.
+  - Show stats end-to-end on jumpers (Session 39 + 40 polish).
+  - Admin is a real operator tool with show / ring / class CRUD.
+  - Per-show engine lock landed today closes the "v2 lock loose end."
+
+What remains in the SESSION-NOTES-40 punch list is trailing polish
+(hunter stats parity, ribbon graphics, derby breakdown UI, manager-
+report finish), not Phase 2 work.
+
+═══════════════════════════════════════════════════════════════════════════
+PHASE 3 CANDIDATES — NEXT SESSION SHOULD PICK A DIRECTION
+═══════════════════════════════════════════════════════════════════════════
+
+A. LIVE PIPELINE (UDP fan-out + Durable Object push).
+   Biggest unblocker. Folds the Session 29 spike's UDP fan-out into
+   the production engine, then WebSocket/DO layer for push delivery.
+   Unblocks: live on-course banner, real-time scoreboard, ribbons,
+   the entire "live" experience. Multi-session arc with field-
+   deployment risk. NEEDS BILL'S EXPLICIT GREEN-LIGHT per S40 rule.
+
+B. OBSERVABILITY TABLES (parse_warnings, unknown_quirks,
+   udp_anomalies, audit_events). Independent of everything else,
+   low-stakes, makes future debugging dramatically easier. Lower
+   visible payoff than (A) but lower risk too.
+
+C. CROSS-SHOW IDENTITY RECONCILIATION (entry_identity_links +
+   canonical horse/rider IDs). Schema-heavy, no live-show risk.
+   Unblocks career stats, season leaderboards, cross-show search.
+
+═══════════════════════════════════════════════════════════════════════════
+TIER-2 ITEMS (CAN LAND BEFORE/INDEPENDENT OF PHASE 3)
+═══════════════════════════════════════════════════════════════════════════
+
+  - Hunter stats parity (jumper template applied to hunters) —
+    biggest single coherent data-layer item left. Follows a proven
+    pattern; safe to do anytime.
+  - Ch/Res championship graphic rendering on places 1-2 (data
+    captured in is_championship; just CSS + asset).
+  - Public class page derby breakdown (HighOptions / HandyBonus
+    visualization).
+  - IHSA "hide rider" mode applied to scoreboard renderer.
+  - Per-judge breakdown beyond the judges grid.
+  - Manager-report polish (finish what Session 40 started).
+  - Delete Show button wiring with safety preconditions.
+  - HUNTER_MODES labels (after Bill's Ryegate settings audit).
+
+═══════════════════════════════════════════════════════════════════════════
+KNOWN SMALL ISSUES / EDGE CASES
+═══════════════════════════════════════════════════════════════════════════
+
+  - Split-decision tie at rank N: when a judge has two entries with
+    the same card_rank at the boundary, top-N selection is non-
+    deterministic (depends on row order from the API). Bill: "in
+    practice it prob will not happen." If it surfaces, options:
+    (a) pull card_total into rules helper for tiebreak, or
+    (b) emit is_split_decision from the worker.
+
+  - Smoke show is currently locked (end_date 2026-04-22, default
+    lock_override='auto'). Bill needs to flip to 'unlocked' OR
+    push end_date forward for the dev engine to keep heartbeating.
+
+═══════════════════════════════════════════════════════════════════════════
+MEMORY UPDATES
+═══════════════════════════════════════════════════════════════════════════
+
+  - project_v3_rebuild.md: added "Session 41 progress" block ahead of
+    Session 31's. Captures everything above + the architectural rules
+    + Phase 3 candidates.
+  - feedback_style.md: strengthened the "deploy pre-authorized for
+    preview" line to call out v3 preview specifically + remove the
+    "want me to push?" reflex.
+
+═══════════════════════════════════════════════════════════════════════════
+HOW TO RESUME
+═══════════════════════════════════════════════════════════════════════════
+
+1. Read this doc + project_v3_rebuild.md (Session 41 block at top of
+   the progress section).
+2. Verify worker version against 2df45893 — redeploy if newer commit
+   isn't shipped yet.
+3. If picking Phase 3 direction: get Bill's explicit green-light for
+   live pipeline (A) before starting; (B) and (C) can start anytime.
+4. If picking tier-2: hunter stats parity is the cleanest single
+   piece — jumper stats template is proven, no field risk.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT NOT TO DO
+═══════════════════════════════════════════════════════════════════════════
+
+  - Don't start the live pipeline arc without Bill's green-light.
+  - Don't re-open the v3 schema settled-rules debates (Session 32/33).
+  - Don't touch v2 root-level code (still serves real shows).
+  - Don't ask "want me to push to preview?" — it's pre-authorized.
+  - Don't sort the by-judge view by raw card_total on the client
+    (server's pre-computed rank is authoritative).
+  - Don't add new engine-write endpoints without applying the
+    computeShowLock + lockedResponse pattern.

@@ -289,7 +289,7 @@
     var tbody = '<tbody>' + entries.map(function (e) {
       var rowHtml = tpl.renderRow(e, cls);
       if (gridById && gridById.has(e.id)) {
-        // Mark the main row clickable + inject "▸ View judges" hint +
+        // Mark the main row clickable + inject "▸ View Breakdown" hint +
         // append a hidden drop-down row with this entry's per-judge
         // grid. Class.html attaches the toggle handler after innerHTML.
         rowHtml = rowHtml.replace(/^<tr>/,
@@ -303,7 +303,7 @@
       thead + tbody + '</table>';
   };
 
-  // Inject a small "▸ View judges" hint chip at the bottom of the
+  // Inject a small "▸ View Breakdown" hint chip at the bottom of the
   // last cell of the row (the rightmost score column — entry-combined
   // for multi-round, last entry-round for 1-round). Positions the
   // affordance directly under the score so users see expandability
@@ -313,7 +313,7 @@
     var lastClose = rowHtml.lastIndexOf('</td>');
     if (lastClose === -1) return rowHtml;
     return rowHtml.slice(0, lastClose) +
-      '<div class="judges-hint">View judges</div>' +
+      '<div class="judges-hint">View Breakdown</div>' +
       rowHtml.slice(lastClose);
   }
 
@@ -658,6 +658,152 @@
       '</div>';
     }
     return html;
+  }
+
+  // ── BY-JUDGE VIEW ────────────────────────────────────────────────────
+  //
+  // Class regrouped by judge. One section per judge, each containing the
+  // entries ordered by THAT judge's pre-computed card rank ascending
+  // (server is authoritative — never re-sort by raw totals on the client).
+  // Each entry shows: that judge's rank, identity, per-round scores from
+  // that judge only, and the judge's card total.
+  //
+  // Killing-status R1 → shown at the bottom (no card rank), dimmed,
+  // status label in place of the rank. Per-round killing-status (R2/R3)
+  // → status pill in that round row, earlier rounds still visible.
+  //
+  // Consumes the same /v3/listJudgeGrid response shape as
+  // renderJudgeGrid and the per-row dropdown.
+
+  WEST.hunterTemplates.renderByJudgeView = function (cls, gridData) {
+    if (!gridData || !gridData.rows || !cls) return '';
+    var rows = gridData.rows.filter(function (r) {
+      return !WEST.rules.isDnsLike(r);
+    });
+    if (!rows.length) return '<div class="placeholder">No entries yet.</div>';
+
+    var judgeCount = Math.max(1, Number(cls.num_judges) || 1);
+    var numRounds  = Math.max(1, Math.min(3, Number(cls.num_rounds) || 1));
+    var isDerby    = WEST.format.derbyComponentsApply(cls);
+    var isEq       = cls.is_equitation === 1;
+
+    var html = '<div class="by-judge-view">';
+    for (var ji = 0; ji < judgeCount; ji++) {
+      html += renderJudgeSection(ji, rows, cls, numRounds, judgeCount, isDerby, isEq);
+    }
+    html += '</div>';
+    return html;
+  };
+
+  function judgeCardOf(row, ji) {
+    return row.judgeCards && row.judgeCards.find(function (x) { return x.idx === ji; });
+  }
+
+  function r1StatusOf(row) {
+    var rd = row.rounds && row.rounds.find(function (r) { return r.round === 1; });
+    return rd ? rd.status : null;
+  }
+
+  function renderJudgeSection(ji, rows, cls, numRounds, judgeCount, isDerby, isEq) {
+    // Sort by this judge's pre-computed card rank ascending. Unranked
+    // (full-elim or no card) lands at the bottom — server hasn't given
+    // them a rank, we don't invent one.
+    var sorted = rows.slice().sort(function (a, b) {
+      var ra = (judgeCardOf(a, ji) || {}).rank;
+      var rb = (judgeCardOf(b, ji) || {}).rank;
+      var ax = (ra == null) ? Infinity : ra;
+      var bx = (rb == null) ? Infinity : rb;
+      return ax - bx;
+    });
+
+    // Header row — Rank | # | Horse / Rider | R1 [| R2 [| R3]] | Card Total
+    var hdrCells = [
+      '<th class="bj-h-rank">Rank</th>',
+      '<th class="bj-h-num">#</th>',
+      '<th class="bj-h-id">' + (isEq ? 'Rider / Horse' : 'Horse / Rider') + '</th>',
+    ];
+    for (var n = 1; n <= numRounds; n++) {
+      hdrCells.push('<th class="bj-h-rnd">R' + n + '</th>');
+    }
+    hdrCells.push('<th class="bj-h-total">Card Total</th>');
+
+    var bodyHtml = sorted.map(function (row) {
+      return renderByJudgeRow(row, cls, ji, numRounds, isDerby, isEq);
+    }).join('');
+
+    return '<section class="by-judge-section">' +
+      '<h3 class="by-judge-hdr">Judge ' + (ji + 1) + '</h3>' +
+      '<table class="by-judge-table">' +
+        '<thead><tr>' + hdrCells.join('') + '</tr></thead>' +
+        '<tbody>' + bodyHtml + '</tbody>' +
+      '</table>' +
+    '</section>';
+  }
+
+  function renderByJudgeRow(row, cls, ji, numRounds, isDerby, isEq) {
+    var card   = judgeCardOf(row, ji);
+    var rank   = card && card.rank;
+    var total  = card && card.total;
+    var killR1 = WEST.status.isKillingStatus(r1StatusOf(row));
+
+    // Rank cell — full-elim shows status; otherwise this judge's rank.
+    // Ch/Res chip only on places 1/2 of championship classes.
+    var rankHtml;
+    if (killR1) {
+      var elimLbl = WEST.status.publicLabel(r1StatusOf(row)) || r1StatusOf(row) || 'EL';
+      rankHtml = '<span class="bj-rank-status">' + escapeHtml(elimLbl) + '</span>';
+    } else if (rank) {
+      var marker = WEST.format.championshipMarker(rank, cls.is_championship === 1);
+      rankHtml = marker
+        ? '<span class="place-marker place-marker-solo">' + marker + '</span>'
+        : '<span class="bj-rank">' + rank + '</span>';
+    } else {
+      rankHtml = '<span class="bj-rank-blank">—</span>';
+    }
+
+    var roundCells = '';
+    for (var n = 1; n <= numRounds; n++) {
+      var rd = row.rounds && row.rounds.find(function (r) { return r.round === n; });
+      if (killR1) {
+        roundCells += '<td class="bj-rnd-cell"><span class="bj-rnd-blank">—</span></td>';
+        continue;
+      }
+      if (rd && WEST.status.isKillingStatus(rd.status)) {
+        var rlbl = WEST.status.publicLabel(rd.status) || rd.status;
+        roundCells += '<td class="bj-rnd-cell"><span class="bj-rnd-status">' +
+          escapeHtml(rlbl) + '</span></td>';
+        continue;
+      }
+      var j = rd && rd.judges && rd.judges.find(function (x) { return x.idx === ji; });
+      var cellTxt = '';
+      if (j) {
+        if (isDerby) {
+          var parts = [];
+          if (j.base != null) parts.push(j.base);
+          if (j.hiopt)        parts.push('+' + j.hiopt);
+          if (j.handy)        parts.push('+' + j.handy);
+          cellTxt = parts.join('');
+        } else {
+          cellTxt = j.base != null ? String(j.base) : '';
+        }
+      }
+      roundCells += '<td class="bj-rnd-cell">' +
+        (cellTxt ? '<span class="bj-rnd-val">' + escapeHtml(cellTxt) + '</span>'
+                 : '<span class="bj-rnd-blank">—</span>') +
+      '</td>';
+    }
+
+    var totalCell = (!killR1 && total != null)
+      ? '<td class="bj-total-cell"><span class="bj-total">' + escapeHtml(String(total)) + '</span></td>'
+      : '<td class="bj-total-cell"><span class="bj-rnd-blank">—</span></td>';
+
+    return '<tr class="by-judge-row' + (killR1 ? ' is-elim' : '') + '">' +
+      '<td class="bj-rank-cell">' + rankHtml + '</td>' +
+      '<td class="bj-num-cell">' + escapeHtml(row.entry_num || '') + '</td>' +
+      '<td class="bj-id-cell">' + renderIdentity(row, cls, isEq) + '</td>' +
+      roundCells +
+      totalCell +
+    '</tr>';
   }
 
   // CommonJS export for tests / future Node consumers.

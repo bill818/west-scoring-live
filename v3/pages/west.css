@@ -82,9 +82,18 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .show-dot.upcoming{background:var(--blue);}
 .show-dot.active{background:var(--green);}
 .show-dot.past{background:var(--gray);}
+/* engine-live override — pulses to signal a live data feed regardless
+   of whether the show's calendar dates put it in Past. */
+.show-dot.live{box-shadow:0 0 0 0 rgba(46,160,67,0.7);animation:dot-pulse 1.6s infinite;}
+@keyframes dot-pulse{
+  0%   {box-shadow:0 0 0 0 rgba(46,160,67,0.55);}
+  70%  {box-shadow:0 0 0 5px rgba(46,160,67,0);}
+  100% {box-shadow:0 0 0 0 rgba(46,160,67,0);}
+}
 .show-item-body{flex:1;overflow:hidden;}
 .show-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .show-date{display:block;font-size:11px;color:var(--text-muted);font-family:'DM Mono',monospace;}
+.show-lock{font-size:12px;flex-shrink:0;opacity:.75;}
 
 .system{margin-top:24px;padding-top:16px;border-top:1px solid var(--border);}
 .system-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;}
@@ -457,8 +466,54 @@ footer a{color:var(--blue);}
 .hero-stats-tag{display:inline-block;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:2px;margin-left:8px;vertical-align:middle;font-weight:500;}
 
 /* Stats button on class.html hero — links to stats.html for this class. */
-.hero-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 14px;background:#fff;color:var(--text-body);border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;transition:border-color .15s,color .15s,background .15s;}
+.hero-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-right:8px;padding:8px 14px;background:#fff;color:var(--text-body);border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:border-color .15s,color .15s,background .15s;}
 .hero-action:hover{border-color:var(--red);color:var(--red);text-decoration:none;background:#fff;}
+.hero-action.judges-toggle{font-family:'DM Mono',monospace;}
+.hero-action.judges-toggle.is-active{background:var(--red);color:#fff;border-color:var(--red);}
+.hero-action.judges-toggle.is-active:hover{background:#c62020;border-color:#c62020;color:#fff;}
+
+/* Split-decision pill — multi-judge hunter classes where judges
+   disagreed on the placed top-N. Reads as a flag, not a button. */
+.split-pill{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-left:4px;padding:6px 10px;background:#fff8f8;color:var(--red);border:1px solid #ffd0d0;border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle;}
+.split-pill::before{content:'⚖';margin-right:2px;font-size:13px;}
+
+/* By-judge view — class regrouped by judge. One section per judge,
+   each section is a tight table sorted by that judge's pre-computed
+   card rank ascending. Reads as a per-judge officiating sheet. */
+.by-judge-view{max-width:1100px;margin:0 auto;padding:0 12px;}
+.by-judge-section{margin-top:24px;}
+.by-judge-section:first-child{margin-top:0;}
+.by-judge-hdr{font-family:'Oswald',sans-serif;font-weight:700;font-size:16px;color:var(--black);margin:0 0 6px;padding:6px 12px;background:var(--off-white);border-left:3px solid var(--red);text-transform:uppercase;letter-spacing:.08em;}
+.by-judge-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
+.by-judge-table thead th{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);font-weight:500;text-align:left;padding:8px 10px;background:var(--off-white);border-bottom:1px solid var(--border);}
+.by-judge-table .bj-h-rank{width:56px;text-align:center;}
+.by-judge-table .bj-h-num{width:50px;}
+.by-judge-table .bj-h-rnd{width:60px;text-align:right;}
+.by-judge-table .bj-h-total{width:80px;text-align:right;}
+.by-judge-table tbody tr{border-top:1px solid var(--border);}
+.by-judge-table tbody tr:first-child{border-top:none;}
+.by-judge-table tbody td{padding:8px 10px;font-family:'Lato',sans-serif;font-size:13px;vertical-align:middle;}
+.by-judge-row.is-elim{opacity:.5;}
+.bj-rank-cell{text-align:center;}
+.bj-rank{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);}
+.bj-rank-status{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;}
+.bj-rank-blank{color:var(--text-muted);}
+.bj-num-cell{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
+.bj-id-cell{color:var(--text-body);}
+.bj-id-cell .entry-horse-line{font-size:13px;}
+.bj-id-cell .entry-owner,.bj-id-cell .entry-pedigree{font-size:11px;color:var(--text-muted);}
+.bj-rnd-cell{text-align:right;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;}
+.bj-rnd-val{font-size:13px;color:var(--text-body);}
+.bj-rnd-blank{color:var(--text-muted);}
+.bj-rnd-status{font-size:11px;color:var(--red);font-weight:700;text-transform:uppercase;}
+.bj-total-cell{text-align:right;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;}
+.bj-total{font-size:15px;font-weight:700;color:var(--black);}
+@media (max-width:600px){
+  .by-judge-table thead th,.by-judge-table tbody td{padding:6px 6px;}
+  .by-judge-table .bj-h-rnd{width:48px;}
+  .by-judge-table .bj-h-total{width:64px;}
+  .bj-id-cell .entry-owner,.bj-id-cell .entry-pedigree{display:none;}
+}
 
 /* Stats summary chips — top of stats.html, headline numbers. */
 .stat-chips{display:flex;flex-wrap:wrap;gap:10px;max-width:1100px;margin:20px auto 0;padding:0 12px;}
@@ -581,6 +636,16 @@ footer a{color:var(--blue);}
 .sc-row:hover{color:var(--black);}
 .sc-row input[type=checkbox]{margin-top:2px;flex-shrink:0;}
 .sc-row-hint{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.02em;}
+
+/* Stats config dialog — Jumpers / Hunters section grouping. Section
+   header reads as a lens divider so operators don't have to scan a
+   flat checkbox list. */
+.sc-section{margin-bottom:18px;padding:14px 14px 6px;border:1px solid var(--border);border-radius:6px;background:#fcfcfc;}
+.sc-section + .sc-section{margin-top:0;}
+.sc-section-hdr{font-family:'Oswald',sans-serif;font-weight:700;font-size:14px;color:var(--black);margin:0 0 4px;text-transform:uppercase;letter-spacing:.08em;}
+.sc-section-hint{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:10px;letter-spacing:.02em;}
+.sc-row.sc-row-inline{align-items:center;cursor:default;}
+.sc-input-num{font-family:'DM Mono',monospace;font-size:13px;width:60px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:#fff;}
 
 /* ── SHOW STATS SECTION (show.html) ──────────────────────────────────
    Aggregated jumper stats across all classes in a show. Inline section

@@ -192,6 +192,15 @@
         <div class="form-hint">Uncheck for test shows you don't want polluting rider/horse stats.</div>
       </div>
     </div>
+    <div class="form-group">
+      <label for="f_showLockOverride">Engine lock</label>
+      <select id="f_showLockOverride">
+        <option value="auto">Auto — locks after end date (recommended)</option>
+        <option value="unlocked">Unlocked — accept engine writes anyway</option>
+        <option value="locked">Locked — reject engine writes now</option>
+      </select>
+      <div class="form-hint" id="f_showLockHint">When locked, the worker rejects postCls / postTsked / heartbeat with HTTP 423. Use "Unlocked" only to correct a result the morning after a show.</div>
+    </div>
     <div class="form-error" id="f_showError"></div>
   </div>
   <div class="dialog-footer">
@@ -204,31 +213,49 @@
 <dialog id="dlgStatsConfig">
   <div class="dialog-header"><h2>Stats Display Settings</h2></div>
   <div class="dialog-body">
-    <div class="form-hint" style="margin-bottom:12px;">Toggle which stats appear on the public stats page for jumper classes in this show. Standings tables are always shown.</div>
+    <div class="form-hint" style="margin-bottom:12px;">Per-show display knobs for the public results + stats pages. Standings tables are always shown.</div>
 
-    <div class="form-group">
-      <label class="sc-group-label">Top of page</label>
-      <label class="sc-row"><input type="checkbox" id="f_sc_chips_top_line" checked> Top-line chip strip <span class="sc-row-hint">Entries · Competed · Clears% · etc.</span></label>
+    <div class="sc-section">
+      <h3 class="sc-section-hdr">Jumpers</h3>
+      <div class="sc-section-hint">Toggles for the public stats page on jumper classes.</div>
+
+      <div class="form-group">
+        <label class="sc-group-label">Top of page</label>
+        <label class="sc-row"><input type="checkbox" id="f_sc_chips_top_line" checked> Top-line chip strip <span class="sc-row-hint">Entries · Competed · Clears% · etc.</span></label>
+      </div>
+
+      <div class="form-group">
+        <label class="sc-group-label">Entry Summary section</label>
+        <label class="sc-row"><input type="checkbox" id="f_sc_entry_summary" checked> Show the Entry Summary section <span class="sc-row-hint">(unique riders / horses / owners cards)</span></label>
+        <label class="sc-row"><input type="checkbox" id="f_sc_entry_summary_countries" checked> &nbsp;&nbsp;Country breakdown sub-list <span class="sc-row-hint">(flag chips when entries have country codes)</span></label>
+      </div>
+
+      <div class="form-group">
+        <label class="sc-group-label">Per-round detail</label>
+        <label class="sc-row"><input type="checkbox" id="f_sc_round_stat_lines" checked> Stat lines <span class="sc-row-hint">(Competed · Clears · Time Faults · Avg Time)</span></label>
+        <label class="sc-row"><input type="checkbox" id="f_sc_round_fastest_4fault" checked> Fastest 4-faulter callout</label>
+        <label class="sc-row"><input type="checkbox" id="f_sc_round_fault_histogram" checked> Fault histogram</label>
+      </div>
     </div>
 
-    <div class="form-group">
-      <label class="sc-group-label">Entry Summary section</label>
-      <label class="sc-row"><input type="checkbox" id="f_sc_entry_summary" checked> Show the Entry Summary section <span class="sc-row-hint">(unique riders / horses / owners cards)</span></label>
-      <label class="sc-row"><input type="checkbox" id="f_sc_entry_summary_countries" checked> &nbsp;&nbsp;Country breakdown sub-list <span class="sc-row-hint">(flag chips when entries have country codes)</span></label>
-    </div>
+    <div class="sc-section">
+      <h3 class="sc-section-hdr">Hunters</h3>
+      <div class="sc-section-hint">Display knobs for multi-judge hunter classes on the public results page.</div>
 
-    <div class="form-group">
-      <label class="sc-group-label">Per-round detail</label>
-      <label class="sc-row"><input type="checkbox" id="f_sc_round_stat_lines" checked> Stat lines <span class="sc-row-hint">(Competed · Clears · Time Faults · Avg Time)</span></label>
-      <label class="sc-row"><input type="checkbox" id="f_sc_round_fastest_4fault" checked> Fastest 4-faulter callout</label>
-      <label class="sc-row"><input type="checkbox" id="f_sc_round_fault_histogram" checked> Fault histogram</label>
+      <div class="form-group">
+        <label class="sc-group-label" for="f_sc_split_n">Split-decision top N</label>
+        <div class="sc-row sc-row-inline">
+          <input type="number" id="f_sc_split_n" min="2" max="10" step="1" value="3" class="sc-input-num">
+          <span class="sc-row-hint">Flag a class as a Split Decision when any judge's top-N differs from the overall placed top-N. Default 3.</span>
+        </div>
+      </div>
     </div>
 
     <div class="form-error" id="f_scError"></div>
   </div>
   <div class="dialog-footer">
     <button class="btn-secondary" data-close-dialog="dlgStatsConfig">Cancel</button>
-    <button class="btn-secondary" id="btnStatsConfigReset" title="Reset all to default (everything on)">Reset to default</button>
+    <button class="btn-secondary" id="btnStatsConfigReset" title="Reset all to default">Reset to default</button>
     <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnStatsConfigSave">Save</button>
   </div>
 </dialog>
@@ -312,16 +339,21 @@ function toast(msg, kind = '') {
   toastTimer = setTimeout(() => toastEl.className = 'toast', 3000);
 }
 
-// ── show grouping (admin = status-driven, not date-driven) ───────────
-// Admin sidebar reflects operator/engine state, not calendar dates.
-// The detail header's status dropdown is the authoritative source;
-// the sidebar just mirrors it. Auto-promotion in the worker flips
-// pending→active on first heartbeat, which flows through here on the
-// next refresh tick (30s poll cadence).
+// ── show grouping (status-driven with date-aware demotion) ───────────
+// Admin sidebar reflects operator/engine state primarily, but a show
+// whose end_date is in the past gets pushed to "Past" regardless of
+// its raw status field. This avoids a stale "Active" badge after the
+// engine stopped heartbeating without an operator manually flipping
+// status. The status dropdown in the detail header still owns the
+// underlying value — this is a presentation-layer override only.
 function showGroup(show) {
   const s = (show.status || 'pending').toLowerCase();
-  if (s === 'active') return 'active';
   if (s === 'complete' || s === 'archived') return 'past';
+  if (show.end_date) {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD local-ish
+    if (show.end_date < today) return 'past';
+  }
+  if (s === 'active') return 'active';
   return 'upcoming'; // pending or anything unrecognized
 }
 
@@ -352,12 +384,27 @@ function renderSidebar() {
       const li = document.createElement('li');
       li.className = 'show-item' + (s.slug === state.selectedSlug ? ' selected' : '');
       li.dataset.slug = s.slug;
+      // Engine live overrides the group color — a Past show whose engine
+      // is still heartbeating keeps the green "active" dot (with a pulse)
+      // so operators can see at a glance which scoring PCs are still
+      // posting. Group-based color is the fallback.
+      const dotClass = s.engine_live ? 'active live' : g;
+      // Lock icon for shows whose engine writes are currently rejected.
+      // is_locked is computed by the worker (auto-after-end-date or
+      // manual). Tooltip names the override mode for clarity.
+      const lockTitle = s.lock_override === 'locked'
+        ? 'Engine writes locked (manual)'
+        : 'Engine writes locked — show ended';
+      const lockIcon = s.is_locked
+        ? `<span class="show-lock" title="${lockTitle}">🔒</span>`
+        : '';
       li.innerHTML = `
-        <span class="show-dot ${g}"></span>
+        <span class="show-dot ${dotClass}"></span>
         <div class="show-item-body">
           <span class="show-name">${escapeHtml(s.name)}</span>
           <span class="show-date">${fmtDateRange(s)}</span>
-        </div>`;
+        </div>
+        ${lockIcon}`;
       li.addEventListener('click', () => selectShow(s.slug));
       ul.appendChild(li);
     }
@@ -876,6 +923,7 @@ function openShowDialog(mode, show) {
   document.getElementById('f_showLayout').value        = s.results_layout || 'stacked';
   document.getElementById('f_showStatus').value        = s.status        || 'pending';
   document.getElementById('f_showStatsEligible').checked = s.stats_eligible === 0 ? false : true;
+  document.getElementById('f_showLockOverride').value  = s.lock_override || 'auto';
   document.getElementById('f_showError').classList.remove('visible');
   dlgShow.showModal();
   document.getElementById('f_showName').focus();
@@ -906,7 +954,8 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
     errEl.classList.add('visible'); return;
   }
   try {
-    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible };
+    const lock_override = document.getElementById('f_showLockOverride').value;
+    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible, lock_override };
     if (showDialogMode === 'edit') {
       await api('POST', '/v3/updateShow', payload);
       dlgShow.close();
@@ -953,6 +1002,9 @@ function openStatsConfigDialog() {
     const el = document.getElementById('f_sc_' + key);
     if (el) el.checked = (cfg[key] !== false); // treat undefined as true
   }
+  // Hunter knobs come from dedicated columns, not stats_config JSON.
+  document.getElementById('f_sc_split_n').value =
+    Number(show.split_decision_top_n) || 3;
   document.getElementById('f_scError').classList.remove('visible');
   dlgStatsConfig.showModal();
 }
@@ -964,6 +1016,7 @@ document.getElementById('btnStatsConfigReset').addEventListener('click', () => {
     const el = document.getElementById('f_sc_' + key);
     if (el) el.checked = true;
   }
+  document.getElementById('f_sc_split_n').value = 3;
 });
 
 document.getElementById('btnStatsConfigSave').addEventListener('click', async () => {
@@ -976,11 +1029,22 @@ document.getElementById('btnStatsConfigSave').addEventListener('click', async ()
     cfg[key] = el ? el.checked : true;
     if (!cfg[key]) allOn = false;
   }
-  // When everything is on we send null — keeps the DB clean and
-  // matches the "no override" default state.
-  const payload = { slug, stats_config: allOn ? null : cfg };
+  const splitN = parseInt(document.getElementById('f_sc_split_n').value, 10);
   const errEl = document.getElementById('f_scError');
   errEl.classList.remove('visible');
+  if (!Number.isInteger(splitN) || splitN < 2 || splitN > 10) {
+    errEl.textContent = 'Split-decision top N must be a whole number 2-10.';
+    errEl.classList.add('visible');
+    return;
+  }
+  // When everything is on we send null for stats_config — keeps the DB
+  // clean and matches the "no override" default state. Split-decision N
+  // ships as its own field regardless.
+  const payload = {
+    slug,
+    stats_config: allOn ? null : cfg,
+    split_decision_top_n: splitN,
+  };
   try {
     await api('POST', '/v3/updateShow', payload);
     dlgStatsConfig.close();
