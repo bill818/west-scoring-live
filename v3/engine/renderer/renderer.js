@@ -91,6 +91,9 @@
     if (!featureSaveInFlight.has('holdTarget')) {
       $('#featHoldTarget').checked = !!features.holdTarget;
     }
+    if (!featureSaveInFlight.has('liveRunningTenth')) {
+      $('#featLiveRunningTenth').checked = !!features.liveRunningTenth;
+    }
   }
 
   function markSettingsDirty() {
@@ -461,8 +464,9 @@
       setTimeout(() => featureSaveInFlight.delete(key), 600);
     });
   }
-  wireFeatureToggle('featRunningTenth', 'runningTenth');
-  wireFeatureToggle('featHoldTarget',   'holdTarget');
+  wireFeatureToggle('featRunningTenth',     'runningTenth');
+  wireFeatureToggle('featHoldTarget',       'holdTarget');
+  wireFeatureToggle('featLiveRunningTenth', 'liveRunningTenth');
 
   // ── Settings inputs — dirty-track + Save / Revert ──────────────────────
   ['setClsDir', 'setTskedPath', 'setRyegateConf'].forEach(id => {

@@ -58,7 +58,33 @@
            text-align: center; }
   .footer { color: var(--muted); font-size: 11px; margin-top: 16px;
             text-align: center; }
+  /* Phase 3b polish — interpolated clock display. The big number is the
+     30Hz output of west-clock.js. Color hints phase: gold = on-course
+     (active), amber = countdown, green = finished, muted = idle. */
+  .clock-phase { text-align: center; color: var(--muted); font-size: 11px;
+                 letter-spacing: 0.08em; text-transform: uppercase;
+                 padding-top: 4px; }
+  .clock-big   { text-align: center; font-family: 'Oswald', sans-serif;
+                 font-size: 64px; font-weight: 700; line-height: 1;
+                 padding: 6px 0 10px; letter-spacing: 0.02em;
+                 color: var(--muted); transition: color 0.2s; }
+  .clock-big.countdown { color: var(--warn); }
+  .clock-big.on_course { color: var(--accent); }
+  .clock-big.finished  { color: var(--ok); }
+  /* Hunter classes are judged — no clock. Quiet, smaller label fills
+     the slot so the layout doesn't lurch when switching between lenses. */
+  .clock-big.hunter    { color: var(--muted); font-size: 28px;
+                         font-style: italic; }
+  /* Trigger indicator for frames 12 + 16 (Hunter Display Scores).
+     Per S42 rule: those frames carry no usable data — they signal
+     ".cls is being re-read." Render as a quiet info chip rather than
+     a raw tag dump that would mislead. */
+  .trigger-chip { display: inline-block; padding: 4px 10px;
+                  border-radius: 4px; background: #1a2a3a;
+                  color: #6cbcf0; font-size: 12px; }
 </style>
+<script src="../js/west-format.js"></script>
+<script src="../js/west-clock.js"></script>
 </head>
 <body>
 
@@ -80,6 +106,8 @@
 
 <div class="panel">
   <h2>Current Focus</h2>
+  <div class="clock-phase" id="clockPhase">idle</div>
+  <div class="clock-big idle" id="clockBig">—</div>
   <div class="grid">
     <div class="k">Class ID</div>      <div class="v" id="focusClass">—</div>
     <div class="k">Last channel</div>  <div class="v" id="lastChannel">—</div>
@@ -121,6 +149,10 @@
   var $ = function(id) { return document.getElementById(id); };
 
   var consecutiveErrors = 0;
+  // Hoisted so the clock callback (10Hz) can read the latest lens from
+  // the most recent snapshot. Updated by render(). Hunter classes are
+  // judged — no clock — so the callback substitutes a quiet label.
+  var currentLens = null;
 
   function ageString(iso) {
     if (!iso) return '—';
@@ -132,13 +164,36 @@
     return Math.floor(s / 3600) + 'h ago';
   }
 
-  function tagString(tags) {
+  // Hunter Display-Scores frames (12 + 16) are TRIGGERS per S42, not
+  // data sources — their numeric content is a multi-page rotation that
+  // changes meaning without warning, so we never render the tags
+  // verbatim. Show a clean chip indicating the engine is responding by
+  // re-reading the .cls on disk.
+  function isHunterTriggerFrame(lens, frame) {
+    return lens === 'hunter' && (frame === 12 || frame === 16);
+  }
+
+  function tagString(tags, lens, frame) {
+    if (isHunterTriggerFrame(lens, frame)) {
+      return 'Display Scores trigger · .cls re-read';
+    }
     if (!tags || typeof tags !== 'object') return '—';
     var ks = Object.keys(tags);
     if (!ks.length) return '(empty)';
-    return ks.sort(function(a, b) { return Number(a) - Number(b); })
-      .map(function(k) { return '{' + k + '}=' + String(tags[k]).slice(0, 24); })
-      .join(' ');
+    // Sort tags numerically so {1}, {2}, {3}… read in a stable order.
+    ks = ks.sort(function(a, b) { return Number(a) - Number(b); });
+    var labelFn = (window.WEST && window.WEST.format && window.WEST.format.tagLabel)
+      ? window.WEST.format.tagLabel
+      : function() { return null; };
+    return ks.map(function(k) {
+      var v = String(tags[k]).replace(/[\r\n]/g, '').trim();
+      if (!v && v !== '0') return null;     // drop empty values
+      var label = labelFn(lens, frame, Number(k));
+      var truncated = v.length > 24 ? v.slice(0, 24) + '…' : v;
+      // Article 1: tags only get human labels through their lens. Without
+      // a lens (or no mapping for this tag), fall back to raw {N}=value.
+      return label ? (label + ': ' + truncated) : ('{' + k + '}=' + truncated);
+    }).filter(Boolean).join(' · ');
   }
 
   function setPipe(state) {
@@ -151,6 +206,17 @@
   }
 
   function render(snapshot) {
+    // Feed the interpolating clock module BEFORE we re-render the panels.
+    // west-clock.js owns its own ~10Hz tick; render() doesn't draw the
+    // clock value directly — the clock callback (set up in boot) does.
+    // Engine ships live_running_tenth on each batch — flip mode if it
+    // changed (no-op when stable).
+    if (window.WEST && window.WEST.clock) {
+      if (snapshot && window.WEST.clock.setMode) {
+        window.WEST.clock.setMode(snapshot.live_running_tenth === false ? 'whole' : 'tenth');
+      }
+      if (window.WEST.clock.set) window.WEST.clock.set(snapshot);
+    }
     if (!snapshot) {
       setPipe('idle');
       $('lastUpdate').textContent  = '—';
@@ -174,15 +240,27 @@
     $('lastBatchId').textContent = (snapshot.batch_id || '—').slice(0, 8) + '…';
     $('batchSize').textContent   = (snapshot.events && snapshot.events.length) || 0;
 
-    var last = snapshot.last;
-    if (last) {
-      $('focusClass').textContent  = last.class_id || '—';
-      $('lastChannel').textContent = last.channel || '—';
-      $('lastFrame').textContent   = (last.frame !== null && last.frame !== undefined)
-        ? String(last.frame) : '—';
-      $('lastTags').textContent    = tagString(last.tags);
+    // Lens for tag rendering. Worker derives class_kind from class_type +
+    // scoring_method on each batch (S43 Chunk 10). null lens → raw {N}=val.
+    var lens = snapshot.class_kind || null;
+    currentLens = lens;
+
+    // Prefer last_scoring (Channel A — actual on-course frame) over the
+    // batch-final `last` which can be a Channel B focus heartbeat that
+    // doesn't carry horse data. last_focus stays the source of truth for
+    // class_id when the operator hasn't sent any A frames yet.
+    var lastA = snapshot.last_scoring || null;
+    var lastB = snapshot.last_focus || null;
+    var primary = lastA || snapshot.last;     // what we render in Current Focus
+    var classIdFromFocus = (lastB && lastB.tags && lastB.tags['27']) || null;
+    if (primary) {
+      $('focusClass').textContent  = primary.class_id || classIdFromFocus || '—';
+      $('lastChannel').textContent = primary.channel || '—';
+      $('lastFrame').textContent   = (primary.frame !== null && primary.frame !== undefined)
+        ? String(primary.frame) : '—';
+      $('lastTags').textContent    = tagString(primary.tags, lens, primary.frame);
     } else {
-      $('focusClass').textContent  = '—';
+      $('focusClass').textContent  = classIdFromFocus || '—';
       $('lastChannel').textContent = '—';
       $('lastFrame').textContent   = '—';
       $('lastTags').textContent    = '—';
@@ -190,7 +268,8 @@
 
     // Events table — newest first.
     var events = (snapshot.events || []).slice().reverse();
-    $('eventsCount').textContent = '(' + events.length + ' in last batch)';
+    $('eventsCount').textContent = '(' + events.length + ' in last batch'
+      + (lens ? ' · lens: ' + lens : '') + ')';
     if (!events.length) {
       $('eventsBox').innerHTML = '<div class="empty">No events in latest batch.</div>';
     } else {
@@ -203,7 +282,7 @@
           '<td class="' + chCls + '">' + (e.channel || '—') + '</td>' +
           '<td>' + fr + '</td>' +
           '<td>' + (e.class_id || '—') + '</td>' +
-          '<td class="tags">' + tagString(e.tags) + '</td>' +
+          '<td class="tags">' + tagString(e.tags, lens, e.frame) + '</td>' +
           '</tr>';
       }).join('');
       $('eventsBox').innerHTML =
@@ -289,6 +368,28 @@
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
+  // Start the interpolating clock first — west-clock.js renders at ~30Hz
+  // off its own setInterval; we just give it a callback that pokes the
+  // DOM. Phase determines color via class swap.
+  if (window.WEST && window.WEST.clock && window.WEST.clock.start) {
+    var clockBig   = $('clockBig');
+    var clockPhase = $('clockPhase');
+    window.WEST.clock.start(function (text, phase) {
+      // Hunter classes are judged — no clock. Override the clock module's
+      // tick output with a quiet placeholder. west-clock keeps ticking
+      // internally (cheap, idempotent) so a switch back to jumper picks
+      // up immediately on the next batch.
+      if (currentLens === 'hunter') {
+        clockBig.textContent = 'no clock';
+        clockBig.className   = 'clock-big hunter';
+        clockPhase.textContent = 'hunter — judged';
+        return;
+      }
+      clockBig.textContent = text;
+      clockBig.className   = 'clock-big ' + phase;
+      clockPhase.textContent = phase.replace('_', ' ');
+    });
+  }
   setTransport('connecting…');
   connectWs();
   // If WS hasn't opened in WS_INITIAL_TIMEOUT_MS, kick polling so the page

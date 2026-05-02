@@ -183,7 +183,8 @@ function loadConfig() {
     if (!cfg.showSlug || cfg.ringNum === undefined || cfg.ringNum === null || cfg.ringNum === '') {
       config = { workerUrl: cfg.workerUrl, authKey: cfg.authKey, showSlug: null, ringNum: null,
                  clsDir: cfg.clsDir, tskedPath: cfg.tskedPath, ryegateConfPath: cfg.ryegateConfPath,
-                 runningTenth: cfg.runningTenth, holdTarget: cfg.holdTarget };
+                 runningTenth: cfg.runningTenth, holdTarget: cfg.holdTarget,
+                 liveRunningTenth: cfg.liveRunningTenth };
       configError = null;
       detectedInputPort = detectInputPort();
       log(`Config loaded — no show selected yet (input port ${detectedInputPort}).`);
@@ -278,8 +279,11 @@ function buildStateSnapshot() {
     // HOLD target state machine lives in scoreboard-funnel.js with the v2 bug
     // fix baked in (empty {18} clears, class change clears).
     features: config ? {
-      runningTenth: !!(config.runningTenth === 1 || config.runningTenth === true),
-      holdTarget:   !!(config.holdTarget === 1 || config.holdTarget === true),
+      runningTenth:     !!(config.runningTenth     === 1 || config.runningTenth     === true),
+      holdTarget:       !!(config.holdTarget       === 1 || config.holdTarget       === true),
+      // liveRunningTenth defaults to TRUE — operator opts OUT to get
+      // whole-seconds-only on the public live page (per Bill 2026-05-02).
+      liveRunningTenth: !(config.liveRunningTenth === false || config.liveRunningTenth === 0),
     } : null,
     // Per-frame raw samples — last packet seen for each (channel, frame)
     // pair, truncated. Renderer surfaces these on the Protocol tab so the
@@ -726,6 +730,10 @@ async function flushUdpEventBatch() {
         slug: config.showSlug,
         ring_num: config.ringNum,
         events: batch,
+        // Live page display preferences ride with each batch — operator
+        // can flip without page reload. Defaults to TRUE (running tenth
+        // on) per Bill 2026-05-02; operator opts OUT to whole seconds.
+        live_running_tenth: !(config.liveRunningTenth === false || config.liveRunningTenth === 0),
       }),
     });
     if (data && data.locked) return;             // workerFetch already set showLocked
@@ -1181,7 +1189,7 @@ function setupIpc() {
   });
 
   ipcMain.handle('save-feature', async (_evt, { key, value }) => {
-    if (!['runningTenth', 'holdTarget'].includes(key)) {
+    if (!['runningTenth', 'holdTarget', 'liveRunningTenth'].includes(key)) {
       return { ok: false, error: `unknown feature ${key}` };
     }
     const updates = {};

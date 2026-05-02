@@ -398,3 +398,194 @@ WHAT NOT TO DO
   Article 1 applies to UDP routing too.
 - Do not assume tag X means the same thing across frames. Article 1
   generalizes to UDP — see S42 rule 6.
+
+═══════════════════════════════════════════════════════════════════════════
+ADDENDUM — Chunks 9-12 (same-day polish, post-S43-initial-commit)
+═══════════════════════════════════════════════════════════════════════════
+
+After the initial Chunks 1-8 commit (fc6ac94), Bill picked sub-second
+clock interpolation as the next polish, then chained directly into
+lens-aware tag naming, a clear-trigger bug fix, and hunter frame
+support. Four more chunks shipped without a stop.
+
+CHUNK 9 — interpolating clock module + engine toggle
+  ─ NEW: v3/js/west-clock.js (was a 1-line stub, fully populated now)
+      Dual-environment IIFE attaching WEST.clock to window/global.
+      Phase derivation from Channel A frame 1 tags:
+        {17} integer → on_course (interpolate)
+        {17} decimal → finished (FINISH lock — exact value, no interp)
+        {23} negative → countdown
+        neither → keep last state (don't flicker on a single missing frame)
+      API: set(snapshot), start(callback), stop(), setMode('tenth'|'whole')
+      Defaults: TICK_HZ=10, mode='tenth', countdown ALWAYS whole seconds
+        (Bill rule 2026-05-02), finished always 3 decimals.
+      Initial 30Hz + 3-decimal default felt like "slot machine on the
+        thousandths"; dropped to 10Hz / 1-decimal per Bill.
+  ─ Engine main.js: liveRunningTenth config field (defaults TRUE),
+      passed in batch POST as live_running_tenth, save-feature handler
+      whitelists it.
+  ─ Engine renderer: NEW "Live page" pane on Scoreboard tab with
+      "Running tenth on live page" checkbox (immediate save via
+      wireFeatureToggle, mirrors existing scoreboard toggles).
+  ─ Worker: /v3/postUdpEvent reads body.live_running_tenth, attaches
+      to snapshot. Default true (legacy engines without the field still
+      get tenth mode on the page).
+  ─ live.html: includes west-clock.js, new clock-big + clock-phase
+      DOM elements, clock callback updates DOM. setMode called per
+      snapshot.live_running_tenth.
+
+CHUNK 10 — lens-aware tag naming
+  ─ west-format.js: NEW UDP_TAG_LABELS map (lens → frame → tag → label)
+      Conservative coverage:
+        jumper: frame 1 (Entry, Horse, Rider, Owner, NAT, TA, Jump,
+                Time, Clock, Target, Eq Score, Countdown)
+        hunter: frames 11 + 14 (Entry, Horse, Rider, Owner — page A only)
+        equitation: frame 1 + frame 11 (incl. {7} Rider in EQ)
+      Multi-page semantics (frame 11 B/C, frame 16 derby) intentionally
+        NOT mapped — those carry page-dependent meanings.
+      tagLabel(lens, frame, tagN) → string | null. Null → caller renders
+        raw `{N}=value`.
+  ─ Worker: /v3/postUdpEvent SQL extended with LEFT JOIN classes on
+      last event's class_id. NEW deriveClassKindV3(classType, scoringMethod)
+      returns 'jumper'|'hunter'|'equitation'|null. snapshot.class_kind
+      surfaces it. Method 7 (Timed Equitation) maps to 'equitation' even
+      when class_type is J/T.
+  ─ live.html: tagString signature became (tags, lens, frame), uses
+      WEST.format.tagLabel. Format: "Label: value · Label: value …"
+      Events count line shows lens.
+
+CHUNK 11 — clock clear-trigger bug fix (and same-value defensive guard)
+  ─ Bug Bill found 2026-05-02: clock kept ticking after operator hit
+      "Clear SB" on Ryegate. Frame 0 (Ryegate's idle / clear signal)
+      arrived but west-clock only watched frame 1.
+  ─ FIX 1: west-clock.set() now resets to idle on Channel A frame 0.
+  ─ FIX 2: same-value-no-rebaseline. If Ryegate sends the same {17}
+      integer back-to-back, don't reset baseAt — visual would jump back
+      to N.0 every second otherwise. Phase tracking still updates so a
+      stuck-idle Ryegate renders cleanly. Same guard for {23}.
+
+CHUNK 12 — hunter frame support
+  ─ Bug Bill found: a single batch contained both Channel A frame 11
+      (with horse data) AND a Channel B focus event. snapshot.last
+      picked the most-recent (Channel B), so the page rendered the
+      focus heartbeat instead of the on-course frame. The horse data
+      was in events[0] but invisible to the Current Focus panel.
+  ─ FIX: split snapshot.last into snapshot.last_scoring (most-recent
+      Channel A) and snapshot.last_focus (most-recent Channel B).
+      Both computed in worker /v3/postUdpEvent. DO carries forward
+      across batches — a focus-only batch doesn't blank the on-course
+      panel because the prior snapshot's last_scoring is preserved.
+  ─ live.html: Current Focus prefers last_scoring, falls back to last
+      for old snapshots. west-clock reads last_scoring directly.
+  ─ Hunter "no clock" rendering: when class_kind === 'hunter', the
+      clock callback substitutes 'no clock' (small italic muted text)
+      with phase label 'hunter — judged'. Hunter classes are judged,
+      not timed — the big clock display is meaningless for them.
+  ─ Frame 12 + 16 trigger detection: per S42 rule, those frames are
+      Display Scores triggers (cycling multi-page values, NOT data
+      sources). live.html renders them as "Display Scores trigger ·
+      .cls re-read" instead of dumping raw tags. Stops misleading
+      display of values that change meaning between packets.
+
+ARCHITECTURAL RULES LOCKED THIS ADDENDUM
+
+1. CLOCK MODULE IS GENERIC; LENS LIVES IN THE PAGE
+   west-clock.js doesn't know about jumper vs hunter vs equitation.
+   It just owns Channel A frame 1 + frame 0 logic. The page reads
+   class_kind from the snapshot and overrides the clock display when
+   the lens has no clock semantics (hunter today; future: maybe
+   "judged" lens for ribbons-only classes). Keeps the module reusable.
+
+2. SAME-VALUE NO-REBASELINE
+   When a server update lands with the same baseValue we already had,
+   keep the existing baseAt. Otherwise visual interpolation restarts
+   every second of stuck data. Phase tracking still updates so we
+   don't miss boundary transitions.
+
+3. SNAPSHOT.LAST IS NOT ENOUGH
+   Real-world batches mix Channel A frames and Channel B focus events.
+   `last` (whichever came last in the batch) doesn't capture the
+   meaningful state. Use last_scoring (Channel A) and last_focus
+   (Channel B), and have the DO carry them forward across batches.
+
+4. FRAMES 12 + 16 ARE TRIGGERS, RENDER ACCORDINGLY
+   The page MUST surface a chip / placeholder for these frames, never
+   raw tag values. The numeric content cycles across multiple display
+   pages and the .cls is the authoritative source. Honest "no usable
+   data here" beats misleading rotating values.
+
+5. CLASS_KIND IS WORKER-DERIVED (NOT ENGINE-INFERRED)
+   /v3/postUdpEvent enriches the snapshot with class_kind by joining
+   classes via the focus class_id. Engine never tries to determine
+   lens. Per Article 1 + S43 Chunk 1 commitment.
+
+6. RUNNING-TENTH DEFAULTS TO ON
+   Bill's preference 2026-05-02. Operator opts OUT to whole-seconds-only
+   on the live page via the engine's "Live page" pane. Worker also
+   defaults true when the field is missing on the wire (legacy engines
+   still get the better default).
+
+NEW FILES
+  v3/js/west-clock.js       — was a stub, now ~150 lines of clock module
+  (No new files — everything else was modifications)
+
+MODIFIED FILES IN THIS ADDENDUM COMMIT
+  v3/engine/main.js                    — liveRunningTenth config + POST
+  v3/engine/renderer/index.html        — Live page pane
+  v3/engine/renderer/renderer.js       — wireFeatureToggle + populate
+  v3/js/west-clock.js                  — full module (was a stub)
+  v3/js/west-format.js                 — UDP_TAG_LABELS + tagLabel
+  v3/pages/live.html                   — clock UI + lens-aware tags
+                                         + hunter "no clock" + trigger
+                                         + last_scoring preference
+  west-worker.js                       — class_kind derivation +
+                                         last_scoring/last_focus split
+                                         + DO carry-forward
+  session-notes/SESSION-NOTES-43.txt   — this addendum
+
+DEPLOYS THIS ADDENDUM
+
+Worker: deploy.bat (production) — twice
+  - Chunks 9-10 combined (live_running_tenth + class_kind enrichment)
+  - Chunk 12 (last_scoring / last_focus split + DO carry-forward)
+
+Pages: deploy-preview / npx wrangler pages deploy — multiple times
+  - Chunk 9 (live.html with clock display)
+  - Chunk 10 (lens-aware tags)
+  - Chunk 11 (clear-trigger fix)
+  - Chunk 12 (hunter frames + trigger chip + last_scoring fix)
+
+Engine: npm run build + robocopy → c:\west-engine\
+  - Chunk 9 (Live page pane + liveRunningTenth in batch POST)
+
+D1 migrations: none this addendum.
+
+DEFERRED / OPEN AFTER THIS ADDENDUM
+
+- Hunter SCORE display on live.html. Today the page detects frame 12/16
+  as triggers and shows the chip — but the actual score lives in the
+  .cls Ryegate just rewrote. To surface it, we'd need /v3/postUdpEvent
+  (or the DO) to also pull the latest entry scores from D1 when the
+  focused class is hunter, and include them in the snapshot. Bill's
+  picked this as Chunk 13.
+- Frame 11 page-B/C labels. west-format only has page-A meanings for
+  hunter frame 11. Multi-page semantics need engine-side page detection
+  (or a different approach entirely) before the page can label them.
+- Frame 13 + 15 unmapped. Real hunter test data may surface them; if
+  they have stable meanings, add to UDP_TAG_LABELS.
+- Tag {14} on hunter frame 11/16 carries hunter scores ("H:194.000",
+  "T: 179.00"). Not labeled. Possibly add a label, but per S42 rule
+  the .cls is authoritative — labeling them risks suggesting they're
+  trustworthy when they're not on cycling pages. Hold for now.
+
+HOW TO RESUME (UPDATED)
+
+1. Read this doc top to bottom (Chunks 1-12 included)
+2. Read project_v3_rebuild.md "Session 43 progress" block (initial
+   commit; this addendum's polish is captured in SESSION-NOTES only,
+   not yet promoted to memory)
+3. Decide direction:
+   - CHUNK 13 IF CONTINUING: hunter score on live.html via D1 query
+   - OBSERVABILITY TABLES: parse_warnings, audit_events, etc.
+   - HUNTER STATS PARITY (S41 trailing item)
+   - CROSS-SHOW IDENTITY RECONCILIATION (schema-heavy, no live-show risk)

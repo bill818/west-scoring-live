@@ -153,6 +153,55 @@
     return WEST.format.riderPrimary(cls);
   };
 
+  // ── UDP frame tag labels (Phase 3b polish, lens-aware) ────────────────
+  // Maps lens → frame → tag → human label. Per Article 1 + S42 rule 6,
+  // tag meaning is per-frame within its lens — never inferred cross-lens
+  // or cross-frame. Source: docs/v3-planning/UDP-PROTOCOL-REFERENCE.md
+  // and the engine's bundled DEFAULT_MAP (operator-correctable via the
+  // engine Protocol tab).
+  //
+  // Conservative coverage: only frame-1 (jumper on-course), frame-11
+  // page-A (hunter), and method-7 equitation overlay. Other frames /
+  // pages with multi-page semantics (frame 11 pages B/C, frame 16 derby)
+  // are intentionally NOT mapped here — those carry page-dependent
+  // meanings that the engine determines + a future enrichment chunk will
+  // surface to the page along with the lens.
+  const UDP_TAG_LABELS = {
+    jumper: {
+      1: {
+        1: 'Entry', 2: 'Horse', 3: 'Rider', 4: 'Owner', 5: 'NAT',
+        13: 'TA', 14: 'Jump', 15: 'Time', 17: 'Clock',
+        18: 'Target', 19: 'Eq Score', 23: 'Countdown',
+      },
+    },
+    hunter: {
+      11: { 1: 'Entry', 2: 'Horse', 3: 'Rider', 4: 'Owner' },
+      14: { 1: 'Entry', 2: 'Horse', 3: 'Rider', 4: 'Owner' },
+    },
+    equitation: {
+      // Method 7 — Timed Equitation. Jumper protocol (frame 1) but the
+      // primary identity is rider, score lands in {19}, {7} carries
+      // rider name on the hunter side. Cover both.
+      1: {
+        1: 'Entry', 2: 'Horse', 3: 'Rider', 4: 'Owner', 5: 'NAT',
+        13: 'TA', 14: 'Jump', 15: 'Time', 17: 'Clock',
+        18: 'Target', 19: 'Eq Score', 23: 'Countdown',
+      },
+      11: { 1: 'Entry', 2: 'Horse', 3: 'Rider', 4: 'Owner', 7: 'Rider (EQ)' },
+    },
+  };
+
+  // tagLabel(lens, frame, tagN) — returns the human label for a UDP tag,
+  // or null when no mapping exists. Caller treats null as "render raw".
+  WEST.format.tagLabel = function (lens, frame, tagN) {
+    if (!lens) return null;
+    const byLens = UDP_TAG_LABELS[lens];
+    if (!byLens) return null;
+    const byFrame = byLens[frame];
+    if (!byFrame) return null;
+    return byFrame[tagN] || null;
+  };
+
   // ── Per-method round column labels (jumper lens) ─────────────────────
   // Keyed by scoring_method, value is an array of labels (1-indexed by
   // round). Empty string = "no label" (method has 1 round, header reads

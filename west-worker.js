@@ -78,6 +78,24 @@ function lockedResponse(reason) {
   }), { status: 423, headers: { 'Content-Type': 'application/json' } });
 }
 
+// ── CLASS KIND DERIVATION (Phase 3b polish) ────────────────────────────────
+// Article 1 split: class_type is HARDWARE (H/J/T/U), class_kind is the
+// SEMANTIC lens (jumper / hunter / equitation). Used by /v3/postUdpEvent
+// to enrich the snapshot so live.html can render UDP tags with their
+// human labels per-lens. Returns null when no lens can be committed.
+function deriveClassKindV3(classType, scoringMethod) {
+  const ct = (classType || '').toUpperCase();
+  const m = parseInt(scoringMethod, 10);
+  if (ct === 'H') return 'hunter';
+  if (ct === 'J' || ct === 'T') {
+    return m === 7 ? 'equitation' : 'jumper';
+  }
+  if (ct === 'U' && Number.isFinite(m) && m >= 0 && m <= 15) {
+    return m === 7 ? 'equitation' : 'jumper';
+  }
+  return null;
+}
+
 // ── .cls HEADER PARSE (Phase 2b) ─────────────────────────────────────────
 // Article 1 enforced: classType at col[0] is THE LENS. Hunter and jumper
 // column meanings are NEVER translated across lenses. We only read the
@@ -737,6 +755,17 @@ export class RingStateDO {
       let body;
       try { body = await request.json(); }
       catch (e) { return new Response('Invalid JSON', { status: 400 }); }
+      // Carry-forward cross-batch state — if this batch only had Channel B
+      // events, last_scoring will be null even though we might have had
+      // an on-course frame in the prior batch. Same for last_focus.
+      // Without this, switching between batches would visually wipe the
+      // panels. (S43 Chunk 12.)
+      if (!body.last_scoring && this.snapshot && this.snapshot.last_scoring) {
+        body.last_scoring = this.snapshot.last_scoring;
+      }
+      if (!body.last_focus && this.snapshot && this.snapshot.last_focus) {
+        body.last_focus = this.snapshot.last_focus;
+      }
       this.snapshot = body;
       // Mirror to KV — /v3/getRingState reads from here, and Chunk 8's
       // polling fallback needs it when a WS handshake fails.
@@ -4111,7 +4140,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, ring_num, events } = body;
+      const { slug, ring_num, events, live_running_tenth } = body;
       if (!slug) return err('Missing slug');
       if (ring_num === undefined || ring_num === null) return err('Missing ring_num');
       const ringNumInt = parseInt(ring_num, 10);
@@ -4119,18 +4148,30 @@ export default {
       if (!Array.isArray(events) || events.length === 0) {
         return err('events must be a non-empty array');
       }
-      // Resolve show + ring + lock fields in one round-trip (S41 pattern).
+      // Resolve show + ring + lock fields + (focus) class_kind in one
+      // round-trip. S41 lock-pattern extended with a LEFT JOIN to classes
+      // keyed on the LAST event's class_id — gives us the lens for free.
+      // class_kind derivation: H → hunter, J/T → jumper (or equitation if
+      // method=7 Timed Equitation), U with method 0..15 → jumper/equitation
+      // by method, anything else → null (page falls back to raw {N}=value).
+      const lastEventForLens = events[events.length - 1] || null;
+      const lensClassId = (lastEventForLens && lastEventForLens.class_id) || null;
       let row;
       try {
         row = await env.WEST_DB_V3.prepare(`
-          SELECT s.id AS show_id, s.lock_override, s.end_date
-          FROM rings r JOIN shows s ON s.id = r.show_id
+          SELECT s.id AS show_id, s.lock_override, s.end_date,
+                 c.class_type, c.scoring_method
+          FROM rings r
+          JOIN shows s ON s.id = r.show_id
+          LEFT JOIN classes c
+            ON c.ring_id = r.id AND c.class_id = ?
           WHERE s.slug = ? AND r.ring_num = ?
-        `).bind(slug, ringNumInt).first();
+        `).bind(lensClassId, slug, ringNumInt).first();
       } catch (e) { return err('DB error: ' + e.message); }
       if (!row) return err('Unknown show/ring pair', 404);
       const lk = computeShowLock(row);
       if (lk.locked) return lockedResponse(lk.reason);
+      const classKind = deriveClassKindV3(row.class_type, row.scoring_method);
 
       const received_at = new Date().toISOString();
       const batchId = crypto.randomUUID();
@@ -4139,12 +4180,37 @@ export default {
       // Snapshot shape — full batch + a `last` pointer so live.html can render
       // the most recent event without scanning the array.
       const lastEvent = events[events.length - 1] || null;
+      // Per-channel "last" — splitting `last` into last_scoring (Channel A,
+      // the actual on-course / clock-bearing frame) and last_focus
+      // (Channel B operator-selected class context). Both are needed
+      // because a single batch can contain a frame=11 with horse data
+      // AND a focus heartbeat; older `last` would lose the horse data
+      // if the focus event arrived later in the batch. The DO carries
+      // these forward across batches so a focus-only batch doesn't blank
+      // the on-course panel. (S43 Chunk 12 — Bill 2026-05-02.)
+      let lastScoring = null;
+      let lastFocus = null;
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        if (!lastScoring && e.channel === 'A') lastScoring = e;
+        if (!lastFocus   && e.channel === 'B') lastFocus = e;
+        if (lastScoring && lastFocus) break;
+      }
       const snapshot = {
         slug, ring_num: ringNumInt,
         received_at,
         batch_id: batchId,
         events,
-        last: lastEvent,
+        last: lastEvent,           // backward-compat — last event of any channel
+        last_scoring: lastScoring, // most recent Channel A event in this batch
+        last_focus:   lastFocus,   // most recent Channel B event in this batch
+        // Lens-aware display flag (Phase 3b polish). Page uses class_kind
+        // to render UDP tags with their human labels. Null → raw {N}=val.
+        class_kind: classKind,
+        // Engine-controlled display preferences. Default true so a missing
+        // field on legacy engines doesn't switch the page to whole-seconds
+        // (matches the engine-side default Bill set 2026-05-02).
+        live_running_tenth: live_running_tenth === false ? false : true,
       };
       // Phase 3b Chunk 6 — route through the Durable Object instead of
       // writing KV directly. DO is now the authoritative state holder; it
