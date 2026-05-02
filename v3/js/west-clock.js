@@ -12,6 +12,7 @@
 //   WEST.clock.setMode('tenth'|'whole') — on-course display mode (default 'tenth')
 //
 // Per-phase rendering (Bill's rule, 2026-05-02):
+//   intro     — "-45" placeholder (v2-style hold), no interpolation
 //   countdown — ALWAYS whole seconds (integer, no interpolation)
 //   on_course — depends on mode:
 //                 'tenth' (default) → 1 decimal, 10Hz interpolation
@@ -24,8 +25,16 @@
 //   {17} present, integer  → on_course (interpolate or whole per mode)
 //   {17} present, decimal  → finished
 //   {23} present, negative → countdown
-//   neither                → keep last state (don't flicker to idle on a
+//   {1} entry, no {17}/{23}→ INTRO (v2 watcher logic at west-watcher.js:2614)
+//   none of the above      → keep last state (don't flicker to idle on a
 //                            single missing frame)
+//
+// Round detection from TA ({13} = "TA: <num>"):
+//   First TA observed for a class           → round 1
+//   TA changes to a different value         → round number increments
+//   Class change                            → reset, count from 1 again
+// Used by callers to render method-aware "Round 1" / "Jump Off" / "PH 2"
+// labels via WEST.format.roundLabel(method, modifier, n).
 //
 // 3-decimal high-precision interpolation is intentionally NOT exposed —
 // 30Hz on the thousandths place reads as visual noise, per S43 testing.
@@ -42,12 +51,19 @@
     var TICK_MS = Math.round(1000 / TICK_HZ);
 
     var state = {
-      phase: 'idle',          // 'idle' | 'countdown' | 'on_course' | 'finished'
+      phase: 'idle',          // 'idle' | 'intro' | 'countdown' | 'on_course' | 'finished'
       baseValue: null,        // numeric value at the last server update
       baseAt: 0,              // Date.now() at the last server update
       classId: null,          // last seen class_id for change detection
       mode: 'tenth',          // 'tenth' (default) | 'whole' — on-course display
       finalValue: null,       // FINISH lock — exact value, no interpolation
+      // Round-from-TA tracking (Chunk 16 — Bill 2026-05-02 INTRO trigger).
+      // taSeen accumulates distinct TA values observed across the current
+      // class. roundNum = taSeen.length. Reset on class change.
+      currentTa: null,
+      taSeen: [],
+      roundNum: 0,
+      lastEntryNum: null,     // {1} on frame 1 — supports new-rider detection
     };
 
     var tickIntervalHandle = null;
@@ -62,6 +78,10 @@
       state.baseValue = null;
       state.baseAt = 0;
       state.finalValue = null;
+      state.currentTa = null;
+      state.taSeen = [];
+      state.roundNum = 0;
+      state.lastEntryNum = null;
     }
 
     // "25" → { value: 25, isDecimal: false }
@@ -113,6 +133,31 @@
 
       var tags = last.tags || {};
 
+      // ── TA tracking (round-number derivation) ──────────────────────────
+      // {13} arrives as "TA: 71" or similar. Strip prefix, parse number.
+      // First value seen for a class = round 1; each change increments.
+      var rawTa = tags['13'];
+      if (rawTa != null) {
+        var taStr = String(rawTa).replace(/[\r\n]/g, '').trim();
+        var taMatch = taStr.match(/(\d+(?:\.\d+)?)/);
+        if (taMatch) {
+          var ta = parseFloat(taMatch[1]);
+          if (Number.isFinite(ta) && ta > 0 && ta !== state.currentTa) {
+            state.currentTa = ta;
+            if (state.taSeen.indexOf(ta) === -1) state.taSeen.push(ta);
+            state.roundNum = state.taSeen.length;
+          }
+        }
+      }
+
+      // ── Entry-number tracking (new-rider INTRO trigger) ────────────────
+      // {1} = entry number. When it changes mid-class (operator picks the
+      // next horse), drop back to INTRO so the clock holds at the
+      // placeholder until the new countdown fires.
+      var rawEntry = tags['1'];
+      var entryNum = rawEntry != null
+        ? String(rawEntry).replace(/[\r\n]/g, '').trim() : null;
+
       // {17} — on-course or finished. Decimal → FINISH lock; integer →
       // on-course (interpolate). The integer→decimal handoff at finish
       // happens in the same Ryegate second per S42 / project_v3_rebuild.
@@ -144,11 +189,29 @@
       if (t23) {
         var cdChanged = (state.phase !== 'countdown' || state.baseValue !== t23.value);
         state.phase = 'countdown';
+        state.lastEntryNum = entryNum || state.lastEntryNum;
         if (cdChanged) {
           state.baseValue = t23.value;
           state.baseAt = Date.now();
         }
         return;
+      }
+
+      // INTRO (v2 watcher inference at west-watcher.js:2614):
+      //   entry data present but no clock activity yet (no {17}, no {23},
+      //   no rank). Operator selected the rider; CD hasn't fired yet.
+      //   Show a static "-45" hold until the countdown trigger arrives.
+      // Also re-enters INTRO when entry changes mid-class (new horse on
+      // course, same class continuing).
+      if (entryNum) {
+        var newRider = state.lastEntryNum && state.lastEntryNum !== entryNum;
+        if (state.phase === 'idle' || state.phase === 'finished' || newRider) {
+          state.phase = 'intro';
+          state.lastEntryNum = entryNum;
+          // baseValue / baseAt unused in INTRO — display is static.
+          return;
+        }
+        state.lastEntryNum = entryNum;
       }
 
       // Neither tag in this frame → keep last state. Phase boundaries
@@ -161,6 +224,13 @@
       var phase = state.phase;
       if (phase === 'idle') {
         renderCallback('—', 'idle');
+        return;
+      }
+      if (phase === 'intro') {
+        // v2-style hold at "-45" until countdown fires. Numeric value is
+        // static (matches v2 display-config.js:786). Caller styles via
+        // the 'intro' phase string.
+        renderCallback('-45', 'intro');
         return;
       }
       if (phase === 'finished') {

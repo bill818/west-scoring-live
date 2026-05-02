@@ -96,25 +96,74 @@ async function pullHunterScoresV3(env, classPk) {
   // Forced (scoring_type=0) vs Scored/Hi-Lo gates correctly.
   try {
     const r = await env.WEST_DB_V3.prepare(`
-      SELECT e.entry_num, e.horse_name, e.rider_name, e.owner_name,
+      SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
+             e.country_code, e.sire, e.dam,
              ehs.current_place, ehs.combined_total,
-             c.scoring_type,
-             (SELECT total  FROM entry_hunter_rounds r1
-              WHERE r1.entry_id = e.id AND r1.round = 1) AS r1_total,
-             (SELECT status FROM entry_hunter_rounds r1
-              WHERE r1.entry_id = e.id AND r1.round = 1) AS r1_status
+             r1.total          AS r1_score_total,
+             r1.status         AS r1_h_status,
+             r1.numeric_status AS r1_h_numeric_status,
+             r2.total          AS r2_score_total,
+             r2.status         AS r2_h_status,
+             r2.numeric_status AS r2_h_numeric_status,
+             r3.total          AS r3_score_total,
+             r3.status         AS r3_h_status,
+             r3.numeric_status AS r3_h_numeric_status
       FROM entries e
       LEFT JOIN entry_hunter_summary ehs ON ehs.entry_id = e.id
-      JOIN classes c ON c.id = e.class_id
+      LEFT JOIN entry_hunter_rounds r1 ON r1.entry_id = e.id AND r1.round = 1
+      LEFT JOIN entry_hunter_rounds r2 ON r2.entry_id = e.id AND r2.round = 2
+      LEFT JOIN entry_hunter_rounds r3 ON r3.entry_id = e.id AND r3.round = 3
       WHERE e.class_id = ?
       ORDER BY
         CASE WHEN ehs.current_place IS NULL OR ehs.current_place = 0
              THEN 1 ELSE 0 END,
         ehs.current_place ASC,
         CAST(e.entry_num AS INTEGER) ASC
-      LIMIT 20
+      LIMIT 50
     `).bind(classPk).all();
-    return r.results || [];
+    const rows = r.results || [];
+    // Per-judge per-round scores — needed for derby HighOpt/Handy display
+    // and multi-judge breakdown in the live score card. Bulk-pull all
+    // judges for this class in one query, then group by entry_id.
+    if (rows.length) {
+      try {
+        const j = await env.WEST_DB_V3.prepare(`
+          SELECT e.id AS entry_id, ehjs.round, ehjs.judge_idx,
+                 ehjs.base_score, ehjs.high_options, ehjs.handy_bonus
+          FROM entries e
+          JOIN entry_hunter_judge_scores ehjs ON ehjs.entry_id = e.id
+          WHERE e.class_id = ?
+          ORDER BY e.id, ehjs.round, ehjs.judge_idx
+        `).bind(classPk).all();
+        const byEntryNum = new Map();
+        for (const row of rows) byEntryNum.set(String(row.entry_num), row);
+        // Need entry_num lookup back from entry_id — do a quick join.
+        const idToEntryNum = await env.WEST_DB_V3.prepare(
+          'SELECT id, entry_num FROM entries WHERE class_id = ?'
+        ).bind(classPk).all();
+        const idMap = new Map();
+        for (const row of (idToEntryNum.results || [])) {
+          idMap.set(row.id, String(row.entry_num));
+        }
+        for (const judge of (j.results || [])) {
+          const en = idMap.get(judge.entry_id);
+          if (!en) continue;
+          const entry = byEntryNum.get(en);
+          if (!entry) continue;
+          if (!entry.judges) entry.judges = [];
+          entry.judges.push({
+            round: judge.round,
+            idx:   judge.judge_idx,
+            base:  judge.base_score,
+            hiopt: judge.high_options,
+            handy: judge.handy_bonus,
+          });
+        }
+      } catch (e) {
+        console.log(`[pullHunterScoresV3] judges lookup failed: ${e.message}`);
+      }
+    }
+    return rows;
   } catch (e) {
     console.log(`[pullHunterScoresV3] failed for class_pk=${classPk}: ${e.message}`);
     return null;
@@ -133,27 +182,38 @@ async function pullJumperScoresV3(env, classPk) {
   try {
     const r = await env.WEST_DB_V3.prepare(`
       SELECT e.entry_num, e.horse_name, e.rider_name, e.owner_name,
-             ejs.overall_place,
-             c.scoring_method, c.scoring_modifier,
-             (SELECT status        FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 1) AS r1_status,
-             (SELECT status        FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 2) AS r2_status,
-             (SELECT status        FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 3) AS r3_status,
-             (SELECT total_faults  FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 1) AS r1_total_faults,
-             (SELECT total_time    FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 1) AS r1_total_time,
-             (SELECT total_faults  FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 2) AS r2_total_faults,
-             (SELECT total_time    FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 2) AS r2_total_time,
-             (SELECT total_faults  FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 3) AS r3_total_faults,
-             (SELECT total_time    FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 3) AS r3_total_time
+             e.country_code, e.sire, e.dam, e.city, e.state,
+             ejs.overall_place, ejs.ride_order,
+             r1.time AS r1_time, r1.total_time AS r1_total_time,
+             r1.penalty_sec AS r1_penalty_sec,
+             r1.time_faults AS r1_time_faults,
+             r1.jump_faults AS r1_jump_faults,
+             r1.total_faults AS r1_total_faults,
+             r1.status AS r1_status, r1.numeric_status AS r1_numeric_status,
+             r2.time AS r2_time, r2.total_time AS r2_total_time,
+             r2.penalty_sec AS r2_penalty_sec,
+             r2.time_faults AS r2_time_faults,
+             r2.jump_faults AS r2_jump_faults,
+             r2.total_faults AS r2_total_faults,
+             r2.status AS r2_status, r2.numeric_status AS r2_numeric_status,
+             r3.time AS r3_time, r3.total_time AS r3_total_time,
+             r3.penalty_sec AS r3_penalty_sec,
+             r3.time_faults AS r3_time_faults,
+             r3.jump_faults AS r3_jump_faults,
+             r3.total_faults AS r3_total_faults,
+             r3.status AS r3_status, r3.numeric_status AS r3_numeric_status
       FROM entries e
       LEFT JOIN entry_jumper_summary ejs ON ejs.entry_id = e.id
-      JOIN classes c ON c.id = e.class_id
+      LEFT JOIN entry_jumper_rounds r1 ON r1.entry_id = e.id AND r1.round = 1
+      LEFT JOIN entry_jumper_rounds r2 ON r2.entry_id = e.id AND r2.round = 2
+      LEFT JOIN entry_jumper_rounds r3 ON r3.entry_id = e.id AND r3.round = 3
       WHERE e.class_id = ?
       ORDER BY
         CASE WHEN ejs.overall_place IS NULL OR ejs.overall_place = 0
              THEN 1 ELSE 0 END,
         ejs.overall_place ASC,
         CAST(e.entry_num AS INTEGER) ASC
-      LIMIT 20
+      LIMIT 50
     `).bind(classPk).all();
     return r.results || [];
   } catch (e) {
@@ -849,6 +909,19 @@ export class RingStateDO {
       }
       if (!body.last_focus && this.snapshot && this.snapshot.last_focus) {
         body.last_focus = this.snapshot.last_focus;
+      }
+      // Carry-forward last_identity ONLY when the focused class hasn't
+      // changed — otherwise we'd surface the previous class's rider
+      // during a class transition. Compares against either focus or
+      // scoring class_id from the new batch. (S43 Chunk 18 fix.)
+      if (!body.last_identity && this.snapshot && this.snapshot.last_identity) {
+        const newFocusClassId =
+          (body.last_focus   && body.last_focus.class_id) ||
+          (body.last_scoring && body.last_scoring.class_id) || null;
+        const carriedClassId = this.snapshot.last_identity.class_id || null;
+        if (!newFocusClassId || newFocusClassId === carriedClassId) {
+          body.last_identity = this.snapshot.last_identity;
+        }
       }
       this.snapshot = body;
       // Mirror to KV — /v3/getRingState reads from here, and Chunk 8's
@@ -4334,7 +4407,12 @@ export default {
       try {
         row = await env.WEST_DB_V3.prepare(`
           SELECT s.id AS show_id, s.lock_override, s.end_date,
-                 c.id AS class_pk, c.class_type, c.scoring_method
+                 c.id AS class_pk, c.class_type, c.scoring_method,
+                 c.scoring_modifier, c.class_name, c.class_mode,
+                 c.scoring_type, c.is_equitation, c.is_championship,
+                 c.num_rounds, c.num_judges, c.derby_type,
+                 c.show_flags, c.r1_time_allowed, c.r2_time_allowed,
+                 c.r3_time_allowed
           FROM rings r
           JOIN shows s ON s.id = r.show_id
           LEFT JOIN classes c
@@ -4379,11 +4457,22 @@ export default {
       // the on-course panel. (S43 Chunk 12 — Bill 2026-05-02.)
       let lastScoring = null;
       let lastFocus = null;
+      let lastIdentity = null;
+      // Channel A frames that carry "currently on course" identity tags
+      // ({1}=entry, {2}=horse, {3}=rider, {4}=owner). Frames 0 (clear),
+      // 12 (hunter Display Scores trigger), 16 (hunter derby trigger),
+      // and Channel B (focus) are explicitly excluded — those don't
+      // identify an active rider, even though they may carry the field
+      // in cycling-page form (S42 rule).
+      const IDENTITY_FRAMES = new Set([1, 11, 14]);
       for (let i = events.length - 1; i >= 0; i--) {
         const e = events[i];
         if (!lastScoring && e.channel === 'A') lastScoring = e;
         if (!lastFocus   && e.channel === 'B') lastFocus = e;
-        if (lastScoring && lastFocus) break;
+        if (!lastIdentity && e.channel === 'A' && IDENTITY_FRAMES.has(e.frame)) {
+          lastIdentity = e;
+        }
+        if (lastScoring && lastFocus && lastIdentity) break;
       }
       const snapshot = {
         slug, ring_num: ringNumInt,
@@ -4393,9 +4482,40 @@ export default {
         last: lastEvent,           // backward-compat — last event of any channel
         last_scoring: lastScoring, // most recent Channel A event in this batch
         last_focus:   lastFocus,   // most recent Channel B event in this batch
+        last_identity: lastIdentity, // most recent A-frame in {1,11,14} — carries
+                                   // entry/horse/rider/owner tags; survives
+                                   // trigger frames (12/16) so the page
+                                   // can keep showing the last rider during
+                                   // score display
         // Lens-aware display flag (Phase 3b polish). Page uses class_kind
         // to render UDP tags with their human labels. Null → raw {N}=val.
         class_kind: classKind,
+        // Class metadata for the page header + round-label rendering.
+        // null when no class focus / class not yet parsed in D1.
+        // Full cls shape needed by west-jumper-templates.js +
+        // west-hunter-templates.js renderTable. Same shape class.html
+        // consumes for /v3/listEntries — single source of truth so the
+        // live page and the results page render identically.
+        class_meta: row.class_pk ? {
+          class_name: row.class_name || null,
+          class_type: row.class_type || null,
+          class_mode: row.class_mode != null ? row.class_mode : null,
+          scoring_method: row.scoring_method != null ? row.scoring_method : null,
+          scoring_modifier: row.scoring_modifier != null ? row.scoring_modifier : null,
+          scoring_type: row.scoring_type != null ? row.scoring_type : null,
+          is_equitation: row.is_equitation === 1 ? 1 : 0,
+          is_championship: row.is_championship === 1 ? 1 : 0,
+          num_rounds: row.num_rounds != null ? row.num_rounds : null,
+          num_judges: row.num_judges != null ? row.num_judges : null,
+          derby_type: row.derby_type != null ? row.derby_type : null,
+          // ShowFlags = jumper class header H[26]. When 1, public surfaces
+          // render the FEI 3-letter country flag next to the rider/horse.
+          // Hunter's H[26] is Phase2Label so this only fires for J/T classes.
+          show_flags: row.show_flags === 1 ? 1 : 0,
+          r1_time_allowed: row.r1_time_allowed != null ? row.r1_time_allowed : null,
+          r2_time_allowed: row.r2_time_allowed != null ? row.r2_time_allowed : null,
+          r3_time_allowed: row.r3_time_allowed != null ? row.r3_time_allowed : null,
+        } : null,
         // Phase 3b Chunk 13/14 — D1-fed standings for live.html, lens-
         // dependent. hunter_scores populated when class_kind=hunter;
         // jumper_scores populated when class_kind=jumper or equitation.

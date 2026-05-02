@@ -3,190 +3,481 @@
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WEST v3 — Live (skeleton)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Live · WEST Scoring v3</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  /* Phase 3a Chunk 5 — minimal live skeleton. Visual polish is a separate
-     pass; today's job is "prove the polling pipe renders fresh data". */
+  /* v3 live page — design language ported from v2's live.html.
+     Light theme. Playfair Display for big numbers + class names.
+     Source Sans 3 body. DM Mono for labels and codes. */
   :root {
-    --bg: #111;
-    --panel: #1a1a1a;
-    --line: #2a2a2a;
-    --fg: #eaeaea;
-    --muted: #888;
-    --accent: #d4a017;     /* gold = active */
-    --ok: #4caf50;
-    --warn: #f0a000;
-    --bad: #d04040;
+    --black: #111111;
+    --red:   #b82025;
+    --green: #2e7d32;
+    --gold:  #c9a440;
+    --white: #ffffff;
+    --off-white: #f5f5f5;
+    --border: #e2e2e2;
+    --text-muted: #777;
+    --text-body: #333;
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
-               font-family: 'DM Mono', ui-monospace, Consolas, monospace; }
-  body { padding: 12px; max-width: 980px; margin: 0 auto; }
-  h1 { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 20px;
-       margin: 0 0 12px; letter-spacing: 0.04em; }
-  h1 .slug { color: var(--accent); }
-  h1 .ring { color: var(--muted); font-weight: 500; }
-  .panel { background: var(--panel); border: 1px solid var(--line);
-           border-radius: 6px; padding: 12px; margin-bottom: 12px; }
-  .panel h2 { font-family: 'Oswald', sans-serif; font-size: 13px;
-              text-transform: uppercase; letter-spacing: 0.08em;
-              color: var(--muted); margin: 0 0 8px; font-weight: 500; }
-  .grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px;
-          font-size: 14px; }
-  .grid .k { color: var(--muted); }
-  .grid .v { color: var(--fg); word-break: break-word; }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
-          font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
-          background: var(--line); color: var(--fg); }
-  .pill.ok   { background: #1e3a1e; color: var(--ok); }
-  .pill.warn { background: #3a2e0e; color: var(--warn); }
-  .pill.bad  { background: #3a1414; color: var(--bad); }
-  .events { font-size: 12px; max-height: 360px; overflow-y: auto; }
-  .events table { width: 100%; border-collapse: collapse; }
-  .events th, .events td { padding: 4px 6px; text-align: left;
-                           border-bottom: 1px solid var(--line); }
-  .events th { color: var(--muted); font-weight: 500; font-size: 11px;
-               text-transform: uppercase; letter-spacing: 0.05em; }
-  .events .ch-A { color: #6cbcf0; }
-  .events .ch-B { color: #c47cf0; }
-  .tags { color: var(--muted); font-size: 11px; }
-  .empty { color: var(--muted); font-style: italic; padding: 20px;
-           text-align: center; }
-  .footer { color: var(--muted); font-size: 11px; margin-top: 16px;
-            text-align: center; }
-  /* Phase 3b polish — interpolated clock display. The big number is the
-     30Hz output of west-clock.js. Color hints phase: gold = on-course
-     (active), amber = countdown, green = finished, muted = idle. */
-  .clock-phase { text-align: center; color: var(--muted); font-size: 11px;
-                 letter-spacing: 0.08em; text-transform: uppercase;
-                 padding-top: 4px; }
-  .clock-big   { text-align: center; font-family: 'Oswald', sans-serif;
-                 font-size: 64px; font-weight: 700; line-height: 1;
-                 padding: 6px 0 10px; letter-spacing: 0.02em;
-                 color: var(--muted); transition: color 0.2s; }
-  .clock-big.countdown { color: var(--warn); }
-  .clock-big.on_course { color: var(--accent); }
-  .clock-big.finished  { color: var(--ok); }
-  /* Hunter classes are judged — no clock. Quiet, smaller label fills
-     the slot so the layout doesn't lurch when switching between lenses. */
-  .clock-big.hunter    { color: var(--muted); font-size: 28px;
-                         font-style: italic; }
-  /* Trigger indicator for frames 12 + 16 (Hunter Display Scores).
-     Per S42 rule: those frames carry no usable data — they signal
-     ".cls is being re-read." Render as a quiet info chip rather than
-     a raw tag dump that would mislead. */
-  .trigger-chip { display: inline-block; padding: 4px 10px;
-                  border-radius: 4px; background: #1a2a3a;
-                  color: #6cbcf0; font-size: 12px; }
-  /* Identity card — current entry on course (when last_scoring.frame is
-     1, 11, or 14). Big horse name + entry #, rider/owner below. Hides
-     during trigger frames (12/16) and idle (frame 0) where the
-     identity isn't meaningful for "currently on course." */
-  .identity-card { text-align: center; padding: 14px 0 6px;
-                   border-top: 1px solid var(--line);
-                   margin-top: 8px; }
-  .identity-card.hidden { display: none; }
-  .identity-entry-num { color: var(--muted); font-size: 11px;
-                        letter-spacing: 0.12em; text-transform: uppercase; }
-  .identity-horse { font-family: 'Oswald', sans-serif; font-weight: 700;
-                    font-size: 28px; line-height: 1.1; color: var(--fg);
-                    padding: 4px 0 2px; letter-spacing: 0.02em; }
-  .identity-people { color: var(--fg); font-size: 13px; }
-  .identity-people .role { color: var(--muted); font-size: 10px;
-                            text-transform: uppercase; letter-spacing: 0.08em;
-                            margin-left: 4px; }
-  .identity-people .sep { color: var(--line); margin: 0 10px; }
-  /* Demote the debug grid (last channel / last frame / last tags) so
-     identity + clock are the visual focus. Indented + smaller. */
-  .focus-debug { font-size: 11px; color: var(--muted);
-                 border-top: 1px solid var(--line); margin-top: 10px;
-                 padding-top: 8px; }
-  .focus-debug .grid { font-size: 11px; gap: 2px 12px; }
-  .focus-debug .k { color: var(--muted); }
-  .focus-debug .v { color: var(--muted); }
+  *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    background: var(--off-white);
+    color: var(--text-body);
+    font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh;
+  }
+  a { color: inherit; }
+
+  /* HEADER — sticky, black with red accent */
+  header {
+    background: var(--black);
+    border-bottom: 3px solid var(--red);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .header-inner {
+    max-width: 1280px; margin: 0 auto;
+    padding: 0 16px;
+    display: flex; align-items: center;
+    height: 56px; gap: 12px;
+  }
+  .logo-tap { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+  .logo-img { height: 26px; width: auto; filter: invert(1); }
+  .logo-west { font-family: 'Playfair Display', serif; font-weight: 900;
+               font-size: 20px; color: #fff; }
+  .logo-sep { font-family: 'DM Mono', monospace; font-size: 12px;
+              color: var(--red); margin: 0 3px; }
+  .logo-scoring { font-family: 'DM Mono', monospace; font-size: 12px;
+                  color: var(--red); letter-spacing: 0.04em; }
+  .header-ring {
+    margin-left: auto; display: flex; align-items: center; gap: 10px;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 0.06em; color: #ddd;
+  }
+  .header-ring .ring-slug { color: #fff; }
+  .header-ring .ring-num  { color: var(--red); font-weight: 600; }
+  .live-pill-hdr {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--red); color: #fff;
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 2px;
+  }
+  .live-pill-hdr.is-stale { background: #b07b1f; }
+  .live-pill-hdr.is-error { background: #555; }
+  .live-pill-hdr.is-idle  { background: #888; }
+  .live-blink {
+    width: 5px; height: 5px; background: #fff; border-radius: 50%;
+    animation: blink 1.6s ease-in-out infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+
+  /* CLASS INFO BAR — red label, Playfair name */
+  .class-bar {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px 12px;
+  }
+  .class-bar-num {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--red); margin-bottom: 2px;
+  }
+  .class-bar-name {
+    font-family: 'Playfair Display', serif; font-size: 22px;
+    font-weight: 700; color: var(--black); line-height: 1.2;
+  }
+  .class-bar-sub {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); margin-top: 4px;
+  }
+
+  /* ON-COURSE BLOCK — white card with red bottom border */
+  .oc-wrap {
+    background: var(--white);
+    border-bottom: 3px solid var(--red);
+    padding: 16px;
+    transition: opacity 0.2s;
+  }
+  .oc-wrap.hidden { display: none; }
+  .oc-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  /* Hunter score card — same slot as the jumper clock. Blank until
+     Display Scores (frame 12/14/16) tells us which entry to look up;
+     then populates with R1 / R2 / Total + place from D1. */
+  .hunter-score-block {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
+    width: 100%;
+  }
+  .hunter-score-rounds { display: flex; gap: 14px; flex-wrap: wrap;
+                          justify-content: center; }
+  .hunter-score-round { display: flex; flex-direction: column; align-items: center; }
+  .hunter-score-round-lbl {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .hunter-score-round-val {
+    font-family: 'DM Mono', monospace; font-size: 16px;
+    color: var(--text-body); font-weight: 600;
+  }
+  .hunter-score-total-lbl {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--red); font-weight: 600; margin-top: 4px;
+  }
+  .hunter-score-total-val {
+    font-family: 'Playfair Display', serif; font-size: 32px;
+    color: var(--green); font-weight: 700; line-height: 1;
+  }
+  .hunter-score-place {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: var(--text-muted); margin-top: 4px;
+    letter-spacing: 0.06em;
+  }
+  .hunter-score-place .val {
+    color: var(--red); font-family: 'Playfair Display', serif;
+    font-size: 18px; font-weight: 700; margin-left: 4px;
+  }
+  .hunter-score-empty {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: #ccc;
+  }
+  /* Judge breakdown inside the score card. One row per round, each
+     showing per-judge scores. Derby shows base+hi+handy with arrows;
+     non-derby shows the raw judge score. */
+  .hunter-judge-grid {
+    margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid var(--border);
+    width: 100%;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+  }
+  .hunter-judge-row {
+    display: grid; grid-template-columns: 24px 1fr 1fr;
+    gap: 6px; padding: 2px 0;
+  }
+  .hunter-judge-row.three-judges { grid-template-columns: 24px 1fr 1fr 1fr; }
+  .hunter-judge-rnd {
+    font-size: 10px; letter-spacing: 0.1em;
+    color: var(--text-muted); font-weight: 600;
+    align-self: center;
+  }
+  .hunter-judge-cell {
+    text-align: center; color: var(--text-body);
+  }
+  .hunter-judge-cell .base { font-weight: 600; }
+  .hunter-judge-cell .bonus { color: var(--red); font-size: 10px; }
+  .hunter-judge-cell.empty { color: #ccc; }
+  .oc-card {
+    background: var(--off-white);
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .oc-card-info { display: flex; flex-direction: column; }
+  .oc-entry-num {
+    font-family: 'DM Mono', monospace; font-size: 13px;
+    color: var(--red); margin-bottom: 3px;
+  }
+  .oc-horse {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: 22px; color: var(--black); line-height: 1.15;
+    margin-bottom: 4px;
+  }
+  .oc-rider { font-size: 14px; font-weight: 500; color: var(--text-body); }
+  .oc-rider-role { color: var(--text-muted); font-family: 'DM Mono', monospace;
+                    font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+                    margin-left: 6px; }
+  .oc-owner { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .oc-card-clock {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .oc-phase-label {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 4px;
+  }
+  .oc-clock {
+    font-family: 'DM Mono', monospace; font-size: 42px;
+    font-weight: 500; color: var(--black); line-height: 1;
+    transition: color 0.15s;
+  }
+  .oc-clock.intro     { color: var(--text-muted); opacity: 0.7; }
+  .oc-clock.countdown { color: var(--text-muted); }
+  .oc-clock.on_course { color: var(--black); }
+  .oc-clock.finished  { color: var(--green); }
+  .oc-clock.idle      { color: #ccc; }
+  .oc-no-rider {
+    text-align: center; color: var(--text-muted);
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 24px 0;
+  }
+
+  /* STANDINGS — full-width table, Playfair places, mono numbers */
+  .standings-wrap {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+  }
+  .standings-wrap.hidden { display: none; }
+  .standings-hdr {
+    padding: 12px 16px 6px;
+    display: flex; align-items: baseline; gap: 10px;
+    border-bottom: 2px solid var(--black);
+  }
+  .standings-title {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .standings-hint {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: var(--text-muted);
+  }
+  .standings-table {
+    width: 100%; border-collapse: collapse;
+  }
+  .standings-table thead th {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 400;
+    padding: 8px 10px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .standings-table thead th.col-place,
+  .standings-table thead th.col-num {
+    text-align: right;
+  }
+  .standings-table thead th.col-num.left { text-align: left; }
+  .standings-table tbody td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .standings-table tbody tr:nth-child(even) td { background: #fafafa; }
+  .standings-table tbody tr.elim td { opacity: 0.55; }
+  .col-place {
+    width: 48px; text-align: right;
+    font-family: 'Playfair Display', serif;
+    font-size: 16px; font-weight: 700; color: var(--black);
+  }
+  .col-place.status {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: var(--red); font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .col-place.unplaced {
+    color: #c0c0c0; font-family: 'DM Mono', monospace; font-size: 13px;
+    font-weight: 400;
+  }
+  .col-bib {
+    width: 56px;
+    font-family: 'DM Mono', monospace; font-size: 12px;
+    color: var(--red); font-weight: 600;
+  }
+  .col-horse {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600; color: var(--black);
+  }
+  .col-rider {
+    font-size: 13px; color: var(--text-muted);
+  }
+  .col-num {
+    font-family: 'DM Mono', monospace; font-size: 13px;
+    text-align: right; color: var(--text-body);
+    width: 110px;
+  }
+  .col-num.clean { color: var(--green); font-weight: 600; }
+  .col-num.muted { color: var(--text-muted); }
+
+  /* RECENT EVENTS / TRANSPORT FOOTER */
+  .footer-section {
+    background: var(--white);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .footer-section h3 {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .footer-grid {
+    display: grid; grid-template-columns: auto auto;
+    gap: 4px 16px;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+  }
+  .footer-grid .k { color: var(--text-muted); }
+  .footer-grid .v { color: var(--text-body); }
+  .recent-events {
+    font-size: 12px; max-height: 280px; overflow-y: auto;
+    margin-top: 8px;
+  }
+  .recent-events table { width: 100%; border-collapse: collapse; }
+  .recent-events th, .recent-events td {
+    padding: 4px 8px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-family: 'DM Mono', monospace; font-size: 11px;
+  }
+  .recent-events th {
+    color: var(--text-muted); font-weight: 500; font-size: 9px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .recent-events .ch-A { color: var(--red); font-weight: 600; }
+  .recent-events .ch-B { color: #5b46a8; font-weight: 600; }
+  .recent-events .tags { color: var(--text-muted); font-size: 10px; }
+
+  .empty {
+    color: var(--text-muted); font-style: italic;
+    padding: 20px; text-align: center;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+  }
+
+  footer {
+    background: var(--black); padding: 18px 16px;
+    text-align: center; font-family: 'DM Mono', monospace;
+    font-size: 11px; letter-spacing: 0.06em; color: #777;
+  }
+  footer a { color: #aaa; text-decoration: none; }
+  footer a:hover { color: var(--red); }
+
+  /* Responsive bumps for tablet/desktop */
+  @media (min-width: 768px) {
+    .header-inner { height: 70px; padding: 0 clamp(16px, 4vw, 48px); }
+    .class-bar { padding: 18px clamp(16px, 4vw, 48px) 14px; }
+    .class-bar-name { font-size: 26px; }
+    .oc-wrap { padding: 16px clamp(16px, 4vw, 48px); }
+    .oc-clock { font-size: 56px; }
+    .oc-horse { font-size: 26px; }
+    .standings-hdr { padding: 12px clamp(16px, 4vw, 48px) 6px; }
+    .standings-table tbody td { padding: 12px clamp(16px, 4vw, 48px); }
+    .standings-table thead th { padding: 8px clamp(16px, 4vw, 48px); }
+    .footer-section { padding: 14px clamp(16px, 4vw, 48px); }
+  }
 </style>
+<!-- Shared v3 stylesheet — gives us the results-table / entry-place /
+     entry-horse-rider styling that west-{hunter,jumper}-templates.js
+     emits. Lets live.html standings render identically to class.html
+     so the rendering layer is a single source of truth. -->
+<link rel="stylesheet" href="west.css">
 <script src="../js/west-format.js"></script>
 <script src="../js/west-status.js"></script>
 <script src="../js/west-rules.js"></script>
 <script src="../js/west-clock.js"></script>
+<script src="../js/west-jumper-templates.js"></script>
+<script src="../js/west-hunter-templates.js"></script>
 </head>
 <body>
 
-<h1>
-  WEST · <span class="slug" id="ringSlug">…</span>
-  <span class="ring">· Ring <span id="ringNum">…</span></span>
-</h1>
+<header>
+  <div class="header-inner">
+    <a class="logo-tap" href="index.html">
+      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
+    </a>
+    <div class="header-ring">
+      <span class="ring-slug" id="ringSlug">…</span>
+      <span class="ring-sep">·</span>
+      <span>Ring <span class="ring-num" id="ringNum">…</span></span>
+      <span class="live-pill-hdr is-idle" id="livePill">
+        <span class="live-blink"></span>
+        <span id="livePillText">…</span>
+      </span>
+    </div>
+  </div>
+</header>
 
-<div class="panel">
-  <h2>Status</h2>
-  <div class="grid">
-    <div class="k">Pipe</div>          <div class="v"><span class="pill" id="pipePill">…</span></div>
+<!-- CLASS INFO BAR — class id, name, lens, transport -->
+<div class="class-bar">
+  <div class="class-bar-num" id="classBarNum">Class …</div>
+  <div class="class-bar-name" id="classBarName">—</div>
+  <div class="class-bar-sub" id="classBarSub">—</div>
+</div>
+
+<!-- ON-COURSE BLOCK — identity card + clock side-by-side. Clock card
+     hides entirely on hunter classes (judged, no clock) so the identity
+     card spans full width. -->
+<div class="oc-wrap" id="ocWrap">
+  <div class="oc-grid" id="ocGrid">
+    <div class="oc-card oc-card-info" id="ocInfoCard">
+      <div class="oc-no-rider" id="ocNoRider">No rider on course</div>
+      <div id="ocIdentity" style="display:none;">
+        <div class="oc-entry-num">Entry #<span id="idEntry">—</span></div>
+        <div class="oc-horse" id="idHorse">—</div>
+        <div class="oc-rider"><span id="idRider">—</span><span class="oc-rider-role">rider</span></div>
+      </div>
+    </div>
+    <div class="oc-card oc-card-clock" id="ocClockCard">
+      <div class="oc-phase-label" id="clockPhase">idle</div>
+      <div class="oc-clock idle" id="clockBig">—</div>
+      <div id="ocRoundLabel" style="display:none; font-family:'DM Mono', monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--red); font-weight:600; margin-top:6px;"></div>
+      <div id="ocTaLabel" style="display:none; font-family:'DM Mono', monospace; font-size:10px; color:var(--text-muted); margin-top:2px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- STANDINGS — hunter -->
+<div class="standings-wrap hidden" id="hunterStandingsPanel">
+  <div class="standings-hdr">
+    <div class="standings-title">Hunter standings</div>
+    <div class="standings-hint" id="hunterStandingsHint"></div>
+  </div>
+  <div id="hunterStandingsBox"></div>
+</div>
+
+<!-- STANDINGS — jumper -->
+<div class="standings-wrap hidden" id="jumperStandingsPanel">
+  <div class="standings-hdr">
+    <div class="standings-title">Jumper standings</div>
+    <div class="standings-hint" id="jumperStandingsHint"></div>
+  </div>
+  <div id="jumperStandingsBox"></div>
+</div>
+
+<!-- RECENT EVENTS + STATUS -->
+<div class="footer-section">
+  <h3>Pipe status</h3>
+  <div class="footer-grid">
     <div class="k">Transport</div>     <div class="v" id="transportLabel">—</div>
     <div class="k">Last update</div>   <div class="v" id="lastUpdate">—</div>
     <div class="k">Last batch</div>    <div class="v" id="lastBatchId">—</div>
     <div class="k">Events in batch</div><div class="v" id="batchSize">—</div>
+    <div class="k">Class id</div>      <div class="v" id="focusClass">—</div>
+    <div class="k">Last frame</div>    <div class="v"><span id="lastChannel">—</span> · fr=<span id="lastFrame">—</span></div>
+    <div class="k">Last tags</div>     <div class="v" id="lastTags" style="word-break:break-word;">—</div>
   </div>
 </div>
 
-<div class="panel">
-  <h2>Current Focus · <span class="tags" id="focusClassLabel">—</span></h2>
-  <div class="identity-card hidden" id="identityCard">
-    <div class="identity-entry-num">Entry #<span id="idEntry">—</span></div>
-    <div class="identity-horse" id="idHorse">—</div>
-    <div class="identity-people">
-      <span id="idRider">—</span><span class="role">rider</span>
-      <span class="sep">·</span>
-      <span id="idOwner">—</span><span class="role">owner</span>
-    </div>
-  </div>
-  <div class="clock-phase" id="clockPhase">idle</div>
-  <div class="clock-big idle" id="clockBig">—</div>
-  <div class="focus-debug">
-    <div class="grid">
-      <div class="k">Class ID</div>      <div class="v" id="focusClass">—</div>
-      <div class="k">Last channel</div>  <div class="v" id="lastChannel">—</div>
-      <div class="k">Last frame</div>    <div class="v" id="lastFrame">—</div>
-      <div class="k">Last tags</div>     <div class="v tags" id="lastTags">—</div>
-    </div>
-  </div>
-</div>
-
-<div class="panel" id="hunterStandingsPanel" style="display:none;">
-  <h2>Hunter standings <span class="tags" id="hunterStandingsHint"></span></h2>
-  <div class="events" id="hunterStandingsBox"></div>
-</div>
-
-<div class="panel" id="jumperStandingsPanel" style="display:none;">
-  <h2>Jumper standings <span class="tags" id="jumperStandingsHint"></span></h2>
-  <div class="events" id="jumperStandingsBox"></div>
-</div>
-
-<div class="panel">
-  <h2>Recent Events <span class="tags" id="eventsCount"></span></h2>
-  <div class="events" id="eventsBox">
+<div class="footer-section">
+  <h3>Recent events <span class="standings-hint" id="eventsCount"></span></h3>
+  <div class="recent-events" id="eventsBox">
     <div class="empty">Waiting for engine batches…</div>
   </div>
 </div>
 
-<div class="footer">
-  v3 live · WebSocket primary · polling fallback ·
-  <a href="?slug=v3-smoke-test-2026-04&amp;ring_num=1" style="color:var(--muted);">test ring</a>
-</div>
+<footer>
+  WEST v3 · WebSocket primary · polling fallback ·
+  <a href="?slug=v3-smoke-test-2026-04&amp;ring_num=1">test ring</a>
+</footer>
 
 <script>
 (function() {
-  // Phase 3b Chunk 8 — WS push primary, polling fallback. The render()
-  // function is the transport-agnostic contract: WS messages and poll
-  // responses both call it with a snapshot. UI never knows which delivered.
+  // v3 live page — design language ported from v2's live.html (Bill ask
+  // 2026-05-02). JS contract unchanged from earlier chunks: WS push
+  // primary with polling fallback, render(snapshot) is the transport-
+  // agnostic contract.
   var BASE    = 'https://west-worker.bill-acb.workers.dev';
   var WS_BASE = 'wss://west-worker.bill-acb.workers.dev';
   var POLL_MS = 1000;
   var WS_RECONNECT_MS = 5000;
-  var WS_INITIAL_TIMEOUT_MS = 2000;  // if WS hasn't opened by this, kick polling
+  var WS_INITIAL_TIMEOUT_MS = 2000;
 
   var qs = new URLSearchParams(location.search);
   var slug    = qs.get('slug')     || 'v3-smoke-test-2026-04';
@@ -198,10 +489,10 @@
   var $ = function(id) { return document.getElementById(id); };
 
   var consecutiveErrors = 0;
-  // Hoisted so the clock callback (10Hz) can read the latest lens from
-  // the most recent snapshot. Updated by render(). Hunter classes are
-  // judged — no clock — so the callback substitutes a quiet label.
   var currentLens = null;
+  // Class meta for the clock callback's round-label rendering. Hoisted
+  // so the 10Hz tick can read the latest scoring_method/modifier.
+  var currentClassMeta = null;
 
   function ageString(iso) {
     if (!iso) return '—';
@@ -213,11 +504,6 @@
     return Math.floor(s / 3600) + 'h ago';
   }
 
-  // Hunter Display-Scores frames (12 + 16) are TRIGGERS per S42, not
-  // data sources — their numeric content is a multi-page rotation that
-  // changes meaning without warning, so we never render the tags
-  // verbatim. Show a clean chip indicating the engine is responding by
-  // re-reading the .cls on disk.
   function isHunterTriggerFrame(lens, frame) {
     return lens === 'hunter' && (frame === 12 || frame === 16);
   }
@@ -229,37 +515,34 @@
     if (!tags || typeof tags !== 'object') return '—';
     var ks = Object.keys(tags);
     if (!ks.length) return '(empty)';
-    // Sort tags numerically so {1}, {2}, {3}… read in a stable order.
     ks = ks.sort(function(a, b) { return Number(a) - Number(b); });
     var labelFn = (window.WEST && window.WEST.format && window.WEST.format.tagLabel)
       ? window.WEST.format.tagLabel
       : function() { return null; };
     return ks.map(function(k) {
       var v = String(tags[k]).replace(/[\r\n]/g, '').trim();
-      if (!v && v !== '0') return null;     // drop empty values
+      if (!v && v !== '0') return null;
       var label = labelFn(lens, frame, Number(k));
       var truncated = v.length > 24 ? v.slice(0, 24) + '…' : v;
-      // Article 1: tags only get human labels through their lens. Without
-      // a lens (or no mapping for this tag), fall back to raw {N}=value.
       return label ? (label + ': ' + truncated) : ('{' + k + '}=' + truncated);
     }).filter(Boolean).join(' · ');
   }
 
   function setPipe(state) {
-    var pill = $('pipePill');
-    pill.className = 'pill';
-    if (state === 'live')      { pill.classList.add('ok');   pill.textContent = 'live';   }
-    else if (state === 'stale'){ pill.classList.add('warn'); pill.textContent = 'stale';  }
-    else if (state === 'error'){ pill.classList.add('bad');  pill.textContent = 'error';  }
-    else                       { pill.classList.add('warn'); pill.textContent = 'idle';   }
+    var pill = $('livePill');
+    var text = $('livePillText');
+    pill.className = 'live-pill-hdr';
+    if (state === 'live')        { pill.classList.add('is-live');  text.textContent = 'LIVE'; }
+    else if (state === 'stale')  { pill.classList.add('is-stale'); text.textContent = 'STALE'; }
+    else if (state === 'error')  { pill.classList.add('is-error'); text.textContent = 'OFFLINE'; }
+    else                          { pill.classList.add('is-idle');  text.textContent = 'IDLE'; }
+  }
+
+  function clean(v) {
+    return (v == null ? '' : String(v)).replace(/[\r\n]/g, '').trim();
   }
 
   function render(snapshot) {
-    // Feed the interpolating clock module BEFORE we re-render the panels.
-    // west-clock.js owns its own ~10Hz tick; render() doesn't draw the
-    // clock value directly — the clock callback (set up in boot) does.
-    // Engine ships live_running_tenth on each batch — flip mode if it
-    // changed (no-op when stable).
     if (window.WEST && window.WEST.clock) {
       if (snapshot && window.WEST.clock.setMode) {
         window.WEST.clock.setMode(snapshot.live_running_tenth === false ? 'whole' : 'tenth');
@@ -268,6 +551,9 @@
     }
     if (!snapshot) {
       setPipe('idle');
+      $('classBarNum').textContent = 'Class …';
+      $('classBarName').textContent = '—';
+      $('classBarSub').textContent = 'waiting for engine';
       $('lastUpdate').textContent  = '—';
       $('lastBatchId').textContent = '—';
       $('batchSize').textContent   = '—';
@@ -275,12 +561,15 @@
       $('lastChannel').textContent = '—';
       $('lastFrame').textContent   = '—';
       $('lastTags').textContent    = '—';
+      $('ocIdentity').style.display = 'none';
+      $('ocNoRider').style.display = '';
+      $('hunterStandingsPanel').classList.add('hidden');
+      $('jumperStandingsPanel').classList.add('hidden');
       $('eventsCount').textContent = '';
-      $('eventsBox').innerHTML     = '<div class="empty">Waiting for engine batches…</div>';
+      $('eventsBox').innerHTML = '<div class="empty">Waiting for engine batches…</div>';
       return;
     }
 
-    // Freshness — anything older than 5s is "stale" given 1s engine cadence.
     var ageSec = snapshot.received_at
       ? Math.max(0, (Date.now() - Date.parse(snapshot.received_at)) / 1000) : Infinity;
     setPipe(ageSec < 5 ? 'live' : 'stale');
@@ -289,62 +578,72 @@
     $('lastBatchId').textContent = (snapshot.batch_id || '—').slice(0, 8) + '…';
     $('batchSize').textContent   = (snapshot.events && snapshot.events.length) || 0;
 
-    // Lens for tag rendering. Worker derives class_kind from class_type +
-    // scoring_method on each batch (S43 Chunk 10). null lens → raw {N}=val.
     var lens = snapshot.class_kind || null;
     currentLens = lens;
+    currentClassMeta = snapshot.class_meta || null;
 
-    // Prefer last_scoring (Channel A — actual on-course frame) over the
-    // batch-final `last` which can be a Channel B focus heartbeat that
-    // doesn't carry horse data. last_focus stays the source of truth for
-    // class_id when the operator hasn't sent any A frames yet.
     var lastA = snapshot.last_scoring || null;
     var lastB = snapshot.last_focus || null;
-    var primary = lastA || snapshot.last;     // what we render in Current Focus
+    var primary = lastA || snapshot.last;
     var classIdFromFocus = (lastB && lastB.tags && lastB.tags['27']) || null;
     var classNameFromFocus = (lastB && lastB.tags && lastB.tags['28']) || null;
 
-    // Header label — class id + name when known. Reads from the last
-    // Channel B focus event ({27}=class id, {28}=class name).
+    // Class info bar — class id + name + lens
     var hdrClassId = (primary && primary.class_id) || classIdFromFocus || '—';
-    $('focusClassLabel').textContent = classNameFromFocus
-      ? hdrClassId + ' · ' + classNameFromFocus
-      : 'class ' + hdrClassId;
+    $('classBarNum').textContent = 'Class ' + hdrClassId;
+    $('classBarName').textContent = clean(classNameFromFocus) || '—';
+    var lensLabel = lens
+      ? (lens === 'jumper' ? 'Jumper' : lens === 'hunter' ? 'Hunter' : lens === 'equitation' ? 'Equitation' : lens)
+      : '';
+    $('classBarSub').textContent = lensLabel || '(unconfigured)';
 
-    // Identity card — only meaningful for "currently on course" frames.
-    // Frame 1 = jumper on-course, frame 11 = hunter on-course (page A),
-    // frame 14 = hunter ribbon/result. Frames 0/12/16 are idle/triggers
-    // and shouldn't surface stale identity. Method 7 (Timed Equitation)
-    // puts rider in {7} on hunter frame 11 per S42 protocol map.
-    var identityCard = $('identityCard');
-    var identityFrames = { 1: true, 11: true, 14: true };
-    var hasIdentityFrame = primary && primary.channel === 'A'
-      && identityFrames[primary.frame] === true;
-    if (hasIdentityFrame) {
-      var t = primary.tags || {};
-      var clean = function(v) { return (v == null ? '' : String(v)).replace(/[\r\n]/g, '').trim(); };
+    // Identity card — fed by snapshot.last_identity (most recent A
+    // frame in {1,11,14}, carried forward across batches within the
+    // same class by the DO). Survives Display Scores triggers (frame
+    // 12/16) so the rider's identity stays visible while the operator
+    // is showing scores. Hides only when no identity-frame has been
+    // seen yet for the current class.
+    var identityFrame = snapshot.last_identity || null;
+    if (identityFrame && identityFrame.channel === 'A') {
+      var t = identityFrame.tags || {};
       var entryNum = clean(t['1']);
       var horse    = clean(t['2']);
       var rider    = clean(t['3']);
       var owner    = clean(t['4']);
-      if (lens === 'equitation' && primary.frame === 11) {
+      if (lens === 'equitation' && identityFrame.frame === 11) {
         var eqRider = clean(t['7']);
         if (eqRider) rider = eqRider;
       }
       if (entryNum || horse || rider) {
-        identityCard.classList.remove('hidden');
+        $('ocIdentity').style.display = '';
+        $('ocNoRider').style.display = 'none';
         $('idEntry').textContent = entryNum || '—';
         $('idHorse').textContent = horse || '—';
-        $('idRider').textContent = rider || '—';
-        $('idOwner').textContent = owner || '—';
+        // NAT flag rendering — UDP {5} carries the 3-letter country code
+        // for jumper classes; only display when class.show_flags is set
+        // (operator-controlled in Ryegate H[26]). flagFor returns
+        // empty when policy says no, so this is safe for hunter too.
+        var nat = clean(t['5']);
+        var flagHtml = '';
+        if (window.WEST && window.WEST.format && window.WEST.format.flagFor) {
+          var flagText = window.WEST.format.flagFor(
+            currentClassMeta || {},
+            { country_code: nat });
+          if (flagText) flagHtml = '<span style="margin-right:6px;">' +
+            window.WEST.format.escapeHtml(flagText) + '</span>';
+        }
+        $('idRider').innerHTML = flagHtml + (rider
+          ? window.WEST.format.escapeHtml(rider) : '—');
       } else {
-        identityCard.classList.add('hidden');
+        $('ocIdentity').style.display = 'none';
+        $('ocNoRider').style.display = '';
       }
     } else {
-      identityCard.classList.add('hidden');
+      $('ocIdentity').style.display = 'none';
+      $('ocNoRider').style.display = '';
     }
 
-    // Debug rows (last channel / frame / tags) — demoted but kept.
+    // Pipe-status (footer) debug fields
     if (primary) {
       $('focusClass').textContent  = primary.class_id || classIdFromFocus || '—';
       $('lastChannel').textContent = primary.channel || '—';
@@ -358,165 +657,258 @@
       $('lastTags').textContent    = '—';
     }
 
-    // Hunter standings — only when class_kind=hunter and worker pulled
-    // entries from D1 (snapshot.hunter_scores). Hides for jumper/eq/null.
-    var hsPanel = $('hunterStandingsPanel');
-    var hsBox   = $('hunterStandingsBox');
-    var hsHint  = $('hunterStandingsHint');
-    var hs = snapshot.hunter_scores;
-    if (lens === 'hunter' && Array.isArray(hs) && hs.length > 0) {
-      hsPanel.style.display = '';
-      // Apply the canonical placement rule from west-rules.js. Eliminated
-      // / withdrawn entries get null place + their status code in the
-      // place column, regardless of what Ryegate's current_place says.
-      // Forced classes (scoring_type=0) gate purely on r1_status; Scored
-      // / Hi-Lo also require r1_total > 0.
-      var rulesAvailable = window.WEST && window.WEST.rules && window.WEST.rules.hunterPlaceFor;
-      var statusAvailable = window.WEST && window.WEST.status;
-      var rowsWithRule = hs.map(function(e) {
-        var place = rulesAvailable
-          ? window.WEST.rules.hunterPlaceFor(e.current_place, e.scoring_type, e.r1_total, e.r1_status)
-          : (e.current_place && e.current_place > 0 ? e.current_place : null);
-        return Object.assign({}, e, { _place: place });
-      });
-      // Sort: placed entries first by place, then unplaced (any).
-      rowsWithRule.sort(function(a, b) {
-        var ap = a._place, bp = b._place;
-        if (ap == null && bp == null) {
-          return Number(a.entry_num) - Number(b.entry_num);
+    // ── Standings — delegate to shared template modules ────────────────
+    // Per Bill 2026-05-02 ("everything needs to call evenly no matter
+    // what page its on"): live.html and class.html share the same
+    // rendering primitives (WEST.jumperTemplates / WEST.hunterTemplates).
+    // No inline custom rendering — the templates own the placement rule
+    // application (jumperPlaceFor/hunterPlaceFor), DnsLike filtering,
+    // championship Ch/Res markers, flag-policy gating, and per-method
+    // round-cell layout. cls comes from snapshot.class_meta.
+    // Hunter score card — when Display Scores fires (frame 12/14/16),
+    // pull the displayed entry's R1 / R2 / Total + Place from D1
+    // (snapshot.hunter_scores) and render in the clock-card slot.
+    // Frame 11 (on-course) → blank (no score yet — rider is in ring).
+    // Other frames / lenses → the clock callback handles its own thing.
+    if (lens === 'hunter') {
+      $('ocClockCard').classList.remove('hidden');
+      $('ocGrid').classList.remove('is-hunter');
+      var clockBigEl  = $('clockBig');
+      var clockPhase2 = $('clockPhase');
+      var displayedEntryNum = null;
+      if (snapshot.last_scoring && snapshot.last_scoring.channel === 'A'
+          && (snapshot.last_scoring.frame === 12 || snapshot.last_scoring.frame === 14
+              || snapshot.last_scoring.frame === 16)) {
+        var dt = snapshot.last_scoring.tags || {};
+        displayedEntryNum = clean(dt['1']);
+      }
+      var entryRow = null;
+      if (displayedEntryNum && Array.isArray(snapshot.hunter_scores)) {
+        for (var hi = 0; hi < snapshot.hunter_scores.length; hi++) {
+          if (String(snapshot.hunter_scores[hi].entry_num) === String(displayedEntryNum)) {
+            entryRow = snapshot.hunter_scores[hi]; break;
+          }
         }
-        if (ap == null) return 1;
-        if (bp == null) return -1;
-        return ap - bp;
-      });
-      var placedCount = rowsWithRule.filter(function(e) { return e._place != null; }).length;
-      var unplacedCount = rowsWithRule.length - placedCount;
-      hsHint.textContent = '(' + placedCount + ' placed' +
-        (unplacedCount ? ' · ' + unplacedCount + ' unplaced/unscored' : '') + ')';
-      var rows = rowsWithRule.map(function(e) {
-        var placeCell;
-        if (e._place != null) {
-          placeCell = String(e._place);
-        } else if (e.r1_status && statusAvailable) {
-          // Eliminated / withdrawn — show the status code (collapsed for
-          // public per WEST.status.publicLabel).
-          placeCell = '<span style="color:var(--bad);">' +
-            window.WEST.status.publicLabel(e.r1_status) + '</span>';
-        } else {
-          placeCell = '<span style="color:var(--muted);">—</span>';
+      }
+      if (entryRow) {
+        var fmtScore = function(v) { return (v == null) ? null : Number(v).toFixed(3); };
+        var r1 = fmtScore(entryRow.r1_score_total);
+        var r2 = fmtScore(entryRow.r2_score_total);
+        var r3 = fmtScore(entryRow.r3_score_total);
+        var combined = fmtScore(entryRow.combined_total);
+        var rounds = [];
+        if (r1) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R1</span><span class="hunter-score-round-val">' + r1 + '</span></div>');
+        if (r2) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R2</span><span class="hunter-score-round-val">' + r2 + '</span></div>');
+        if (r3) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R3</span><span class="hunter-score-round-val">' + r3 + '</span></div>');
+        var html = '<div class="hunter-score-block">';
+        if (rounds.length) html += '<div class="hunter-score-rounds">' + rounds.join('') + '</div>';
+        if (combined) {
+          html += '<div class="hunter-score-total-lbl">Total</div>';
+          html += '<div class="hunter-score-total-val">' + combined + '</div>';
         }
-        var total = (e.combined_total !== null && e.combined_total !== undefined)
-          ? Number(e.combined_total).toFixed(3) : '—';
-        var rowStyle = (e._place == null) ? ' style="opacity:0.6;"' : '';
-        return '<tr' + rowStyle + '>' +
-          '<td style="width:48px;text-align:right;">' + placeCell + '</td>' +
-          '<td style="width:60px;">' + (e.entry_num || '—') + '</td>' +
-          '<td>' + (e.horse_name || '—') + '</td>' +
-          '<td>' + (e.rider_name || '—') + '</td>' +
-          '<td style="text-align:right;width:80px;">' + total + '</td>' +
-          '</tr>';
-      }).join('');
-      hsBox.innerHTML =
-        '<table><thead><tr>' +
-          '<th style="text-align:right;">Place</th><th>Entry</th>' +
-          '<th>Horse</th><th>Rider</th><th style="text-align:right;">Total</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table>';
-    } else {
-      hsPanel.style.display = 'none';
+        // Use canonical placement rule — no place if entry's elim
+        // under hunterPlaceFor (R1 status check / scoring_type gate).
+        var placeApplied = window.WEST && window.WEST.rules
+          ? window.WEST.rules.hunterPlaceFor(entryRow.current_place,
+              currentClassMeta && currentClassMeta.scoring_type,
+              entryRow.r1_score_total, entryRow.r1_h_status)
+          : entryRow.current_place;
+        if (placeApplied != null) {
+          html += '<div class="hunter-score-place">PLACE<span class="val">' + placeApplied + '</span></div>';
+        }
+        // Judge breakdown — show per-judge per-round scores when multi-
+        // judge (num_judges > 1). Derby (class_mode=2) adds HighOption
+        // + Handy components per judge per round when present.
+        var nJudges = currentClassMeta && Number(currentClassMeta.num_judges);
+        var isDerby = currentClassMeta && currentClassMeta.class_mode === 2;
+        if (Array.isArray(entryRow.judges) && entryRow.judges.length > 0
+            && nJudges && nJudges > 1) {
+          // Group judges by round.
+          var byRound = {};
+          entryRow.judges.forEach(function(j) {
+            if (!byRound[j.round]) byRound[j.round] = {};
+            byRound[j.round][j.idx] = j;
+          });
+          html += '<div class="hunter-judge-grid">';
+          var roundKeys = Object.keys(byRound).map(Number).sort();
+          var rowCls = nJudges >= 3 ? 'hunter-judge-row three-judges' : 'hunter-judge-row';
+          roundKeys.forEach(function(rn) {
+            var cells = ['<span class="hunter-judge-rnd">R' + rn + '</span>'];
+            for (var ji = 0; ji < nJudges; ji++) {
+              var j = byRound[rn][ji];
+              if (!j || j.base == null) {
+                cells.push('<span class="hunter-judge-cell empty">—</span>');
+                continue;
+              }
+              var base = Number(j.base).toFixed(1);
+              var bonus = '';
+              if (isDerby) {
+                if (j.hiopt != null && j.hiopt > 0) bonus += ' <span class="bonus">+' + Number(j.hiopt).toFixed(0) + '</span>';
+                if (j.handy != null && j.handy > 0) bonus += ' <span class="bonus">+' + Number(j.handy).toFixed(0) + '</span>';
+              }
+              cells.push('<span class="hunter-judge-cell"><span class="base">' + base + '</span>' + bonus + '</span>');
+            }
+            html += '<div class="' + rowCls + '">' + cells.join('') + '</div>';
+          });
+          // Header row showing J1 / J2 etc. (Add at the top.)
+          var hdrCells = ['<span class="hunter-judge-rnd"></span>'];
+          for (var jh = 0; jh < nJudges; jh++) {
+            hdrCells.push('<span class="hunter-judge-cell" style="font-size:9px; color: var(--text-muted); letter-spacing:0.12em; text-transform:uppercase;">J' + (jh+1) + '</span>');
+          }
+          html = html.replace('<div class="hunter-judge-grid">',
+            '<div class="hunter-judge-grid"><div class="' + rowCls + '">' + hdrCells.join('') + '</div>');
+          html += '</div>';
+        }
+        html += '</div>';
+        clockBigEl.innerHTML = html;
+        clockBigEl.className = 'oc-clock';     // strip phase classes
+        clockBigEl.style.fontSize = '';
+        clockPhase2.textContent = 'displaying scores';
+      } else {
+        clockBigEl.innerHTML = '<span class="hunter-score-empty">awaiting score</span>';
+        clockBigEl.className = 'oc-clock';
+        clockBigEl.style.fontSize = '';
+        clockPhase2.textContent = '';
+      }
     }
 
-    // Jumper standings — only when class_kind is jumper or equitation
-    // and worker pulled entries from D1. Uses WEST.rules.jumperPlaceFor
-    // (the same canonical rule class.html applies) so eliminated entries
-    // get their status code instead of a place number.
+    var hsPanel = $('hunterStandingsPanel');
+    var hsHint  = $('hunterStandingsHint');
+    var hsBox   = $('hunterStandingsBox');
+    var hs = snapshot.hunter_scores;
+    var hasHunterTemplates = !!(window.WEST && window.WEST.hunterTemplates && window.WEST.hunterTemplates.renderTable);
+    if (lens === 'hunter' && Array.isArray(hs) && hs.length > 0
+        && currentClassMeta && hasHunterTemplates) {
+      hsPanel.classList.remove('hidden');
+      var placedH = hs.filter(function(e) {
+        return window.WEST.rules.hunterPlaceFor(e.current_place, currentClassMeta.scoring_type,
+          e.r1_score_total, e.r1_h_status) != null;
+      }).length;
+      hsHint.textContent = placedH + ' placed' +
+        (hs.length - placedH ? ' · ' + (hs.length - placedH) + ' unplaced' : '');
+      try {
+        // Build judge-grid data when the class qualifies (multi-judge,
+        // scored). renderTable will inject "View Breakdown" toggles
+        // and per-entry detail rows automatically when options.judgeGrid
+        // is provided. Page-side click handlers wire up below.
+        var gridData = null;
+        if (window.WEST.format.judgesGridApplies(currentClassMeta)) {
+          var nJudges = Number(currentClassMeta.num_judges) || 1;
+          var nRoundsHs = Math.max(1, Number(currentClassMeta.num_rounds) || 1);
+          gridData = { rows: hs.map(function(e) {
+            var rounds = [];
+            for (var rn = 1; rn <= nRoundsHs; rn++) {
+              var judgeArr = [];
+              for (var ji = 0; ji < nJudges; ji++) {
+                var jrec = (e.judges || []).find(function(x) {
+                  return x.round === rn && x.idx === ji;
+                });
+                judgeArr.push({
+                  idx:   ji,
+                  base:  jrec ? jrec.base : null,
+                  hiopt: jrec ? jrec.hiopt : null,
+                  handy: jrec ? jrec.handy : null,
+                  rank:  null,
+                });
+              }
+              rounds.push({
+                round: rn,
+                status: e['r' + rn + '_h_status'],
+                total: e['r' + rn + '_score_total'],
+                overallRank: null,
+                judges: judgeArr,
+              });
+            }
+            return {
+              entry_id: e.id,
+              entry_num: e.entry_num,
+              horse_name: e.horse_name,
+              rider_name: e.rider_name,
+              rounds: rounds,
+              judgeCards: [],
+              combined: e.combined_total,
+            };
+          })};
+        }
+        var html = window.WEST.hunterTemplates.renderTable(currentClassMeta, hs,
+          gridData ? { judgeGrid: gridData } : undefined);
+        if (!html || html.length < 50) {
+          hsBox.innerHTML = '<div class="empty">renderTable returned empty (' + hs.length +
+            ' entries, ' + placedH + ' placed). Check console.</div>';
+          if (window.console) console.warn('[live.html] hunterTemplates.renderTable returned',
+            html ? html.length + ' chars' : html, 'for', hs.length, 'entries; cls=', currentClassMeta);
+        } else {
+          hsBox.innerHTML = html;
+          // Wire up the per-row "View Breakdown" toggles. Same pattern as
+          // class.html — clicking the row toggles .is-open on the
+          // adjacent .judges-detail-row sibling.
+          var toggles = hsBox.querySelectorAll('tr.has-judges-toggle');
+          toggles.forEach(function(tr) {
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', function() {
+              var detail = tr.nextElementSibling;
+              if (detail && detail.classList.contains('judges-detail-row')) {
+                tr.classList.toggle('is-open');
+                detail.classList.toggle('is-open');
+              }
+            });
+          });
+        }
+      } catch (renderErr) {
+        hsBox.innerHTML = '<div class="empty">renderTable threw: ' +
+          window.WEST.format.escapeHtml(renderErr.message) + '</div>';
+        if (window.console) console.error('[live.html] hunterTemplates.renderTable threw:', renderErr);
+      }
+    } else {
+      hsPanel.classList.add('hidden');
+      if (window.console && lens === 'hunter') {
+        console.warn('[live.html] hunter standings hidden — gate failed:',
+          { lens, hs_isArray: Array.isArray(hs), hs_len: hs && hs.length,
+            classMeta: !!currentClassMeta, templates: hasHunterTemplates });
+      }
+    }
+
     var jsPanel = $('jumperStandingsPanel');
     var jsBox   = $('jumperStandingsBox');
     var jsHint  = $('jumperStandingsHint');
     var js = snapshot.jumper_scores;
     var isJumperLens = (lens === 'jumper' || lens === 'equitation');
-    if (isJumperLens && Array.isArray(js) && js.length > 0) {
-      jsPanel.style.display = '';
-      var jrulesAvailable = window.WEST && window.WEST.rules && window.WEST.rules.jumperPlaceFor;
-      var jstatusAvailable = window.WEST && window.WEST.status;
-      var jrows = js.map(function(e) {
+    var hasJumperTemplates = !!(window.WEST && window.WEST.jumperTemplates && window.WEST.jumperTemplates.renderTable);
+    if (isJumperLens && Array.isArray(js) && js.length > 0
+        && currentClassMeta && hasJumperTemplates) {
+      jsPanel.classList.remove('hidden');
+      var placedJ = js.filter(function(e) {
         var statuses = { 1: e.r1_status, 2: e.r2_status, 3: e.r3_status };
-        var place = jrulesAvailable
-          ? window.WEST.rules.jumperPlaceFor(e.overall_place, e.scoring_method, statuses)
-          : (e.overall_place && e.overall_place > 0 ? e.overall_place : null);
-        return Object.assign({}, e, { _place: place });
-      });
-      jrows.sort(function(a, b) {
-        var ap = a._place, bp = b._place;
-        if (ap == null && bp == null) {
-          return Number(a.entry_num) - Number(b.entry_num);
-        }
-        if (ap == null) return 1;
-        if (bp == null) return -1;
-        return ap - bp;
-      });
-      var jplacedCount = jrows.filter(function(e) { return e._place != null; }).length;
-      var junplacedCount = jrows.length - jplacedCount;
-      jsHint.textContent = '(' + jplacedCount + ' placed' +
-        (junplacedCount ? ' · ' + junplacedCount + ' unplaced/unscored' : '') + ')';
-      // Format "faults / time" — 3 decimals for time per Bill's style.
-      var formatRound = function(faults, time) {
-        if (faults == null && time == null) return '';
-        var f = (faults != null) ? Number(faults).toFixed(0) : '—';
-        var t = (time != null && Number(time) > 0)
-          ? Number(time).toFixed(3) : '—';
-        return f + ' / ' + t;
-      };
-      var jrowsHtml = jrows.map(function(e) {
-        var placeCell;
-        if (e._place != null) {
-          placeCell = String(e._place);
+        return window.WEST.rules.jumperPlaceFor(e.overall_place,
+          currentClassMeta.scoring_method, statuses) != null;
+      }).length;
+      jsHint.textContent = placedJ + ' placed' +
+        (js.length - placedJ ? ' · ' + (js.length - placedJ) + ' unplaced' : '');
+      try {
+        var jhtml = window.WEST.jumperTemplates.renderTable(currentClassMeta, js);
+        if (!jhtml || jhtml.length < 50) {
+          jsBox.innerHTML = '<div class="empty">renderTable returned empty (' + js.length +
+            ' entries, ' + placedJ + ' placed). Check console.</div>';
+          if (window.console) console.warn('[live.html] jumperTemplates.renderTable returned',
+            jhtml ? jhtml.length + ' chars' : jhtml, 'for', js.length, 'entries; cls=', currentClassMeta);
         } else {
-          // Find the killing status code from any round (showing the first one
-          // that's set, since that's typically the elim point)
-          var killCode = null;
-          for (var rn = 1; rn <= 3; rn++) {
-            var s = e['r' + rn + '_status'];
-            if (s && jstatusAvailable && window.WEST.status.isKillingStatus(s)) { killCode = s; break; }
-          }
-          if (killCode) {
-            placeCell = '<span style="color:var(--bad);">' +
-              window.WEST.status.publicLabel(killCode) + '</span>';
-          } else {
-            placeCell = '<span style="color:var(--muted);">—</span>';
-          }
+          jsBox.innerHTML = jhtml;
         }
-        // R1 + R2 + R3 round cells — only show columns with data so the
-        // typical 1-round class shows just R1.
-        var r1 = formatRound(e.r1_total_faults, e.r1_total_time);
-        var r2 = formatRound(e.r2_total_faults, e.r2_total_time);
-        var r3 = formatRound(e.r3_total_faults, e.r3_total_time);
-        var rowStyle = (e._place == null) ? ' style="opacity:0.6;"' : '';
-        return '<tr' + rowStyle + '>' +
-          '<td style="width:48px;text-align:right;">' + placeCell + '</td>' +
-          '<td style="width:60px;">' + (e.entry_num || '—') + '</td>' +
-          '<td>' + (e.horse_name || '—') + '</td>' +
-          '<td>' + (e.rider_name || '—') + '</td>' +
-          '<td style="width:120px;">' + r1 + '</td>' +
-          (r2 ? '<td style="width:120px;">' + r2 + '</td>' : '<td></td>') +
-          (r3 ? '<td style="width:120px;">' + r3 + '</td>' : '') +
-          '</tr>';
-      }).join('');
-      // Build header — show R2 column when ANY entry has R2 data; same for R3.
-      var anyR2 = jrows.some(function(e) { return e.r2_total_faults != null || (e.r2_total_time && Number(e.r2_total_time) > 0); });
-      var anyR3 = jrows.some(function(e) { return e.r3_total_faults != null || (e.r3_total_time && Number(e.r3_total_time) > 0); });
-      jsBox.innerHTML =
-        '<table><thead><tr>' +
-          '<th style="text-align:right;">Place</th><th>Entry</th>' +
-          '<th>Horse</th><th>Rider</th>' +
-          '<th>R1 F/T</th>' +
-          (anyR2 ? '<th>R2 F/T</th>' : '<th></th>') +
-          (anyR3 ? '<th>R3 F/T</th>' : '') +
-        '</tr></thead><tbody>' + jrowsHtml + '</tbody></table>';
+      } catch (renderErr) {
+        jsBox.innerHTML = '<div class="empty">renderTable threw: ' +
+          window.WEST.format.escapeHtml(renderErr.message) + '</div>';
+        if (window.console) console.error('[live.html] jumperTemplates.renderTable threw:', renderErr);
+      }
     } else {
-      jsPanel.style.display = 'none';
+      jsPanel.classList.add('hidden');
+      if (window.console && isJumperLens) {
+        console.warn('[live.html] jumper standings hidden — gate failed:',
+          { lens, js_isArray: Array.isArray(js), js_len: js && js.length,
+            classMeta: !!currentClassMeta, templates: hasJumperTemplates });
+      }
     }
 
-    // Events table — newest first.
+    // Recent events table
     var events = (snapshot.events || []).slice().reverse();
     $('eventsCount').textContent = '(' + events.length + ' in last batch'
       + (lens ? ' · lens: ' + lens : '') + ')';
@@ -551,7 +943,6 @@
     $('transportLabel').textContent = label;
   }
 
-  // ── Polling fallback ──────────────────────────────────────────────────────
   function pollOnce() {
     var u = BASE + '/v3/getRingState?slug=' + encodeURIComponent(slug) +
             '&ring_num=' + encodeURIComponent(ringNum);
@@ -568,7 +959,6 @@
       .catch(function(e) {
         consecutiveErrors++;
         if (consecutiveErrors >= 3) setPipe('error');
-        // Keep the last good frame visible on transient error.
       });
   }
   function startPolling() {
@@ -580,13 +970,11 @@
     if (pollIntervalHandle) { clearInterval(pollIntervalHandle); pollIntervalHandle = null; }
   }
 
-  // ── WebSocket primary ─────────────────────────────────────────────────────
   function connectWs() {
     var url = WS_BASE + '/v3/live?slug=' + encodeURIComponent(slug) +
               '&ring_num=' + encodeURIComponent(ringNum);
     try { ws = new WebSocket(url); }
     catch (e) {
-      // Browser couldn't even start the connection — go straight to polling.
       setTransport('polling (ws unavailable)');
       startPolling();
       setTimeout(connectWs, WS_RECONNECT_MS);
@@ -596,55 +984,79 @@
       wsOpen = true;
       consecutiveErrors = 0;
       setTransport('websocket');
-      stopPolling();   // WS is the source of truth while open
+      stopPolling();
     };
     ws.onmessage = function(ev) {
       try {
         var msg = JSON.parse(ev.data);
         if (msg.type === 'snapshot' && msg.data) render(msg.data);
         else if (msg.type === 'idle') render(null);
-      } catch (e) {
-        // Bad JSON — ignore, keep last good frame.
-      }
+      } catch (e) {}
     };
-    ws.onerror = function() { /* close will follow with details */ };
+    ws.onerror = function() {};
     ws.onclose = function() {
       wsOpen = false;
       setTransport('polling (ws reconnecting)');
-      // Fall back to polling so spectators don't see a frozen page.
       startPolling();
       setTimeout(connectWs, WS_RECONNECT_MS);
     };
   }
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
-  // Start the interpolating clock first — west-clock.js renders at ~30Hz
-  // off its own setInterval; we just give it a callback that pokes the
-  // DOM. Phase determines color via class swap.
   if (window.WEST && window.WEST.clock && window.WEST.clock.start) {
     var clockBig   = $('clockBig');
     var clockPhase = $('clockPhase');
+    var clockRound = $('ocRoundLabel');
+    var clockTa    = $('ocTaLabel');
+    var phaseLabels = {
+      intro:     'Intro',
+      countdown: 'Countdown',
+      on_course: 'On Course',
+      finished:  'Finished',
+      idle:      'Idle',
+    };
+    var ocGrid      = $('ocGrid');
+    var ocClockCard = $('ocClockCard');
     window.WEST.clock.start(function (text, phase) {
-      // Hunter classes are judged — no clock. Override the clock module's
-      // tick output with a quiet placeholder. west-clock keeps ticking
-      // internally (cheap, idempotent) so a switch back to jumper picks
-      // up immediately on the next batch.
       if (currentLens === 'hunter') {
-        clockBig.textContent = 'no clock';
-        clockBig.className   = 'clock-big hunter';
-        clockPhase.textContent = 'hunter — judged';
+        // render() owns the hunter score card content directly — the
+        // 10Hz tick has nothing to interpolate for a judged class.
+        clockRound.style.display = 'none';
+        clockTa.style.display = 'none';
         return;
       }
       clockBig.textContent = text;
-      clockBig.className   = 'clock-big ' + phase;
-      clockPhase.textContent = phase.replace('_', ' ');
+      clockBig.className   = 'oc-clock ' + phase;
+      clockPhase.textContent = phaseLabels[phase] || phase;
+      // Round label from west-clock state + class meta. Method-aware via
+      // WEST.format.roundLabel (e.g. method 9 → "Phase 1" / "Phase 2",
+      // method 13 → "Round 1" / "Jump Off"). Updates on every tick so
+      // it stays current as TA changes drive roundNum increments.
+      var rn = window.WEST.clock._state && window.WEST.clock._state.roundNum;
+      var ta = window.WEST.clock._state && window.WEST.clock._state.currentTa;
+      var roundText = '';
+      if (rn && rn > 0 && currentClassMeta && currentClassMeta.scoring_method != null
+          && window.WEST.format && window.WEST.format.roundLabel) {
+        roundText = window.WEST.format.roundLabel(
+          currentClassMeta.scoring_method,
+          currentClassMeta.scoring_modifier,
+          rn);
+      }
+      if (roundText) {
+        clockRound.textContent = roundText;
+        clockRound.style.display = '';
+      } else {
+        clockRound.style.display = 'none';
+      }
+      if (ta && ta > 0) {
+        clockTa.textContent = 'TA ' + Math.round(ta) + 's';
+        clockTa.style.display = '';
+      } else {
+        clockTa.style.display = 'none';
+      }
     });
   }
   setTransport('connecting…');
   connectWs();
-  // If WS hasn't opened in WS_INITIAL_TIMEOUT_MS, kick polling so the page
-  // shows data fast on slow / blocking networks. WS will take over the
-  // moment it opens (stopPolling runs in onopen).
   setTimeout(function() {
     if (!wsOpen) {
       setTransport('polling (ws timeout)');

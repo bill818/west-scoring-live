@@ -756,3 +756,269 @@ HOW TO RESUME (UPDATED)
 3. Decide direction — visual polish is queued up next per Bill's ask.
    v2 live.html is the design reference. Keep west-format / west-status
    / west-rules as the canonical logic layer; visuals are page-only.
+
+═══════════════════════════════════════════════════════════════════════════
+ADDENDUM 3 — Chunks 16-22 (live page MVP — substantially shipped)
+═══════════════════════════════════════════════════════════════════════════
+
+After addendum-2 (commit 5155e30) Bill picked visual polish. That arc
+expanded into the full v2 design-language pass plus six functional
+chunks layering on top. End of this addendum the live page is at MVP:
+end-to-end push pipe, lens-aware rendering, real-show data path
+through all the shared canonical modules. Bill 2026-05-02:
+"that worked... now we're cooking" / "everything has shipped on the
+live page" — within the caveats listed under "DEFERRED" below.
+
+CHUNK 16 — INTRO phase + TA-driven round detection
+  ─ v3/js/west-clock.js
+  ─ NEW phase: 'intro' — derived from frame=1 with entry but no
+      {17}/{23} (mirrors v2 watcher inference at west-watcher.js:2614).
+      Static "-45" placeholder until countdown fires (matches v2
+      display-config.js:786).
+  ─ TA observation tracking — taSeen[], roundNum, currentTa. First TA
+      seen for a class = round 1; each distinct TA value increments
+      round number. Reset on class change.
+  ─ New-rider mid-class detection — when entry_num changes and we're
+      in idle/finished, drop back to intro. Holds at -45 until the
+      next countdown trigger.
+  ─ Same-value guard preserved (S43 Chunk 11): repeated identical
+      {17}/{23} values don't reset baseAt — visual interpolation no
+      longer restarts at N.0 each second.
+  ─ Page renders WEST.format.roundLabel(method, modifier, n) under the
+      clock — method-aware ("Round 1" / "Phase 2" / "Jump Off") plus
+      "TA Ns" line.
+
+CHUNK 17 — NAT flags (operator's ShowFlags policy)
+  ─ Worker class_meta now includes show_flags from classes.show_flags
+      (jumper header H[26] only — hunter's H[26] is Phase2Label).
+  ─ Worker entries now include country_code from entries.country_code.
+  ─ Page calls WEST.format.flagFor(cls, entry) — same single-source
+      policy gate that class.html / stats.html use. Returns empty
+      when cls.show_flags is unset, so flags ONLY appear when the
+      operator checked Ryegate's ShowFlags.
+  ─ Render points: identity card rider line + jumper standings rows.
+
+CHUNK 18 — last_identity (preserve identity across triggers)
+  ─ Snapshot field: last_identity = most recent Channel A frame in
+      {1, 11, 14}. Carries entry/horse/rider/owner tags. Survives
+      Display Scores triggers (frame 12/16) and idle frames (0).
+  ─ DO carries forward last_identity across batches WITHIN the same
+      class — checks new focused class_id against carried class_id;
+      drops the carryover on class change.
+  ─ Page identity card driven by last_identity (was last_scoring).
+      Display Scores no longer blanks the rider's identity.
+
+CHUNK 19 — v2 design language port + shared template adoption
+  ─ v3/pages/live.html — full rewrite of CSS + HTML structure:
+      - Light theme: --black/--red/--green/--off-white token palette
+        from v2 live.html
+      - Typography: Playfair Display for class name + place numbers,
+        Source Sans 3 for body, DM Mono for codes/labels — exact
+        fonts v2 uses
+      - Sticky black header with red accent border, WEST logo + LIVE pill
+      - Class info bar (red small uppercase number, Playfair big name)
+      - On-course block with red bottom border, identity-card +
+        clock-card grid
+      - Standings tables now via shared templates
+  ─ <link rel="stylesheet" href="west.css"> — same stylesheet
+      class.html uses, so standings styling is identical
+  ─ Standings rendering: replaced inline custom code with
+      WEST.jumperTemplates.renderTable(cls, entries) +
+      WEST.hunterTemplates.renderTable(cls, entries)
+  ─ Worker pullJumperScoresV3 + pullHunterScoresV3 returns wide-shape
+      entries matching the templates' contract:
+      - jumper: r{n}_time, r{n}_total_time, r{n}_penalty_sec,
+        r{n}_time_faults, r{n}_jump_faults, r{n}_total_faults,
+        r{n}_status, r{n}_numeric_status, ride_order, overall_place
+      - hunter: r{n}_score_total, r{n}_h_status, r{n}_h_numeric_status,
+        plus sire/dam for pedigree line
+  ─ class_meta expanded — scoring_type, is_equitation, is_championship,
+      num_rounds, num_judges, derby_type, time-allowed values. All
+      cls fields the templates need.
+  ─ Single source of truth: any rule change in west-rules.js (placement,
+      DnsLike, championship marker, flag policy, round labels) lands
+      in one place; live + class + future pages inherit automatically.
+
+CHUNK 20 — hunter score card
+  ─ Score card slot (right side of on-course block) now populates for
+      hunter when Display Scores fires (frame 12/14/16):
+      - Pulls displayed entry's entry_num from {1}
+      - Looks it up in snapshot.hunter_scores
+      - Renders R1 / R2 / R3 totals (3 decimals)
+      - Big green Playfair "Total" combined value
+      - PLACE chip (filtered through WEST.rules.hunterPlaceFor —
+        eliminated entries don't show a place)
+  ─ Frame 11 (on-course) → "awaiting score" placeholder. Frame 0
+      (idle) / no Display Scores trigger → blank.
+  ─ Clock callback now early-returns for hunter — render() owns the
+      score card content directly (no 10Hz tick needed for judged class).
+
+CHUNK 21 — per-judge breakdown in score card
+  ─ Worker pullHunterScoresV3 now also pulls entry_hunter_judge_scores
+      grouped per-entry as entry.judges array of
+      { round, idx, base, hiopt, handy }.
+  ─ Score card renders judge grid below R1/R2/Total when class has
+      num_judges > 1:
+      - Header: "J1 J2" (or J3 etc. for ≥3 judges)
+      - Per-round cells: base score for non-derby; "base +hiopt +handy"
+        with red bonus chips for derby (class_mode === 2)
+      - Single-judge classes don't show the grid (redundant)
+
+CHUNK 22 — View Breakdown row toggle in standings
+  ─ Worker pullHunterScoresV3 now exposes e.id (entries primary key)
+      so templates can wire data-entry-id attributes.
+  ─ Page builds gridData from hunter_scores entries:
+      gridData.rows = [{entry_id, rounds: [{round, status, total,
+        judges: [{idx, base, hiopt, handy, rank}]}], ...}]
+  ─ Passes options.judgeGrid to WEST.hunterTemplates.renderTable
+      → templates auto-inject "View Breakdown" chips and per-row
+      detail dropdowns (same pattern class.html uses)
+  ─ Page wires click handlers on tr.has-judges-toggle rows — toggles
+      .is-open on the row + adjacent .judges-detail-row sibling
+  ─ Net: clicking a hunter-class standings row expands to show the
+      full per-judge per-round grid for that entry, identical to
+      class.html's Judge Cards view
+
+ARCHITECTURAL RULES LOCKED THIS ADDENDUM
+
+1. PAGE-SIDE LOGIC LAYER IS WEST.RULES + WEST.STATUS + WEST.FORMAT
+   live.html now consumes hunterPlaceFor / jumperPlaceFor / isDnsLike /
+   tagLabel / flagFor / roundLabel / publicLabel / isKillingStatus /
+   judgesGridApplies / championshipMarker. Same modules class.html
+   imports. Single source of truth — adding a method, status code,
+   or flag rule = edit one file per concern, every consumer inherits.
+
+2. SHARED TEMPLATES OWN STANDINGS RENDERING
+   Both pages call WEST.{jumper,hunter}Templates.renderTable(cls, entries).
+   Visual changes (column widths, chip styling, derby bonus format)
+   land in the templates, not the pages. Pages just supply data + cls
+   meta + optional judgeGrid for per-row drop-downs.
+
+3. HUNTER SCORE CARD = ENTRY-FOCUSED VIEW
+   Right side of the on-course block tracks "what entry is being
+   displayed on the scoreboard right now" (driven by frame 12/14/16
+   tags['1']). Different from standings (full leaderboard) —
+   complementary. Operator can see standings + the active entry's
+   detailed scores side by side.
+
+4. INTRO IS A WATCHER-INFERENCE CLONE
+   Page-side mirror of v2 watcher's "entry + no clock + no rank →
+   INTRO" rule. Stable across the engine refactor — when v3 engine
+   ever emits explicit phase markers, the page can switch to those
+   trivially.
+
+5. ROUND DETECTION FROM TA OBSERVATIONS
+   First TA value observed = round 1. Each distinct TA = +1 round.
+   Class change resets. Method-aware label rendering via
+   WEST.format.roundLabel(method, modifier, n) makes "Round 1" /
+   "Phase 2" / "Jump Off" / "Winning Round" all correct per method.
+
+6. SCHEMA-CHANGE STALE-SNAPSHOT TRADE-OFF (S43 lesson)
+   The DO carries snapshots across batches. When a worker deploy
+   changes the wide-shape (e.g. adding e.id to a SELECT), the DO's
+   in-memory snapshot retains the old shape until the next event
+   fires through pullHunter/JumperScoresV3. During active scoring
+   (UDP at 1Hz) this self-resolves within seconds. During idle,
+   stale shape can persist. Mitigation: send a no-op test batch
+   via curl after worker shape changes if a class isn't actively
+   scoring. Bill 2026-05-02 acceptance: "leave it."
+
+NEW FILES (this addendum)
+  (none)
+
+MODIFIED FILES IN THIS ADDENDUM COMMIT
+  west-worker.js                       — class_meta expansion (full cls
+                                         shape for templates),
+                                         pullHunterScoresV3 wide-shape +
+                                         judges + e.id,
+                                         pullJumperScoresV3 wide-shape,
+                                         last_identity batch field +
+                                         DO carry-forward
+  v3/js/west-clock.js                  — INTRO phase, TA tracking,
+                                         round number, new-rider
+                                         re-trigger
+  v3/pages/live.html                   — full v2 design language port,
+                                         identity card with rider,
+                                         INTRO + round label + TA,
+                                         NAT flags, west.css link,
+                                         shared template adoption,
+                                         hunter score card with judge
+                                         breakdown, View Breakdown
+                                         toggle wiring, last_identity
+                                         consumption
+  session-notes/SESSION-NOTES-43.txt   — this third addendum
+
+DEPLOYS THIS ADDENDUM
+
+Worker: deploy.bat — many times. Final state has:
+  - class_meta full cls shape
+  - last_identity batch field
+  - wide-shape entries for both helpers
+  - judge scores in hunter pull
+  - e.id in hunter pull
+
+Pages: deploy via npx wrangler pages deploy --branch=preview — many
+  times. Final live.html state has v2 design language + all the
+  template wiring + judge breakdown + View Breakdown toggles.
+
+Engine: not deployed this addendum.
+
+D1 migrations: none.
+
+DEFERRED / OPEN AT MVP
+
+These don't gate "live page shipped" but are real items to address
+in subsequent sessions:
+
+- VISUAL UNIFICATION — typography is currently mixed (Playfair +
+  Source Sans 3 + DM Mono from page CSS, Lato + Oswald from
+  west.css). Not jarring but not unified. Decision: standardize
+  on one font stack for the page or override west.css table
+  styling to use the v2 fonts inside live.html scope.
+- HUNTER FRAME 11 PAGES B/C — west-format only maps page A. Pages
+  B and C have different meanings per S42 (e.g. {7}=rider in EQ).
+  Engine page-tracking + page-aware label maps still pending.
+- FRAME 13 + 15 — known frame numbers but unmapped meanings. Will
+  surface as raw {N}=value when fired. Capture meanings on first
+  observed live show, add to UDP_TAG_LABELS.
+- METHOD 6 MODIFIER=1 — west-rules.js JUMPER_METHODS table comment
+  notes "mod=1 → [1,2]" but the rule's scoreRounds:[1] doesn't
+  flex on modifier. Display will be approximate for those classes
+  until west-rules is updated (not common — mostly Optimum 1-round).
+- METHOD 14 (TEAM) — TEAM_TEMPLATE delegates to 3R as a stub.
+  Real team-vs-individual layout still TBD per Bill's S34 note.
+- COMBINED-TOTAL OVERRIDE — Ryegate's col[45] follows round-
+  selection display, not true cumulative. Pulled as-is for now;
+  switch to self-computed SUM(rounds) only if real shows surface
+  a wrong-display. Single-line swap in pullHunterScoresV3.
+- MOBILE / SMALL-SCREEN — responsive bumps at 768px+ exist but
+  not stress-tested on phones. Spectator side likely fine
+  (read-only); landscape vs portrait check needed.
+- REAL-SHOW SHADOW RUN — point one ring at v3 live.html alongside
+  v2 live.html for the next show. Catalogue any divergence;
+  prioritize based on visibility vs frequency.
+- ENGINE FRAME-SAMPLE DOC SYNC — engine's Protocol tab discoveries
+  haven't been Export/Imported back to docs/v3-planning/UDP-
+  PROTOCOL-REFERENCE.md. Not critical for live page but valuable
+  ahead of cutover.
+- WS-TEST.HTML — diagnostic page from Chunk 7 still present. Could
+  move to v3/tools/ or delete. No urgency.
+
+HOW TO RESUME (UPDATED FOR MVP)
+
+1. Read this doc top to bottom (Chunks 1-22 included)
+2. Read project_v3_rebuild.md "Session 43 progress" block
+3. State: live page MVP shipped, ready for shadow run alongside v2.
+   v2 stays the production target for upcoming shows; v3 receives
+   real traffic only when an operator opts a ring into it.
+4. Decide direction:
+   - SHADOW RUN AT NEXT SHOW + log issues into the deferred list
+   - VISUAL UNIFICATION pass
+   - METHOD-EDGE-CASE coverage (championships, Method 14, EQ
+     Forced)
+   - MOVE STANDINGS RENDERING INTO west-display.js — currently
+     templates ARE the shared layer, but a future thinner display
+     module could collapse jumper + hunter templates into one
+     dispatch
+   - OBSERVABILITY TABLES — independent from live page; would
+     surface parse warnings + UDP anomalies during real shows
