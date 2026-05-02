@@ -1,0 +1,400 @@
+SESSION-NOTES-43 — Phase 3a + 3b shipped: engine→worker→browser push pipe live
+Date: 2026-05-02
+Branch: main
+Status: clean tree on commit, end-to-end push working in production-flagged-on prod
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+The full UDP-to-spectator push pipe is alive end-to-end in a single session.
+8 chunks shipped across two phases. Bill's "i cant wait a year" timeline
+(per project_websocket_rebuild.md) compressed into a single afternoon
+because the engine groundwork from S42 was already solid.
+
+Subjective verification: Bill's report on the live.html visual after
+WebSocket landed — "so much smoother." The polling jitter that motivated
+3b is gone. Underlying 1Hz data cadence still applies; if sub-second
+visual smoothness becomes a requirement, port v1.11's tickOnCourse /
+applyHeartbeatClock interpolation pattern into a new west-clock.js v3
+module. (Not done this session — flagged as next polish chunk.)
+
+End-to-end pipe today:
+
+  Ryegate UDP (1Hz) →
+  Engine batcher (250ms windows) →
+  POST /v3/postUdpEvent →
+  RingStateDO.fetch('/event') in-memory + KV mirror →
+  RingStateDO broadcasts to every connected WebSocket →
+  live.html receives + renders (~50-100ms after engine sees the frame)
+
+Polling stays as a fallback transport inside live.html (S30 cost-risk note:
+corporate wifi / mobile carriers sometimes block WS).
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — 8 chunks
+═══════════════════════════════════════════════════════════════════════════
+
+PHASE 3a — polling-based pipe (proves event shape + storage path):
+
+CHUNK 1. Engine UDP event batcher
+  ─ v3/engine/main.js
+  ─ EVENT_BATCH_INTERVAL_MS = 250
+  ─ udpEventBatch[] queue with udpEventBatchTimer flush
+  ─ makeUdpEvent(channel, frame, tags) builds canonical event shape:
+      { at, class_id, channel, frame, tags }
+    slug + ring_num NOT per-event — they ride at batch level on the POST
+    body. stopUdpListeners drops in-flight batch on show-switch so a
+    single batch is guaranteed slug/ring-uniform.
+  ─ onChannelA enqueues every Ryegate score frame
+  ─ onChannelB enqueues every focus packet (frame=null on B per
+    UDP-PROTOCOL-REFERENCE)
+  ─ flushUdpEventBatch logs locally (chunk 1 didn't POST yet)
+  ─ State counters: udpBatchFlushCount, udpBatchEventCount,
+    udpLastBatchAt, udpLastBatchSize — surfaced in renderer state snapshot
+
+  Article 1 note baked into makeUdpEvent: lens (jumper / hunter / equitation)
+  is NOT set on the engine side. Engine knows the focus class_id but not
+  the .cls's classType, so the worker resolves lens via classes table.
+
+CHUNK 2. Worker endpoint + storage
+  ─ NEW: v3/migrations/028_udp_events.sql
+      udp_events(id, show_id, ring_num, class_id, channel, frame,
+                 tags TEXT, engine_at, received_at, batch_id)
+      + idx_udp_events_ring_time, idx_udp_events_received
+  ─ NEW: POST /v3/postUdpEvent in west-worker.js
+      Auth via X-West-Key + isV3Enabled gate.
+      Lock check piggybacks on show/ring lookup (S41 pattern: one query
+      pulls id + lock_override + end_date, computeShowLock decides).
+      Locked → HTTP 423 + lockedResponse.
+      Wire shape: { slug, ring_num, events: [...] }
+      KV write: ring-state:{slug}:{ring_num} (10min TTL) — REPLACED in
+      Chunk 6 with DO routing, but the KV format stays the same so the
+      polling reader (Chunk 4) is transport-agnostic.
+      D1 batch insert: every event becomes a row. Skipped on missing
+      channel; logged but not fatal on D1 errors.
+
+  Migration applied via:
+      wrangler d1 execute west-scoring-v3 --file v3/migrations/028_udp_events.sql --remote
+
+  D1 retention: stores EVERY event (no events-only filter yet). Phase 3b
+  was always going to add that natively at the DO layer. Volume observed
+  during testing: ~1Hz × Ryegate active = bounded. Filter premature
+  before we see the firehose at scale.
+
+CHUNK 3. Engine wires the POST
+  ─ v3/engine/main.js
+  ─ flushUdpEventBatch became async, calls workerFetch('/v3/postUdpEvent')
+    after local logging
+  ─ Same gating pattern as postCls: bail early if !configReady() ||
+    !workerWritesAllowed() || showLocked. Heartbeat path still carries
+    lock-release detection.
+  ─ NO retry on dropped batches: each batch is a 250ms slice of live
+    truth, replaying old events confuses snapshot semantics. Next batch
+    arrives in 250ms.
+  ─ NEW state: udpBatchPostOkCount, udpBatchPostFailCount,
+    udpBatchEventsInserted, udpLastPostAt, udpLastPostError
+  ─ Successful POSTs deliberately NOT logged (would be ~14k/hr at 250ms
+    cadence). Only [BATCH POST FAIL] logs. State counters track success.
+
+  Verified via D1: 91 rows after 100s of engine runtime, 89 distinct
+  batch_ids = 1 batch/sec ≈ Ryegate frame rate. Avg ~1 event/batch.
+
+CHUNK 4. Public read endpoint
+  ─ NEW: GET /v3/getRingState?slug=...&ring_num=...
+  ─ Public — no auth, spectator-facing
+  ─ Returns { ok: true, snapshot: <kv-value> | null }
+  ─ Reads ring-state:{slug}:{ring_num} from KV verbatim
+  ─ No edge cache (skipped — premature optimization, can add if traffic
+    ever spikes)
+
+CHUNK 5. Minimal live.html (polling skeleton)
+  ─ NEW: v3/pages/live.html
+  ─ Vanilla HTML/CSS/JS, no framework, dual-environment IIFE-friendly
+    pattern
+  ─ Polls /v3/getRingState every 1s, calls render(snapshot)
+  ─ Status panel (Pipe pill, Last update, Last batch ID, Events in batch)
+  ─ Current Focus panel (Class ID, Last channel, Last frame, Last tags)
+  ─ Recent Events table (newest first, 80-row scrollback cap)
+  ─ Pipe pill: live (<5s) / stale (≥5s) / error (3+ failed polls) / idle
+  ─ Default slug v3-smoke-test-2026-04, ring 1; URL params override
+
+  render() function explicitly designed as transport-agnostic — a
+  contract that survives Chunk 8's WS swap. WS messages and poll
+  responses both call render(snapshot) with identical shapes.
+
+PHASE 3b — Durable Object + WebSocket push (replaces polling delivery):
+
+CHUNK 6. RingStateDO scaffold
+  ─ wrangler.worker.toml:
+      [[durable_objects.bindings]]
+        name = "RING_STATE"
+        class_name = "RingStateDO"
+      [[migrations]]
+        tag = "v1"
+        new_sqlite_classes = ["RingStateDO"]
+    new_sqlite_classes is the modern (2024+) DO declaration, gives
+    SQLite-backed storage by default. We don't actually USE per-DO
+    storage in Chunk 6/7/8 (in-memory + KV mirror is enough for a
+    1-of-1-instance state holder), but it's the recommended modern
+    default.
+  ─ NEW: export class RingStateDO in west-worker.js
+      One instance per (slug, ring_num) — env.RING_STATE.idFromName(`${slug}:${ringNumInt}`).
+      In-memory: this.snapshot
+      Methods: warmUp(slug, ringNum) reads KV if memory is empty
+      fetch handler routes by URL path: '/event' (Chunk 6), '/ws' (Chunk 7)
+  ─ /v3/postUdpEvent now routes through DO instead of writing KV directly:
+      const id = env.RING_STATE.idFromName(`${slug}:${ringNumInt}`);
+      const stub = env.RING_STATE.get(id);
+      stub.fetch('https://do/event', { method: 'POST', body: ... })
+    DO writes the KV mirror, so /v3/getRingState (and Chunk 8 polling
+    fallback) keep working transparently.
+
+  Eviction model: DO evicted on low traffic. New instance starts with
+  null snapshot. KV still has the last good copy. warmUp() re-reads on
+  next event OR on next WS connect (chunk 7).
+
+  Risk lock-in: DOs work in our setup. Wrangler config + binding +
+  migration applied first try, no runtime errors, route-through latency
+  unmeasured but ALSO didn't break anything observable. From here,
+  Chunks 7 and 8 are mostly mechanics.
+
+CHUNK 7. WebSocket fanout
+  ─ DO methods added:
+      webSocketMessage(ws, message)  — no-op for now; clients don't send
+        anything meaningful yet
+      webSocketClose(ws, code, reason, wasClean)  — close cleanup
+      webSocketError(ws, error)  — log
+  ─ DO fetch handler /ws path:
+      WebSocketPair upgrade, this.state.acceptWebSocket(server) — uses
+      HIBERNATION API so connections survive DO eviction (production-cost
+      essential — without hibernation, DO is billed for duration during
+      every open connection)
+      Calls warmUp(slug, ring_num) so first connect to a cold DO sees
+      the latest snapshot from KV
+      Sends initial snapshot (or {type:'idle'} if no data yet)
+  ─ DO /event handler now broadcasts:
+      const wsMessage = JSON.stringify({ type: 'snapshot', data: body });
+      for (const ws of this.state.getWebSockets()) ws.send(wsMessage);
+    Per-socket try/catch — dead sockets get cleaned by runtime.
+  ─ NEW: GET /v3/live?slug=...&ring_num=... in main worker
+      Public, no auth (matches /v3/getRingState).
+      Validates Upgrade: websocket header.
+      Forwards to DO via:
+        const doUrl = `https://do/ws?slug=${encodeURIComponent(slug)}&ring_num=${ringNumInt}`;
+        return stub.fetch(new Request(doUrl, request));
+      `new Request(doUrl, request)` preserves Upgrade headers.
+
+  Verification artifact: NEW v3/pages/ws-test.html — tiny standalone WS
+  test page. Connects, dumps every message to a scrollable log with
+  timestamps. Auto-reconnects on close. Bill verified at 73 messages
+  with live ZEALOUS countdown ticking 23 → 24 → 25 in successive frames.
+
+  Cross-origin WS works without extra config. Browsers don't apply CORS
+  to WS handshakes; the wildcard CORS we already have for fetch handles
+  any incidental preflight.
+
+  Curl probe also confirmed (HTTP/1.1 101 Switching Protocols + correct
+  Sec-WebSocket-Accept + DO sent the warm-up snapshot in the first WS
+  frame after handshake).
+
+CHUNK 8. live.html swaps polling for WS-with-fallback
+  ─ v3/pages/live.html
+  ─ NEW state vars: ws, wsOpen, pollIntervalHandle
+  ─ NEW transport label in Status panel ('websocket' / 'polling (ws
+    reconnecting)' / 'polling (ws timeout)' / 'connecting…')
+  ─ Refactored: pollOnce() is now the polling primitive (was poll()),
+    startPolling() / stopPolling() idempotent wrappers
+  ─ NEW connectWs() builds WebSocket, handles onopen/onmessage/onclose,
+    auto-reconnects after WS_RECONNECT_MS = 5s
+  ─ Boot sequence:
+      setTransport('connecting…')
+      connectWs()                                        // primary
+      setTimeout(() => if (!wsOpen) startPolling(), 2s)  // fallback kick
+  ─ render(snapshot) function unchanged — same contract as Chunk 5
+
+  Visual outcome (Bill's confirmation): "so much smoother." Polling
+  jitter eliminated.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL RULES LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. ENGINE CARRIES NO LENS
+   makeUdpEvent does NOT set lens (jumper / hunter / equitation). Engine
+   knows class_id; worker resolves lens by joining classes.class_type
+   (and eventually class_kind). Per Article 1, lens is determined by the
+   .cls's classType, not by UDP shape.
+
+2. SLUG + RING ARE BATCH-LEVEL, NOT EVENT-LEVEL
+   Each batch is guaranteed slug/ring-uniform because stopUdpListeners
+   drops the in-flight batch on show-switch. No need to repeat slug/ring
+   on every event. Reduces wire payload, simplifies validation.
+
+3. NO RETRY ON DROPPED BATCHES
+   A 250ms-window batch represents live truth at that moment. Replaying
+   stale batches confuses snapshot semantics — next batch arrives in
+   250ms anyway. Engine drops batches when liveScoringPaused, showLocked,
+   or !configReady. Heartbeat carries lock-release detection.
+
+4. DO IS THE SINGLE WRITER
+   /v3/postUdpEvent routes through env.RING_STATE — DO mutates in-memory
+   snapshot AND writes KV mirror. No two-writer race. KV stays the
+   read-fallback surface (polling endpoint + Chunk 8 polling fallback).
+
+5. HIBERNATION IS NON-NEGOTIABLE FOR PRODUCTION COST
+   Without hibernation API, DOs are billed for duration during every
+   open WebSocket. 500 spectators × 8hr × 5 rings would dominate cost.
+   With hibernation, DO is only billed for actual CPU time (when a
+   message processes). Use state.acceptWebSocket(ws), not ws.accept().
+   Use webSocketMessage / webSocketClose / webSocketError handler
+   methods, not addEventListener. Connections survive DO eviction.
+
+6. RENDER() IS THE TRANSPORT-AGNOSTIC CONTRACT
+   Both WS messages and poll responses call render(snapshot) with
+   identical shapes. Future transport changes (SSE, push notifications,
+   anything) just need to feed render(). No UI changes ever.
+
+7. POLLING FALLBACK IS NOT WASTE
+   Some networks (corporate wifi, some mobile carriers) block WebSocket.
+   Polling stays as the live.html fallback for those clients — same
+   /v3/getRingState endpoint, no extra worker code. Polling is also how
+   we cold-warm the page if the WS handshake takes >2s.
+
+═══════════════════════════════════════════════════════════════════════════
+DEPLOYS THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Worker (deploy.bat → production):
+  - Chunk 2 (postUdpEvent + udp_events table)
+  - Chunk 4 (getRingState)
+  - Chunk 6 (RingStateDO + DO migration v1)
+  - Chunk 7 (WS upgrade route + DO broadcast)
+
+Pages (deploy-preview.* → preview.westscoring.pages.dev):
+  - Chunk 5 (live.html v1 polling skeleton)
+  - Chunk 7 (ws-test.html verification page)
+  - Chunk 8 (live.html v2 with WS-first transport)
+
+Engine (npm run build + robocopy → c:\west-engine\):
+  - Chunk 1 (batcher infrastructure, log-only flush)
+  - Chunk 3 (POST wired into flush)
+
+D1 migrations applied to west-scoring-v3 (--remote):
+  - 028_udp_events.sql
+
+═══════════════════════════════════════════════════════════════════════════
+KNOWN BUGS / EDGE CASES
+═══════════════════════════════════════════════════════════════════════════
+
+1. SUB-SECOND VISUAL SMOOTHNESS NOT YET DONE
+   Ryegate sends frame=1 at 1Hz. Even with WS push, displayed clock
+   values change 1×/sec. v1.11's interpolation (tickOnCourse) is the
+   pattern to port — port into a new v3/js/west-clock.js that takes
+   the latest snapshot and ticks at ~30Hz between data points. Not done
+   today — Bill confirmed visual is "so much smoother" without it, but
+   if a real show wants smoothness on par with v2 live.html, this is
+   the chunk.
+
+2. CLS POSTS LOOK 1:1 WITH UDP TICKS DURING STARTUP
+   Misleading correlation — startup re-sync of all .cls files runs at
+   150ms pacing, happens to interleave with UDP batches, but they're
+   independent. Steady state has 0 .cls posts unless Ryegate actually
+   modifies a file. Documented as Bill's question this session.
+
+3. D1 udp_events RETENTION NOT YET FILTERED
+   Stores every event from every batch. Could grow fast. Phase 3b
+   was meant to add events-only filtering at the DO layer; we didn't
+   land it because volume during this session was bounded and the
+   filter design needed real data observation. Add when D1 row count
+   becomes a concern, OR when adding the observability dashboard.
+
+4. WS DOESN'T HOLD LATEST FOCUS BEFORE FIRST CHANNEL B EVENT
+   If a client connects before the engine has emitted any Channel B
+   event, last.class_id might lag the actual operator focus. Becomes
+   non-issue once any focus packet has been seen for the ring.
+
+5. ws-test.html IS A VERIFICATION ARTIFACT, NOT PRODUCTION
+   Useful for sanity-checking WS pipe health, but it's intentionally
+   ugly + not linked from anywhere. Could move to v3/tools/ or delete
+   in a future cleanup. Left for now because it's the simplest "is the
+   WS pipe working?" tool.
+
+6. BATCHER CLEARS ON STOP — events between switch-show and re-bind
+   stopUdpListeners drops the in-flight batch (correct: events tagged
+   with stale slug/ring shouldn't ship). But this is the only
+   guaranteed-clean state — if the operator switches shows mid-frame
+   AND the new ring is on a different Ryegate cycle, the first batch
+   from the new ring may be slightly delayed. Not a bug, just timing.
+
+═══════════════════════════════════════════════════════════════════════════
+FILES TOUCHED — INCLUDED IN SESSION 43 COMMIT
+═══════════════════════════════════════════════════════════════════════════
+
+Modified:
+  v3/engine/main.js
+    - Chunk 1: udpEventBatch, makeUdpEvent, enqueueUdpEvent,
+      flushUdpEventBatch, batch state vars, channel A/B enqueue calls,
+      stopUdpListeners cleanup
+    - Chunk 3: flushUdpEventBatch became async + POSTs via workerFetch,
+      gating identical to postCls
+
+  west-worker.js
+    - Chunk 2: POST /v3/postUdpEvent endpoint
+    - Chunk 4: GET /v3/getRingState endpoint
+    - Chunk 6: export class RingStateDO + /v3/postUdpEvent routes
+      through env.RING_STATE
+    - Chunk 7: DO /ws handler + hibernation handlers + GET /v3/live
+      upgrade route
+
+  wrangler.worker.toml
+    - Chunk 6: [[durable_objects.bindings]] RING_STATE + [[migrations]]
+      v1 new_sqlite_classes RingStateDO
+
+Untracked:
+  v3/migrations/028_udp_events.sql        — Chunk 2
+  v3/pages/live.html                      — Chunks 5 + 8
+  v3/pages/ws-test.html                   — Chunk 7 verification
+
+═══════════════════════════════════════════════════════════════════════════
+HOW TO RESUME
+═══════════════════════════════════════════════════════════════════════════
+
+1. Read this doc
+2. Read project_v3_rebuild.md "Session 43 progress" block (added
+   end-of-session)
+3. Read project_websocket_rebuild.md (now flipped from ACTIVE → SHIPPED
+   for Phase 3a/3b; future flag is interpolation polish + cost monitoring
+   at scale)
+4. Decide direction:
+   - SUB-SECOND CLOCK INTERPOLATION (port v1.11 pattern into
+     v3/js/west-clock.js — only needed if real shows demand it)
+   - LENS-AWARE TAG NAMING (worker enriches snapshot with class_kind
+     from classes table; live.html renders jumper / hunter / equitation
+     vocabulary)
+   - SHARED MODULES (lift live.html rendering into west-format /
+     west-display so it's reusable across pages — sets up v2 visual
+     fidelity port)
+   - OBSERVABILITY (parse_warnings, unknown_quirks, udp_anomalies,
+     audit_events tables — independent, low-stakes, high-leverage)
+   - HUNTER STATS PARITY (carrying from S41 trailing items)
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT NOT TO DO
+═══════════════════════════════════════════════════════════════════════════
+
+- Do not put slug/ring on individual UDP events. They ride at the
+  batch level. stopUdpListeners guarantees uniformity.
+- Do not log successful UDP batch POSTs. ~14k/hr at 250ms cadence —
+  use the state counters, not engine_log lines.
+- Do not retry dropped batches. Each batch is a live-truth slice;
+  replaying old events confuses the snapshot semantics.
+- Do not bypass env.RING_STATE in /v3/postUdpEvent. The DO is the
+  single writer for the KV mirror. Two writers = race conditions.
+- Do not use ws.accept() in the DO. Use this.state.acceptWebSocket(ws)
+  for hibernation. Production cost depends on it.
+- Do not put the lens determination in the engine. Engine knows
+  class_id; lens lives on the worker side via the classes table.
+  Article 1 applies to UDP routing too.
+- Do not assume tag X means the same thing across frames. Article 1
+  generalizes to UDP — see S42 rule 6.

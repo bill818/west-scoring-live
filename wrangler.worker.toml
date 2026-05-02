@@ -35,3 +35,16 @@ database_id = "93f7a6dd-4b4a-4e45-9730-d27aff7dfb19"
 [[r2_buckets]]
 binding = "WEST_R2_CLS"
 bucket_name = "v3-cls"
+
+# Phase 3b — Durable Object per (slug, ring_num) holds live ring state.
+# /v3/postUdpEvent routes through env.RING_STATE.idFromName(`${slug}:${ring}`)
+# instead of writing KV directly. Chunk 6 (this binding): DO mirrors writes
+# to KV so polling clients stay unaffected. Chunk 7 adds WebSocket fanout.
+# Chunk 8 swaps live.html from polling to WS with polling fallback.
+[[durable_objects.bindings]]
+name = "RING_STATE"
+class_name = "RingStateDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RingStateDO"]

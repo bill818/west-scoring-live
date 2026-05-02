@@ -55,6 +55,7 @@ const CLS_STARTUP_SYNC_DELAY_MS = 150;
 const TSKED_DEBOUNCE_MS = 2000;
 const STATE_PUSH_THROTTLE_MS = 250; // never push faster than 4Hz; renderer ticks "Xs ago" on its own
 const RECENT_EVENTS_MAX = 50;
+const EVENT_BATCH_INTERVAL_MS = 250; // Phase 3a — batch UDP events for the worker pipe
 
 let tray = null;
 let win = null;
@@ -97,6 +98,22 @@ let rsserverConnected = false;
 let forwardingPaused = false;    // Scoreboard tab — pauses RSServer relay
 let liveScoringPaused = false;   // Top bar — pauses ALL worker writes
 const recentEvents = [];         // newest first; capped at RECENT_EVENTS_MAX
+
+// Phase 3a — UDP event batcher. Events from both channels queue here and
+// flush every EVENT_BATCH_INTERVAL_MS. The flush handler logs locally AND
+// (Chunk 3) POSTs to /v3/postUdpEvent. Gated by liveScoringPaused +
+// showLocked + configReady — same pattern as postCls / postTsked.
+const udpEventBatch = [];
+let udpEventBatchTimer = null;
+let udpBatchFlushCount = 0;        // # of batches flushed since boot
+let udpBatchEventCount = 0;        // # of events queued since boot
+let udpLastBatchAt = 0;
+let udpLastBatchSize = 0;
+let udpBatchPostOkCount = 0;       // # of successful POSTs
+let udpBatchPostFailCount = 0;     // # of failed POSTs
+let udpBatchEventsInserted = 0;    // sum of events_inserted reported by worker
+let udpLastPostAt = 0;
+let udpLastPostError = null;
 
 // Port auto-detection — read Ryegate's config.dat col[1] like v2 funnel does.
 // detectedInputPort is recomputed on config load; the renderer shows it
@@ -238,6 +255,9 @@ function buildStateSnapshot() {
     clsPostCount, clsPostFailCount, lastClsPostAt, lastClsPostFile, lastClsPostError,
     tskedPostCount, tskedSkipCount, tskedLastPostAt, tskedLastError,
     udpListening, udpFrameCount, lastUdpAt, lastFocusAt,
+    udpBatchFlushCount, udpBatchEventCount, udpLastBatchAt, udpLastBatchSize,
+    udpBatchPostOkCount, udpBatchPostFailCount, udpBatchEventsInserted,
+    udpLastPostAt, udpLastPostError,
     currentFocus,
     rsserverConnected, forwardingPaused, liveScoringPaused,
     recentEvents: recentEvents.slice(0, RECENT_EVENTS_MAX),
@@ -630,6 +650,101 @@ function parseFrameNumber(msg) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+// ── UDP EVENT BATCHER (Phase 3a Chunk 1) ────────────────────────────────────
+//
+// Both UDP channels feed parsed events into this queue. Every
+// EVENT_BATCH_INTERVAL_MS the queue is drained into a "batch" — that batch
+// IS the wire payload that Chunk 3 will POST to /v3/postUdpEvent. Today's
+// flush handler logs only.
+//
+// Article 1 note: lens (jumper / hunter / equitation) is NOT set here. The
+// engine knows the focus class_id but not the .cls's classType, so we
+// leave lens null and let the worker resolve it via the classes table
+// when /v3/postUdpEvent lands. Per-frame meaning still belongs to its
+// frame's lens (S42 rule 6) — never inferred cross-frame on the engine
+// side.
+//
+// slug + ring_num are NOT per-event — they ride at the batch level on the
+// POST body. stopUdpListeners() drops the in-flight batch on show-switch,
+// so a single batch is guaranteed to be slug/ring-uniform.
+function makeUdpEvent(channel, frame, tags) {
+  return {
+    at:       new Date().toISOString(),
+    class_id: (currentFocus && currentFocus.classId) || null,
+    channel,
+    frame:    (frame != null) ? frame : null,
+    tags:     Object.fromEntries(tags.map(t => [t.n, t.v])),
+  };
+}
+
+function enqueueUdpEvent(evt) {
+  udpEventBatch.push(evt);
+  udpBatchEventCount++;
+  if (!udpEventBatchTimer) {
+    udpEventBatchTimer = setTimeout(flushUdpEventBatch, EVENT_BATCH_INTERVAL_MS);
+  }
+}
+
+async function flushUdpEventBatch() {
+  udpEventBatchTimer = null;
+  if (!udpEventBatch.length) return;
+  const batch = udpEventBatch.splice(0, udpEventBatch.length);
+  udpBatchFlushCount++;
+  udpLastBatchAt = Date.now();
+  udpLastBatchSize = batch.length;
+  // One-line summary surfaced to engine_log + recent-events. First few
+  // batches always logged so the operator can see the cadence kicked in;
+  // after that throttle to every 10th to keep the log readable on long runs.
+  const aCount = batch.filter(e => e.channel === 'A').length;
+  const bCount = batch.length - aCount;
+  const first = batch[0];
+  const firstHint = first
+    ? ` first=${first.channel}` + (first.frame != null ? `:fr=${first.frame}` : '')
+    : '';
+  const summary = `batch #${udpBatchFlushCount}: ${batch.length} event(s) (A=${aCount} B=${bCount})${firstHint}`;
+  if (udpBatchFlushCount <= 5 || udpBatchFlushCount % 10 === 0) {
+    log(`[BATCH] ${summary}`);
+  }
+  recordEvent('batch', summary);
+
+  // Phase 3a Chunk 3 — POST to /v3/postUdpEvent. Same gating pattern as
+  // postCls: bail early if no show selected, scoring paused, or lock is
+  // cached (the heartbeat carries lock-release detection — when it
+  // succeeds, workerFetch clears showLocked and the next batch flows).
+  // We DO NOT retry dropped batches: each batch is a 250ms slice of live
+  // truth; replaying old events confuses snapshot semantics. The next
+  // batch is along in 250ms.
+  if (!configReady() || !workerWritesAllowed() || showLocked) return;
+  try {
+    const { res, data } = await workerFetch('/v3/postUdpEvent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-West-Key': config.authKey,
+      },
+      body: JSON.stringify({
+        slug: config.showSlug,
+        ring_num: config.ringNum,
+        events: batch,
+      }),
+    });
+    if (data && data.locked) return;             // workerFetch already set showLocked
+    if (!res.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || `HTTP ${res.status}`);
+    }
+    udpBatchPostOkCount++;
+    udpBatchEventsInserted += (data.events_inserted || 0);
+    udpLastPostAt = Date.now();
+    udpLastPostError = null;
+  } catch (e) {
+    udpBatchPostFailCount++;
+    udpLastPostAt = Date.now();
+    udpLastPostError = e.message;
+    log(`[BATCH POST FAIL] ${e.message}`);
+  }
+  pushState();
+}
+
 function startUdpListeners() {
   stopUdpListeners();
   if (!config) return;
@@ -693,6 +808,11 @@ function stopUdpListeners() {
   udpInSocket = udpFocusSocket = udpOutSocket = null;
   udpListening = false;
   rsserverConnected = false;
+  // Drop the in-flight event batch on teardown — its slug/ring/class_id
+  // metadata may be stale once the operator switches show or restarts the
+  // listeners. Clean state on the new bind.
+  if (udpEventBatchTimer) { clearTimeout(udpEventBatchTimer); udpEventBatchTimer = null; }
+  udpEventBatch.length = 0;
 }
 
 // Channel A — Ryegate scoreboard frames. Forward to RSServer (with
@@ -756,9 +876,13 @@ function onChannelA(msg, rsserverHost, rsserverPort) {
   // Ryegate is firing 1Hz on idle frames, but log every score frame for
   // debugging. Throttle: 1 per second per frame number.
   if (isScore && fr !== null) {
+    const tags = parseFrameTags(msg);
     const detail = `fr=${fr}` +
-      (parseFrameTags(msg).slice(0, 3).map(t => ` {${t.n}}=${t.v.slice(0, 12)}`).join(''));
+      (tags.slice(0, 3).map(t => ` {${t.n}}=${t.v.slice(0, 12)}`).join(''));
     recordEvent('scoring', detail);
+    // Phase 3a Chunk 1 — queue this frame as a batched UDP event. Wire
+    // payload only logged today; Chunk 3 wires the worker POST.
+    enqueueUdpEvent(makeUdpEvent('A', fr, tags));
   }
   pushState();
 }
@@ -796,6 +920,10 @@ function onChannelB(msg) {
     };
   }
   recordEvent('focus', `class=${t27v || '?'}` + (t28v ? ` name=${t28v}` : ''));
+  // Phase 3a Chunk 1 — every focus packet becomes a batched event. Channel
+  // B's frame number isn't meaningful (per UDP-PROTOCOL-REFERENCE.md), so
+  // we pass null. class_id reflects the post-update focus.
+  enqueueUdpEvent(makeUdpEvent('B', null, tags));
   pushState();
 }
 

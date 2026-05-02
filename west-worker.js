@@ -697,6 +697,120 @@ function isAuthed(request, env) {
   return key && key === env.WEST_AUTH_KEY;
 }
 
+// ── RING STATE DURABLE OBJECT (Phase 3b Chunk 6) ────────────────────────────
+// One instance per (slug, ring_num). Holds the latest engine-posted snapshot
+// in memory. The main worker routes /v3/postUdpEvent through here so the DO
+// becomes the authoritative state holder. Chunk 6 keeps reads going through
+// the KV mirror (so /v3/getRingState is unchanged); Chunk 7 will add a
+// WebSocket broadcast and Chunk 8 swaps the page from polling to WS.
+//
+// DO eviction: low-traffic instances get evicted by the runtime. New
+// instances start with null snapshot — KV still has the last good copy, so
+// polling clients are unaffected. We don't proactively re-read KV on
+// construction (lazy); when Chunk 7 lands, a WS client connecting to a
+// cold DO will trigger the warm-up read.
+export class RingStateDO {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.snapshot = null;
+  }
+
+  // Read KV into this.snapshot if we don't have it yet. Used on cold-DO
+  // first event AND on cold-DO first WS connect — keeps the in-memory
+  // snapshot in sync with the durable mirror across evictions.
+  async warmUp(slug, ringNum) {
+    if (this.snapshot) return;
+    try {
+      const raw = await this.env.WEST_LIVE.get(`ring-state:${slug}:${ringNum}`);
+      if (raw) this.snapshot = JSON.parse(raw);
+    } catch (e) {
+      console.log(`[RingStateDO/warmUp] KV read failed: ${e.message}`);
+    }
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    // POST /event — engine batch arriving via /v3/postUdpEvent route.
+    if (request.method === 'POST' && url.pathname === '/event') {
+      let body;
+      try { body = await request.json(); }
+      catch (e) { return new Response('Invalid JSON', { status: 400 }); }
+      this.snapshot = body;
+      // Mirror to KV — /v3/getRingState reads from here, and Chunk 8's
+      // polling fallback needs it when a WS handshake fails.
+      try {
+        await this.env.WEST_LIVE.put(
+          `ring-state:${body.slug}:${body.ring_num}`,
+          JSON.stringify(body),
+          { expirationTtl: 600 }
+        );
+      } catch (e) {
+        console.log(`[RingStateDO] KV put failed for ${body.slug}/${body.ring_num}: ${e.message}`);
+        // In-memory snapshot still updated — WS broadcast still serves
+        // fresh clients regardless.
+      }
+      // Phase 3b Chunk 7 — broadcast to every connected WebSocket. Use
+      // state.getWebSockets() (hibernation API) so the runtime owns the
+      // connection list across DO eviction. Dead sockets get caught by
+      // the per-socket try/catch.
+      const wsMessage = JSON.stringify({ type: 'snapshot', data: body });
+      for (const ws of this.state.getWebSockets()) {
+        try { ws.send(wsMessage); } catch (e) { /* runtime cleans dead */ }
+      }
+      return new Response(JSON.stringify({ ok: true, broadcast_to: this.state.getWebSockets().length }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // GET /ws — WebSocket upgrade for spectator clients.
+    if (url.pathname === '/ws') {
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('Expected WebSocket', { status: 426 });
+      }
+      // slug + ring are passed via URL params from the public /v3/live
+      // route — needed for the warm-up KV read on cold DOs.
+      const slug = url.searchParams.get('slug');
+      const ringNum = url.searchParams.get('ring_num');
+      await this.warmUp(slug, ringNum);
+
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      // Hibernation accept — connection persists across DO eviction.
+      // Server side is what we keep on the DO; client gets returned to
+      // the browser via the upgrade response.
+      this.state.acceptWebSocket(server);
+
+      // Send the initial snapshot as soon as the connection is up so the
+      // client doesn't have to wait for the next engine batch to render.
+      if (this.snapshot) {
+        try { server.send(JSON.stringify({ type: 'snapshot', data: this.snapshot })); }
+        catch (e) { /* if it fails right at handshake, runtime closes it */ }
+      } else {
+        try { server.send(JSON.stringify({ type: 'idle', reason: 'no snapshot yet' })); }
+        catch (e) {}
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    return new Response('not found', { status: 404 });
+  }
+
+  // Hibernation handlers — called by the runtime when an external event
+  // hits a connection. Clients aren't expected to send anything meaningful
+  // in Chunk 7; messages get logged and ignored.
+  webSocketMessage(ws, message) {
+    // No-op for now. Future: client could send "subscribe to filter" or "ping".
+  }
+  webSocketClose(ws, code, reason, wasClean) {
+    try { ws.close(code, 'closing'); } catch (e) {}
+  }
+  webSocketError(ws, error) {
+    console.log(`[RingStateDO] WS error: ${error && error.message || error}`);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url    = new URL(request.url);
@@ -3983,6 +4097,169 @@ export default {
         console.log(`[v3/engineHeartbeat] status auto-promote failed for ${slug}: ${e.message}`);
       }
       return json({ ok: true, received_at, status_promoted: promoted > 0 });
+    }
+
+    // ── POST /v3/postUdpEvent (Phase 3a Chunk 2) ─────────────────────────────
+    // Engine batches UDP events every ~250ms and POSTs them here. Body shape:
+    //   { slug, ring_num, events: [{ at, channel, frame, class_id, tags }, ...] }
+    // We snapshot the batch into KV (ring-state:{slug}:{ring_num}, 10min TTL)
+    // for the public live page to poll, AND append every event into the D1
+    // udp_events table for forensics + future stats. Lock check piggybacks
+    // on the show/ring lookup like engineHeartbeat does. Auth via X-West-Key.
+    if (method === 'POST' && path === '/v3/postUdpEvent') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const { slug, ring_num, events } = body;
+      if (!slug) return err('Missing slug');
+      if (ring_num === undefined || ring_num === null) return err('Missing ring_num');
+      const ringNumInt = parseInt(ring_num, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      if (!Array.isArray(events) || events.length === 0) {
+        return err('events must be a non-empty array');
+      }
+      // Resolve show + ring + lock fields in one round-trip (S41 pattern).
+      let row;
+      try {
+        row = await env.WEST_DB_V3.prepare(`
+          SELECT s.id AS show_id, s.lock_override, s.end_date
+          FROM rings r JOIN shows s ON s.id = r.show_id
+          WHERE s.slug = ? AND r.ring_num = ?
+        `).bind(slug, ringNumInt).first();
+      } catch (e) { return err('DB error: ' + e.message); }
+      if (!row) return err('Unknown show/ring pair', 404);
+      const lk = computeShowLock(row);
+      if (lk.locked) return lockedResponse(lk.reason);
+
+      const received_at = new Date().toISOString();
+      const batchId = crypto.randomUUID();
+      const showId = row.show_id;
+
+      // Snapshot shape — full batch + a `last` pointer so live.html can render
+      // the most recent event without scanning the array.
+      const lastEvent = events[events.length - 1] || null;
+      const snapshot = {
+        slug, ring_num: ringNumInt,
+        received_at,
+        batch_id: batchId,
+        events,
+        last: lastEvent,
+      };
+      // Phase 3b Chunk 6 — route through the Durable Object instead of
+      // writing KV directly. DO is now the authoritative state holder; it
+      // handles the KV mirror so this stays a one-writer model. Chunk 7
+      // will extend the DO to broadcast over WebSocket on each event.
+      try {
+        const id = env.RING_STATE.idFromName(`${slug}:${ringNumInt}`);
+        const stub = env.RING_STATE.get(id);
+        const doResp = await stub.fetch('https://do/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(snapshot),
+        });
+        if (!doResp.ok) {
+          console.log(`[v3/postUdpEvent] DO write status ${doResp.status} for ${slug}/${ringNumInt}`);
+        }
+      } catch (e) {
+        console.log(`[v3/postUdpEvent] DO route failed for ${slug}/${ringNumInt}: ${e.message}`);
+      }
+
+      // D1 batch insert — one row per event. We accept partial validity:
+      // skip events missing required fields rather than rejecting the whole
+      // batch (any operator-visible drop will surface in the response).
+      const stmt = env.WEST_DB_V3.prepare(`
+        INSERT INTO udp_events
+          (show_id, ring_num, class_id, channel, frame, tags, engine_at, received_at, batch_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const ops = [];
+      let skipped = 0;
+      for (const e of events) {
+        if (!e || (e.channel !== 'A' && e.channel !== 'B')) { skipped++; continue; }
+        ops.push(stmt.bind(
+          showId,
+          ringNumInt,
+          e.class_id || null,
+          e.channel,
+          Number.isFinite(e.frame) ? e.frame : null,
+          JSON.stringify(e.tags || {}),
+          e.at || received_at,
+          received_at,
+          batchId,
+        ));
+      }
+      let inserted = 0;
+      let dbError = null;
+      if (ops.length) {
+        try {
+          await env.WEST_DB_V3.batch(ops);
+          inserted = ops.length;
+        } catch (e) {
+          dbError = e.message;
+          console.log(`[v3/postUdpEvent] D1 batch insert failed for ${slug}/${ringNumInt}: ${e.message}`);
+        }
+      }
+
+      return json({
+        ok: true,
+        received_at,
+        batch_id: batchId,
+        events_received: events.length,
+        events_inserted: inserted,
+        events_skipped: skipped,
+        db_error: dbError,
+      });
+    }
+
+    // ── GET /v3/live (Phase 3b Chunk 7) — WebSocket push ─────────────────────
+    // Spectator endpoint. Upgrades to WebSocket and forwards to the
+    // RingStateDO instance for that (slug, ring) pair. The DO accepts via
+    // the hibernation API, sends an initial snapshot, then broadcasts on
+    // every new event arriving through /v3/postUdpEvent. Public — no auth
+    // (matches /v3/getRingState, spectator-facing).
+    if (path === '/v3/live') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return err('Expected WebSocket', 426);
+      }
+      const slug = url.searchParams.get('slug');
+      const ringNumRaw = url.searchParams.get('ring_num');
+      if (!slug) return err('Missing slug');
+      if (ringNumRaw === null || ringNumRaw === '') return err('Missing ring_num');
+      const ringNumInt = parseInt(ringNumRaw, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      const id = env.RING_STATE.idFromName(`${slug}:${ringNumInt}`);
+      const stub = env.RING_STATE.get(id);
+      // Forward the original request (Upgrade header preserved). Rewrite
+      // the URL so the DO's internal router sees /ws and the slug+ring
+      // params it needs for warm-up.
+      const doUrl = `https://do/ws?slug=${encodeURIComponent(slug)}&ring_num=${ringNumInt}`;
+      return stub.fetch(new Request(doUrl, request));
+    }
+
+    // ── GET /v3/getRingState (Phase 3a Chunk 4) ──────────────────────────────
+    // Public read path for the live page. No auth — spectator-facing. Returns
+    // the latest engine-posted snapshot from KV (ring-state:{slug}:{ring_num}),
+    // or {snapshot: null} if nothing's been posted (or the 10-min TTL expired).
+    // Phase 3b replaces this with a Durable Object + WebSocket push, but the
+    // shape stays similar so live.html's render code keeps working.
+    if (method === 'GET' && path === '/v3/getRingState') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      const slug = url.searchParams.get('slug');
+      const ringNumRaw = url.searchParams.get('ring_num');
+      if (!slug) return err('Missing slug');
+      if (ringNumRaw === null || ringNumRaw === '') return err('Missing ring_num');
+      const ringNumInt = parseInt(ringNumRaw, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      let snapshot = null;
+      try {
+        const raw = await env.WEST_LIVE.get(`ring-state:${slug}:${ringNumInt}`);
+        if (raw) snapshot = JSON.parse(raw);
+      } catch (e) {
+        return err('KV error: ' + e.message);
+      }
+      return json({ ok: true, snapshot });
     }
 
     // ── POST /v3/updateRing ──────────────────────────────────────────────────

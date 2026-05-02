@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST v3 — Live (skeleton)</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Phase 3a Chunk 5 — minimal live skeleton. Visual polish is a separate
+     pass; today's job is "prove the polling pipe renders fresh data". */
+  :root {
+    --bg: #111;
+    --panel: #1a1a1a;
+    --line: #2a2a2a;
+    --fg: #eaeaea;
+    --muted: #888;
+    --accent: #d4a017;     /* gold = active */
+    --ok: #4caf50;
+    --warn: #f0a000;
+    --bad: #d04040;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+               font-family: 'DM Mono', ui-monospace, Consolas, monospace; }
+  body { padding: 12px; max-width: 980px; margin: 0 auto; }
+  h1 { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 20px;
+       margin: 0 0 12px; letter-spacing: 0.04em; }
+  h1 .slug { color: var(--accent); }
+  h1 .ring { color: var(--muted); font-weight: 500; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+  .panel h2 { font-family: 'Oswald', sans-serif; font-size: 13px;
+              text-transform: uppercase; letter-spacing: 0.08em;
+              color: var(--muted); margin: 0 0 8px; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px;
+          font-size: 14px; }
+  .grid .k { color: var(--muted); }
+  .grid .v { color: var(--fg); word-break: break-word; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
+          font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+          background: var(--line); color: var(--fg); }
+  .pill.ok   { background: #1e3a1e; color: var(--ok); }
+  .pill.warn { background: #3a2e0e; color: var(--warn); }
+  .pill.bad  { background: #3a1414; color: var(--bad); }
+  .events { font-size: 12px; max-height: 360px; overflow-y: auto; }
+  .events table { width: 100%; border-collapse: collapse; }
+  .events th, .events td { padding: 4px 6px; text-align: left;
+                           border-bottom: 1px solid var(--line); }
+  .events th { color: var(--muted); font-weight: 500; font-size: 11px;
+               text-transform: uppercase; letter-spacing: 0.05em; }
+  .events .ch-A { color: #6cbcf0; }
+  .events .ch-B { color: #c47cf0; }
+  .tags { color: var(--muted); font-size: 11px; }
+  .empty { color: var(--muted); font-style: italic; padding: 20px;
+           text-align: center; }
+  .footer { color: var(--muted); font-size: 11px; margin-top: 16px;
+            text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>
+  WEST · <span class="slug" id="ringSlug">…</span>
+  <span class="ring">· Ring <span id="ringNum">…</span></span>
+</h1>
+
+<div class="panel">
+  <h2>Status</h2>
+  <div class="grid">
+    <div class="k">Pipe</div>          <div class="v"><span class="pill" id="pipePill">…</span></div>
+    <div class="k">Transport</div>     <div class="v" id="transportLabel">—</div>
+    <div class="k">Last update</div>   <div class="v" id="lastUpdate">—</div>
+    <div class="k">Last batch</div>    <div class="v" id="lastBatchId">—</div>
+    <div class="k">Events in batch</div><div class="v" id="batchSize">—</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Current Focus</h2>
+  <div class="grid">
+    <div class="k">Class ID</div>      <div class="v" id="focusClass">—</div>
+    <div class="k">Last channel</div>  <div class="v" id="lastChannel">—</div>
+    <div class="k">Last frame</div>    <div class="v" id="lastFrame">—</div>
+    <div class="k">Last tags</div>     <div class="v tags" id="lastTags">—</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Recent Events <span class="tags" id="eventsCount"></span></h2>
+  <div class="events" id="eventsBox">
+    <div class="empty">Waiting for engine batches…</div>
+  </div>
+</div>
+
+<div class="footer">
+  v3 live · WebSocket primary · polling fallback ·
+  <a href="?slug=v3-smoke-test-2026-04&amp;ring_num=1" style="color:var(--muted);">test ring</a>
+</div>
+
+<script>
+(function() {
+  // Phase 3b Chunk 8 — WS push primary, polling fallback. The render()
+  // function is the transport-agnostic contract: WS messages and poll
+  // responses both call it with a snapshot. UI never knows which delivered.
+  var BASE    = 'https://west-worker.bill-acb.workers.dev';
+  var WS_BASE = 'wss://west-worker.bill-acb.workers.dev';
+  var POLL_MS = 1000;
+  var WS_RECONNECT_MS = 5000;
+  var WS_INITIAL_TIMEOUT_MS = 2000;  // if WS hasn't opened by this, kick polling
+
+  var qs = new URLSearchParams(location.search);
+  var slug    = qs.get('slug')     || 'v3-smoke-test-2026-04';
+  var ringNum = qs.get('ring_num') || '1';
+
+  document.getElementById('ringSlug').textContent = slug;
+  document.getElementById('ringNum').textContent  = ringNum;
+
+  var $ = function(id) { return document.getElementById(id); };
+
+  var consecutiveErrors = 0;
+
+  function ageString(iso) {
+    if (!iso) return '—';
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '—';
+    var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 60)  return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+
+  function tagString(tags) {
+    if (!tags || typeof tags !== 'object') return '—';
+    var ks = Object.keys(tags);
+    if (!ks.length) return '(empty)';
+    return ks.sort(function(a, b) { return Number(a) - Number(b); })
+      .map(function(k) { return '{' + k + '}=' + String(tags[k]).slice(0, 24); })
+      .join(' ');
+  }
+
+  function setPipe(state) {
+    var pill = $('pipePill');
+    pill.className = 'pill';
+    if (state === 'live')      { pill.classList.add('ok');   pill.textContent = 'live';   }
+    else if (state === 'stale'){ pill.classList.add('warn'); pill.textContent = 'stale';  }
+    else if (state === 'error'){ pill.classList.add('bad');  pill.textContent = 'error';  }
+    else                       { pill.classList.add('warn'); pill.textContent = 'idle';   }
+  }
+
+  function render(snapshot) {
+    if (!snapshot) {
+      setPipe('idle');
+      $('lastUpdate').textContent  = '—';
+      $('lastBatchId').textContent = '—';
+      $('batchSize').textContent   = '—';
+      $('focusClass').textContent  = '—';
+      $('lastChannel').textContent = '—';
+      $('lastFrame').textContent   = '—';
+      $('lastTags').textContent    = '—';
+      $('eventsCount').textContent = '';
+      $('eventsBox').innerHTML     = '<div class="empty">Waiting for engine batches…</div>';
+      return;
+    }
+
+    // Freshness — anything older than 5s is "stale" given 1s engine cadence.
+    var ageSec = snapshot.received_at
+      ? Math.max(0, (Date.now() - Date.parse(snapshot.received_at)) / 1000) : Infinity;
+    setPipe(ageSec < 5 ? 'live' : 'stale');
+
+    $('lastUpdate').textContent  = ageString(snapshot.received_at);
+    $('lastBatchId').textContent = (snapshot.batch_id || '—').slice(0, 8) + '…';
+    $('batchSize').textContent   = (snapshot.events && snapshot.events.length) || 0;
+
+    var last = snapshot.last;
+    if (last) {
+      $('focusClass').textContent  = last.class_id || '—';
+      $('lastChannel').textContent = last.channel || '—';
+      $('lastFrame').textContent   = (last.frame !== null && last.frame !== undefined)
+        ? String(last.frame) : '—';
+      $('lastTags').textContent    = tagString(last.tags);
+    } else {
+      $('focusClass').textContent  = '—';
+      $('lastChannel').textContent = '—';
+      $('lastFrame').textContent   = '—';
+      $('lastTags').textContent    = '—';
+    }
+
+    // Events table — newest first.
+    var events = (snapshot.events || []).slice().reverse();
+    $('eventsCount').textContent = '(' + events.length + ' in last batch)';
+    if (!events.length) {
+      $('eventsBox').innerHTML = '<div class="empty">No events in latest batch.</div>';
+    } else {
+      var rows = events.map(function(e) {
+        var time = e.at ? new Date(e.at).toISOString().slice(11, 23) : '—';
+        var chCls = e.channel === 'A' ? 'ch-A' : 'ch-B';
+        var fr = (e.frame !== null && e.frame !== undefined) ? 'fr=' + e.frame : '';
+        return '<tr>' +
+          '<td>' + time + '</td>' +
+          '<td class="' + chCls + '">' + (e.channel || '—') + '</td>' +
+          '<td>' + fr + '</td>' +
+          '<td>' + (e.class_id || '—') + '</td>' +
+          '<td class="tags">' + tagString(e.tags) + '</td>' +
+          '</tr>';
+      }).join('');
+      $('eventsBox').innerHTML =
+        '<table><thead><tr>' +
+          '<th>at</th><th>ch</th><th>frame</th><th>class</th><th>tags</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+  }
+
+  // ── Transport state ───────────────────────────────────────────────────────
+  var ws = null;
+  var wsOpen = false;
+  var pollIntervalHandle = null;
+
+  function setTransport(label) {
+    $('transportLabel').textContent = label;
+  }
+
+  // ── Polling fallback ──────────────────────────────────────────────────────
+  function pollOnce() {
+    var u = BASE + '/v3/getRingState?slug=' + encodeURIComponent(slug) +
+            '&ring_num=' + encodeURIComponent(ringNum);
+    fetch(u, { cache: 'no-store' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        consecutiveErrors = 0;
+        if (!data || data.ok !== true) throw new Error(data && data.error || 'bad payload');
+        render(data.snapshot || null);
+      })
+      .catch(function(e) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 3) setPipe('error');
+        // Keep the last good frame visible on transient error.
+      });
+  }
+  function startPolling() {
+    if (pollIntervalHandle) return;
+    pollOnce();
+    pollIntervalHandle = setInterval(pollOnce, POLL_MS);
+  }
+  function stopPolling() {
+    if (pollIntervalHandle) { clearInterval(pollIntervalHandle); pollIntervalHandle = null; }
+  }
+
+  // ── WebSocket primary ─────────────────────────────────────────────────────
+  function connectWs() {
+    var url = WS_BASE + '/v3/live?slug=' + encodeURIComponent(slug) +
+              '&ring_num=' + encodeURIComponent(ringNum);
+    try { ws = new WebSocket(url); }
+    catch (e) {
+      // Browser couldn't even start the connection — go straight to polling.
+      setTransport('polling (ws unavailable)');
+      startPolling();
+      setTimeout(connectWs, WS_RECONNECT_MS);
+      return;
+    }
+    ws.onopen = function() {
+      wsOpen = true;
+      consecutiveErrors = 0;
+      setTransport('websocket');
+      stopPolling();   // WS is the source of truth while open
+    };
+    ws.onmessage = function(ev) {
+      try {
+        var msg = JSON.parse(ev.data);
+        if (msg.type === 'snapshot' && msg.data) render(msg.data);
+        else if (msg.type === 'idle') render(null);
+      } catch (e) {
+        // Bad JSON — ignore, keep last good frame.
+      }
+    };
+    ws.onerror = function() { /* close will follow with details */ };
+    ws.onclose = function() {
+      wsOpen = false;
+      setTransport('polling (ws reconnecting)');
+      // Fall back to polling so spectators don't see a frozen page.
+      startPolling();
+      setTimeout(connectWs, WS_RECONNECT_MS);
+    };
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  setTransport('connecting…');
+  connectWs();
+  // If WS hasn't opened in WS_INITIAL_TIMEOUT_MS, kick polling so the page
+  // shows data fast on slow / blocking networks. WS will take over the
+  // moment it opens (stopPolling runs in onopen).
+  setTimeout(function() {
+    if (!wsOpen) {
+      setTransport('polling (ws timeout)');
+      startPolling();
+    }
+  }, WS_INITIAL_TIMEOUT_MS);
+})();
+</script>
+</body>
+</html>

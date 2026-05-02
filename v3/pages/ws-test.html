@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WEST v3 — WS Test (Chunk 7)</title>
+<style>
+  body { background: #111; color: #eaeaea; font-family: ui-monospace, Consolas, monospace;
+         padding: 16px; max-width: 980px; margin: 0 auto; font-size: 13px; }
+  h1 { font-size: 16px; margin: 0 0 12px; color: #d4a017; }
+  .status { padding: 6px 10px; border-radius: 4px; display: inline-block;
+            margin-bottom: 12px; }
+  .status.connecting { background: #3a2e0e; color: #f0a000; }
+  .status.open       { background: #1e3a1e; color: #4caf50; }
+  .status.closed     { background: #3a1414; color: #d04040; }
+  .status.error      { background: #3a1414; color: #d04040; }
+  .meta { color: #888; margin-bottom: 12px; }
+  .log { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px;
+         padding: 10px; max-height: 600px; overflow-y: auto; }
+  .entry { padding: 4px 0; border-bottom: 1px solid #2a2a2a; }
+  .entry:last-child { border-bottom: 0; }
+  .entry .t { color: #888; margin-right: 8px; }
+  .entry .k { color: #d4a017; }
+  .entry pre { margin: 4px 0 0 60px; color: #c0c0c0; font-size: 11px;
+               white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+  <h1>WS test · <span id="ringSlug">…</span> · ring <span id="ringNum">…</span></h1>
+  <div id="status" class="status connecting">CONNECTING…</div>
+  <div class="meta">
+    Total messages: <span id="msgCount">0</span> ·
+    Last: <span id="lastTime">—</span>
+  </div>
+  <div id="log" class="log"></div>
+
+<script>
+(function() {
+  var WS_BASE = 'wss://west-worker.bill-acb.workers.dev/v3/live';
+  var qs = new URLSearchParams(location.search);
+  var slug    = qs.get('slug')     || 'v3-smoke-test-2026-04';
+  var ringNum = qs.get('ring_num') || '1';
+
+  document.getElementById('ringSlug').textContent = slug;
+  document.getElementById('ringNum').textContent  = ringNum;
+
+  var $status   = document.getElementById('status');
+  var $msgCount = document.getElementById('msgCount');
+  var $lastTime = document.getElementById('lastTime');
+  var $log      = document.getElementById('log');
+
+  function setStatus(state, text) {
+    $status.className = 'status ' + state;
+    $status.textContent = text;
+  }
+
+  function addEntry(label, payload) {
+    var div = document.createElement('div');
+    div.className = 'entry';
+    div.innerHTML =
+      '<span class="t">' + new Date().toLocaleTimeString('en-US', { hour12: false }) +
+      '.' + String(Date.now() % 1000).padStart(3, '0') + '</span>' +
+      '<span class="k">' + label + '</span>' +
+      (payload ? '<pre>' + escapeHtml(payload) + '</pre>' : '');
+    $log.insertBefore(div, $log.firstChild);
+    while ($log.children.length > 80) $log.removeChild($log.lastChild);
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>]/g, function(c) {
+      return c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;';
+    });
+  }
+
+  var msgCount = 0;
+  function connect() {
+    setStatus('connecting', 'CONNECTING…');
+    var url = WS_BASE +
+      '?slug=' + encodeURIComponent(slug) +
+      '&ring_num=' + encodeURIComponent(ringNum);
+    var ws = new WebSocket(url);
+    ws.onopen = function() {
+      setStatus('open', 'OPEN — ' + url);
+      addEntry('open', '');
+    };
+    ws.onmessage = function(ev) {
+      msgCount++;
+      $msgCount.textContent = msgCount;
+      $lastTime.textContent = new Date().toLocaleTimeString();
+      var pretty = ev.data;
+      try { pretty = JSON.stringify(JSON.parse(ev.data), null, 2); } catch (e) {}
+      addEntry('message', pretty);
+    };
+    ws.onerror = function(ev) {
+      setStatus('error', 'ERROR');
+      addEntry('error', String(ev));
+    };
+    ws.onclose = function(ev) {
+      setStatus('closed', 'CLOSED — code=' + ev.code + ' reason=' + (ev.reason || '(none)'));
+      addEntry('close', 'code=' + ev.code + ' reason=' + (ev.reason || '(none)'));
+      // Auto-reconnect after 2s — useful for keeping the test running.
+      setTimeout(connect, 2000);
+    };
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>
