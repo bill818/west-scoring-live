@@ -795,6 +795,11 @@
         if (window.WEST.format.judgesGridApplies(currentClassMeta)) {
           var nJudges = Number(currentClassMeta.num_judges) || 1;
           var nRoundsHs = Math.max(1, Number(currentClassMeta.num_rounds) || 1);
+          // Ranks come from D1 — judge_round_rank, round_overall_rank,
+          // judge_card rank — computed at /v3/postCls time by
+          // computeJudgeGridRanks (worker) and pulled through
+          // pullHunterScoresV3. Single source of truth so live + class
+          // + future surfaces all show the same place numbers.
           gridData = { rows: hs.map(function(e) {
             var rounds = [];
             for (var rn = 1; rn <= nRoundsHs; rn++) {
@@ -808,14 +813,14 @@
                   base:  jrec ? jrec.base : null,
                   hiopt: jrec ? jrec.hiopt : null,
                   handy: jrec ? jrec.handy : null,
-                  rank:  null,
+                  rank:  jrec ? jrec.judge_round_rank : null,
                 });
               }
               rounds.push({
                 round: rn,
                 status: e['r' + rn + '_h_status'],
                 total: e['r' + rn + '_score_total'],
-                overallRank: null,
+                overallRank: e['r' + rn + '_overall_rank'] || null,
                 judges: judgeArr,
               });
             }
@@ -825,7 +830,7 @@
               horse_name: e.horse_name,
               rider_name: e.rider_name,
               rounds: rounds,
-              judgeCards: [],
+              judgeCards: e.judge_cards || [],
               combined: e.combined_total,
             };
           })};

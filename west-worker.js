@@ -99,15 +99,18 @@ async function pullHunterScoresV3(env, classPk) {
       SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
              e.country_code, e.sire, e.dam,
              ehs.current_place, ehs.combined_total,
-             r1.total          AS r1_score_total,
-             r1.status         AS r1_h_status,
-             r1.numeric_status AS r1_h_numeric_status,
-             r2.total          AS r2_score_total,
-             r2.status         AS r2_h_status,
-             r2.numeric_status AS r2_h_numeric_status,
-             r3.total          AS r3_score_total,
-             r3.status         AS r3_h_status,
-             r3.numeric_status AS r3_h_numeric_status
+             r1.total              AS r1_score_total,
+             r1.status             AS r1_h_status,
+             r1.numeric_status     AS r1_h_numeric_status,
+             r1.round_overall_rank AS r1_overall_rank,
+             r2.total              AS r2_score_total,
+             r2.status             AS r2_h_status,
+             r2.numeric_status     AS r2_h_numeric_status,
+             r2.round_overall_rank AS r2_overall_rank,
+             r3.total              AS r3_score_total,
+             r3.status             AS r3_h_status,
+             r3.numeric_status     AS r3_h_numeric_status,
+             r3.round_overall_rank AS r3_overall_rank
       FROM entries e
       LEFT JOIN entry_hunter_summary ehs ON ehs.entry_id = e.id
       LEFT JOIN entry_hunter_rounds r1 ON r1.entry_id = e.id AND r1.round = 1
@@ -127,28 +130,21 @@ async function pullHunterScoresV3(env, classPk) {
     // judges for this class in one query, then group by entry_id.
     if (rows.length) {
       try {
+        const byEntryId = new Map();
+        for (const row of rows) byEntryId.set(row.id, row);
+        // Per-judge per-round score + rank from D1 (rank computed at
+        // /v3/postCls time by computeJudgeGridRanks).
         const j = await env.WEST_DB_V3.prepare(`
           SELECT e.id AS entry_id, ehjs.round, ehjs.judge_idx,
-                 ehjs.base_score, ehjs.high_options, ehjs.handy_bonus
+                 ehjs.base_score, ehjs.high_options, ehjs.handy_bonus,
+                 ehjs.judge_round_rank
           FROM entries e
           JOIN entry_hunter_judge_scores ehjs ON ehjs.entry_id = e.id
           WHERE e.class_id = ?
           ORDER BY e.id, ehjs.round, ehjs.judge_idx
         `).bind(classPk).all();
-        const byEntryNum = new Map();
-        for (const row of rows) byEntryNum.set(String(row.entry_num), row);
-        // Need entry_num lookup back from entry_id — do a quick join.
-        const idToEntryNum = await env.WEST_DB_V3.prepare(
-          'SELECT id, entry_num FROM entries WHERE class_id = ?'
-        ).bind(classPk).all();
-        const idMap = new Map();
-        for (const row of (idToEntryNum.results || [])) {
-          idMap.set(row.id, String(row.entry_num));
-        }
         for (const judge of (j.results || [])) {
-          const en = idMap.get(judge.entry_id);
-          if (!en) continue;
-          const entry = byEntryNum.get(en);
+          const entry = byEntryId.get(judge.entry_id);
           if (!entry) continue;
           if (!entry.judges) entry.judges = [];
           entry.judges.push({
@@ -157,6 +153,27 @@ async function pullHunterScoresV3(env, classPk) {
             base:  judge.base_score,
             hiopt: judge.high_options,
             handy: judge.handy_bonus,
+            judge_round_rank: judge.judge_round_rank,
+          });
+        }
+        // Per-judge cumulative across rounds + rank — for the judgeCards
+        // row at the bottom of the dropdown grid in multi-round classes.
+        const cards = await env.WEST_DB_V3.prepare(`
+          SELECT e.id AS entry_id, ehjc.judge_idx,
+                 ehjc.card_total, ehjc.card_rank
+          FROM entries e
+          JOIN entry_hunter_judge_cards ehjc ON ehjc.entry_id = e.id
+          WHERE e.class_id = ?
+          ORDER BY e.id, ehjc.judge_idx
+        `).bind(classPk).all();
+        for (const card of (cards.results || [])) {
+          const entry = byEntryId.get(card.entry_id);
+          if (!entry) continue;
+          if (!entry.judge_cards) entry.judge_cards = [];
+          entry.judge_cards.push({
+            idx:   card.judge_idx,
+            total: card.card_total,
+            rank:  card.card_rank,
           });
         }
       } catch (e) {
