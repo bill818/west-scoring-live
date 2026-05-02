@@ -1,0 +1,955 @@
+/* WEST Engine renderer — vanilla CSS matching the v3 visual language
+   (Oswald display, Lato body, DM Mono labels). Operator-focused; no
+   web-page chrome (this is an Electron tray app). */
+
+:root {
+  --black: #1c1c1c;
+  --off-black: #2a2a2a;
+  --red: #d12424;
+  --red-tint: #fff4f4;
+  --green: #2ea043;
+  --amber: #c47b00;
+  --gray: #b0b0b0;
+  --border: #d8d8d8;
+  --off-white: #f6f6f6;
+  --text-body: #2a2a2a;
+  --text-muted: #777;
+  --blue: #1f6feb;
+  --card-radius: 6px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: var(--text-body);
+  background: var(--off-white);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* TOP BAR ───────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--black);
+  color: #fff;
+  border-bottom: 3px solid var(--red);
+  flex-shrink: 0;
+}
+.brand { display: flex; align-items: center; gap: 8px; }
+.brand-logo { width: 22px; height: 22px; }
+.brand-name { font-family: 'Oswald', 'Segoe UI', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: .04em; }
+.brand-sep { color: var(--red); font-weight: 700; }
+.brand-tag { font-family: 'DM Mono', 'Consolas', monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #d8d8d8; }
+
+.show-selector {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+}
+.show-current {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.show-current-label {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #b0b0b0;
+}
+.show-current-value {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+}
+
+.conn-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gray);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.conn-dot.ok    { background: var(--green); box-shadow: 0 0 6px rgba(46,160,67,.5); }
+.conn-dot.warn  { background: var(--amber); }
+.conn-dot.fail  { background: var(--red); }
+.conn-dot.idle  { background: var(--gray); opacity: .5; }
+
+/* TOP BAR PAUSE BUTTON — operator-facing kill switch for worker writes */
+.btn-pause-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #fff;
+  color: var(--text-body);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+.btn-pause-live:hover { border-color: var(--amber); color: var(--amber); }
+.btn-pause-live.is-paused {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #fff;
+}
+.btn-pause-live.is-paused:hover { background: #a86600; border-color: #a86600; color: #fff; }
+.btn-pause-icon { font-size: 12px; }
+
+/* BANNERS — unified lock / empty / paused ───────────────────────────────── */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+/* `display: flex` above wins over the browser's default
+   `[hidden] { display: none }` — explicit override keeps the
+   hidden attribute working as expected. */
+.banner[hidden] { display: none; }
+.banner-lock   { background: var(--red);     color: #fff; }
+.banner-empty  { background: #fff8e1;        color: var(--amber); border-bottom: 1px solid #f0d090; }
+.banner-paused { background: #fff3d0;        color: var(--amber); border-bottom: 1px solid #f0c870; }
+.banner-icon   { font-size: 14px; }
+.banner-lock   .btn-link { color: #fff;        text-decoration: underline; }
+.banner-empty  .btn-link { color: var(--amber); }
+.banner-paused .btn-link { color: var(--amber); }
+
+/* TABS ──────────────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 0;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+.tab {
+  background: none;
+  border: none;
+  padding: 12px 20px;
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: color .12s, border-color .12s;
+  margin-bottom: -1px; /* pulls the active border over the bottom-border of .tabs */
+}
+.tab:hover { color: var(--text-body); }
+.tab.is-active {
+  color: var(--red);
+  border-bottom-color: var(--red);
+}
+.tab-pane[hidden] { display: none; }
+.tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* CONTENT — vertical scrolling sections ──────────────────────────────────── */
+.content {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.pane {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  padding: 14px 16px;
+}
+.pane-title {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-body);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pane-title-hint {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  font-weight: normal;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  text-transform: none;
+}
+
+/* CURRENT FOCUS PANE ─────────────────────────────────────────────────────── */
+.focus-empty {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 12px 0;
+}
+.focus-body.has-focus {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+.focus-class-num {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  color: var(--red);
+}
+.focus-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.focus-class-name {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--black);
+}
+.focus-meta {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.focus-when {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* STATUS PANE — grid of stat cells ───────────────────────────────────────── */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--off-white);
+  border-radius: 4px;
+}
+.stat-label {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.stat-val {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 13px;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+.stat-val.ok    { color: var(--green); }
+.stat-val.fail  { color: var(--red); }
+.stat-val.warn  { color: var(--amber); }
+.stat-val.idle  { color: var(--text-muted); }
+
+/* EVENTS PANE — scrollable list of recent UDP events ─────────────────────── */
+.events-empty {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 12px 0;
+}
+.events-body.has-events {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.event-row {
+  display: grid;
+  grid-template-columns: 70px 80px 1fr;
+  gap: 10px;
+  padding: 3px 0;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  align-items: baseline;
+  border-bottom: 1px dashed #eee;
+}
+.event-time { color: var(--text-muted); font-size: 10px; }
+.event-type { font-weight: 600; }
+.event-type.scoring   { color: var(--blue); }
+.event-type.focus     { color: var(--amber); }
+.event-type.intro     { color: var(--amber); }
+.event-type.oncourse  { color: var(--amber); }
+.event-type.final     { color: var(--red); }
+.event-type.unknown   { color: var(--text-muted); }
+.event-detail { color: var(--text-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* CONTROLS PANE — manual buttons ─────────────────────────────────────────── */
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* SCOREBOARD TAB — funnel features absorbed into the engine ─────────────── */
+.sb-routing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sb-route {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  background: var(--off-white);
+  border-radius: 4px;
+}
+.sb-route-label {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb-route-val {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 18px;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+.sb-route-source {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.sb-routing-actions {
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.sb-feature-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eee;
+}
+.sb-feature-row:last-of-type { border-bottom: none; }
+.sb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sb-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--red);
+  cursor: pointer;
+}
+.sb-feature-hint {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.sb-features-status {
+  margin-top: 10px;
+  text-align: right;
+  min-height: 14px;
+}
+.sb-stub-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* PROTOCOL TAB — Ryegate UDP frame map ──────────────────────────────────── */
+.proto-intro {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.proto-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+}
+.proto-legend-desc {
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+.proto-channel-hdr {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  margin: 0 0 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-body);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.proto-channel-port {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: normal;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+.proto-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.proto-frame {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: var(--off-white);
+  border-left: 3px solid var(--gray);
+}
+.proto-frame.status-mapped  { border-left-color: var(--green); }
+.proto-frame.status-ignored { border-left-color: var(--amber); }
+.proto-frame.status-unknown { border-left-color: var(--gray); opacity: .8; }
+.proto-frame-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.proto-frame-num {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--red);
+  min-width: 80px;
+}
+.proto-frame-name {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  flex: 1;
+}
+.proto-frame-lens {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+.proto-frame-lens.lens-jumper { background: #e6f3ff; color: #1f6feb; }
+.proto-frame-lens.lens-hunter { background: #fff0e6; color: #c05621; }
+.proto-frame-lens.lens-both   { background: #efefef; color: var(--text-muted); }
+.proto-status {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+.proto-status.status-mapped  { background: #d3f0d8; color: #1a7a32; }
+.proto-status.status-ignored { background: #fff3d0; color: var(--amber); }
+.proto-status.status-unknown { background: #ececec; color: var(--text-muted); }
+.proto-frame-purpose {
+  font-family: 'Lato', sans-serif;
+  font-size: 12px;
+  color: var(--text-body);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.proto-tags {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 4px 14px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.proto-tag {
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  gap: 8px;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+}
+.proto-tag-num {
+  color: var(--red);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.proto-tag-desc { color: var(--text-body); }
+.proto-no-tags {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding-top: 4px;
+}
+
+/* Editable affordances — orange dotted underline = "you can click + edit". */
+.proto-edit {
+  cursor: text;
+  border-bottom: 1px dotted var(--amber);
+  padding: 1px 3px;
+  border-radius: 2px;
+  transition: background .12s, border-color .12s;
+}
+.proto-edit:hover { background: #fff8e1; }
+.proto-edit:focus {
+  outline: none;
+  background: #fff;
+  border-bottom: 1px solid var(--red);
+  box-shadow: 0 0 0 2px rgba(209, 36, 36, .15);
+}
+.proto-edit.is-edited {
+  background: #fff3d0;
+  border-bottom-color: var(--amber);
+}
+.proto-status-select {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  cursor: pointer;
+  background: #fff;
+}
+.proto-status-select.status-mapped  { background: #d3f0d8; color: #1a7a32; border-color: #95d5a4; }
+.proto-status-select.status-ignored { background: #fff3d0; color: var(--amber); border-color: #f0c870; }
+.proto-status-select.status-unknown { background: #ececec; color: var(--text-muted); border-color: var(--border); }
+.proto-status-select.is-edited { box-shadow: 0 0 0 2px rgba(196, 123, 0, .25); }
+.proto-edit-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.proto-edit-hint {
+  flex: 1;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.proto-edit-hint code {
+  background: var(--off-white);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+/* Add / remove affordances for new tags and frames */
+.proto-add-tag, .proto-add-frame {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  letter-spacing: .04em;
+  background: none;
+  color: var(--blue);
+  border: 1px dashed var(--blue);
+  border-radius: 3px;
+  padding: 3px 8px;
+  margin-top: 6px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.proto-add-tag:hover, .proto-add-frame:hover {
+  background: #e6f3ff;
+}
+.proto-add-frame { margin-top: 4px; }
+/* X buttons — small, ghosted, ONLY visible on row hover so accidental
+   clicks while editing nearby fields are essentially impossible. */
+.proto-tag-rm, .proto-frame-rm {
+  background: none;
+  border: none;
+  color: var(--gray);
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0 3px;
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s, color .12s;
+}
+.proto-tag:hover .proto-tag-rm,
+.proto-frame:hover .proto-frame-rm {
+  opacity: .55;
+}
+.proto-tag-rm:hover, .proto-frame-rm:hover {
+  opacity: 1;
+  color: var(--red);
+}
+.proto-frame-rm {
+  /* Frame-level remove gets a more visible label "✕ remove frame" — keep
+     the icon but lighter weight. Same hover-to-show pattern. */
+  font-size: 9px;
+  letter-spacing: .04em;
+}
+.proto-tag-num.proto-edit {
+  /* Tag-num text is short — keep it compact when editable */
+  min-width: 40px;
+  display: inline-block;
+}
+/* Auto-discovered badges — wired tags/frames the engine saw in live UDP
+   that weren't in our default map. Operator describes them post-show. */
+.proto-auto-badge {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 8px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #fff;
+  background: var(--blue);
+  padding: 1px 5px;
+  border-radius: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+.proto-tag.is-auto {
+  background: #f0f7ff;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.proto-frame.is-auto {
+  border-left-color: var(--blue);
+  background: #f8fbff;
+}
+
+/* Per-frame raw sample — collapsible. Click to inspect the most recent
+   packet of this frame as the engine received it. */
+.proto-sample {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.proto-sample summary {
+  cursor: pointer;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: .04em;
+  outline: none;
+}
+.proto-sample summary:hover { color: var(--text-body); }
+.proto-sample-body {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: #1c1c1c;
+  color: #d8d8d8;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* SETTINGS PANE — folders + ports + worker (read-only) ───────────────────── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.settings-group {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px 10px;
+  margin: 0;
+}
+.settings-group legend {
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+.settings-group.settings-readonly { background: var(--off-white); }
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+.settings-row label {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 9px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.settings-row input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--text-body);
+  background: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.settings-row input:focus {
+  border-color: var(--red);
+  outline: none;
+}
+.settings-row input[readonly] {
+  color: var(--text-muted);
+  background: #fafafa;
+  cursor: default;
+}
+.settings-row-hint {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.settings-row-hint code {
+  background: #fff;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-style: normal;
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.settings-status {
+  flex: 1;
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+}
+.settings-status.ok   { color: var(--green); }
+.settings-status.fail { color: var(--red); }
+.settings-status.dirty { color: var(--amber); }
+
+/* FOOTER — version + uptime + links ──────────────────────────────────────── */
+.footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #ececec;
+  border-top: 1px solid var(--border);
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.footer-cell { white-space: nowrap; }
+.footer-sep { color: var(--gray); }
+.auth-cell { margin-left: auto; }
+.auth-cell.fail { color: var(--red); }
+
+/* BUTTONS — match the website's conventions ──────────────────────────────── */
+.btn-secondary {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  padding: 6px 12px;
+  background: #fff;
+  color: var(--text-body);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.btn-secondary:hover { border-color: var(--red); color: var(--red); }
+.btn-secondary:disabled { color: var(--gray); cursor: not-allowed; border-color: var(--border); }
+.btn-secondary.is-active { background: var(--red); color: #fff; border-color: var(--red); }
+
+.btn-switch {
+  background: #fff;
+  color: var(--black);
+}
+
+.btn-primary {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  padding: 8px 16px;
+  background: var(--red);
+  color: #fff;
+  border: 1px solid var(--red);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-primary:hover { background: #b51e1e; border-color: #b51e1e; }
+.btn-primary:disabled {
+  background: var(--gray);
+  border-color: var(--gray);
+  cursor: not-allowed;
+  opacity: .55;
+}
+.btn-primary:disabled:hover { background: var(--gray); border-color: var(--gray); }
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* DIALOG — show picker modal ─────────────────────────────────────────────── */
+dialog {
+  border: none;
+  border-radius: 8px;
+  padding: 0;
+  width: 480px;
+  max-width: 90vw;
+  box-shadow: 0 20px 40px rgba(0,0,0,.25);
+}
+dialog::backdrop {
+  background: rgba(0,0,0,.45);
+}
+.dialog-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-header h2 {
+  margin: 0;
+  font-family: 'Oswald', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.dialog-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dialog-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--off-white);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-group label {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.form-group select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+}
+.form-hint {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--off-white);
+  padding: 8px 10px;
+  border-radius: 4px;
+  border-left: 3px solid var(--border);
+}
+.form-hint code {
+  background: #fff;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: inherit;
+}
+.form-error {
+  font-family: 'DM Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--red);
+  background: var(--red-tint);
+  padding: 8px 10px;
+  border-radius: 4px;
+}

@@ -101,13 +101,25 @@ TRANSPORT:
     {1}   entry number
     {2}   horse name
     {3}   rider name
+    {4}   owner name                         (confirmed S42 2026-05-02)
+    {5}   NAT — 3-letter country code        (confirmed S42 2026-05-02)
     {8}   rank/place (FINISH signal — strip "RANK" prefix)
     {13}  time allowed TA (strip "TA:" prefix)
     {14}  jump faults (strip "JUMP" prefix)
     {15}  time faults (strip "TIME" prefix)
     {17}  elapsed seconds (ONCOURSE signal)
     {18}  TTB — time to beat (unreliable, disappears mid-round)
+    {19}  equitation score — Method 7 / Timed Equitation only
+          (confirmed S42 2026-05-02). Frame 1 still carries jumper
+          protocol; {19} is the authoritative equitation score on
+          DISPLAY_SCORES sub-state.
     {23}  countdown (CD signal, negative e.g. "-44")
+
+  Cross-frame tag note:
+    {4} owner appears on BOTH frame 1 (jumper) and frame 11 page A (hunter)
+    with the same meaning. {5} country here vs frame 11's empty filler
+    is a divergence — read tags through the frame's lens, never assume
+    a tag means the same thing across frames.
 
   Phase inference (from tag presence):
     IDLE      → no active horse (no {1})
@@ -326,8 +338,42 @@ TRANSPORT:
     {2}   horse name
     {3}   rider name
     {8}   RANK: [place] (strip "RANK:" prefix)
-    {21}  [judge]:[score] + [bonus]
-          e.g. "1:4.000 + 76"
+    {11}  PAGE-DEPENDENT total — appears as R2 Total on at least
+          one page. Same field as {14}/{25} on a different
+          display mode? Needs multi-page capture.
+    {14}  PAGE-DEPENDENT total — cycles R1 / R2 / Overall
+          depending on display mode. Prefix indicates which:
+          "T" = total, "OV" = overall.
+    {15}  R1 Total                                     (S42 2026-05-02)
+    {21}  Judge 1 base + bonus (e.g. "1:4.000 + 76")
+    {22}  Judge 2 base + bonus                         (S42 2026-05-02)
+    {25}  PAGE-DEPENDENT total — appears as R2 Total on at least
+          one page. Same field as {11}/{14} on a different
+          display mode? Needs multi-page capture.
+
+  ⚠ FRAME 16 IS A TRIGGER, NOT A DATA SOURCE (Bill 2026-05-02):
+    Frame 16 cycles through multiple display pages (similar to
+    frame 11's A/B/C). Tags {11}/{14}/{25} all carry "R2 Total"-
+    flavored data on different pages — which one is "current"
+    depends on which page is being broadcast at that instant.
+    DO NOT use UDP frame 16 as the data source for round totals
+    or per-judge numbers. The .cls file is authoritative.
+
+    Engine action on frame 16:
+      1. Use it as the FINISH trigger (force re-read .cls)
+      2. Post FINISH event to worker
+      3. Log entry/horse/rider/rank for forensics
+      4. IGNORE the numeric values in {11}/{14}/{15}/{21}/
+         {22}/{25} as data — they're for the local scoreboard
+         only.
+
+  Pattern hypothesis (S42, needs more derby data):
+    Per-judge tags follow {21}/{22}/{23+} for judges 1/2/3+.
+    Round totals at SOME positions:
+      R1 Total = {15} (single-page-confirmed)
+      R2 Total = unclear ({11}, {14}, or {25} — page-dependent)
+    Need a 3-judge / 3-round derby capture across multiple
+    display pages to confirm.
 
   Watcher action:
     Same handler as frame 12:
@@ -337,7 +383,7 @@ TRANSPORT:
     4. Logs frame with entry/horse/rider/rank
 
   Derby-specific:
-    {21} contains hi-opt base + bonus format. Per-judge
+    {21+} contains hi-opt base + bonus format. Per-judge
     breakdown with bonus points. Logged but .cls is
     authoritative for actual derby scoring.
 

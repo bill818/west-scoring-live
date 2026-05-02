@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WEST Engine</title>
+<link rel="stylesheet" href="renderer.css">
+</head>
+<body>
+
+<!-- TOP BAR — show + pause + connection dots — always visible -->
+<header class="topbar">
+  <div class="brand">
+    <img src="../icon.png" alt="WEST" class="brand-logo">
+    <span class="brand-name">WEST</span>
+    <span class="brand-sep">|</span>
+    <span class="brand-tag">Engine</span>
+  </div>
+  <div class="show-selector">
+    <div class="show-current">
+      <span class="show-current-label">Show / Ring</span>
+      <span class="show-current-value" id="currentShowRing">—</span>
+    </div>
+    <button class="btn-secondary btn-switch" id="btnSwitchShow">Switch</button>
+    <button class="btn-pause-live" id="btnPauseLive"
+            title="Pause everything outbound to the worker (heartbeat, .cls, tsked, UDP events). Scoreboard relay keeps running. Use when something's wrong and you don't want the website to update.">
+      <span class="btn-pause-icon">⏸</span>
+      <span class="btn-pause-text">Pause live scoring</span>
+    </button>
+  </div>
+  <div class="conn-dots" title="worker · RSServer · UDP">
+    <span class="conn-dot" id="dotWorker" title="Worker connectivity"></span>
+    <span class="conn-dot" id="dotRsserver" title="RSServer relay"></span>
+    <span class="conn-dot" id="dotUdp" title="UDP listener"></span>
+  </div>
+</header>
+
+<!-- BANNERS ─────────────────────────────────────────────────────────────── -->
+<div class="banner banner-lock" id="lockBanner" hidden>
+  <span class="banner-icon">🔒</span>
+  <span class="banner-text">Show is locked from engine writes — engine is paused.</span>
+  <button class="btn-link" id="btnSwitchFromLock">Switch show →</button>
+</div>
+<div class="banner banner-empty" id="emptyBanner" hidden>
+  <span class="banner-icon">⚙</span>
+  <span class="banner-text">No show selected.</span>
+  <button class="btn-link" id="btnSwitchFromEmpty">Click Switch to pick a show.</button>
+</div>
+<div class="banner banner-paused" id="pausedBanner" hidden>
+  <span class="banner-icon">⏸</span>
+  <span class="banner-text">Live scoring paused — worker posts are muted. Scoreboard relay is still live.</span>
+  <button class="btn-link" id="btnResumeFromBanner">Resume →</button>
+</div>
+
+<!-- TABS — main navigation across Status / Scoreboard / Settings ────────── -->
+<nav class="tabs">
+  <button class="tab" data-tab="status" id="tabStatus">Status</button>
+  <button class="tab" data-tab="scoreboard" id="tabScoreboard">Scoreboard</button>
+  <button class="tab" data-tab="protocol" id="tabProtocol">Protocol</button>
+  <button class="tab" data-tab="settings" id="tabSettings">Settings</button>
+</nav>
+
+<main class="content">
+
+  <!-- ── STATUS TAB ──────────────────────────────────────────────────── -->
+  <section class="tab-pane" data-tab="status">
+    <section class="pane focus-pane">
+      <h2 class="pane-title">Current focus</h2>
+      <div class="focus-body" id="focusBody">
+        <div class="focus-empty">No focus signal received yet.</div>
+      </div>
+    </section>
+
+    <section class="pane status-pane">
+      <h2 class="pane-title">Status</h2>
+      <div class="status-grid">
+        <div class="stat">
+          <span class="stat-label">Heartbeat</span>
+          <span class="stat-val" id="statHeartbeat">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">.cls posts</span>
+          <span class="stat-val" id="statClsPosts">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">tsked posts</span>
+          <span class="stat-val" id="statTskedPosts">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">UDP frames</span>
+          <span class="stat-val" id="statUdpFrames">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Last UDP</span>
+          <span class="stat-val" id="statLastUdp">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Last focus</span>
+          <span class="stat-val" id="statLastFocus">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="pane events-pane">
+      <h2 class="pane-title">
+        Recent events
+        <span class="pane-title-hint">last 50 · in memory</span>
+      </h2>
+      <div class="events-body" id="eventsBody">
+        <div class="events-empty">No events yet.</div>
+      </div>
+    </section>
+
+    <section class="pane controls-pane">
+      <h2 class="pane-title">Manual actions</h2>
+      <div class="controls-row">
+        <button class="btn-secondary" id="btnRepostCls">↻ Re-post all .cls</button>
+        <button class="btn-secondary" id="btnRepostTsked">↻ Re-post tsked</button>
+      </div>
+    </section>
+  </section>
+
+  <!-- ── SCOREBOARD TAB (funnel features absorbed into engine) ─────────── -->
+  <section class="tab-pane" data-tab="scoreboard" hidden>
+    <section class="pane sb-routing-pane">
+      <h2 class="pane-title">
+        Routing
+        <span class="pane-title-hint">UDP in → RSServer relay</span>
+      </h2>
+      <div class="sb-routing-grid">
+        <div class="sb-route">
+          <span class="sb-route-label">Listen (Ryegate → engine)</span>
+          <span class="sb-route-val" id="sbInputPort">—</span>
+          <span class="sb-route-source" id="sbInputSource">auto from config.dat</span>
+        </div>
+        <div class="sb-route">
+          <span class="sb-route-label">Forward (engine → RSServer)</span>
+          <span class="sb-route-val" id="sbRsserverPort">—</span>
+          <span class="sb-route-source">listen + 1</span>
+        </div>
+        <div class="sb-route">
+          <span class="sb-route-label">Focus (Ryegate → engine)</span>
+          <span class="sb-route-val">31000</span>
+          <span class="sb-route-source">fixed</span>
+        </div>
+      </div>
+      <div class="sb-routing-actions">
+        <button class="btn-secondary" id="btnPauseForwarding">⏸ Pause forwarding</button>
+        <button class="btn-secondary" id="btnTestPattern" disabled title="Send a test pattern to RSServer to verify wiring (coming with UDP integration)">⚡ Test pattern</button>
+      </div>
+    </section>
+
+    <section class="pane sb-features-pane">
+      <h2 class="pane-title">
+        Scoreboard features
+        <span class="pane-title-hint">funnel toggles — affect what RSServer receives</span>
+      </h2>
+      <div class="sb-feature-row">
+        <label class="sb-toggle">
+          <input type="checkbox" id="featRunningTenth">
+          <span class="sb-toggle-label">Running tenth</span>
+        </label>
+        <span class="sb-feature-hint">Interpolate ¹/₁₀-second ticks between Ryegate's whole-second frames so the scoreboard counts smoothly.</span>
+      </div>
+      <div class="sb-feature-row">
+        <label class="sb-toggle">
+          <input type="checkbox" id="featHoldTarget">
+          <span class="sb-toggle-label">HOLD target</span>
+        </label>
+        <span class="sb-feature-hint">Re-inject the target time into on-course UDP frames so the scoreboard keeps showing it while a rider is going. Ryegate omits {18} during the round; without this the target blanks until the next ride.</span>
+      </div>
+      <div class="sb-features-status">
+        <span id="sbFeaturesStatus" class="settings-status"></span>
+      </div>
+    </section>
+
+    <section class="pane sb-stub-pane">
+      <h2 class="pane-title">
+        Coming with UDP integration
+        <span class="pane-title-hint">stubs — wired up in S42</span>
+      </h2>
+      <ul class="sb-stub-list">
+        <li>Multi-scoreboard fan-out (one ring → many displays)</li>
+        <li>Scoreboard adapter selection (Farmtek / TOD / generic)</li>
+        <li>Time-to-beat benchmark override</li>
+        <li>Live UDP frame inspector</li>
+      </ul>
+    </section>
+  </section>
+
+  <!-- ── PROTOCOL TAB — Ryegate UDP frame map (static reference) ─────── -->
+  <section class="tab-pane" data-tab="protocol" hidden>
+    <section class="pane proto-intro-pane">
+      <h2 class="pane-title">
+        Ryegate UDP frame map
+        <span class="pane-title-hint">authoritative source: docs/v3-planning/UDP-PROTOCOL-REFERENCE.md</span>
+      </h2>
+      <div class="proto-intro">
+        Two independent UDP channels feed the engine. Frames arrive on Channel A (the scoreboard port);
+        focus packets arrive on Channel B (port 31000). The engine MUST treat them as separate inputs —
+        do not use one to validate the other.
+      </div>
+      <div class="proto-legend">
+        <span class="proto-status status-mapped">mapped</span>
+        <span class="proto-legend-desc">parser written, behavior known</span>
+        <span class="proto-status status-ignored">ignored</span>
+        <span class="proto-legend-desc">acknowledged, no action taken</span>
+        <span class="proto-status status-unknown">unknown</span>
+        <span class="proto-legend-desc">reserved or never observed</span>
+      </div>
+      <div class="proto-edit-bar">
+        <span class="proto-edit-hint">Tap any orange field to edit. Edits save to this PC only — Export to share corrections so they land in the bundled reference.</span>
+        <button class="btn-secondary" id="btnProtoExport" title="Copy this PC's edits as JSON to clipboard">⇪ Export</button>
+        <button class="btn-secondary" id="btnProtoImport" title="Paste a JSON export from another PC and apply">⇩ Import</button>
+        <button class="btn-secondary" id="btnProtoReset" title="Wipe local overrides and restore defaults from the bundled reference">↺ Reset to defaults</button>
+      </div>
+    </section>
+
+    <section class="pane proto-channel-pane">
+      <h3 class="proto-channel-hdr">
+        Channel A · Ryegate scoreboard
+        <span class="proto-channel-port">port <span id="protoInputPort">—</span></span>
+      </h3>
+      <div class="proto-frames" id="protoFramesA"></div>
+    </section>
+
+    <section class="pane proto-channel-pane">
+      <h3 class="proto-channel-hdr">
+        Channel B · Focus signal
+        <span class="proto-channel-port">port 31000 (fixed)</span>
+      </h3>
+      <div class="proto-frames" id="protoFramesB"></div>
+    </section>
+  </section>
+
+  <!-- ── SETTINGS TAB ────────────────────────────────────────────────── -->
+  <section class="tab-pane" data-tab="settings" hidden>
+    <section class="pane settings-pane">
+      <h2 class="pane-title">
+        Settings
+        <span class="pane-title-hint">writes to c:\west\v3\config.json on save</span>
+      </h2>
+      <div class="settings-grid">
+
+        <fieldset class="settings-group">
+          <legend>Folders</legend>
+          <div class="settings-row">
+            <label for="setClsDir">.cls folder</label>
+            <input type="text" id="setClsDir" placeholder="C:\Ryegate\Jumper\Classes">
+          </div>
+          <div class="settings-row">
+            <label for="setTskedPath">tsked.csv path</label>
+            <input type="text" id="setTskedPath" placeholder="C:\Ryegate\Jumper\tsked.csv">
+          </div>
+          <div class="settings-row">
+            <label for="setRyegateConf">Ryegate config.dat path</label>
+            <input type="text" id="setRyegateConf" placeholder="C:\Ryegate\Jumper\config.dat">
+            <span class="settings-row-hint">Used to auto-detect Ryegate's scoreboard port (col[1]).</span>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-group settings-readonly">
+          <legend>Ports — auto-detected</legend>
+          <div class="settings-row">
+            <label>Input port (from config.dat)</label>
+            <input type="text" id="setInputPort" readonly>
+          </div>
+          <div class="settings-row">
+            <label>RSServer port (= input + 1)</label>
+            <input type="text" id="setRsserverPort" readonly>
+          </div>
+          <div class="settings-row">
+            <label>Focus port</label>
+            <input type="text" id="setFocusPort" readonly value="31000">
+          </div>
+          <div class="settings-row settings-row-hint">
+            Per v2 funnel rule: operators never touch port numbers. They're derived from Ryegate's scoreboard port.
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-group settings-readonly">
+          <legend>Worker — read-only</legend>
+          <div class="settings-row">
+            <label>Worker URL</label>
+            <input type="text" id="setWorkerUrl" readonly>
+          </div>
+          <div class="settings-row">
+            <label>Auth key</label>
+            <input type="text" id="setAuthKey" readonly>
+          </div>
+          <div class="settings-row settings-row-hint">
+            Edit these in <code>c:\west\v3\config.json</code> and use <em>Reload config</em> from the tray menu.
+          </div>
+        </fieldset>
+
+      </div>
+
+      <div class="settings-actions">
+        <span class="settings-status" id="settingsStatus"></span>
+        <button class="btn-secondary" id="btnSettingsRevert">Revert</button>
+        <button class="btn-primary" id="btnSettingsSave">Save settings</button>
+      </div>
+    </section>
+  </section>
+
+</main>
+
+<!-- FOOTER ──────────────────────────────────────────────────────────────── -->
+<footer class="footer">
+  <span class="footer-cell">v<span id="footerVersion">—</span></span>
+  <span class="footer-sep">·</span>
+  <span class="footer-cell">up <span id="footerUptime">—</span></span>
+  <span class="footer-sep">·</span>
+  <button class="btn-link footer-cell" id="btnOpenLog">log</button>
+  <span class="footer-sep">·</span>
+  <button class="btn-link footer-cell" id="btnOpenAdmin">admin</button>
+  <span class="footer-sep">·</span>
+  <span class="footer-cell auth-cell" id="footerAuth">🔐 authed</span>
+</footer>
+
+<!-- SHOW PICKER MODAL ───────────────────────────────────────────────────── -->
+<dialog id="dlgPicker">
+  <div class="dialog-header"><h2>Switch show / ring</h2></div>
+  <div class="dialog-body">
+    <div class="form-hint">Locked shows are hidden. Flip <code>lock_override</code> to <em>unlocked</em> on the website's admin to backfill a past show.</div>
+    <div class="form-group">
+      <label for="pkShow">Show</label>
+      <select id="pkShow"><option value="">Loading…</option></select>
+    </div>
+    <div class="form-group">
+      <label for="pkRing">Ring</label>
+      <select id="pkRing" disabled><option value="">Pick a show first</option></select>
+    </div>
+    <div class="form-error" id="pkError" hidden></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="btn-secondary" id="btnPickerCancel">Cancel</button>
+    <button class="btn-primary" id="btnPickerSave">Switch</button>
+  </div>
+</dialog>
+
+<script src="renderer.js"></script>
+</body>
+</html>

@@ -4,8 +4,11 @@ directories:
   output: dist
 files:
   - main.js
+  - preload.js
+  - scoreboard-funnel.js
   - package.json
   - icon.png
+  - renderer/**/*
 win:
   target:
     - target: dir

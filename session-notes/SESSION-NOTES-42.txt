@@ -1,0 +1,443 @@
+SESSION-NOTES-42 — engine shell + UDP listener + protocol map
+Date: 2026-05-01
+Branch: main
+Status: clean tree, ready to commit, engine deployed at c:\west-engine\
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Massive single-session arc. Engine went from "tray icon + heartbeat +
+.cls watch" (Session 30 baseline) to "tabbed operator window with live
+UDP listening, scoreboard relay, HOLD target injection, running-tenth
+interpolation, auto-discovery protocol map, and 3 frames worth of new
+documented tag knowledge."
+
+Everything is local-machine for now (no field deploy). UDP integration
+is end-to-end on the engine side; engine→worker pipe (Phase 3a)
+remains for next session.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED
+═══════════════════════════════════════════════════════════════════════════
+
+1. ENGINE SHELL WINDOW (BrowserWindow + IPC)
+
+   Source tree at v3/engine/:
+     main.js                        Electron main + UDP + IPC handlers
+     preload.js                     contextBridge surface
+     scoreboard-funnel.js           NEW shared module
+     renderer/index.html            UI markup
+     renderer/renderer.css          vanilla styles
+     renderer/renderer.js           IPC subscriber + map renderer
+     electron-builder.yml           added preload, renderer, funnel
+     config.sample.json             showSlug+ringNum now empty placeholders
+
+   Window lifecycle:
+     - Tray click          → open / focus window
+     - Minimize button     → hide to tray
+     - X button            → 3-way confirm dialog: Quit / Minimize / Cancel
+                             (Quit calls app.exit(0) — bypasses the
+                              preventDefault'd close event)
+     - Tray menu           → explicit Exit
+     - Bring window back from tray → renderer resets to Status tab
+
+2. TABS — Status / Scoreboard / Protocol / Settings
+
+   Top bar (always visible across tabs):
+     show / ring + Switch button + Pause Live Scoring + 3 connection dots
+
+   Status tab:
+     Current focus pane, status grid (heartbeat / .cls / tsked / UDP /
+     focus counters with timestamps), recent events list (last 50),
+     re-post .cls + tsked manual buttons.
+
+   Scoreboard tab:
+     Routing pane (auto-detected ports — read-only display),
+     Pause Forwarding button,
+     RUNNING_TENTH + HOLD_TARGET checkboxes (save to config.json on click),
+     Coming-soon stubs for multi-board fan-out, test patterns, etc.
+
+   Protocol tab:
+     Editable map of every Ryegate frame + tag.
+     Add / remove / Export / Import / Reset.
+     Frame samples + discovery samples (see #11).
+
+   Settings tab:
+     Folders (clsDir, tskedPath, ryegateConfPath) — editable.
+     Ports — read-only auto-detected.
+     Worker URL + auth key — read-only.
+
+3. PAUSE LIVE SCORING (top bar)
+
+   Operator's emergency mute. Flips liveScoringPaused boolean which
+   gates ALL worker writes (heartbeat, postCls, postTsked, future
+   postUdpEvent). Distinct from Pause Forwarding (Scoreboard tab),
+   which only stops the local UDP→RSServer relay.
+
+   Yellow banner across the top while paused. Tray tooltip flips to
+   ⏸ Live scoring PAUSED.
+
+4. AUTO PORT DETECTION
+
+   Mirrors v2 funnel's detectInputPort(). Reads col[1] of
+   C:\Ryegate\Jumper\config.dat (or operator-overridden path) at
+   config load. Default fallback 29696. RSServer port = INPUT + 1.
+   Operators never edit port numbers directly — Settings tab shows
+   them read-only with the rule explained inline.
+
+5. SHOW PICKER — LOCK-ONLY GATE + FIRST-RUN AUTO-OPEN
+
+   Dropdown filters out is_locked === 1. No separate date filter —
+   if you want a past show in the engine, flip lock_override to
+   unlocked on the website's admin.
+
+   First launch with empty showSlug + populated workerUrl/authKey →
+   picker auto-opens 400ms after window appears. Empty state has
+   "Open admin →" link for actionability.
+
+6. SCOREBOARD-FUNNEL.JS — new shared module (the v2 funnel absorbed)
+
+   Pure helpers:
+     isRyegateScoreFrame(msg)
+     extractTag(msg, n) → string | null     (null = absent, "" = present-empty)
+     replaceTag(msg, n, value)
+     injectTag18(msg, value)
+
+   Stateful factories:
+     createHoldTargetState()
+       observe(msg)   — empty {18} clears, omitted keeps, value sets
+       clearForNewClass() — call on focus class change
+       shouldInject(msg)
+       process(msg)   — one-call helper
+
+     createRunningTenth({ sendTo })
+       process(msg)   — rewrites {17} to .0 baseline, starts ticker
+       reset()        — call on class change
+       teardown()     — call on socket close
+
+   Composition rule: HOLD-target injection FIRST, tenth replacement
+   SECOND. They touch different tags ({18} vs {17}) so no conflict;
+   tenth's template captures the HOLD-injected buffer so synthesized
+   frames carry HOLD too.
+
+7. UDP LISTENERS (the meat)
+
+   Channel A (Ryegate scoreboard, auto-detected port):
+     - Bind on startup (independent of show selection — operator may
+       not have picked yet)
+     - On message: parseFrameNumber + parseFrameTags
+     - If KNOWN_FRAMES_A.has(fr): tag-discovery loop
+     - If !KNOWN_FRAMES_A.has(fr): frame-discovery
+     - saveFrameSample('A', fr, msg) → most recent sample for renderer
+     - Forward to RSServer:
+         outBuf = msg
+         if HOLD enabled: outBuf = holdState.process(outBuf)
+         if TENTH enabled: outBuf = tenthState.process(outBuf)
+         else            : tenthState.reset()
+         udpOutSocket.send(outBuf, rsserverPort, '127.0.0.1')
+     - recordEvent('scoring', 'fr=N {tag}=val ...')
+
+   Channel B (port 31000 fixed):
+     - Bind on startup
+     - On message: parseFrameTags, look for {27} class number + {28} class name
+     - Update currentFocus state
+     - If class changed: holdState.clearForNewClass() + tenthState.reset()
+     - Discovery loop for non-{26/27/28} tags
+
+   Lifecycle:
+     startUdpListeners() → tearDown old + createSocket all three +
+                            createRunningTenth() with bound sendTo
+     stopUdpListeners()  → close all sockets, teardown ticker
+     Called on: app.whenReady, switch-show, save-settings.
+
+8. AUTO-DISCOVERY PIPELINE
+
+   Main.js:
+     KNOWN_FRAMES_A = Set([0, 1, 11, 12, 13, 14, 15, 16])
+     KNOWN_TAGS_BY_FRAME_A = { 1: Set([1,2,3,4,5,8,...]), 11: ..., ... }
+     KNOWN_TAGS_FOCUS = Set([26, 27, 28])
+
+   On unknown frame/tag:
+     reportDiscoveredFrame(ch, fr, msg)
+     reportDiscoveredTag(ch, fr, tag, msg)
+
+     De-duped per-engine-process via seenDiscoveredFrames /
+     seenDiscoveredTags Sets. Logs to engine_log.txt + recordEvent
+     + win.webContents.send('discovered-{frame|tag}', {...}).
+
+   Renderer:
+     handleDiscoveredFrame / handleDiscoveredTag
+     Adds entry to protoMap (with auto: true badge)
+     If frame is unknown when a tag arrives, bootstraps the frame
+     first then adds the tag.
+
+   The X-button on auto-discovered tags/frames calls
+   forgetDiscovered(...) which removes from main's seen sets, so
+   re-sending the same UDP triggers re-discovery without a full
+   engine restart.
+
+9. PROTOCOL MAP — operator-editable
+
+   Every frame card has:
+     - Frame number {fr}=N (read-only on default frames, editable
+       on auto-discovered + operator-added)
+     - Frame name (editable)
+     - Lens badge (jumper / hunter / both — read-only)
+     - Status dropdown (mapped / ignored / unknown)
+     - Purpose (editable)
+     - Tag list — each row has number + description, both editable
+     - Per-frame "+ Add tag" button
+     - Per-channel "+ Add frame" button
+     - Auto-discovered entries → blue badge + blue left-border
+
+   Persistence: per-PC localStorage under engineProtocolOverrides.
+   Stores the FULL custom map (vs diffing against defaults) for
+   simplicity. Reset wipes back to bundled defaults.
+
+   X buttons (remove tag / frame): hover-only-visible to prevent
+   mis-clicks. Removing an auto-discovered entry calls
+   forgetDiscovered so re-sending UDP brings it back.
+
+   Export/Import: clipboard-based JSON dump. Used to sync
+   discoveries from operator PC → bundled defaults + canonical doc.
+
+10. FRAME SAMPLES + DISCOVERY SAMPLES
+
+    lastFrameSamples = { 'A:0': {at, text}, 'A:1': {...}, ... }
+      Keyed by (channel, frame). Updated on every packet.
+      ASCII printable + \r\n\xNN escapes for non-printable bytes.
+      Capped at 600 chars. Surfaced in <details> on each frame card.
+
+    discoverySamples = same keys + 'A:fr:tag' for tag discoveries.
+      Frozen at FIRST sighting — captures the exact packet that
+      triggered the discovery, so even if the regular sample gets
+      overwritten by later packets that don't have the unknown
+      tag, we still have evidence.
+
+11. NEW KNOWLEDGE — rolled into bundled defaults + UDP-PROTOCOL-REFERENCE.md
+
+    Frame 1 (jumper packet):
+      {4}  owner name                          (S42 2026-05-02)
+      {5}  NAT — 3-letter country code         (S42 2026-05-02)
+      {19} equitation score (Method 7 only)    (S42 2026-05-02)
+
+    Frame 16 (hunter derby display scores):
+      Discovered tags: {11}, {14}, {15}, {22}, {25}.
+      → CONCLUSION: frame 16 is multi-page like frame 11 A/B/C.
+        {11}, {14}, {25} all carry "R2 Total"-flavored data on
+        DIFFERENT display pages — same field cycles through
+        positions as Ryegate rotates pages.
+      → RULE (Bill 2026-05-01): UDP frame 16 is a TRIGGER, not
+        a data source. Use it to detect FINISH event, force
+        a fresh .cls read. The .cls is authoritative for hunter
+        scoring. Same rule applies to frame 12.
+      → The bundled defaults note these as "page-dependent" with
+        a strong warning. Tags 11/14/25 are in KNOWN_TAGS_BY_FRAME_A
+        only so they don't keep firing as auto-discoveries.
+
+    Cross-frame tag note (added to canonical doc):
+      {4} owner happens to mean the same thing on frame 1 (jumper)
+      and frame 11 page A (hunter), but that's a coincidence, not
+      a rule. Read tags through their frame's lens. Article 1
+      (CLASSTYPE-COMMANDMENT) applies to UDP tags too.
+
+═══════════════════════════════════════════════════════════════════════════
+ARCHITECTURAL RULES LOCKED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. HOLD TARGET CORRECT BEHAVIOR
+   Ryegate's {18} is authority.
+     {18}<value>   → heldTarget = value
+     {18}<empty>   → heldTarget = null (clear — was the v2 bug)
+     {18} omitted  → keep (on-course persistence — when we re-inject)
+     31000 focus class change → clear
+   v2 funnel only ever WROTE heldTarget. Never replicate the bug.
+
+2. FRAME 12 + 16 ARE TRIGGERS, NOT DATA SOURCES
+   Use them to detect operator pressed Display Scores → re-read
+   .cls → post FINISH event. Ignore the numeric content of the
+   score tags. .cls is authoritative for hunter scoring. Period.
+
+3. LOCK STATE IS THE SINGLE GATE FOR ENGINE SHOW SELECTION
+   No date filter. Locked = invisible in picker. Unlock to backfill.
+
+4. SCOREBOARD RELAY DOES NOT GATE ON WORKER LOCK
+   Pause-live-scoring (worker) and pause-forwarding (scoreboard)
+   are TWO different concerns. Locked show → drop worker writes
+   silently, but local scoreboard keeps relaying.
+
+5. ALWAYS OPEN ON STATUS
+   Engine launch + tray-restore both reset to Status tab.
+
+6. TAGS ARE PER-FRAME (Article 1 applied to UDP)
+   {4} means owner on frame 1 AND frame 11 page A by coincidence.
+   Don't generalize. Each tag's meaning is scoped to (channel,
+   frame, page).
+
+7. PER-PC localStorage FOR ENGINE NOTES; CANONICAL DOC FOR TRUTH
+   Protocol tab edits live in localStorage on the operator's PC.
+   Sync stable discoveries back via Export/Import → bundled
+   defaults + UDP-PROTOCOL-REFERENCE.md.
+
+═══════════════════════════════════════════════════════════════════════════
+ELECTRON-BUILDER NOTES
+═══════════════════════════════════════════════════════════════════════════
+
+The files whitelist in electron-builder.yml MUST list every source
+file that needs to ship in app.asar. Adding preload.js + renderer/
++ scoreboard-funnel.js was a "white screen" debug session — without
+those entries, the asar packed only main.js and the BrowserWindow
+loaded a 404'd index.html.
+
+Build flow:
+  cd v3/engine
+  npm run build                     → dist/win-unpacked/
+  robocopy dist/win-unpacked c:\west-engine /MIR    (deploys)
+  c:\west-engine\WestEngine.exe     (launch)
+
+Robocopy returns exit code 1 ON SUCCESS (it uses non-zero codes
+for various success states; 8+ is failure). Don't trip on it.
+
+ELECTRON_RUN_AS_NODE=1 trap: Claude Code's bash session has this
+set, which makes Electron silently run as plain Node. Always
+clear it (PowerShell: Remove-Item env:ELECTRON_RUN_AS_NODE)
+before launching the .exe from a session.
+
+═══════════════════════════════════════════════════════════════════════════
+PHASE 3a PLAN (NEXT SESSION)
+═══════════════════════════════════════════════════════════════════════════
+
+Engine → website pipe (poll-based, simple). Locks in:
+  Engine batches parsed UDP events every 250ms.
+  POST /v3/postUdpEvent with the batch.
+  Worker writes ring snapshot to KV: ring-state:{slug}:{ring}
+  Worker appends EVENTS-only (not every frame) to udp_events D1
+    table — migration 028.
+  Public live.html polls /v3/getRingState at 1Hz.
+  Latency: ~500ms–1.5s (poll-bound).
+
+Phase 3b: Durable Object per ring + WebSocket push.
+  /v3/postUdpEvent writes to DO instead of KV.
+  DO maintains in-memory state + WS subscribers.
+  DO broadcasts on state change.
+  D1 write moves into ctx.waitUntil — non-blocking.
+  Latency: ~250–500ms.
+
+Phase 3c: New "final" tag (gated on Ryegate update Bill convinced
+them to add). Auto-set classes.finalized_at. Trigger ribbon
+graphics rendering.
+
+Open decisions before starting:
+  - Batch cadence (100/250/500ms)
+  - D1 retention (every-frame vs sample vs events-only)
+  - Polling-first (3a) vs go-straight-to-push (3b)
+  - live.html design (single-entry hero vs split with standings)
+  - Tomorrow's actual scope — engine batcher, worker endpoint, or
+    live.html first
+
+═══════════════════════════════════════════════════════════════════════════
+KNOWN BUGS / EDGE CASES
+═══════════════════════════════════════════════════════════════════════════
+
+  - localStorage protocol-map overrides "win" over bundled defaults
+    on next build with new entries. After updating bundled defaults,
+    operators must hit "↺ Reset to defaults" on the Protocol tab to
+    pick up the new ones. Otherwise they keep showing the OLD
+    auto-discovered version.
+
+  - Frame samples overwrite per packet — if the same frame number
+    cycles through multi-page content (e.g. frame 16 derby), the
+    most recent sample reflects the LATEST page, not necessarily
+    the page where an unknown tag was first observed. Discovery
+    samples (separate state) capture the first-sighting packet.
+
+  - Engine builds slowly (~30s) due to electron-builder's
+    @electron/rebuild step on every run. Acceptable for now.
+
+  - HOLD target + running-tenth interpolation are wired but
+    NOT YET TESTED against real Ryegate frames. Will validate when
+    a jumper class is actively on-course.
+
+═══════════════════════════════════════════════════════════════════════════
+v2 FUNNEL — NOT TOUCHED
+═══════════════════════════════════════════════════════════════════════════
+
+Twice during this session I started patching the v2 funnel's HOLD
+target bug (deploy/west-funnel-v1.0/west-funnel.js). Both times Bill
+clarified the fix should land in v3 engine, not v2. v2 funnel reverted
+to 1.3.1. The v3 engine's scoreboard-funnel.js carries the fix.
+
+If v2 needs the fix at a real show before v3 ships, port the
+heldTarget = (t18.trim() === '') ? null : t18 logic from
+scoreboard-funnel.js to v2 west-funnel.js, bump version, sync to
+OneDrive.
+
+═══════════════════════════════════════════════════════════════════════════
+DEPLOYS THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+Engine: ~12 build+deploy cycles via npm run build + robocopy to
+        c:\west-engine\WestEngine.exe.
+Worker: not touched.
+Pages preview: not touched.
+v2 funnel / watcher: not touched (final state).
+
+═══════════════════════════════════════════════════════════════════════════
+FILES TOUCHED (UNCOMMITTED AT SESSION END — READY FOR THE COMMIT)
+═══════════════════════════════════════════════════════════════════════════
+
+Modified:
+  docs/v3-planning/UDP-PROTOCOL-REFERENCE.md
+    - Frame 1 tags {4} owner, {5} NAT, {19} equitation score
+    - Cross-frame tag note (Article 1 applied)
+    - Frame 16 multi-page warning + "trigger not data source" rule
+
+  v3/engine/config.sample.json
+    - Empty showSlug + ringNum (first-run uses picker)
+    - REPLACE_WITH_AUTH_KEY placeholder
+    - clsDir / tskedPath / ryegateConfPath / runningTenth /
+      holdTarget keys documented
+
+  v3/engine/electron-builder.yml
+    - Added preload.js, scoreboard-funnel.js, renderer/**/* to files
+
+  v3/engine/main.js
+    - All the UDP + IPC + state work above
+
+Untracked:
+  v3/engine/preload.js
+  v3/engine/renderer/index.html
+  v3/engine/renderer/renderer.css
+  v3/engine/renderer/renderer.js
+  v3/engine/scoreboard-funnel.js
+
+  (23results pdf.pdf — pre-existing, not part of this session)
+
+═══════════════════════════════════════════════════════════════════════════
+HOW TO RESUME
+═══════════════════════════════════════════════════════════════════════════
+
+1. Read this doc.
+2. Read project_v3_rebuild.md "Session 42 progress" block.
+3. Decide Phase 3a open questions (batch cadence, D1 retention,
+   polling-first, live.html design).
+4. Build order tomorrow: engine batcher → worker endpoint → live.html
+   (each step verifiable end-to-end on dev machine before moving on).
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT NOT TO DO
+═══════════════════════════════════════════════════════════════════════════
+
+  - Do not pull score numbers from frame 12 / 16 UDP. Trigger only.
+    Read .cls.
+  - Do not try to "merge" {11}/{14}/{25} on frame 16 into a single
+    canonical R2 Total. They cycle. Re-read .cls.
+  - Do not patch v2 funnel for the HOLD target bug. Engine is the
+    fix target.
+  - Do not add new fields to electron-builder.yml without remembering
+    that the asar will silently drop them otherwise.
+  - Do not assume tag X means the same thing across frames. Article 1
+    applies to UDP tags within frame 1 vs frame 11 vs frame 16.
+  - Do not lift the "always open on Status" rule. Operators want the
+    dashboard, not whatever pane they were inspecting last.

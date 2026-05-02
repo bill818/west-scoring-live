@@ -1,6 +1,12 @@
 {
+  "_comment_setup": "Copy to c:\\west\\v3\\config.json and edit workerUrl + authKey. Leave showSlug and ringNum empty — pick them in the engine's Switch dialog on first launch (the picker auto-opens). Folders + Ryegate config.dat path are optional overrides; defaults are correct for a standard Ryegate install.",
   "workerUrl": "https://west-worker.bill-acb.workers.dev",
-  "authKey": "west-scoring-2026",
-  "showSlug": "v3-smoke-test-2026-04",
-  "ringNum": 1
+  "authKey": "REPLACE_WITH_AUTH_KEY",
+  "showSlug": "",
+  "ringNum": null,
+  "clsDir": "C:\\Ryegate\\Jumper\\Classes",
+  "tskedPath": "C:\\Ryegate\\Jumper\\tsked.csv",
+  "ryegateConfPath": "C:\\Ryegate\\Jumper\\config.dat",
+  "runningTenth": false,
+  "holdTarget": false
 }
