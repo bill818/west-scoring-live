@@ -82,8 +82,36 @@
   .trigger-chip { display: inline-block; padding: 4px 10px;
                   border-radius: 4px; background: #1a2a3a;
                   color: #6cbcf0; font-size: 12px; }
+  /* Identity card — current entry on course (when last_scoring.frame is
+     1, 11, or 14). Big horse name + entry #, rider/owner below. Hides
+     during trigger frames (12/16) and idle (frame 0) where the
+     identity isn't meaningful for "currently on course." */
+  .identity-card { text-align: center; padding: 14px 0 6px;
+                   border-top: 1px solid var(--line);
+                   margin-top: 8px; }
+  .identity-card.hidden { display: none; }
+  .identity-entry-num { color: var(--muted); font-size: 11px;
+                        letter-spacing: 0.12em; text-transform: uppercase; }
+  .identity-horse { font-family: 'Oswald', sans-serif; font-weight: 700;
+                    font-size: 28px; line-height: 1.1; color: var(--fg);
+                    padding: 4px 0 2px; letter-spacing: 0.02em; }
+  .identity-people { color: var(--fg); font-size: 13px; }
+  .identity-people .role { color: var(--muted); font-size: 10px;
+                            text-transform: uppercase; letter-spacing: 0.08em;
+                            margin-left: 4px; }
+  .identity-people .sep { color: var(--line); margin: 0 10px; }
+  /* Demote the debug grid (last channel / last frame / last tags) so
+     identity + clock are the visual focus. Indented + smaller. */
+  .focus-debug { font-size: 11px; color: var(--muted);
+                 border-top: 1px solid var(--line); margin-top: 10px;
+                 padding-top: 8px; }
+  .focus-debug .grid { font-size: 11px; gap: 2px 12px; }
+  .focus-debug .k { color: var(--muted); }
+  .focus-debug .v { color: var(--muted); }
 </style>
 <script src="../js/west-format.js"></script>
+<script src="../js/west-status.js"></script>
+<script src="../js/west-rules.js"></script>
 <script src="../js/west-clock.js"></script>
 </head>
 <body>
@@ -105,15 +133,36 @@
 </div>
 
 <div class="panel">
-  <h2>Current Focus</h2>
+  <h2>Current Focus · <span class="tags" id="focusClassLabel">—</span></h2>
+  <div class="identity-card hidden" id="identityCard">
+    <div class="identity-entry-num">Entry #<span id="idEntry">—</span></div>
+    <div class="identity-horse" id="idHorse">—</div>
+    <div class="identity-people">
+      <span id="idRider">—</span><span class="role">rider</span>
+      <span class="sep">·</span>
+      <span id="idOwner">—</span><span class="role">owner</span>
+    </div>
+  </div>
   <div class="clock-phase" id="clockPhase">idle</div>
   <div class="clock-big idle" id="clockBig">—</div>
-  <div class="grid">
-    <div class="k">Class ID</div>      <div class="v" id="focusClass">—</div>
-    <div class="k">Last channel</div>  <div class="v" id="lastChannel">—</div>
-    <div class="k">Last frame</div>    <div class="v" id="lastFrame">—</div>
-    <div class="k">Last tags</div>     <div class="v tags" id="lastTags">—</div>
+  <div class="focus-debug">
+    <div class="grid">
+      <div class="k">Class ID</div>      <div class="v" id="focusClass">—</div>
+      <div class="k">Last channel</div>  <div class="v" id="lastChannel">—</div>
+      <div class="k">Last frame</div>    <div class="v" id="lastFrame">—</div>
+      <div class="k">Last tags</div>     <div class="v tags" id="lastTags">—</div>
+    </div>
   </div>
+</div>
+
+<div class="panel" id="hunterStandingsPanel" style="display:none;">
+  <h2>Hunter standings <span class="tags" id="hunterStandingsHint"></span></h2>
+  <div class="events" id="hunterStandingsBox"></div>
+</div>
+
+<div class="panel" id="jumperStandingsPanel" style="display:none;">
+  <h2>Jumper standings <span class="tags" id="jumperStandingsHint"></span></h2>
+  <div class="events" id="jumperStandingsBox"></div>
 </div>
 
 <div class="panel">
@@ -253,6 +302,49 @@
     var lastB = snapshot.last_focus || null;
     var primary = lastA || snapshot.last;     // what we render in Current Focus
     var classIdFromFocus = (lastB && lastB.tags && lastB.tags['27']) || null;
+    var classNameFromFocus = (lastB && lastB.tags && lastB.tags['28']) || null;
+
+    // Header label — class id + name when known. Reads from the last
+    // Channel B focus event ({27}=class id, {28}=class name).
+    var hdrClassId = (primary && primary.class_id) || classIdFromFocus || '—';
+    $('focusClassLabel').textContent = classNameFromFocus
+      ? hdrClassId + ' · ' + classNameFromFocus
+      : 'class ' + hdrClassId;
+
+    // Identity card — only meaningful for "currently on course" frames.
+    // Frame 1 = jumper on-course, frame 11 = hunter on-course (page A),
+    // frame 14 = hunter ribbon/result. Frames 0/12/16 are idle/triggers
+    // and shouldn't surface stale identity. Method 7 (Timed Equitation)
+    // puts rider in {7} on hunter frame 11 per S42 protocol map.
+    var identityCard = $('identityCard');
+    var identityFrames = { 1: true, 11: true, 14: true };
+    var hasIdentityFrame = primary && primary.channel === 'A'
+      && identityFrames[primary.frame] === true;
+    if (hasIdentityFrame) {
+      var t = primary.tags || {};
+      var clean = function(v) { return (v == null ? '' : String(v)).replace(/[\r\n]/g, '').trim(); };
+      var entryNum = clean(t['1']);
+      var horse    = clean(t['2']);
+      var rider    = clean(t['3']);
+      var owner    = clean(t['4']);
+      if (lens === 'equitation' && primary.frame === 11) {
+        var eqRider = clean(t['7']);
+        if (eqRider) rider = eqRider;
+      }
+      if (entryNum || horse || rider) {
+        identityCard.classList.remove('hidden');
+        $('idEntry').textContent = entryNum || '—';
+        $('idHorse').textContent = horse || '—';
+        $('idRider').textContent = rider || '—';
+        $('idOwner').textContent = owner || '—';
+      } else {
+        identityCard.classList.add('hidden');
+      }
+    } else {
+      identityCard.classList.add('hidden');
+    }
+
+    // Debug rows (last channel / frame / tags) — demoted but kept.
     if (primary) {
       $('focusClass').textContent  = primary.class_id || classIdFromFocus || '—';
       $('lastChannel').textContent = primary.channel || '—';
@@ -264,6 +356,164 @@
       $('lastChannel').textContent = '—';
       $('lastFrame').textContent   = '—';
       $('lastTags').textContent    = '—';
+    }
+
+    // Hunter standings — only when class_kind=hunter and worker pulled
+    // entries from D1 (snapshot.hunter_scores). Hides for jumper/eq/null.
+    var hsPanel = $('hunterStandingsPanel');
+    var hsBox   = $('hunterStandingsBox');
+    var hsHint  = $('hunterStandingsHint');
+    var hs = snapshot.hunter_scores;
+    if (lens === 'hunter' && Array.isArray(hs) && hs.length > 0) {
+      hsPanel.style.display = '';
+      // Apply the canonical placement rule from west-rules.js. Eliminated
+      // / withdrawn entries get null place + their status code in the
+      // place column, regardless of what Ryegate's current_place says.
+      // Forced classes (scoring_type=0) gate purely on r1_status; Scored
+      // / Hi-Lo also require r1_total > 0.
+      var rulesAvailable = window.WEST && window.WEST.rules && window.WEST.rules.hunterPlaceFor;
+      var statusAvailable = window.WEST && window.WEST.status;
+      var rowsWithRule = hs.map(function(e) {
+        var place = rulesAvailable
+          ? window.WEST.rules.hunterPlaceFor(e.current_place, e.scoring_type, e.r1_total, e.r1_status)
+          : (e.current_place && e.current_place > 0 ? e.current_place : null);
+        return Object.assign({}, e, { _place: place });
+      });
+      // Sort: placed entries first by place, then unplaced (any).
+      rowsWithRule.sort(function(a, b) {
+        var ap = a._place, bp = b._place;
+        if (ap == null && bp == null) {
+          return Number(a.entry_num) - Number(b.entry_num);
+        }
+        if (ap == null) return 1;
+        if (bp == null) return -1;
+        return ap - bp;
+      });
+      var placedCount = rowsWithRule.filter(function(e) { return e._place != null; }).length;
+      var unplacedCount = rowsWithRule.length - placedCount;
+      hsHint.textContent = '(' + placedCount + ' placed' +
+        (unplacedCount ? ' · ' + unplacedCount + ' unplaced/unscored' : '') + ')';
+      var rows = rowsWithRule.map(function(e) {
+        var placeCell;
+        if (e._place != null) {
+          placeCell = String(e._place);
+        } else if (e.r1_status && statusAvailable) {
+          // Eliminated / withdrawn — show the status code (collapsed for
+          // public per WEST.status.publicLabel).
+          placeCell = '<span style="color:var(--bad);">' +
+            window.WEST.status.publicLabel(e.r1_status) + '</span>';
+        } else {
+          placeCell = '<span style="color:var(--muted);">—</span>';
+        }
+        var total = (e.combined_total !== null && e.combined_total !== undefined)
+          ? Number(e.combined_total).toFixed(3) : '—';
+        var rowStyle = (e._place == null) ? ' style="opacity:0.6;"' : '';
+        return '<tr' + rowStyle + '>' +
+          '<td style="width:48px;text-align:right;">' + placeCell + '</td>' +
+          '<td style="width:60px;">' + (e.entry_num || '—') + '</td>' +
+          '<td>' + (e.horse_name || '—') + '</td>' +
+          '<td>' + (e.rider_name || '—') + '</td>' +
+          '<td style="text-align:right;width:80px;">' + total + '</td>' +
+          '</tr>';
+      }).join('');
+      hsBox.innerHTML =
+        '<table><thead><tr>' +
+          '<th style="text-align:right;">Place</th><th>Entry</th>' +
+          '<th>Horse</th><th>Rider</th><th style="text-align:right;">Total</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    } else {
+      hsPanel.style.display = 'none';
+    }
+
+    // Jumper standings — only when class_kind is jumper or equitation
+    // and worker pulled entries from D1. Uses WEST.rules.jumperPlaceFor
+    // (the same canonical rule class.html applies) so eliminated entries
+    // get their status code instead of a place number.
+    var jsPanel = $('jumperStandingsPanel');
+    var jsBox   = $('jumperStandingsBox');
+    var jsHint  = $('jumperStandingsHint');
+    var js = snapshot.jumper_scores;
+    var isJumperLens = (lens === 'jumper' || lens === 'equitation');
+    if (isJumperLens && Array.isArray(js) && js.length > 0) {
+      jsPanel.style.display = '';
+      var jrulesAvailable = window.WEST && window.WEST.rules && window.WEST.rules.jumperPlaceFor;
+      var jstatusAvailable = window.WEST && window.WEST.status;
+      var jrows = js.map(function(e) {
+        var statuses = { 1: e.r1_status, 2: e.r2_status, 3: e.r3_status };
+        var place = jrulesAvailable
+          ? window.WEST.rules.jumperPlaceFor(e.overall_place, e.scoring_method, statuses)
+          : (e.overall_place && e.overall_place > 0 ? e.overall_place : null);
+        return Object.assign({}, e, { _place: place });
+      });
+      jrows.sort(function(a, b) {
+        var ap = a._place, bp = b._place;
+        if (ap == null && bp == null) {
+          return Number(a.entry_num) - Number(b.entry_num);
+        }
+        if (ap == null) return 1;
+        if (bp == null) return -1;
+        return ap - bp;
+      });
+      var jplacedCount = jrows.filter(function(e) { return e._place != null; }).length;
+      var junplacedCount = jrows.length - jplacedCount;
+      jsHint.textContent = '(' + jplacedCount + ' placed' +
+        (junplacedCount ? ' · ' + junplacedCount + ' unplaced/unscored' : '') + ')';
+      // Format "faults / time" — 3 decimals for time per Bill's style.
+      var formatRound = function(faults, time) {
+        if (faults == null && time == null) return '';
+        var f = (faults != null) ? Number(faults).toFixed(0) : '—';
+        var t = (time != null && Number(time) > 0)
+          ? Number(time).toFixed(3) : '—';
+        return f + ' / ' + t;
+      };
+      var jrowsHtml = jrows.map(function(e) {
+        var placeCell;
+        if (e._place != null) {
+          placeCell = String(e._place);
+        } else {
+          // Find the killing status code from any round (showing the first one
+          // that's set, since that's typically the elim point)
+          var killCode = null;
+          for (var rn = 1; rn <= 3; rn++) {
+            var s = e['r' + rn + '_status'];
+            if (s && jstatusAvailable && window.WEST.status.isKillingStatus(s)) { killCode = s; break; }
+          }
+          if (killCode) {
+            placeCell = '<span style="color:var(--bad);">' +
+              window.WEST.status.publicLabel(killCode) + '</span>';
+          } else {
+            placeCell = '<span style="color:var(--muted);">—</span>';
+          }
+        }
+        // R1 + R2 + R3 round cells — only show columns with data so the
+        // typical 1-round class shows just R1.
+        var r1 = formatRound(e.r1_total_faults, e.r1_total_time);
+        var r2 = formatRound(e.r2_total_faults, e.r2_total_time);
+        var r3 = formatRound(e.r3_total_faults, e.r3_total_time);
+        var rowStyle = (e._place == null) ? ' style="opacity:0.6;"' : '';
+        return '<tr' + rowStyle + '>' +
+          '<td style="width:48px;text-align:right;">' + placeCell + '</td>' +
+          '<td style="width:60px;">' + (e.entry_num || '—') + '</td>' +
+          '<td>' + (e.horse_name || '—') + '</td>' +
+          '<td>' + (e.rider_name || '—') + '</td>' +
+          '<td style="width:120px;">' + r1 + '</td>' +
+          (r2 ? '<td style="width:120px;">' + r2 + '</td>' : '<td></td>') +
+          (r3 ? '<td style="width:120px;">' + r3 + '</td>' : '') +
+          '</tr>';
+      }).join('');
+      // Build header — show R2 column when ANY entry has R2 data; same for R3.
+      var anyR2 = jrows.some(function(e) { return e.r2_total_faults != null || (e.r2_total_time && Number(e.r2_total_time) > 0); });
+      var anyR3 = jrows.some(function(e) { return e.r3_total_faults != null || (e.r3_total_time && Number(e.r3_total_time) > 0); });
+      jsBox.innerHTML =
+        '<table><thead><tr>' +
+          '<th style="text-align:right;">Place</th><th>Entry</th>' +
+          '<th>Horse</th><th>Rider</th>' +
+          '<th>R1 F/T</th>' +
+          (anyR2 ? '<th>R2 F/T</th>' : '<th></th>') +
+          (anyR3 ? '<th>R3 F/T</th>' : '') +
+        '</tr></thead><tbody>' + jrowsHtml + '</tbody></table>';
+    } else {
+      jsPanel.style.display = 'none';
     }
 
     // Events table — newest first.

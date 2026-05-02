@@ -589,3 +589,170 @@ HOW TO RESUME (UPDATED)
    - OBSERVABILITY TABLES: parse_warnings, audit_events, etc.
    - HUNTER STATS PARITY (S41 trailing item)
    - CROSS-SHOW IDENTITY RECONCILIATION (schema-heavy, no live-show risk)
+
+═══════════════════════════════════════════════════════════════════════════
+ADDENDUM 2 — Chunks 13-15 (D1-fed standings + identity card)
+═══════════════════════════════════════════════════════════════════════════
+
+After the addendum-1 commit (45b880c), Bill picked Chunk 13 (hunter scores
+on live.html). That chained into Chunk 14 (jumper standings via the same
+pattern) and Chunk 15 (identity card). All three lean on the canonical
+WEST.rules + WEST.status modules from west-rules.js / west-status.js so
+live.html shares logic with class.html — single source of truth per
+Bill's "shared logic" directive.
+
+CHUNK 13 — D1-fed hunter standings on live.html
+  ─ NEW worker helper: pullHunterScoresV3(env, classPk)
+      Top-20 entries with current_place + combined_total + r1_total +
+      r1_status + scoring_type. Page applies WEST.rules.hunterPlaceFor
+      to suppress places for eliminated entries. Bill 2026-05-02
+      observation: "right now 112 is elim in the first round and showing
+      a place." Fix: wire the canonical placement rule.
+  ─ NEW worker helper: deriveClassKindV3 already in place; SQL extended
+      with c.id AS class_pk so the helper has the FK to query entries.
+  ─ NEW DO route /scores-update — push from /v3/postCls when scoring
+      changes in D1. Without it, .cls writes update D1 but the live
+      snapshot stays stale until next UDP batch (which may never come).
+      DO gates on focused class_id so background postCls for a non-
+      focused class doesn't clobber the foreground leaderboard.
+  ─ /v3/postCls hook: after hunter scoring parse succeeds (class_type='H'),
+      pulls fresh hunter_scores and pings the DO via ctx.waitUntil so
+      the worker response isn't blocked.
+  ─ NEW page panel: hunterStandingsPanel — table with Place / Entry /
+      Horse / Rider / Total. Eliminated entries render their status
+      code (in red) in the place column, sorted to the bottom. Hides
+      when class_kind != 'hunter'.
+
+  COMBINED-TOTAL DEBATE (left for real-world testing):
+  Bill noticed Ryegate's col[45] (combined_total) follows the operator's
+  round-selection display rather than being a true cumulative sum.
+  I sketched a self-computed SUM(round totals) override but Bill said
+  "no, that might be ok... may have to see how it follows real world
+  testing." Reverted to pass-through. Chunk 14 carry-forward note: if
+  real shows surface a wrong-total, swap pullHunterScoresV3's combined_
+  total to a SUM subquery — single-line change.
+
+CHUNK 14 — D1-fed jumper standings on live.html
+  ─ NEW worker helper: pullJumperScoresV3(env, classPk)
+      Top-20 entries with overall_place + r1/r2/r3 status + r1/r2/r3
+      total_faults + total_time + scoring_method + scoring_modifier.
+      Page applies WEST.rules.jumperPlaceFor — uses the wipesOnFail
+      ladder rules from JUMPER_METHODS table to suppress placement
+      correctly per method (e.g. method 9 PH2 fail wipes PH1).
+  ─ /v3/postUdpEvent extended: also pulls jumper_scores when class_kind
+      is 'jumper' or 'equitation'.
+  ─ /v3/postCls hook extended: after jumper scoring parse succeeds
+      (class_type J or T), pings DO with jumper_scores (parallel to
+      hunter path).
+  ─ DO /scores-update generalized to accept hunter_scores OR jumper_
+      scores in the body, only updates the field matching the current
+      lens (so a class-kind switch doesn't leave stale fields).
+  ─ NEW page panel: jumperStandingsPanel — table with Place / Entry /
+      Horse / Rider / R1 F/T (+ R2 F/T + R3 F/T columns auto-shown when
+      any entry has data). Renders "0 / 65.234" style faults/time per
+      Bill's 3-decimal style memory.
+  ─ Equitation classes (Method 7) ride the jumper pipe — they're
+      jumper-protocol classes by lens.
+
+CHUNK 15 — Current Entry identity card
+  ─ Restructured Current Focus panel. Was a debug-style grid (last
+      channel, last frame, last tags). Now:
+        - Header: "Current Focus · 1001 · Another New Derby"
+          (class_id + class name from last_focus tag {28})
+        - Identity card: big horse name, entry # label above, rider /
+          owner below — only when latest Channel A frame is 1, 11, or 14
+          (the "currently on course" frames). Hides for triggers (12/16),
+          idle (0), or when no A frame received yet.
+        - Phase + big clock: unchanged from Chunk 9
+        - Debug grid: demoted to small muted text below
+  ─ Method 7 (Timed Equitation) override: when lens === 'equitation'
+      and frame === 11, rider comes from {7} not {3}. Per S42 protocol
+      map note "rider name in EQ (NOT {3})".
+
+ARCHITECTURAL RULES LOCKED THIS ADDENDUM
+
+1. PLACEMENT RULES LIVE IN WEST.RULES — SHARED ACROSS PAGES
+   live.html now consumes WEST.rules.hunterPlaceFor + jumperPlaceFor
+   for its standings panels. class.html consumed them already. Single
+   source of truth — adding a new method or status code = edit one file
+   per concern, every consumer picks up. Per Bill's "shared logic"
+   directive (project_consolidation_audit.md).
+
+2. /v3/postCls PUSHES TO DO ON SCORING CHANGES
+   Critical: D1 updates without UDP would leave the live snapshot
+   stale forever. /v3/postCls now pings the DO via /scores-update
+   after parsing, which broadcasts fresh standings to WS clients.
+   ctx.waitUntil so postCls response isn't blocked on the DO call.
+
+3. STANDINGS LENS-ROUTED VIA CLASS_KIND
+   Worker pulls hunter_scores when class_kind=hunter, jumper_scores
+   when 'jumper' or 'equitation'. Page panels gated by lens; only
+   the relevant panel renders per ring focus. DO carries forward
+   across batches so a Channel-B-only batch doesn't blank the panel.
+
+4. IDENTITY CARD GATED BY FRAME NUMBER
+   Frame 1 / 11 / 14 = "currently on course" → identity is meaningful.
+   Frame 0 / 12 / 16 = idle / score-display triggers → identity stale,
+   hide the card. Per S42 rule on triggers + Article 1 frame-scoping.
+
+5. CLASS_KIND IS ROUTING-LAYER LENS, NOT METHOD
+   Equitation classes use the jumper pipeline (jumper_scores, jumper
+   placement rules) but render with rider-primary identity. The lens
+   determines transport; class_mode / scoring_method determine display
+   variations within a lens. Article 1 holds at the routing layer.
+
+NEW FILES (this addendum)
+  (none — all changes are extensions to existing files)
+
+MODIFIED FILES IN THIS ADDENDUM COMMIT
+  west-worker.js                       — pullHunterScoresV3 +
+                                         pullJumperScoresV3 + DO
+                                         /scores-update + postCls hooks
+  v3/pages/live.html                   — hunter + jumper standings
+                                         panels + identity card + Current
+                                         Focus restructure + load
+                                         west-status.js + west-rules.js
+  session-notes/SESSION-NOTES-43.txt   — this second addendum
+
+DEPLOYS THIS ADDENDUM
+
+Worker: deploy.bat (production) — multiple times
+  - Chunk 13 (postCls→DO push, hunter standings query, DO route)
+  - Combined-total revert (per Bill — "may have to see how real world
+    testing goes")
+  - Chunk 13 placement-rule extension (added scoring_type, r1_total,
+    r1_status to hunter query for hunterPlaceFor)
+  - Chunk 14 (jumper helper + jumper hook + DO generalized)
+
+Pages: deploy via npx wrangler pages deploy --branch=preview
+  - Chunk 13 (hunter standings panel)
+  - Chunk 13 placement-rule rendering (load west-status + west-rules,
+    apply hunterPlaceFor)
+  - Chunk 14 (jumper standings panel)
+  - Chunk 15 (identity card + Current Focus restructure)
+
+D1 migrations: none.
+
+DEFERRED / OPEN AFTER THIS ADDENDUM
+
+- VISUAL POLISH PASS (Bill's next ask). Take design concepts from v2
+  live.html — typography, spacing, color treatment, layout. Bill noted
+  multiple times "we still need to make it pretty."
+- COMBINED-TOTAL OVERRIDE if real shows surface wrong totals from
+  Ryegate's round-selection-tracking col[45]. Single-line swap in
+  pullHunterScoresV3.
+- CLASS METADATA ENRICHMENT — show scoring method label + time
+  allowed in the header for spectator context ("II.2b · TA 65s").
+- MOVE STANDINGS RENDERING INTO west-display.js — share table builders
+  with class.html so duplicate code converges.
+- HUNTER PAGE-B/C TAGS — frame 11 multi-page semantics still unmapped.
+- FRAME 13 + 15 unmapped (real test data hasn't surfaced them).
+
+HOW TO RESUME (UPDATED)
+
+1. Read this doc top to bottom (Chunks 1-15 included)
+2. Read project_v3_rebuild.md "Session 43 progress" block (initial
+   commit; addendums 1 + 2 polish are captured in SESSION-NOTES only)
+3. Decide direction — visual polish is queued up next per Bill's ask.
+   v2 live.html is the design reference. Keep west-format / west-status
+   / west-rules as the canonical logic layer; visuals are page-only.

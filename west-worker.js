@@ -78,6 +78,90 @@ function lockedResponse(reason) {
   }), { status: 423, headers: { 'Content-Type': 'application/json' } });
 }
 
+// ── HUNTER STANDINGS QUERY (Phase 3b Chunk 13) ─────────────────────────────
+// Pulls top-20 entries with their current_place + combined_total for the
+// hunter leaderboard panel on live.html. Used by /v3/postUdpEvent (per-batch
+// refresh) AND /v3/postCls (push-on-update, so a Display Scores trigger
+// that updates D1 without firing a UDP event still refreshes the page).
+// classPk is classes.id (integer PK), NOT class_id (text). Returns null on
+// error so callers can decide whether to surface a partial snapshot.
+async function pullHunterScoresV3(env, classPk) {
+  if (!classPk) return null;
+  // Returns Ryegate's summary fields (current_place + combined_total)
+  // PLUS the inputs WEST.rules.hunterPlaceFor needs (scoring_type,
+  // r1_total, r1_status) so the page can apply the canonical placement
+  // rule from west-rules.js. Without that, eliminated entries still
+  // show a place number — Bill 2026-05-02: "right now 112 is elim in
+  // the first round and showing a place." Page-side rule handles
+  // Forced (scoring_type=0) vs Scored/Hi-Lo gates correctly.
+  try {
+    const r = await env.WEST_DB_V3.prepare(`
+      SELECT e.entry_num, e.horse_name, e.rider_name, e.owner_name,
+             ehs.current_place, ehs.combined_total,
+             c.scoring_type,
+             (SELECT total  FROM entry_hunter_rounds r1
+              WHERE r1.entry_id = e.id AND r1.round = 1) AS r1_total,
+             (SELECT status FROM entry_hunter_rounds r1
+              WHERE r1.entry_id = e.id AND r1.round = 1) AS r1_status
+      FROM entries e
+      LEFT JOIN entry_hunter_summary ehs ON ehs.entry_id = e.id
+      JOIN classes c ON c.id = e.class_id
+      WHERE e.class_id = ?
+      ORDER BY
+        CASE WHEN ehs.current_place IS NULL OR ehs.current_place = 0
+             THEN 1 ELSE 0 END,
+        ehs.current_place ASC,
+        CAST(e.entry_num AS INTEGER) ASC
+      LIMIT 20
+    `).bind(classPk).all();
+    return r.results || [];
+  } catch (e) {
+    console.log(`[pullHunterScoresV3] failed for class_pk=${classPk}: ${e.message}`);
+    return null;
+  }
+}
+
+// ── JUMPER STANDINGS QUERY (Phase 3b Chunk 14) ─────────────────────────────
+// Pulls top-20 jumper entries with the inputs WEST.rules.jumperPlaceFor
+// needs (overall_place, scoring_method, r{1,2,3}_status). Page applies the
+// canonical rule to suppress place for entries the method's wipesOnFail
+// ladder eliminated. Includes round time + faults so the panel can show
+// "0 / 65.234" style scores. Equitation classes (Method 7) ride this same
+// pipe — they're jumper-protocol classes by lens.
+async function pullJumperScoresV3(env, classPk) {
+  if (!classPk) return null;
+  try {
+    const r = await env.WEST_DB_V3.prepare(`
+      SELECT e.entry_num, e.horse_name, e.rider_name, e.owner_name,
+             ejs.overall_place,
+             c.scoring_method, c.scoring_modifier,
+             (SELECT status        FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 1) AS r1_status,
+             (SELECT status        FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 2) AS r2_status,
+             (SELECT status        FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 3) AS r3_status,
+             (SELECT total_faults  FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 1) AS r1_total_faults,
+             (SELECT total_time    FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 1) AS r1_total_time,
+             (SELECT total_faults  FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 2) AS r2_total_faults,
+             (SELECT total_time    FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 2) AS r2_total_time,
+             (SELECT total_faults  FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 3) AS r3_total_faults,
+             (SELECT total_time    FROM entry_jumper_rounds r WHERE r.entry_id = e.id AND r.round = 3) AS r3_total_time
+      FROM entries e
+      LEFT JOIN entry_jumper_summary ejs ON ejs.entry_id = e.id
+      JOIN classes c ON c.id = e.class_id
+      WHERE e.class_id = ?
+      ORDER BY
+        CASE WHEN ejs.overall_place IS NULL OR ejs.overall_place = 0
+             THEN 1 ELSE 0 END,
+        ejs.overall_place ASC,
+        CAST(e.entry_num AS INTEGER) ASC
+      LIMIT 20
+    `).bind(classPk).all();
+    return r.results || [];
+  } catch (e) {
+    console.log(`[pullJumperScoresV3] failed for class_pk=${classPk}: ${e.message}`);
+    return null;
+  }
+}
+
 // ── CLASS KIND DERIVATION (Phase 3b polish) ────────────────────────────────
 // Article 1 split: class_type is HARDWARE (H/J/T/U), class_kind is the
 // SEMANTIC lens (jumper / hunter / equitation). Used by /v3/postUdpEvent
@@ -789,6 +873,65 @@ export class RingStateDO {
         try { ws.send(wsMessage); } catch (e) { /* runtime cleans dead */ }
       }
       return new Response(JSON.stringify({ ok: true, broadcast_to: this.state.getWebSockets().length }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // POST /scores-update — push from /v3/postCls when scoring changes
+    // in D1. Without this, a Display Scores trigger / score post updates
+    // D1 but the live snapshot stays stale until the next UDP batch
+    // (which may never come if the operator stops sending UDP). Body:
+    // { class_id, hunter_scores?, jumper_scores? }. We gate on class_id
+    // matching the current focus so a postCls for a non-focused class
+    // doesn't clobber the live panel. Lens-aware too: if focus is
+    // hunter, only hunter_scores update; if jumper / equitation, only
+    // jumper_scores. (S43 Chunks 13 + 14 — Bill 2026-05-02.)
+    if (request.method === 'POST' && url.pathname === '/scores-update') {
+      let body;
+      try { body = await request.json(); }
+      catch (e) { return new Response('Invalid JSON', { status: 400 }); }
+      if (!this.snapshot) {
+        return new Response(JSON.stringify({ ok: true, applied: false, reason: 'no snapshot' }));
+      }
+      const lensKind = this.snapshot.class_kind;
+      // Bail if neither lens matches.
+      const isHunter = lensKind === 'hunter';
+      const isJumper = lensKind === 'jumper' || lensKind === 'equitation';
+      if (!isHunter && !isJumper) {
+        return new Response(JSON.stringify({ ok: true, applied: false, reason: 'no scoring lens' }));
+      }
+      // Match against any class_id source — Channel A or Channel B.
+      const focusedClassId =
+        (this.snapshot.last_scoring && this.snapshot.last_scoring.class_id) ||
+        (this.snapshot.last_focus && this.snapshot.last_focus.class_id) ||
+        (this.snapshot.last && this.snapshot.last.class_id) || null;
+      if (focusedClassId !== body.class_id) {
+        return new Response(JSON.stringify({ ok: true, applied: false, reason: 'class focus mismatch' }));
+      }
+      if (isHunter && body.hunter_scores !== undefined) {
+        this.snapshot.hunter_scores = body.hunter_scores;
+      }
+      if (isJumper && body.jumper_scores !== undefined) {
+        this.snapshot.jumper_scores = body.jumper_scores;
+      }
+      this.snapshot.received_at = new Date().toISOString();
+      // Persist to KV so polling fallback also sees the fresh scores.
+      try {
+        await this.env.WEST_LIVE.put(
+          `ring-state:${this.snapshot.slug}:${this.snapshot.ring_num}`,
+          JSON.stringify(this.snapshot),
+          { expirationTtl: 600 }
+        );
+      } catch (e) {
+        console.log(`[RingStateDO/scores-update] KV put failed: ${e.message}`);
+      }
+      // Broadcast updated snapshot to all WS clients.
+      const wsMessage = JSON.stringify({ type: 'snapshot', data: this.snapshot });
+      let broadcasts = 0;
+      for (const ws of this.state.getWebSockets()) {
+        try { ws.send(wsMessage); broadcasts++; } catch (e) {}
+      }
+      return new Response(JSON.stringify({ ok: true, applied: true, broadcasts }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -2958,6 +3101,37 @@ export default {
           entriesStatus = 'error: ' + e.message;
         }
       }
+      // Phase 3b Chunk 13/14 — push fresh standings into the live
+      // snapshot via the DO. /v3/postCls just updated D1; without this
+      // ping the live page stays stale until the next UDP batch (which
+      // may never come if the operator stops sending). DO gates on
+      // focused class_id + lens so background postCls for a different
+      // class or lens doesn't clobber the foreground leaderboard.
+      try {
+        const id = env.RING_STATE.idFromName(`${slug}:${ringNum}`);
+        const stub = env.RING_STATE.get(id);
+        if (parsed.class_type === 'H') {
+          const hs = await pullHunterScoresV3(env, classDbId);
+          if (hs) {
+            ctx.waitUntil(stub.fetch('https://do/scores-update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ class_id: classId, hunter_scores: hs }),
+            }));
+          }
+        } else if (parsed.class_type === 'J' || parsed.class_type === 'T') {
+          const js = await pullJumperScoresV3(env, classDbId);
+          if (js) {
+            ctx.waitUntil(stub.fetch('https://do/scores-update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ class_id: classId, jumper_scores: js }),
+            }));
+          }
+        }
+      } catch (e) {
+        console.log(`[v3/postCls] DO scores-update ping failed: ${e.message}`);
+      }
       return json({ ok: true, r2_key: r2Key, size, received_at, parsed: {
         class_type: parsed.class_type,
         class_name: parsed.class_name,
@@ -4160,7 +4334,7 @@ export default {
       try {
         row = await env.WEST_DB_V3.prepare(`
           SELECT s.id AS show_id, s.lock_override, s.end_date,
-                 c.class_type, c.scoring_method
+                 c.id AS class_pk, c.class_type, c.scoring_method
           FROM rings r
           JOIN shows s ON s.id = r.show_id
           LEFT JOIN classes c
@@ -4172,6 +4346,21 @@ export default {
       const lk = computeShowLock(row);
       if (lk.locked) return lockedResponse(lk.reason);
       const classKind = deriveClassKindV3(row.class_type, row.scoring_method);
+
+      // Phase 3b Chunk 13 — when the focused class is hunter, pull
+      // current standings from D1 so the page can render a leaderboard.
+      // UDP frames 12/16 are TRIGGERS not data sources per S42; the .cls
+      // is authoritative and is parsed into entry_hunter_summary on each
+      // /v3/postCls. Reading here on every UDP batch is wasteful but
+      // simple — score updates happen on .cls writes (1-2/sec at peak,
+      // not per-frame), so we accept the 1Hz read overhead until a real
+      // show surfaces a perf concern. Cache strategy can land later.
+      const hunterScores = (classKind === 'hunter')
+        ? await pullHunterScoresV3(env, row.class_pk)
+        : null;
+      const jumperScores = (classKind === 'jumper' || classKind === 'equitation')
+        ? await pullJumperScoresV3(env, row.class_pk)
+        : null;
 
       const received_at = new Date().toISOString();
       const batchId = crypto.randomUUID();
@@ -4207,6 +4396,12 @@ export default {
         // Lens-aware display flag (Phase 3b polish). Page uses class_kind
         // to render UDP tags with their human labels. Null → raw {N}=val.
         class_kind: classKind,
+        // Phase 3b Chunk 13/14 — D1-fed standings for live.html, lens-
+        // dependent. hunter_scores populated when class_kind=hunter;
+        // jumper_scores populated when class_kind=jumper or equitation.
+        // The other is null so the page panel hides.
+        hunter_scores: hunterScores,
+        jumper_scores: jumperScores,
         // Engine-controlled display preferences. Default true so a missing
         // field on legacy engines doesn't switch the page to whole-seconds
         // (matches the engine-side default Bill set 2026-05-02).
