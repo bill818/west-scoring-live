@@ -710,3 +710,25 @@ footer a{color:var(--blue);}
 .hero-row{display:flex;gap:20px;align-items:center;flex-wrap:wrap;}
 .hero-logo{max-height:80px;max-width:160px;width:auto;height:auto;flex-shrink:0;object-fit:contain;}
 .hero-text{flex:1;min-width:240px;}
+
+/* ── INDEX SHOW CARD: per-ring class preview ─────────────────────────
+   Mirrors v2's "card-classes" block but multi-ring. Sits below the
+   show-card link inside a wrapper so the inner class links don't
+   trigger the outer show-card click (separate <a> elements). */
+.show-card-wrap{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin-bottom:10px;overflow:hidden;transition:border-color .2s,transform .2s,box-shadow .2s;}
+.show-card-wrap:hover{border-color:var(--blue);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.10);}
+.show-card-wrap > .show-card{margin:0;border:none;border-radius:0;box-shadow:none;transform:none;}
+.show-card-wrap > .show-card:hover{transform:none;border:none;box-shadow:none;}
+.show-rings-preview{padding:0;border-top:1px solid var(--border);background:#fafafa;}
+.show-ring-block{padding:8px 16px 10px;border-bottom:1px solid var(--border);}
+.show-ring-block:last-child{border-bottom:none;}
+.show-ring-hdr{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);}
+.show-ring-num{color:var(--red);font-weight:600;}
+.show-ring-name{color:var(--text-body);font-weight:500;}
+.show-ring-classes{list-style:none;margin:0;padding:0;}
+.show-ring-classes li{margin:0;padding:0;}
+.show-ring-class{display:flex;align-items:baseline;gap:10px;padding:4px 8px;margin:0 -8px;border-radius:4px;text-decoration:none;color:inherit;transition:background .12s;font-size:13px;}
+.show-ring-class:hover{background:var(--off-white);}
+.show-ring-class:hover .cls-num{color:var(--red);}
+.show-ring-class .cls-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-width:36px;flex-shrink:0;}
+.show-ring-class .cls-name{font-size:13px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}

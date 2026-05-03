@@ -2598,6 +2598,72 @@ export default {
       return json({ manifest: ENGINE_LATEST });
     }
 
+    // ── GET /v3/listShowsWithRings ───────────────────────────────────────────
+    // Index-page fetch. Shape: shows (same as listShows) + each show's
+    // rings, + each ring's most-recent 3 classes that have entries. Used
+    // by index.html to render a v2-style "what's running" preview under
+    // each show card. One round-trip instead of 3-per-show.
+    if (method === 'GET' && path === '/v3/listShowsWithRings') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      try {
+        const { results: showRows } = await env.WEST_DB_V3.prepare(
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+        ).all();
+        const shows = (showRows || []);
+        for (const s of shows) s.is_locked = computeShowLock(s).locked ? 1 : 0;
+        if (!shows.length) return json({ ok: true, shows: [] });
+
+        const showIds = shows.map(s => s.id);
+        const ph = showIds.map(() => '?').join(',');
+
+        // Rings + class counts in two cheap queries.
+        const { results: ringRows } = await env.WEST_DB_V3.prepare(
+          `SELECT id, show_id, ring_num, name FROM rings WHERE show_id IN (${ph}) ORDER BY ring_num`
+        ).bind(...showIds).all();
+        const rings = ringRows || [];
+
+        // Recent classes per ring — pull all classes-with-entries for these
+        // rings ordered most-recent first, then trim to top 3 per ring
+        // server-side. Cheaper than a CTE/window query in D1.
+        const ringIds = rings.map(r => r.id);
+        let classes = [];
+        if (ringIds.length) {
+          const cph = ringIds.map(() => '?').join(',');
+          const { results: cRows } = await env.WEST_DB_V3.prepare(
+            `SELECT c.id, c.ring_id, c.class_id, c.class_name, c.scheduled_date, c.class_type,
+                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
+             FROM classes c
+             WHERE c.ring_id IN (${cph}) AND (c.deleted_at IS NULL)
+             ORDER BY c.scheduled_date DESC NULLS LAST, c.class_id DESC`
+          ).bind(...ringIds).all();
+          classes = (cRows || []).filter(c => (c.entry_count || 0) > 0);
+        }
+
+        // Group classes by ring_id, top 3 each.
+        const classesByRing = {};
+        for (const c of classes) {
+          const arr = classesByRing[c.ring_id] || (classesByRing[c.ring_id] = []);
+          if (arr.length < 3) arr.push(c);
+        }
+
+        // Group rings by show_id, attach classes.
+        const ringsByShow = {};
+        for (const r of rings) {
+          (ringsByShow[r.show_id] || (ringsByShow[r.show_id] = [])).push({
+            ring_num: r.ring_num,
+            name: r.name,
+            classes: classesByRing[r.id] || [],
+          });
+        }
+        for (const s of shows) {
+          s.rings = ringsByShow[s.id] || [];
+        }
+
+        return json({ ok: true, shows });
+      } catch (e) { return err('DB error: ' + e.message, 500); }
+    }
+
     // ── POST /v3/uploadShowLogo ──────────────────────────────────────────────
     // Admin uploads a per-show logo. multipart/form-data with field "logo"
     // (image file) and "slug" (target show slug). File goes to R2 at key

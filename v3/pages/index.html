@@ -202,14 +202,45 @@ function render() {
       const logoUrl = s.logo_url
         ? `${BASE}/v3/showLogo?slug=${encodeURIComponent(s.slug)}`
         : `../../assets/show-logos/${encodeURIComponent(s.slug)}.png`;
-      html += `<li><a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
-        <span class="show-dot ${key}"></span>
-        <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
-        <div class="show-body">
-          <div class="show-name">${escapeHtml(s.name)}</div>
-          <div class="show-meta">${fmtDateRange(s)} · ${escapeHtml(s.slug)}</div>
-        </div>
-      </a></li>`;
+
+      // Per-ring "what's running" preview (v2 pattern). Each ring shows
+      // its three most-recent classes-with-entries. Rings with no entered
+      // classes are skipped.
+      const rings = (s.rings || []).filter(r => (r.classes || []).length > 0);
+      let preview = '';
+      if (rings.length) {
+        preview = '<div class="show-rings-preview">';
+        for (const r of rings) {
+          const ringLabel = r.name || `Ring ${r.ring_num}`;
+          preview += `<div class="show-ring-block">
+            <div class="show-ring-hdr">
+              <span class="show-ring-num">R${r.ring_num}</span>
+              <span class="show-ring-name">${escapeHtml(ringLabel)}</span>
+            </div>
+            <ul class="show-ring-classes">`;
+          for (const c of r.classes) {
+            const classUrl = `class.html?slug=${encodeURIComponent(s.slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
+            preview += `<li><a class="show-ring-class" href="${classUrl}" onclick="event.stopPropagation();">
+              <span class="cls-num">${escapeHtml(c.class_id)}</span>
+              <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
+            </a></li>`;
+          }
+          preview += '</ul></div>';
+        }
+        preview += '</div>';
+      }
+
+      html += `<li><div class="show-card-wrap">
+        <a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
+          <span class="show-dot ${key}"></span>
+          <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
+          <div class="show-body">
+            <div class="show-name">${escapeHtml(s.name)}</div>
+            <div class="show-meta">${fmtDateRange(s)} · ${escapeHtml(s.slug)}</div>
+          </div>
+        </a>
+        ${preview}
+      </div></li>`;
     }
     html += `</ul></div>`;
   }
@@ -219,7 +250,7 @@ function render() {
 async function loadShows() {
   const content = document.getElementById('content');
   try {
-    const res = await fetch(BASE + '/v3/listShows', { headers: { 'X-West-Key': AUTH } });
+    const res = await fetch(BASE + '/v3/listShowsWithRings', { headers: { 'X-West-Key': AUTH } });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Failed');
     SHOWS = data.shows || [];
