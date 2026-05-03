@@ -1,0 +1,19 @@
+- [Worker deploy setup](worker_deploy_setup.md) — how to deploy west-worker from this Mac (nvm + wrangler + ~/.cloudflare-env token)
+- [Central by lens](feedback_central_by_lens.md) — directive: cross-lens primitives shared, lens-specific concerns split per lens; pages stay thin
+- [Show flags policy](feedback_show_flags_policy.md) — flag visibility is operator-controlled via Ryegate H[26]; route through WEST.format.flagFor, never flag()
+- [Round labels via roundLabel()](feedback_round_labels_generic.md) — per-method round labels in WEST.format.roundLabel (session-34 generic-only rule now superseded)
+- [Named gates pattern](feedback_named_gates_pattern.md) — every "should I show X" decision lives in a named gate function in west-format.js; templates call the gate, never inline conditions
+- [Canonical labels](feedback_canonical_labels.md) — use lookup table labels as-is; never re-prefix ("Hunter Hunter Derby" was the bug)
+- [Per-entry expand for detail views](feedback_per_entry_expand.md) — detail (judges grid, future derby components, per-rider history) expands inline below the clicked row, not page-level toggle
+- [Derby type is zero-indexed](project_derby_type_zero_indexed.md) — H[37] derby_type: 0=International, 1=National, etc. Spec doc is wrong; code is truth
+- [JS modules quick reference](reference_js_modules_doc.md) — pointer to docs/v3-planning/JS-MODULES-AND-PAGES.md (current state of frontend modules + pages)
+- [/v3/reparseClassHeaders](reference_reparse_class_headers.md) — backfill endpoint for any classes-level migration; the standard recipe
+- [Th h.html escape-hatch](feedback_th_html_field.md) — table-header descriptors accept h.html (raw) when a header genuinely needs internal markup
+- [Jumper stats pipeline](reference_jumper_stats_pipeline.md) — class_jumper_stats + computeJumperStats + /v3/listJumperStats + stats.html. Server-rendered standings; cherry-pickable
+- [ETag-aware polling pattern](reference_etag_polling_pattern.md) — jsonWithEtag + WEST.api.fetchJsonEtag; smart-poll bridge until WebSocket subscriptions land in Phase 7-8
+- [Engine TTB countdown + finish delta ideas](project_engine_time_to_beat_countdown.md) — two paired live-display swaps: (1) ±5 countdown vs TTB during on-course; (2) finish-time delta vs leader when both clear (idea only, future engine + live work)
+- [Design rollout — black + G fonts](project_design_rollout.md) — confirmed direction: Big Shoulders + Inter + JetBrains Mono on the black palette from index-lab-black; site-wide swap via west.css
+- [west.css central stylesheet](reference_west_css.md) — v3/pages/west.css is the single shared stylesheet for all v3 pages; make global design changes there
+- [Ring display page (planned)](project_ring_display_page.md) — dedicated large-screen kiosk surface separate from live.html; live.html targets responsive web only, kiosk is its own page
+- [Use centralized templates for standings](feedback_use_centralized_templates.md) — always call WEST.jumperTemplates / WEST.hunterTemplates for standings; recent-round-first stacking + method-aware labels live there
+- [Class final/complete only on explicit signal](feedback_class_final_only_on_signal.md) — only the 3× Ctrl+A CLASS_COMPLETE on port 31000 marks a class final; idle-eviction is UI hygiene only, never status

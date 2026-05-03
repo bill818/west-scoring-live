@@ -21,5 +21,12 @@ Thumbs.db
 west_log.txt
 west_udp_log.txt
 
-# Claude Code memory (local only)
-.claude/
+# Claude Code per-machine config (settings.local.json, worktrees, etc.).
+# Use .claude/* (with star) so the directory itself stays traversable —
+# git can't re-include children if the parent directory is excluded.
+.claude/*
+# DO track the memory subfolder — these are project context notes that
+# should sync across machines via git so future Claude sessions (on any
+# computer) read the same priors.
+!.claude/memory/
+!.claude/memory/**
