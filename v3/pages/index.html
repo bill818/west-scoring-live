@@ -196,7 +196,12 @@ function render() {
     if (!groups[key].length) continue;
     html += `<div class="group"><div class="group-header">${label} (${groups[key].length})</div><ul class="show-list">`;
     for (const s of groups[key]) {
-      const logoUrl = `../../assets/show-logos/${encodeURIComponent(s.slug)}.png`;
+      // Prefer admin-uploaded logo (logo_url set on the show row → served
+      // by worker from R2). Fall back to file convention so any logos
+      // dropped at assets/show-logos/<slug>.png pre-upload still render.
+      const logoUrl = s.logo_url
+        ? `${BASE}/v3/showLogo?slug=${encodeURIComponent(s.slug)}`
+        : `../../assets/show-logos/${encodeURIComponent(s.slug)}.png`;
       html += `<li><a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
         <span class="show-dot ${key}"></span>
         <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">

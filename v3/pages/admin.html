@@ -14,6 +14,14 @@
 <script src="../js/west-format.js"></script>
 <script src="../js/west-status.js"></script>
 <script src="../js/west-rules.js"></script>
+<style>
+  /* Show-logo controls inside dlgShow */
+  .logo-row { display: flex; align-items: center; gap: 14px; padding: 10px; background: var(--off-white); border-radius: 6px; }
+  .logo-preview { max-height: 64px; max-width: 120px; width: auto; height: auto; object-fit: contain; background: #fff; padding: 4px; border: 1px solid var(--border); border-radius: 4px; }
+  .logo-empty { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); flex: 1; }
+  .logo-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: auto; }
+  .logo-actions .btn-secondary { font-size: 12px; padding: 6px 12px; }
+</style>
 </head>
 <body>
 
@@ -200,6 +208,19 @@
         <option value="locked">Locked — reject engine writes now</option>
       </select>
       <div class="form-hint" id="f_showLockHint">When locked, the worker rejects postCls / postTsked / heartbeat with HTTP 423. Use "Unlocked" only to correct a result the morning after a show.</div>
+    </div>
+    <div class="form-group" id="f_showLogoGroup" style="display:none;">
+      <label>Show logo</label>
+      <div class="logo-row">
+        <img id="f_showLogoPreview" class="logo-preview" alt="" style="display:none;">
+        <div class="logo-empty" id="f_showLogoEmpty">No logo uploaded</div>
+        <div class="logo-actions">
+          <input type="file" id="f_showLogoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;">
+          <button type="button" class="btn-secondary" id="btnPickLogo">Choose file…</button>
+          <button type="button" class="btn-secondary" id="btnRemoveLogo" style="display:none;">Remove</button>
+        </div>
+      </div>
+      <div class="form-hint" id="f_showLogoStatus">PNG/JPEG/WebP/SVG, up to 5MB. Recommended: transparent PNG, at least 160px tall. Saved to R2 the moment you pick the file — no separate save step.</div>
     </div>
     <div class="form-error" id="f_showError"></div>
   </div>
@@ -925,9 +946,109 @@ function openShowDialog(mode, show) {
   document.getElementById('f_showStatsEligible').checked = s.stats_eligible === 0 ? false : true;
   document.getElementById('f_showLockOverride').value  = s.lock_override || 'auto';
   document.getElementById('f_showError').classList.remove('visible');
+
+  // Logo group is only meaningful in edit mode (the show must exist for
+  // the upload endpoint to find it).
+  const logoGroup = document.getElementById('f_showLogoGroup');
+  if (mode === 'edit' && s.slug) {
+    logoGroup.style.display = '';
+    refreshLogoPreview(s.slug, !!s.logo_url);
+  } else {
+    logoGroup.style.display = 'none';
+  }
+
   dlgShow.showModal();
   document.getElementById('f_showName').focus();
 }
+
+// ── Show-logo upload + preview ──────────────────────────────────────
+function refreshLogoPreview(slug, hasLogo) {
+  const img    = document.getElementById('f_showLogoPreview');
+  const empty  = document.getElementById('f_showLogoEmpty');
+  const remove = document.getElementById('btnRemoveLogo');
+  const status = document.getElementById('f_showLogoStatus');
+  if (hasLogo) {
+    // Cache-bust on re-render so a fresh upload shows the new file.
+    img.src = `${BASE}/v3/showLogo?slug=${encodeURIComponent(slug)}&t=${Date.now()}`;
+    img.style.display = '';
+    empty.style.display = 'none';
+    remove.style.display = '';
+  } else {
+    img.removeAttribute('src');
+    img.style.display = 'none';
+    empty.style.display = '';
+    remove.style.display = 'none';
+  }
+  status.textContent = 'PNG/JPEG/WebP/SVG, up to 5MB. Recommended: transparent PNG, at least 160px tall. Saved to R2 the moment you pick the file — no separate save step.';
+  status.style.color = '';
+}
+
+document.getElementById('btnPickLogo').addEventListener('click', () => {
+  document.getElementById('f_showLogoFile').click();
+});
+
+document.getElementById('f_showLogoFile').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const slug = document.getElementById('f_showSlug').value.trim();
+  if (!slug) return;
+  const status = document.getElementById('f_showLogoStatus');
+  if (file.size > 5 * 1024 * 1024) {
+    status.textContent = '✗ File too large (max 5MB).';
+    status.style.color = 'var(--red)';
+    e.target.value = '';
+    return;
+  }
+  status.textContent = 'Uploading…';
+  status.style.color = '';
+  try {
+    const fd = new FormData();
+    fd.append('logo', file);
+    fd.append('slug', slug);
+    const res = await fetch(`${BASE}/v3/uploadShowLogo`, {
+      method: 'POST',
+      headers: { 'X-West-Key': AUTH },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    status.textContent = '✓ Uploaded';
+    status.style.color = 'var(--green)';
+    refreshLogoPreview(slug, true);
+    // Update the local shows cache so next time the dialog opens it
+    // reflects logo_url without a full reload.
+    const show = state.shows.find(s => s.slug === slug);
+    if (show) show.logo_url = data.key;
+  } catch (err) {
+    status.textContent = '✗ ' + err.message;
+    status.style.color = 'var(--red)';
+  } finally {
+    e.target.value = '';
+  }
+});
+
+document.getElementById('btnRemoveLogo').addEventListener('click', async () => {
+  const slug = document.getElementById('f_showSlug').value.trim();
+  if (!slug) return;
+  if (!confirm('Remove the logo for this show?')) return;
+  const status = document.getElementById('f_showLogoStatus');
+  status.textContent = 'Removing…';
+  status.style.color = '';
+  try {
+    const res = await fetch(`${BASE}/v3/uploadShowLogo?slug=${encodeURIComponent(slug)}`, {
+      method: 'DELETE',
+      headers: { 'X-West-Key': AUTH },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    refreshLogoPreview(slug, false);
+    const show = state.shows.find(s => s.slug === slug);
+    if (show) show.logo_url = null;
+  } catch (err) {
+    status.textContent = '✗ ' + err.message;
+    status.style.color = 'var(--red)';
+  }
+});
 
 document.getElementById('btnCreateShow').addEventListener('click', () => openShowDialog('create'));
 document.getElementById('btnEditShow').addEventListener('click', () => {

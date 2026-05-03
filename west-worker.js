@@ -2598,6 +2598,109 @@ export default {
       return json({ manifest: ENGINE_LATEST });
     }
 
+    // ── POST /v3/uploadShowLogo ──────────────────────────────────────────────
+    // Admin uploads a per-show logo. multipart/form-data with field "logo"
+    // (image file) and "slug" (target show slug). File goes to R2 at key
+    // "show-logos/<slug>.<ext>"; shows.logo_url is updated to that key.
+    // Replaces existing logo for the same slug (R2 put overwrites).
+    if (method === 'POST' && path === '/v3/uploadShowLogo') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      try {
+        const form = await request.formData();
+        const file = form.get('logo');
+        const slug = (form.get('slug') || url.searchParams.get('slug') || '').trim();
+        if (!slug) return err('Missing slug');
+        if (!file || typeof file === 'string') return err('Missing logo file');
+        if (!(file instanceof File) && !(file && file.arrayBuffer)) return err('Invalid logo file');
+        const size = file.size || 0;
+        if (size <= 0) return err('Empty logo file');
+        if (size > 5 * 1024 * 1024) return err('Logo too large (max 5MB)');
+
+        const ct = file.type || 'application/octet-stream';
+        // Map content-type to extension. Default to png if unknown — most
+        // operators upload PNG anyway, and the worker still serves with the
+        // stored Content-Type.
+        const extByType = {
+          'image/png': 'png',
+          'image/jpeg': 'jpg',
+          'image/webp': 'webp',
+          'image/svg+xml': 'svg',
+          'image/gif': 'gif',
+        };
+        const ext = extByType[ct] || 'png';
+        const key = `show-logos/${slug}.${ext}`;
+
+        // Verify slug exists before writing — avoid orphaned R2 objects.
+        const show = await env.WEST_DB_V3.prepare('SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return err('Show not found', 404);
+
+        await env.WEST_R2_CLS.put(key, file.stream(), {
+          httpMetadata: { contentType: ct },
+        });
+
+        // If a previous upload used a different extension, clean it up.
+        // Cheap shotgun delete — try common extensions; ignore misses.
+        for (const oldExt of ['png', 'jpg', 'webp', 'svg', 'gif']) {
+          if (oldExt === ext) continue;
+          await env.WEST_R2_CLS.delete(`show-logos/${slug}.${oldExt}`).catch(() => {});
+        }
+
+        await env.WEST_DB_V3.prepare('UPDATE shows SET logo_url = ? WHERE slug = ?')
+          .bind(key, slug).run();
+
+        return json({ ok: true, key, contentType: ct, size });
+      } catch (e) {
+        return err('Upload failed: ' + e.message, 500);
+      }
+    }
+
+    // ── DELETE /v3/uploadShowLogo ───────────────────────────────────────────
+    // Admin removes a show's logo. R2 object deleted, logo_url cleared.
+    if (method === 'DELETE' && path === '/v3/uploadShowLogo') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare('SELECT logo_url FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show) return err('Show not found', 404);
+        if (show.logo_url) await env.WEST_R2_CLS.delete(show.logo_url).catch(() => {});
+        await env.WEST_DB_V3.prepare('UPDATE shows SET logo_url = NULL WHERE slug = ?').bind(slug).run();
+        return json({ ok: true });
+      } catch (e) {
+        return err('Delete failed: ' + e.message, 500);
+      }
+    }
+
+    // ── GET /v3/showLogo ────────────────────────────────────────────────────
+    // Public — spectator pages embed this URL as <img src>. Reads
+    // shows.logo_url, streams the R2 object with the right Content-Type
+    // and a cache header. 404 when no logo (browser hides via onerror).
+    if (method === 'GET' && path === '/v3/showLogo') {
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare('SELECT logo_url FROM shows WHERE slug = ?').bind(slug).first();
+        if (!show || !show.logo_url) return err('Not found', 404);
+        const obj = await env.WEST_R2_CLS.get(show.logo_url);
+        if (!obj) return err('Not found', 404);
+        const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/png';
+        return new Response(obj.body, {
+          status: 200,
+          headers: {
+            'Content-Type': ct,
+            // Cache 5min in browser/edge; admin re-upload is rare and
+            // operator can hard-refresh. Keeps Pages bandwidth low.
+            'Cache-Control': 'public, max-age=300',
+            ...CORS,
+          },
+        });
+      } catch (e) {
+        return err('Logo error: ' + e.message, 500);
+      }
+    }
+
     // ── GET /v3/getShowWeather ────────────────────────────────────────────────
     // Per-day weather for a show's date range. D1 cache first; on miss,
     // fetches from Open-Meteo (archive API for past dates, forecast for

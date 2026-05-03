@@ -178,10 +178,13 @@ function deriveStatus(show) {
 function renderHero(show) {
   const status = deriveStatus(show);
   const dates = fmtDateRange(show);
-  // Logo: file-convention at assets/show-logos/<slug>.png. onerror hides
-  // on 404 so shows without a logo render cleanly. Future iteration can
-  // swap to a stored URL or admin upload.
-  const logoUrl = `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
+  // Logo source priority:
+  //   1. show.logo_url present → worker /v3/showLogo (uploaded via admin)
+  //   2. fallback: file convention at assets/show-logos/<slug>.png
+  // Either way, onerror hides the <img> when there's no logo at all.
+  const logoUrl = show.logo_url
+    ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
+    : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
   const text = [];
   text.push(`<div class="hero-name">${escapeHtml(show.name)}</div>`);
   if (dates) text.push(`<div class="hero-dates">${escapeHtml(dates)}</div>`);
