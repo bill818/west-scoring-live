@@ -55,6 +55,7 @@
   // unsaved edits aren't blown away by an incoming state push. Only paths
   // are editable — ports are auto-detected from Ryegate's config.dat.
   let settingsDirty = false;
+  let credsDirty = false;
 
   function populateSettings(settings) {
     if (!settings) return;
@@ -63,12 +64,14 @@
       $('#setTskedPath').value    = settings.tskedPath       || '';
       $('#setRyegateConf').value  = settings.ryegateConfPath || '';
     }
+    if (!credsDirty) {
+      $('#setWorkerUrl').value = settings.workerUrl || '';
+      $('#setAuthKey').value   = settings.authKey   || '';
+    }
     // Read-only fields refresh on every state push (auto-detected values).
     $('#setInputPort').value    = settings.inputPort    || '';
     $('#setRsserverPort').value = settings.rsserverPort || '';
     $('#setFocusPort').value    = settings.focusPort    || '';
-    $('#setWorkerUrl').value    = settings.workerUrl    || '';
-    $('#setAuthKey').value      = settings.authKey      || '';
     // Scoreboard tab — same auto-detected values as Settings tab.
     $('#sbInputPort').textContent    = settings.inputPort    || '—';
     $('#sbRsserverPort').textContent = settings.rsserverPort || '—';
@@ -94,6 +97,10 @@
     if (!featureSaveInFlight.has('liveRunningTenth')) {
       $('#featLiveRunningTenth').checked = !!features.liveRunningTenth;
     }
+    if (!featureSaveInFlight.has('autoStart')) {
+      const el = $('#featAutoStart');
+      if (el) el.checked = !!features.autoStart;
+    }
   }
 
   function markSettingsDirty() {
@@ -113,11 +120,21 @@
   function render(state) {
     lastState = state;
 
-    // Top bar — show / ring identity
-    const showRing = state.config && state.config.showSlug
-      ? `${state.config.showSlug} · Ring ${state.config.ringNum}`
-      : '— not selected —';
-    $('#currentShowRing').textContent = showRing;
+    // First-run wizard takes priority over everything else — if config.json
+    // is missing required fields, the operator can't do anything else.
+    maybeShowWizard(state);
+
+    // Top bar — show / ring identity. Friendly name on top, slug below
+    // for confirmation. Slug element collapses (CSS :empty) when unset.
+    const cfg = state.config;
+    if (cfg && cfg.showSlug) {
+      const display = (cfg.showName || cfg.showSlug) + ' · Ring ' + cfg.ringNum;
+      $('#currentShowRing').textContent = display;
+      $('#currentShowSlug').textContent = cfg.showName ? cfg.showSlug : '';
+    } else {
+      $('#currentShowRing').textContent = '— not selected —';
+      $('#currentShowSlug').textContent = '';
+    }
 
     // Connection dots
     setDot($('#dotWorker'),
@@ -139,6 +156,91 @@
     pauseBtn.querySelector('.btn-pause-icon').textContent = state.liveScoringPaused ? '▶' : '⏸';
     pauseBtn.querySelector('.btn-pause-text').textContent =
       state.liveScoringPaused ? 'Resume live scoring' : 'Pause live scoring';
+
+    // Updater — surface latest version + install button when a newer
+    // engine is available. Topbar pill appears only when update.available;
+    // Settings fieldset always visible with current version.
+    const upd = state.update || {};
+    $('#updateCurrentVersion').textContent = state.engineVersion || '—';
+    const updPill   = $('#updatePill');
+    const updPillTx = $('#updatePillText');
+    const installBtn = $('#btnInstallUpdate');
+    const latestRow = $('#updateLatestRow');
+    const notesRow  = $('#updateNotesRow');
+    const lastCheck = $('#updateLastCheck');
+    if (upd.available && upd.latestVersion) {
+      updPill.hidden = false;
+      updPillTx.textContent = 'Update ' + upd.latestVersion;
+      latestRow.hidden = false;
+      $('#updateLatestVersion').textContent = upd.latestVersion;
+      installBtn.hidden = false;
+      if (upd.releaseNotes) {
+        notesRow.hidden = false;
+        $('#updateReleaseNotes').textContent = upd.releaseNotes;
+      } else {
+        notesRow.hidden = true;
+      }
+    } else {
+      updPill.hidden = true;
+      latestRow.hidden = true;
+      notesRow.hidden = true;
+      installBtn.hidden = true;
+    }
+    if (upd.installing) {
+      installBtn.disabled = true;
+      installBtn.textContent = 'Installing…';
+    } else {
+      installBtn.disabled = false;
+      installBtn.textContent = 'Install & restart';
+    }
+    if (upd.lastCheckError) {
+      lastCheck.textContent = 'Last check failed: ' + upd.lastCheckError;
+    } else if (upd.checking) {
+      lastCheck.textContent = 'Checking…';
+    } else if (upd.lastCheckAt) {
+      lastCheck.textContent = 'Last checked ' + fmtAgo(upd.lastCheckAt);
+    } else {
+      lastCheck.textContent = 'Checking on launch + hourly';
+    }
+
+    // Health pill — surfaces the watchdog's degraded list. Recovery actions
+    // are handled in main; the pill is read-only.
+    const wd = state.watchdog || {};
+    const degraded = wd.degraded || [];
+    const recoveryCount = wd.recoveriesPerformed || 0;
+    const healthPill = $('#healthPill');
+    const healthDot  = $('#healthDot');
+    const healthText = $('#healthPillText');
+    healthPill.classList.remove('degraded', 'fail');
+    healthDot.classList.remove('ok', 'degraded', 'fail');
+    if (degraded.length === 0) {
+      healthDot.classList.add('ok');
+      healthText.textContent = recoveryCount ? `Healthy · ${recoveryCount} recovered` : 'Healthy';
+      healthPill.title = wd.lastCheckAt
+        ? `Last check ${fmtAgo(wd.lastCheckAt)}\nRecoveries: ${recoveryCount}`
+        : 'Watchdog warming up';
+    } else {
+      healthPill.classList.add('degraded');
+      healthDot.classList.add('degraded');
+      healthText.textContent = `${degraded.length} issue${degraded.length === 1 ? '' : 's'}`;
+      healthPill.title = degraded.join('\n');
+    }
+
+    // Mode pill — four states from {show selected} × {pass-through enabled}.
+    // Independent of the live-scoring pause (which is a transient override
+    // shown via banner, not a structural mode).
+    const showSel = !!state.config;
+    const ptOn    = state.passthrough !== false;
+    const pill    = $('#modePill');
+    const pillVal = $('#modePillValue');
+    let modeClass, modeText;
+    if (showSel && ptOn)        { modeClass = 'full';        modeText = 'WEBSITE + PASS-THROUGH'; }
+    else if (showSel && !ptOn)  { modeClass = 'website';     modeText = 'WEBSITE ONLY'; }
+    else if (!showSel && ptOn)  { modeClass = 'passthrough'; modeText = 'PASS-THROUGH ONLY'; }
+    else                        { modeClass = 'idle';        modeText = 'IDLE'; }
+    pill.classList.remove('full', 'website', 'passthrough', 'idle');
+    pill.classList.add(modeClass);
+    pillVal.textContent = modeText;
 
     // Current focus pane (empty until 31000 fires)
     const focusBody = $('#focusBody');
@@ -197,17 +299,19 @@
       eventsBody.innerHTML = '<div class="events-empty">No events yet.</div>';
     }
 
-    // Manual controls — Scoreboard tab forwarding pause (separate from
-    // the top-bar live-scoring pause).
+    // Pass-through toggle on Data Settings tab. Stays enabled regardless
+    // of show selection — pass-through-only with no show is a valid
+    // operating mode (engine acts as dumb local scoreboard relay).
     const fwdBtn = $('#btnPauseForwarding');
-    fwdBtn.classList.toggle('is-active', !!state.forwardingPaused);
-    fwdBtn.textContent = state.forwardingPaused ? '▶ Resume forwarding' : '⏸ Pause forwarding';
+    const passthrough = state.passthrough !== false;
+    fwdBtn.classList.toggle('is-active', !passthrough);
+    fwdBtn.textContent = passthrough ? '⏸ Disable pass-through' : '▶ Enable pass-through';
 
-    // Disable controls when no show selected (no point reposting nothing)
+    // Disable re-post controls when no show selected (no point reposting
+    // nothing). Pass-through toggle stays live.
     const noShow = !state.config;
     $('#btnRepostCls').disabled = noShow;
     $('#btnRepostTsked').disabled = noShow;
-    $('#btnPauseForwarding').disabled = noShow;
 
     // Footer
     $('#footerVersion').textContent = state.engineVersion || '—';
@@ -257,6 +361,58 @@
     return String(s == null ? '' : s).replace(/[&<>"']/g,
       c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
+
+  // ── First-run wizard ───────────────────────────────────────────────────
+  // Triggered when state.configError indicates missing workerUrl/authKey.
+  // Self-closes on successful save (next state push will have configError
+  // null, render() decides whether to keep it open).
+  const wzDlg     = $('#dlgWizard');
+  const wzWorker  = $('#wzWorkerUrl');
+  const wzKey     = $('#wzAuthKey');
+  const wzError   = $('#wzError');
+  const wzSuccess = $('#wzSuccess');
+  const wzSave    = $('#btnWizardSave');
+  let wizardShown = false;
+
+  function maybeShowWizard(state) {
+    const needsCreds = !!(state.configError && /workerurl|authkey|missing config/i.test(state.configError));
+    if (needsCreds && !wizardShown && !wzDlg.open) {
+      wizardShown = true;
+      wzError.hidden = true;
+      wzSuccess.hidden = true;
+      wzDlg.showModal();
+    } else if (!needsCreds && wzDlg.open) {
+      // Credentials successfully saved — close wizard.
+      wzDlg.close();
+      wizardShown = false;
+    }
+  }
+
+  wzSave.addEventListener('click', async () => {
+    wzError.hidden = true;
+    wzSuccess.hidden = true;
+    wzSave.disabled = true;
+    wzSave.textContent = 'Testing…';
+    try {
+      const res = await window.westEngine.saveCredentials(wzWorker.value, wzKey.value);
+      if (!res.ok) {
+        wzError.textContent = res.error || 'Save failed';
+        wzError.hidden = false;
+        wzSave.disabled = false;
+        wzSave.textContent = 'Test & save';
+        return;
+      }
+      wzSuccess.textContent = '✓ Connected. Saving…';
+      wzSuccess.hidden = false;
+      // Modal closes when next state push arrives without configError —
+      // see maybeShowWizard.
+    } catch (e) {
+      wzError.textContent = 'Unexpected error: ' + e.message;
+      wzError.hidden = false;
+      wzSave.disabled = false;
+      wzSave.textContent = 'Test & save';
+    }
+  });
 
   // ── Show picker modal ──────────────────────────────────────────────────
   const dlg = $('#dlgPicker');
@@ -353,6 +509,20 @@
   $('#btnSwitchFromEmpty').addEventListener('click', openPicker);
 
   $('#btnPickerCancel').addEventListener('click', () => dlg.close());
+  $('#btnPickerClear').addEventListener('click', async () => {
+    const cur = lastState && lastState.config;
+    if (!cur) { dlg.close(); return; } // already cleared
+    const confirmed = confirm(
+      `Clear show selection?\n\nThe engine will stop posting to the worker (.cls / tsked / UDP events / heartbeat).\n\nUDP pass-through to RSServer keeps running if it's enabled on Data Settings.`);
+    if (!confirmed) return;
+    try {
+      await window.westEngine.clearShow();
+      dlg.close();
+    } catch (e) {
+      pkError.textContent = 'Clear failed: ' + e.message;
+      pkError.hidden = false;
+    }
+  });
   $('#btnPickerSave').addEventListener('click', async () => {
     const slug = pkShow.value;
     const ring = parseInt(pkRing.value, 10);
@@ -365,8 +535,21 @@
       if (!confirmed) return;
     }
     try {
-      await window.westEngine.switchShow(slug, ring);
+      // Pull the display name from the picker's selected option so main can
+      // persist it alongside slug. Falls back to null if option text doesn't
+      // contain a friendly name (defensive — should always have one).
+      const optText = pkShow.options[pkShow.selectedIndex] && pkShow.options[pkShow.selectedIndex].textContent || '';
+      const name = optText.split(' · ')[0].trim() || null;
+      await window.westEngine.switchShow(slug, ring, name);
       dlg.close();
+      // If the picker was opened from the mode pill, apply the requested
+      // pass-through state now that the show is set.
+      if (pendingPassthroughAfterPick !== null) {
+        const want = pendingPassthroughAfterPick;
+        pendingPassthroughAfterPick = null;
+        // Wait one state push so lastState reflects the new show
+        setTimeout(() => { setPassthroughTo(want); }, 100);
+      }
     } catch (e) {
       pkError.textContent = 'Switch failed: ' + e.message;
       pkError.hidden = false;
@@ -408,6 +591,79 @@
 
   $('#btnOpenLog').addEventListener('click', () => window.westEngine.openLog());
   $('#btnOpenAdmin').addEventListener('click', () => window.westEngine.openAdmin());
+
+  // ── Mode pill — click to change pipeline mode ──────────────────────────
+  // Four modes from the {show selected × pass-through} matrix. Picking a
+  // mode that requires a show, when no show is selected, opens the picker
+  // first; the chosen pass-through state is then applied on save.
+  const modePill     = $('#modePill');
+  const modePillMenu = $('#modePillMenu');
+  let pendingPassthroughAfterPick = null; // set when picker is opened from the menu
+
+  function closeModeMenu() { modePillMenu.hidden = true; }
+  function openModeMenu() {
+    // Mark the current mode for visual emphasis
+    const showSel = !!(lastState && lastState.config);
+    const ptOn    = !lastState || lastState.passthrough !== false;
+    const cur = showSel && ptOn ? 'full'
+              : showSel && !ptOn ? 'website'
+              : !showSel && ptOn ? 'passthrough'
+              : 'idle';
+    modePillMenu.querySelectorAll('.mode-pill-menu-item').forEach(b =>
+      b.classList.toggle('is-current', b.dataset.mode === cur));
+    modePillMenu.hidden = false;
+  }
+
+  modePill.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (modePillMenu.hidden) openModeMenu(); else closeModeMenu();
+  });
+
+  // Clicking outside the pill/menu closes it
+  document.addEventListener('click', (e) => {
+    if (modePillMenu.hidden) return;
+    if (e.target.closest('.mode-pill-wrap')) return;
+    closeModeMenu();
+  });
+
+  async function setPassthroughTo(want) {
+    const cur = !lastState || lastState.passthrough !== false;
+    if (cur === want) return; // no-op
+    try { await window.westEngine.toggleForwarding(); } catch (e) {}
+  }
+
+  modePillMenu.querySelectorAll('.mode-pill-menu-item').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const mode = btn.dataset.mode;
+      const showSel = !!(lastState && lastState.config);
+      closeModeMenu();
+
+      if (mode === 'full' || mode === 'website') {
+        const wantPt = (mode === 'full');
+        if (!showSel) {
+          // Need a show — open picker. Apply pass-through after save.
+          pendingPassthroughAfterPick = wantPt;
+          openPicker();
+          return;
+        }
+        await setPassthroughTo(wantPt);
+        return;
+      }
+
+      if (mode === 'passthrough' || mode === 'idle') {
+        const wantPt = (mode === 'passthrough');
+        if (showSel) {
+          const ok = confirm(
+            `Drop the current show?\n\nWorker posts (.cls / tsked / UDP events / heartbeat) will stop.\n\nUDP pass-through to RSServer will ${wantPt ? 'keep running' : 'also stop'}.`);
+          if (!ok) return;
+          try { await window.westEngine.clearShow(); } catch (e) {}
+        }
+        await setPassthroughTo(wantPt);
+        return;
+      }
+    });
+  });
 
   // ── Tabs — vanilla single-tab visibility toggle ─────────────────────────
   // Always open on Status. Operator's last-used tab does NOT persist across
@@ -467,10 +723,83 @@
   wireFeatureToggle('featRunningTenth',     'runningTenth');
   wireFeatureToggle('featHoldTarget',       'holdTarget');
   wireFeatureToggle('featLiveRunningTenth', 'liveRunningTenth');
+  if ($('#featAutoStart')) wireFeatureToggle('featAutoStart', 'autoStart');
 
   // ── Settings inputs — dirty-track + Save / Revert ──────────────────────
   ['setClsDir', 'setTskedPath', 'setRyegateConf'].forEach(id => {
     document.getElementById(id).addEventListener('input', markSettingsDirty);
+  });
+
+  // ── Credentials — separate from path settings; reuses save-credentials IPC.
+  ['setWorkerUrl', 'setAuthKey'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { credsDirty = true; });
+  });
+
+  // ── Updater buttons ────────────────────────────────────────────────────
+  $('#btnCheckUpdate').addEventListener('click', async () => {
+    const btn = $('#btnCheckUpdate');
+    btn.disabled = true;
+    try { await window.westEngine.checkForUpdate(); }
+    finally { btn.disabled = false; }
+  });
+
+  $('#btnInstallUpdate').addEventListener('click', async () => {
+    const ok = confirm('Download the update, verify, and restart the engine?\n\nThe engine will be unavailable for ~5 seconds during the swap. UDP listener and worker posts pause briefly.');
+    if (!ok) return;
+    const statusEl = $('#updateStatus');
+    statusEl.textContent = 'downloading…';
+    statusEl.className = 'update-status';
+    try {
+      const res = await window.westEngine.installUpdate();
+      if (!res.ok) {
+        statusEl.textContent = '✗ ' + (res.error || 'failed');
+        statusEl.className = 'update-status fail';
+        return;
+      }
+      statusEl.textContent = '✓ exiting…';
+      statusEl.className = 'update-status ok';
+      // Engine will exit and be relaunched by the swap helper.
+    } catch (e) {
+      statusEl.textContent = '✗ ' + e.message;
+      statusEl.className = 'update-status fail';
+    }
+  });
+
+  // Topbar update pill → activate Settings tab
+  $('#updatePill').addEventListener('click', () => {
+    activateTab('settings');
+    // Scroll the Updates fieldset into view
+    setTimeout(() => {
+      const el = document.querySelector('fieldset.settings-group legend');
+      if (el && el.parentElement) el.parentElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  });
+
+  $('#btnSaveCreds').addEventListener('click', async () => {
+    const url = $('#setWorkerUrl').value.trim();
+    const key = $('#setAuthKey').value.trim();
+    const statusEl = $('#credsStatus');
+    const btn = $('#btnSaveCreds');
+    statusEl.textContent = 'testing…';
+    statusEl.className = 'creds-status';
+    btn.disabled = true;
+    try {
+      const res = await window.westEngine.saveCredentials(url, key);
+      if (!res.ok) {
+        statusEl.textContent = '✗ ' + (res.error || 'failed');
+        statusEl.className = 'creds-status fail';
+        return;
+      }
+      statusEl.textContent = '✓ saved';
+      statusEl.className = 'creds-status ok';
+      credsDirty = false;
+      setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'creds-status'; }, 2400);
+    } catch (e) {
+      statusEl.textContent = '✗ ' + e.message;
+      statusEl.className = 'creds-status fail';
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   $('#btnSettingsRevert').addEventListener('click', () => {

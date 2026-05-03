@@ -22,6 +22,13 @@ rem v3 frontend (pages + js modules) — served at /v3/pages/ on preview
 xcopy /E /I /Y /Q v3\pages _pages_dist\v3\pages >nul 2>&1
 xcopy /E /I /Y /Q v3\js    _pages_dist\v3\js    >nul 2>&1
 
+rem Engine asar releases — served at /engine/<version>.asar for the in-app updater
+if exist v3\engine\dist\release-asar\*.asar (
+  mkdir _pages_dist\engine 2>nul
+  xcopy /Y /Q v3\engine\dist\release-asar\*.asar _pages_dist\engine\ >nul
+  echo Engine asar releases staged for upload.
+)
+
 echo.
 rem Project name + output dir come from wrangler.toml (the Pages config).
 rem The Worker uses wrangler.worker.toml — see deploy.bat.

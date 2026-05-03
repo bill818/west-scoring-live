@@ -35,7 +35,11 @@ contextBridge.exposeInMainWorld('westEngine', {
   // Renderer → main calls (return promises via invoke/handle).
   fetchShows:     ()              => ipcRenderer.invoke('fetch-shows'),
   fetchRings:     (slug)          => ipcRenderer.invoke('fetch-rings', slug),
-  switchShow:     (slug, ring)    => ipcRenderer.invoke('switch-show', { slug, ring }),
+  switchShow:     (slug, ring, name) => ipcRenderer.invoke('switch-show', { slug, ring, name }),
+  clearShow:      ()              => ipcRenderer.invoke('clear-show'),
+  saveCredentials: (workerUrl, authKey) => ipcRenderer.invoke('save-credentials', { workerUrl, authKey }),
+  checkForUpdate: ()                    => ipcRenderer.invoke('check-for-update'),
+  installUpdate:  ()                    => ipcRenderer.invoke('install-update'),
   repostCls:      ()              => ipcRenderer.invoke('repost-cls'),
   repostTsked:    ()              => ipcRenderer.invoke('repost-tsked'),
   toggleForwarding: ()            => ipcRenderer.invoke('toggle-forwarding'),

@@ -38,10 +38,11 @@ const dgram = require('dgram');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const sbFunnel = require('./scoreboard-funnel');
 
-const ENGINE_VERSION = '3.0.0-dev';
+const ENGINE_VERSION = '3.0.1';
 const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
 const HEARTBEAT_INTERVAL_MS = 10_000;
@@ -95,7 +96,10 @@ let lastUdpAt = 0;
 let lastFocusAt = 0;
 let currentFocus = null;         // { classId, className, meta, at }
 let rsserverConnected = false;
-let forwardingPaused = false;    // Scoreboard tab — pauses RSServer relay
+// Pass-through (UDP IN → RSServer relay) is read from config.passthrough,
+// defaults true if missing. Persists across reboots — multi-PC setups want
+// the scoring box to remember it's pass-through-off, downstream box to
+// remember it's pass-through-on.
 let liveScoringPaused = false;   // Top bar — pauses ALL worker writes
 const recentEvents = [];         // newest first; capped at RECENT_EVENTS_MAX
 
@@ -159,11 +163,31 @@ const KNOWN_TAGS_FOCUS = new Set([26, 27, 28]);
 const startedAt = Date.now();
 
 // ── Logging ─────────────────────────────────────────────────────────────────
+const LOG_MAX_BYTES = 50 * 1024 * 1024;  // rotate at 50MB
+const LOG_CHECK_INTERVAL_LINES = 5000;    // amortize size check across writes
+let logLinesSinceCheck = 0;
+
+function rotateLogIfNeeded() {
+  try {
+    const st = fs.statSync(LOG_PATH);
+    if (st.size < LOG_MAX_BYTES) return;
+    const backup = LOG_PATH + '.1';
+    try { fs.unlinkSync(backup); } catch (e) {}
+    fs.renameSync(LOG_PATH, backup);
+  } catch (e) {
+    // file doesn't exist or can't stat — both fine, log() will create it
+  }
+}
+
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
   console.log(line);
   try {
     fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
+    if (++logLinesSinceCheck >= LOG_CHECK_INTERVAL_LINES) {
+      logLinesSinceCheck = 0;
+      rotateLogIfNeeded();
+    }
     fs.appendFileSync(LOG_PATH, line + '\r\n');
   } catch (e) {}
 }
@@ -181,10 +205,11 @@ function loadConfig() {
     if (missing.length) throw new Error(`Missing config fields: ${missing.join(', ')}`);
     // Treat empty-string slug or zero ringNum as "no show selected".
     if (!cfg.showSlug || cfg.ringNum === undefined || cfg.ringNum === null || cfg.ringNum === '') {
-      config = { workerUrl: cfg.workerUrl, authKey: cfg.authKey, showSlug: null, ringNum: null,
+      config = { workerUrl: cfg.workerUrl, authKey: cfg.authKey, showSlug: null, ringNum: null, showName: null,
                  clsDir: cfg.clsDir, tskedPath: cfg.tskedPath, ryegateConfPath: cfg.ryegateConfPath,
                  runningTenth: cfg.runningTenth, holdTarget: cfg.holdTarget,
-                 liveRunningTenth: cfg.liveRunningTenth };
+                 liveRunningTenth: cfg.liveRunningTenth,
+                 passthrough: cfg.passthrough, autoStart: cfg.autoStart };
       configError = null;
       detectedInputPort = detectInputPort();
       log(`Config loaded — no show selected yet (input port ${detectedInputPort}).`);
@@ -212,6 +237,291 @@ function writeConfig(updates) {
 
 function configReady() {
   return !!(config && config.showSlug && Number.isFinite(config.ringNum));
+}
+
+// ── Updater ────────────────────────────────────────────────────────────────
+// Polls /v3/engineLatest on boot + every UPDATE_CHECK_INTERVAL_MS. If the
+// manifest's version > ENGINE_VERSION, sets updateState.available so the
+// renderer can surface "Update available." On install:
+//   1. Download asar to c:\west\v3\update.asar.tmp
+//   2. Verify SHA-256 against manifest
+//   3. Move to resources/app.asar.new
+//   4. Write a swap batch to c:\west\v3\update-swap.bat
+//   5. Spawn batch detached, exit engine
+//   6. Batch waits 2s (gives OS time to release asar lock), renames
+//      app.asar.new → app.asar, relaunches WestEngine.exe, self-deletes.
+//
+// Why a batch helper: app.asar is mapped into the running process and
+// can't be replaced from inside the same process on Windows. A separate
+// shell invocation handles the swap after the engine has exited.
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // hourly
+let updateState = {
+  checking:       false,
+  available:      false,
+  latestVersion:  null,
+  releaseNotes:   '',
+  asarUrl:        null,
+  sha256:         null,
+  lastCheckAt:    0,
+  lastCheckError: null,
+  installing:     false,
+  installError:   null,
+};
+
+// Strip pre-release suffixes (e.g. "-dev") for version comparison. A
+// numbered release is always considered newer than a pre-release of the
+// same numeric tuple (3.0.0 > 3.0.0-dev).
+function isNewerVersion(latest, current) {
+  if (!latest || !current) return false;
+  const parse = v => String(v).replace(/-.*$/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const a = parse(latest);
+  const b = parse(current);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  // Same numeric tuple: latest is newer iff current has a pre-release
+  // tag and latest doesn't.
+  return /-/.test(current) && !/-/.test(latest);
+}
+
+async function checkForUpdate() {
+  if (!configReady() || !config.workerUrl || !config.authKey) return;
+  updateState.checking = true;
+  pushState();
+  try {
+    const res = await fetch(`${config.workerUrl}/v3/engineLatest`, {
+      headers: { 'X-West-Key': config.authKey },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const m = data && data.manifest;
+    if (!m || !m.version) throw new Error('Bad manifest shape');
+    updateState.lastCheckAt    = Date.now();
+    updateState.lastCheckError = null;
+    if (isNewerVersion(m.version, ENGINE_VERSION) && m.asarUrl && m.sha256) {
+      updateState.available     = true;
+      updateState.latestVersion = m.version;
+      updateState.releaseNotes  = m.releaseNotes || '';
+      updateState.asarUrl       = m.asarUrl;
+      updateState.sha256        = m.sha256;
+    } else {
+      updateState.available = false;
+    }
+  } catch (e) {
+    updateState.lastCheckError = e.message;
+    log(`[UPDATE] check failed: ${e.message}`);
+  } finally {
+    updateState.checking = false;
+    pushState();
+  }
+}
+
+async function installUpdate() {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Updates only run on packaged builds (npm start = dev mode)' };
+  }
+  if (!updateState.available || !updateState.asarUrl || !updateState.sha256) {
+    return { ok: false, error: 'No update available' };
+  }
+  updateState.installing = true;
+  updateState.installError = null;
+  pushState();
+  try {
+    log(`[UPDATE] downloading ${updateState.asarUrl}`);
+    const res = await fetch(updateState.asarUrl);
+    if (!res.ok) throw new Error(`download HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const hash = crypto.createHash('sha256').update(buf).digest('hex');
+    if (hash.toLowerCase() !== updateState.sha256.toLowerCase()) {
+      throw new Error(`SHA-256 mismatch (expected ${updateState.sha256}, got ${hash})`);
+    }
+    log(`[UPDATE] download OK (${buf.length} bytes, sha256 verified)`);
+
+    const resourcesDir = process.resourcesPath;
+    const newAsarPath  = path.join(resourcesDir, 'app.asar.new');
+    const asarPath     = path.join(resourcesDir, 'app.asar');
+    fs.writeFileSync(newAsarPath, buf);
+
+    const swapBatPath = 'c:\\west\\v3\\update-swap.bat';
+    const enginePath  = process.execPath;
+    const batchContent = [
+      '@echo off',
+      'ping 127.0.0.1 -n 3 > nul 2>&1',
+      `move /Y "${newAsarPath}" "${asarPath}"`,
+      `start "" "${enginePath}"`,
+      '(goto) 2>nul & del "%~f0"',
+    ].join('\r\n');
+    fs.mkdirSync(path.dirname(swapBatPath), { recursive: true });
+    fs.writeFileSync(swapBatPath, batchContent, 'utf8');
+
+    log(`[UPDATE] launching swap helper, exiting`);
+    const child = spawn('cmd.exe', ['/c', swapBatPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+
+    setTimeout(() => app.exit(0), 200);
+    return { ok: true };
+  } catch (e) {
+    updateState.installError = e.message;
+    updateState.installing = false;
+    log(`[UPDATE] install failed: ${e.message}`);
+    pushState();
+    return { ok: false, error: e.message };
+  }
+}
+
+// ── Health watchdog ────────────────────────────────────────────────────────
+// Runs every WATCHDOG_INTERVAL_MS, inspects each subsystem, and recovers
+// the ones that have gone silent. Targets the failure modes the engine
+// can self-diagnose:
+//   - UDP IN socket null/unbound  → re-bind via startUdpListeners()
+//   - UDP FOCUS socket null       → re-bind (same call rebuilds both)
+//   - CLS watcher null            → recreate via startClsWatcher()
+//   - TSKED watcher null          → recreate via startTskedWatcher()
+//   - heartbeat failing > 90s     → flag degraded (no recovery action;
+//     network/worker problem, retries already in flight)
+const WATCHDOG_INTERVAL_MS = 30_000;
+const HEARTBEAT_DEGRADED_AFTER_MS = 90_000;
+let watchdogInterval = null;
+let watchdogState = {
+  lastCheckAt: 0,
+  recoveriesPerformed: 0,
+  recentRecoveries: [],   // newest first, capped 10
+  degraded: [],           // strings — current degraded-but-not-recoverable issues
+};
+
+function watchdogTick() {
+  watchdogState.lastCheckAt = Date.now();
+  const issues = [];
+  const recoveries = [];
+
+  // UDP IN socket — engine SHOULD be listening regardless of show selection.
+  // udpListening flag is set by the 'listening' event; null socket OR
+  // false flag means we're not.
+  if (!udpInSocket || !udpListening) {
+    issues.push('UDP IN socket not bound');
+    try {
+      log(`[WATCHDOG] UDP listeners stuck — re-binding`);
+      startUdpListeners();
+      recoveries.push('udp-rebind');
+    } catch (e) {
+      log(`[WATCHDOG] UDP re-bind failed: ${e.message}`);
+    }
+  } else if (!udpFocusSocket) {
+    // udpInSocket OK but focus socket gone — single-side recovery requires
+    // a full rebind since startUdpListeners is the only path that builds both.
+    issues.push('UDP FOCUS socket gone');
+    try {
+      log(`[WATCHDOG] FOCUS socket gone — re-binding`);
+      startUdpListeners();
+      recoveries.push('udp-rebind');
+    } catch (e) {
+      log(`[WATCHDOG] UDP re-bind failed: ${e.message}`);
+    }
+  }
+
+  // Watchers — only meaningful when a show is selected. CLS + TSKED watchers
+  // are torn down to null on stop; if we have a show but they're null,
+  // recover.
+  if (configReady()) {
+    if (!clsWatcher) {
+      issues.push('CLS watcher gone');
+      try {
+        log(`[WATCHDOG] CLS watcher gone — restarting`);
+        startClsWatcher();
+        if (clsWatcher) recoveries.push('cls-watcher');
+      } catch (e) {
+        log(`[WATCHDOG] CLS watcher restart failed: ${e.message}`);
+      }
+    }
+    if (!tskedWatcher) {
+      issues.push('TSKED watcher gone');
+      try {
+        log(`[WATCHDOG] TSKED watcher gone — restarting`);
+        startTskedWatcher();
+        if (tskedWatcher) recoveries.push('tsked-watcher');
+      } catch (e) {
+        log(`[WATCHDOG] TSKED watcher restart failed: ${e.message}`);
+      }
+    }
+  }
+
+  // Heartbeat health — degraded but not auto-recoverable. If lastHeartbeatOk
+  // is old, surface it. The heartbeat interval is already retrying.
+  const heartbeatAge = lastHeartbeatAt ? (Date.now() - lastHeartbeatAt) : Infinity;
+  if (configReady() && lastHeartbeatAt && !lastHeartbeatOk && heartbeatAge > HEARTBEAT_DEGRADED_AFTER_MS) {
+    issues.push(`heartbeat failing for ${Math.floor(heartbeatAge / 1000)}s`);
+  }
+
+  watchdogState.degraded = issues;
+  if (recoveries.length) {
+    watchdogState.recoveriesPerformed += recoveries.length;
+    watchdogState.recentRecoveries = [
+      { at: Date.now(), actions: recoveries },
+      ...watchdogState.recentRecoveries,
+    ].slice(0, 10);
+    pushState();
+  }
+}
+
+function startWatchdog() {
+  if (watchdogInterval) clearInterval(watchdogInterval);
+  watchdogInterval = setInterval(() => {
+    try { watchdogTick(); }
+    catch (e) { log(`[WATCHDOG] tick threw: ${e.message}`); }
+  }, WATCHDOG_INTERVAL_MS);
+}
+
+// Backfill the friendly show name when configReady() but showName is missing
+// (engines that selected their show before showName was tracked). One-shot
+// fetch on startup; failure is silent — the slug still renders, name fills
+// in next time the operator opens the picker.
+async function backfillShowNameIfMissing() {
+  if (!configReady() || config.showName) return;
+  try {
+    const res = await fetch(`${config.workerUrl}/v3/listShows`, {
+      headers: { 'X-West-Key': config.authKey },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const found = (data.shows || []).find(s => s.slug === config.showSlug);
+    if (found && found.name) {
+      writeConfig({ showName: found.name });
+      loadConfig();
+      log(`Backfilled show name: ${found.name}`);
+      pushState();
+    }
+  } catch (e) {
+    // ignore — best-effort
+  }
+}
+
+// Auto-start on Windows boot — config.autoStart is the source of truth.
+// applyAutoStartFromConfig syncs Windows' login items with our config.
+// Defaults FALSE so existing installs don't surprise the operator with
+// a new auto-launch entry; opt-in via the Settings tab.
+function isAutoStartEnabled() {
+  return !!(config && (config.autoStart === true || config.autoStart === 1));
+}
+function applyAutoStartFromConfig() {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: isAutoStartEnabled(),
+      // Args could include '--hidden' if we ever want silent boot-up to tray,
+      // but for now first launch shows the window so the operator sees state.
+    });
+  } catch (e) {
+    log(`[AUTOSTART] failed to apply: ${e.message}`);
+  }
+}
+
+// Pass-through (UDP → RSServer relay) defaults TRUE — operator opts OUT
+// to defer fan-out to a downstream PC. Persisted in config.json.
+function isPassthroughEnabled() {
+  return !(config && (config.passthrough === false || config.passthrough === 0));
 }
 
 // Mirrors v2 funnel detectInputPort — col[1] of config.dat row 0 is Ryegate's
@@ -248,7 +558,7 @@ function buildStateSnapshot() {
   return {
     engineVersion: ENGINE_VERSION,
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-    config: configReady() ? { showSlug: config.showSlug, ringNum: config.ringNum } : null,
+    config: configReady() ? { showSlug: config.showSlug, ringNum: config.ringNum, showName: config.showName || null } : null,
     configError,
     authStatus,
     showLocked,
@@ -260,7 +570,14 @@ function buildStateSnapshot() {
     udpBatchPostOkCount, udpBatchPostFailCount, udpBatchEventsInserted,
     udpLastPostAt, udpLastPostError,
     currentFocus,
-    rsserverConnected, forwardingPaused, liveScoringPaused,
+    rsserverConnected, passthrough: isPassthroughEnabled(), liveScoringPaused,
+    watchdog: {
+      lastCheckAt: watchdogState.lastCheckAt,
+      recoveriesPerformed: watchdogState.recoveriesPerformed,
+      recentRecoveries: watchdogState.recentRecoveries,
+      degraded: watchdogState.degraded,
+    },
+    update: { ...updateState },
     recentEvents: recentEvents.slice(0, RECENT_EVENTS_MAX),
     // Settings — what the renderer's settings pane edits. Defaults applied
     // here so empty config.json fields render as the defaults rather than
@@ -284,6 +601,7 @@ function buildStateSnapshot() {
       // liveRunningTenth defaults to TRUE — operator opts OUT to get
       // whole-seconds-only on the public live page (per Bill 2026-05-02).
       liveRunningTenth: !(config.liveRunningTenth === false || config.liveRunningTenth === 0),
+      autoStart:        isAutoStartEnabled(),
     } : null,
     // Per-frame raw samples — last packet seen for each (channel, frame)
     // pair, truncated. Renderer surfaces these on the Protocol tab so the
@@ -853,11 +1171,12 @@ function onChannelA(msg, rsserverHost, rsserverPort) {
     }
   }
 
-  // Forward to RSServer — only when allowed (engine not paused, scoreboard
-  // forwarding not paused, and worker hasn't told us the show is locked).
-  // Lock state DOES NOT gate forwarding — operator intent is "don't post to
-  // worker", but the local scoreboard should keep working.
-  if (!forwardingPaused) {
+  // Forward to RSServer — only when pass-through is enabled. Lock state
+  // DOES NOT gate forwarding (operator intent for lock is "don't post to
+  // worker", local scoreboard should keep working). Pass-through defaults
+  // ON; operator opts OUT in Data Settings when a downstream PC handles
+  // the fan-out.
+  if (isPassthroughEnabled()) {
     let outBuf = msg;
     const holdEnabled  = !!(config && (config.holdTarget   === 1 || config.holdTarget   === true));
     const tenthEnabled = !!(config && (config.runningTenth === 1 || config.runningTenth === true));
@@ -1091,9 +1410,9 @@ function setupIpc() {
     return data.rings || [];
   });
 
-  ipcMain.handle('switch-show', async (_evt, { slug, ring }) => {
-    writeConfig({ showSlug: slug, ringNum: ring });
-    log(`Switched to ${slug} · Ring ${ring} via picker`);
+  ipcMain.handle('switch-show', async (_evt, { slug, ring, name }) => {
+    writeConfig({ showSlug: slug, ringNum: ring, showName: name || null });
+    log(`Switched to ${slug} · Ring ${ring}${name ? ` (${name})` : ''} via picker`);
     loadConfig();
     rebindWatchers();
     showLocked = false;             // re-evaluate against new show
@@ -1109,6 +1428,57 @@ function setupIpc() {
     return { ok: true };
   });
 
+  // First-run wizard — operator pastes workerUrl + authKey, we validate
+  // by hitting /v3/listShows. On success, persist + reload + push state so
+  // the renderer's main UI takes over from the wizard.
+  ipcMain.handle('check-for-update', async () => {
+    await checkForUpdate();
+    return { ok: true };
+  });
+
+  ipcMain.handle('install-update', async () => {
+    return await installUpdate();
+  });
+
+  ipcMain.handle('save-credentials', async (_evt, { workerUrl, authKey }) => {
+    workerUrl = String(workerUrl || '').trim().replace(/\/$/, '');
+    authKey   = String(authKey   || '').trim();
+    if (!workerUrl) return { ok: false, error: 'Worker URL is required' };
+    if (!/^https?:\/\//i.test(workerUrl)) return { ok: false, error: 'Worker URL must start with http:// or https://' };
+    if (!authKey)   return { ok: false, error: 'Auth key is required' };
+    try {
+      const res = await fetch(`${workerUrl}/v3/listShows`, {
+        headers: { 'X-West-Key': authKey },
+      });
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: `Auth rejected (HTTP ${res.status}) — check the key` };
+      }
+      if (!res.ok) return { ok: false, error: `Worker returned HTTP ${res.status}` };
+      const data = await res.json();
+      if (!data || !Array.isArray(data.shows)) return { ok: false, error: 'Unexpected response from worker' };
+    } catch (e) {
+      return { ok: false, error: `Connection failed: ${e.message}` };
+    }
+    writeConfig({ workerUrl, authKey });
+    loadConfig();
+    log(`Credentials saved — worker=${workerUrl}`);
+    pushState();
+    return { ok: true };
+  });
+
+  ipcMain.handle('clear-show', async () => {
+    writeConfig({ showSlug: null, ringNum: null, showName: null });
+    log(`Show cleared — engine in pass-through-only mode (if pass-through enabled)`);
+    loadConfig();
+    showLocked = false;
+    tskedLastHash = null;
+    holdState.clearForNewClass();
+    currentFocus = null;
+    pushState();
+    updateTrayTooltip();
+    return { ok: true };
+  });
+
   ipcMain.handle('repost-cls', async () => {
     return await syncAllCls();
   });
@@ -1119,10 +1489,12 @@ function setupIpc() {
   });
 
   ipcMain.handle('toggle-forwarding', async () => {
-    forwardingPaused = !forwardingPaused;
-    log(`Forwarding ${forwardingPaused ? 'PAUSED' : 'RESUMED'} by operator`);
+    const next = !isPassthroughEnabled();
+    writeConfig({ passthrough: next });
+    loadConfig();
+    log(`Pass-through ${next ? 'ENABLED' : 'DISABLED'} by operator (saved)`);
     pushState();
-    return { paused: forwardingPaused };
+    return { passthrough: next };
   });
 
   ipcMain.handle('save-settings', async (_evt, patch) => {
@@ -1189,7 +1561,7 @@ function setupIpc() {
   });
 
   ipcMain.handle('save-feature', async (_evt, { key, value }) => {
-    if (!['runningTenth', 'holdTarget', 'liveRunningTenth'].includes(key)) {
+    if (!['runningTenth', 'holdTarget', 'liveRunningTenth', 'autoStart'].includes(key)) {
       return { ok: false, error: `unknown feature ${key}` };
     }
     const updates = {};
@@ -1197,6 +1569,7 @@ function setupIpc() {
     writeConfig(updates);
     log(`Feature ${key} = ${!!value} (saved)`);
     loadConfig();
+    if (key === 'autoStart') applyAutoStartFromConfig();
     pushState();
     return { ok: true };
   });
@@ -1221,16 +1594,45 @@ function rebindWatchers() {
 }
 
 // ── Crash recovery — relaunch on uncaught (matches v1.x watcher pattern) ───
-process.on('uncaughtException', (err) => {
-  log(`[CRASH] uncaughtException: ${err && err.stack ? err.stack : err}`);
-  app.relaunch();
-  app.exit(1);
-});
-process.on('unhandledRejection', (reason) => {
-  log(`[CRASH] unhandledRejection: ${reason && reason.stack ? reason.stack : reason}`);
-  app.relaunch();
-  app.exit(1);
-});
+// Crash-loop guard: if the engine crashes 3+ times within 60s, stop
+// relaunching. The relaunch chain is tracked via a small JSON file in the
+// state dir — each crash appends timestamp; on startup we trim entries
+// older than the window and check the count before allowing more relaunches.
+const CRASH_LOG_PATH = 'c:\\west\\v3\\crash_log.json';
+const CRASH_LOOP_WINDOW_MS = 60_000;
+const CRASH_LOOP_MAX = 3;
+
+function readCrashLog() {
+  try { return JSON.parse(fs.readFileSync(CRASH_LOG_PATH, 'utf8')) || []; }
+  catch (e) { return []; }
+}
+function writeCrashLog(arr) {
+  try {
+    fs.mkdirSync(path.dirname(CRASH_LOG_PATH), { recursive: true });
+    fs.writeFileSync(CRASH_LOG_PATH, JSON.stringify(arr), 'utf8');
+  } catch (e) {}
+}
+function recordCrashAndShouldRelaunch() {
+  const now = Date.now();
+  const recent = readCrashLog().filter(t => (now - t) < CRASH_LOOP_WINDOW_MS);
+  recent.push(now);
+  writeCrashLog(recent);
+  return recent.length < CRASH_LOOP_MAX;
+}
+
+function handleFatal(label, err) {
+  log(`[CRASH] ${label}: ${err && err.stack ? err.stack : err}`);
+  if (recordCrashAndShouldRelaunch()) {
+    log(`[CRASH] relaunching engine`);
+    try { app.relaunch(); } catch (e) {}
+    app.exit(1);
+  } else {
+    log(`[CRASH-LOOP] ${CRASH_LOOP_MAX} crashes within ${CRASH_LOOP_WINDOW_MS / 1000}s — refusing further relaunch. Manual restart required.`);
+    app.exit(1);
+  }
+}
+process.on('uncaughtException', (err) => handleFatal('uncaughtException', err));
+process.on('unhandledRejection', (reason) => handleFatal('unhandledRejection', reason));
 
 // ── Single-instance lock ────────────────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
@@ -1238,7 +1640,9 @@ app.on('second-instance', () => { showWindow(); });
 
 // ── App lifecycle ───────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  rotateLogIfNeeded();
   loadConfig();
+  applyAutoStartFromConfig();
 
   const iconPath = path.join(__dirname, 'icon.png');
   const trayIcon = nativeImage.createFromPath(iconPath);
@@ -1278,6 +1682,7 @@ app.whenReady().then(() => {
     startTskedWatcher();
     syncAllCls().then(updateTrayTooltip).catch(e => log(`[SYNC UNCAUGHT] ${e.message}`));
     postTskedIfChanged('startup').catch(e => log(`[TSKED STARTUP UNCAUGHT] ${e.message}`));
+    backfillShowNameIfMissing().catch(() => {});
   } else {
     log('No show selected — heartbeat / .cls / tsked watchers paused until picker is used.');
     setInterval(() => {
@@ -1289,6 +1694,15 @@ app.whenReady().then(() => {
   // Tray + state-tick refresh — keeps "Xs ago" current for the tray tooltip
   // without spamming the renderer (renderer ticks itself on a 1Hz timer).
   setInterval(() => { updateTrayTooltip(); }, 2000);
+
+  // Health watchdog — recover silent-stuck subsystems. Runs whether or not
+  // a show is selected (UDP listeners are show-independent).
+  startWatchdog();
+
+  // Periodic update check — initial check after 30s (gives heartbeat time
+  // to settle), then hourly.
+  setTimeout(() => { checkForUpdate().catch(() => {}); }, 30_000);
+  setInterval(() => { checkForUpdate().catch(() => {}); }, UPDATE_CHECK_INTERVAL_MS);
 });
 
 app.on('window-all-closed', (e) => {

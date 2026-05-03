@@ -2,16 +2,28 @@ appId: com.worthington.westengine
 productName: WestEngine
 directories:
   output: dist
+  buildResources: build
 files:
   - main.js
   - preload.js
   - scoreboard-funnel.js
   - package.json
   - icon.png
+  - icon-logo.png
   - renderer/**/*
 win:
   target:
-    - target: dir
+    - target: nsis
       arch:
         - x64
   signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: WEST Engine
+  artifactName: WEST-Engine-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh

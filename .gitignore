@@ -4,6 +4,10 @@ config.json
 # Node
 node_modules/
 
+# Build outputs
+v3/engine/dist/
+_pages_dist/
+
 # Wrangler
 .wrangler/
 .dev.vars

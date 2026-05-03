@@ -2550,6 +2550,32 @@ export default {
     // Slug validation: ^[a-z][a-z0-9-]{2,59}$
     // ═══════════════════════════════════════════════════════════════════════
 
+    // ── GET /v3/engineLatest ─────────────────────────────────────────────────
+    // Returns the manifest for the latest engine asar release. Engine polls
+    // this on boot + every 60min and surfaces "Update available" when the
+    // manifest's version > ENGINE_VERSION.
+    //
+    // To publish a release:
+    //   1. Bump ENGINE_VERSION in v3/engine/main.js
+    //   2. npm run build → produces app.asar at v3/engine/dist/win-unpacked/resources/
+    //   3. Compute SHA-256 of that asar
+    //   4. Upload asar to Pages preview at /engine/<version>.asar
+    //   5. Edit ENGINE_LATEST below + redeploy worker
+    //
+    // The hardcoded constant pattern keeps the release flow simple — no
+    // KV/D1 dependency. When the release cadence picks up, swap to KV.
+    if (method === 'GET' && path === '/v3/engineLatest') {
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const ENGINE_LATEST = {
+              version: '3.0.1',
+              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.0.1.asar',
+              sha256:  '375de86c03526b9c8c14f0ace8a87f519bbbcdb76a3e709e3b4ccbf79f64b763',
+              releasedAt: '2026-05-02T23:55:38.780Z',
+              releaseNotes: '',
+            };
+      return json({ manifest: ENGINE_LATEST });
+    }
+
     // ── GET /v3/listShows ─────────────────────────────────────────────────────
     // Each show carries an `engine_live` boolean — true when any of its
     // rings has a heartbeat in KV (TTL 600s, so presence ⇒ recent). Drives
