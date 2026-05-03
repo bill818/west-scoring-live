@@ -2829,7 +2829,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       try {
         const { results } = await env.WEST_DB_V3.prepare(
-          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
         ).all();
         const shows = results || [];
         // Computed lock state — admin sidebar reads is_locked directly,
