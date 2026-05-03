@@ -236,7 +236,7 @@ function render() {
           <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
           <div class="show-body">
             <div class="show-name">${escapeHtml(s.name)}</div>
-            <div class="show-meta">${fmtDateRange(s)} · ${escapeHtml(s.slug)}</div>
+            <div class="show-meta">${[fmtDateRange(s), escapeHtml(s.location || s.venue || '')].filter(Boolean).join(' · ')}</div>
           </div>
         </a>
         ${preview}
