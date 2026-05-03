@@ -205,10 +205,15 @@ function render() {
 
       // Per-ring "what's running" preview (v2 pattern). Each ring shows
       // its three most-recent classes-with-entries. Rings with no entered
-      // classes are skipped.
+      // classes are skipped. Past shows older than 3 days collapse to
+      // just the show card — old results aren't what spectators are
+      // looking for on the index.
       const rings = (s.rings || []).filter(r => (r.classes || []).length > 0);
+      const ended = s.end_date ? new Date(s.end_date + 'T23:59:59') : null;
+      const daysSinceEnd = ended ? Math.floor((Date.now() - ended.getTime()) / 86400000) : 0;
+      const previewAllowed = key !== 'past' || daysSinceEnd <= 3;
       let preview = '';
-      if (rings.length) {
+      if (rings.length && previewAllowed) {
         preview = '<div class="show-rings-preview">';
         for (const r of rings) {
           const ringLabel = r.name || `Ring ${r.ring_num}`;
