@@ -9,8 +9,8 @@
 <title>WEST v3 Admin</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="west.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="west.css"><!-- west.css @imports the Google Fonts; do not add a font <link> here -->
 <script src="../js/west-format.js"></script>
 <script src="../js/west-status.js"></script>
 <script src="../js/west-rules.js"></script>
@@ -19,7 +19,7 @@
   /* Show-logo controls inside dlgShow */
   .logo-row { display: flex; align-items: center; gap: 14px; padding: 10px; background: var(--off-white); border-radius: 6px; }
   .logo-preview { max-height: 64px; max-width: 120px; width: auto; height: auto; object-fit: contain; background: #fff; padding: 4px; border: 1px solid var(--border); border-radius: 4px; }
-  .logo-empty { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); flex: 1; }
+  .logo-empty { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); flex: 1; }
   .logo-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: auto; }
   .logo-actions .btn-secondary { font-size: 12px; padding: 6px 12px; }
 
@@ -35,14 +35,16 @@
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a href="index.html" class="logo-tap">
-      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-tag">V3 ADMIN</div>
-  </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE · ADMIN</span>
+  </a>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
 <div class="app">
@@ -913,6 +915,10 @@ function renderRings() {
     li.className = 'ring-row';
     const displayName = r.name || `Ring ${r.ring_num}`;
     const placeholderUsed = !r.name;
+    // Operator-only Live link — always rendered regardless of class_live
+    // so an operator can pop the live page in a new tab to verify the
+    // spectator view at any time. Public pages gate the link on liveness.
+    const liveUrl = `live.html?slug=${encodeURIComponent(state.selectedSlug)}&ring_num=${r.ring_num}`;
     li.innerHTML = `
       <div class="ring-num">${r.ring_num}</div>
       <div class="ring-body">
@@ -921,6 +927,7 @@ function renderRings() {
         ${clsHtml}
       </div>
       <div class="ring-engine">${engineHtml}</div>
+      <a class="btn-secondary" href="${liveUrl}" target="_blank" rel="noopener" title="Open the spectator live page in a new tab">▶ Live</a>
       <button class="btn-secondary btn-ring-edit" data-ring-num="${r.ring_num}" title="Edit ring">Edit</button>`;
     ul.appendChild(li);
   }

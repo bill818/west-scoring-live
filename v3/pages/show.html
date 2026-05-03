@@ -9,84 +9,21 @@
 <title>WEST Scoring — Show</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="west.css">
-<style>
-  /* Page-specific extras: weather card. The .hero-row / .hero-logo /
-     .hero-text layout is in west.css so ring.html + class.html share. */
-
-  .weather-section {
-    max-width: 1100px; margin: 0 auto; padding: 8px 12px 0;
-  }
-  .weather-current {
-    display: flex; align-items: center; gap: 14px;
-    padding: 10px 14px;
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin-bottom: 8px;
-  }
-  .weather-current-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
-  .weather-current-temp {
-    font-family: 'Oswald', sans-serif;
-    font-weight: 700; font-size: 20px; color: var(--black); line-height: 1;
-  }
-  .weather-current-desc {
-    font-family: 'DM Mono', monospace; font-size: 10px;
-    letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--text-muted); margin-top: 2px;
-  }
-  .weather-current-loc {
-    margin-left: auto;
-    font-family: 'DM Mono', monospace; font-size: 10px;
-    letter-spacing: 0.04em; color: #aaa;
-  }
-  .weather-days {
-    display: flex; gap: 8px; flex-wrap: wrap;
-  }
-  .weather-day {
-    flex: 1; min-width: 90px;
-    background: #fff; border: 1px solid var(--border);
-    border-radius: 6px; padding: 10px 8px;
-    text-align: center;
-  }
-  .weather-day.today {
-    border-color: var(--red); box-shadow: 0 0 0 1px var(--red);
-  }
-  .weather-day-label {
-    font-family: 'DM Mono', monospace; font-size: 9px;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--text-muted); margin-bottom: 4px;
-  }
-  .weather-day.today .weather-day-label { color: var(--red); }
-  .weather-day-icon { font-size: 22px; line-height: 1; margin-bottom: 4px; }
-  .weather-day-high {
-    font-family: 'Oswald', sans-serif; font-weight: 700;
-    font-size: 16px; color: var(--black); line-height: 1;
-  }
-  .weather-day-low {
-    font-family: 'DM Mono', monospace; font-size: 11px;
-    color: var(--text-muted); margin-top: 1px;
-  }
-  .weather-day-extras {
-    display: flex; flex-direction: column; gap: 1px;
-    font-family: 'DM Mono', monospace; font-size: 9px;
-    margin-top: 3px;
-  }
-  .weather-day-precip { color: #4a90d9; }
-  .weather-day-wind   { color: #999; }
-</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="west.css"><!-- west.css @imports the Google Fonts; do not add a font <link> here -->
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a href="index.html" class="logo-tap">
-      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-tag">V3</div>
-  </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
 <nav class="breadcrumbs" id="breadcrumbs">
@@ -95,24 +32,18 @@
   <span class="bc-current" id="bcCurrent">…</span>
 </nav>
 
-<div id="hero" class="hero">
-  <div class="spinner"></div>
+<div id="hero" class="show-hero">
+  <div class="spinner" style="grid-column: 1 / 4;"></div>
 </div>
 
-<div class="weather-section" id="weatherSection" style="display:none;">
-  <div id="weatherCurrent"></div>
+<div id="weatherStrip" class="weather-strip" style="display:none;">
+  <div id="weatherCurrent" class="weather-now"></div>
   <div id="weatherDays" class="weather-days"></div>
 </div>
 
-<div class="section-block">
-  <div class="section-block-title">Rings</div>
-  <div id="rings"><div class="spinner"></div></div>
-</div>
+<div id="ringsSection"><div class="spinner"></div></div>
 
-<div class="section-block" id="showStatsSection" style="display:none;">
-  <div class="section-block-title">Show Stats <span class="section-block-sublabel" id="showStatsSubtitle"></span></div>
-  <div id="showStats"></div>
-</div>
+<div id="showStatsSection" style="display:none;"></div>
 
 <footer>
   WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
@@ -167,26 +98,60 @@ function deriveStatus(show) {
   return show.status || 'pending';
 }
 
+function showInitials(name) {
+  return String(name || '?').split(/\s+/).slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
+}
+
 function renderHero(show) {
   const status = deriveStatus(show);
   const dates = fmtDateRange(show);
-  // Logo source priority:
-  //   1. show.logo_url present → worker /v3/showLogo (uploaded via admin)
-  //   2. fallback: file convention at assets/show-logos/<slug>.png
-  // Either way, onerror hides the <img> when there's no logo at all.
+  const initials = showInitials(show.name);
+
+  // Logo source priority: admin-uploaded R2 URL first, then file
+  // convention. If both fail, the cell falls back to a placeholder
+  // showing the show's initials (handled inline by the onerror).
   const logoUrl = show.logo_url
     ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
     : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
-  const text = [];
-  text.push(`<div class="hero-name">${escapeHtml(show.name)}</div>`);
-  if (dates) text.push(`<div class="hero-dates">${escapeHtml(dates)}</div>`);
-  if (show.venue) text.push(`<div class="hero-venue">${escapeHtml(show.venue)}</div>`);
-  if (show.location) text.push(`<div class="hero-location">${escapeHtml(show.location)}</div>`);
-  text.push(WEST.display.statusBadge(status));
+  const logoCell = show.logo_url
+    ? `<div class="show-hero-logo"><img src="${logoUrl}" alt="" onerror="this.parentElement.classList.add('placeholder');this.replaceWith(document.createTextNode('${initials}'));"></div>`
+    : `<div class="show-hero-logo placeholder">${initials}</div>`;
+
+  // Right-side pill — same family used on the index page so the visual
+  // language stays consistent. Live > active > upcoming > past.
+  let pill = '';
+  if (status === 'active' && show.class_live) {
+    pill = `<span class="live-pill"><span class="dot"></span>Live now</span>`;
+  } else if (status === 'active') {
+    pill = `<span class="upcoming-pill">In progress</span>`;
+  } else if (status === 'upcoming') {
+    pill = `<span class="upcoming-pill">Upcoming</span>`;
+  } else if (status === 'complete' || status === 'archived') {
+    pill = `<span class="past-pill">Complete</span>`;
+  }
+
+  // Meta line: dates + (optional) "Day N of M" if the show is currently running.
+  let metaLine = escapeHtml(dates || '');
+  if (status === 'active' && show.start_date && show.end_date) {
+    const localToday = todayInTz(show.timezone);
+    const dayNum  = Math.max(1, Math.floor((new Date(localToday) - new Date(show.start_date)) / 86400000) + 1);
+    const total   = Math.floor((new Date(show.end_date) - new Date(show.start_date)) / 86400000) + 1;
+    if (dayNum >= 1 && dayNum <= total) metaLine += ` · Day ${dayNum} of ${total}`;
+  }
+
+  // Location line: location · venue (when both exist), as mono caps.
+  const locParts = [show.location, show.venue].filter(Boolean).map(escapeHtml);
+  const locLine = locParts.join(' · ');
+
   document.getElementById('hero').innerHTML = `
-    <div class="hero-row">
-      <img class="hero-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
-      <div class="hero-text">${text.join('')}</div>
+    ${logoCell}
+    <div class="show-hero-text">
+      <div class="show-hero-name">${escapeHtml(show.name)}</div>
+      ${metaLine ? `<div class="show-hero-meta">${metaLine}</div>` : ''}
+      ${locLine  ? `<div class="show-hero-loc">${locLine}</div>` : ''}
+    </div>
+    <div class="show-hero-side">
+      ${pill}
     </div>`;
   document.getElementById('bcCurrent').textContent = show.name || show.slug;
   document.title = `${show.name} — WEST Scoring`;
@@ -258,15 +223,15 @@ function renderCurrentWeather(wx, loc) {
   if (!wx || !wx.current) return;
   const cur = wx.current;
   const el = document.getElementById('weatherCurrent');
-  el.className = 'weather-current';
+  el.className = 'weather-now';
   el.innerHTML = `
-    <span class="weather-current-icon">${weatherIcon(cur.weathercode)}</span>
+    <span class="weather-now-icon">${weatherIcon(cur.weathercode)}</span>
     <div>
-      <div class="weather-current-temp">${Math.round(cur.temperature_2m)}°F</div>
-      <div class="weather-current-desc">${escapeHtml(weatherDesc(cur.weathercode))}</div>
+      <div class="weather-now-temp">${Math.round(cur.temperature_2m)}°</div>
+      <div class="weather-now-desc">${escapeHtml(weatherDesc(cur.weathercode))}</div>
     </div>
-    <div class="weather-current-loc">${escapeHtml(loc)}</div>`;
-  document.getElementById('weatherSection').style.display = '';
+    <div class="weather-now-loc">${escapeHtml(loc)}</div>`;
+  document.getElementById('weatherStrip').style.display = '';
 }
 
 /* Show-week forecast — calls /v3/getShowWeather which caches in D1. */
@@ -301,37 +266,16 @@ function renderShowWeatherDays(days, todayIso) {
     const extras = [];
     if (precipIn) extras.push(`<span class="weather-day-precip">${precipIn}</span>`);
     if (wind)     extras.push(`<span class="weather-day-wind">${wind}</span>`);
+    const label = isToday ? `Today` : escapeHtml(dayLabel(d.date));
     return `<div class="weather-day${isToday ? ' today' : ''}">
-      <div class="weather-day-label">${escapeHtml(dayLabel(d.date))}</div>
+      <div class="weather-day-label">${label}</div>
       <div class="weather-day-icon">${weatherIcon(d.weather_code || 0)}</div>
       <div class="weather-day-high">${high}</div>
       ${low ? `<div class="weather-day-low">${low}</div>` : ''}
       ${extras.length ? `<div class="weather-day-extras">${extras.join('')}</div>` : ''}
     </div>`;
   }).join('');
-  document.getElementById('weatherSection').style.display = '';
-}
-
-function renderRings(rings, classCounts) {
-  const root = document.getElementById('rings');
-  if (!rings.length) {
-    root.innerHTML = '<div class="placeholder">No rings yet.</div>';
-    return;
-  }
-  const slug = getSlug();
-  const html = rings.map(r => {
-    const count = classCounts[r.ring_num] || 0;
-    const countLabel = count === 1 ? '1 class' : `${count} classes`;
-    return `<a class="ring-card" href="ring.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}">
-      <div class="ring-card-num">R${r.ring_num}</div>
-      <div class="ring-card-body">
-        <div class="ring-card-name">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</div>
-        <div class="ring-card-meta">${countLabel}</div>
-      </div>
-      <div class="ring-card-chevron">›</div>
-    </a>`;
-  }).join('');
-  root.innerHTML = `<div class="ring-grid">${html}</div>`;
+  document.getElementById('weatherStrip').style.display = '';
 }
 
 function countByRing(classes) {
@@ -343,13 +287,113 @@ function countByRing(classes) {
   return out;
 }
 
+// Group classes by ring_num, sort each group most-recent first, take top 3.
+// Used to render the inline class preview under live rings (parallels what
+// /v3/listShowsWithRings emits on the index page).
+function recentClassesByRing(classes) {
+  const byRing = {};
+  for (const c of classes) {
+    if (c.deleted_at) continue;
+    (byRing[c.ring_num] || (byRing[c.ring_num] = [])).push(c);
+  }
+  for (const k in byRing) {
+    byRing[k].sort((a, b) => {
+      const ad = a.scheduled_date || '';
+      const bd = b.scheduled_date || '';
+      if (ad !== bd) return bd.localeCompare(ad);
+      return String(b.class_id).localeCompare(String(a.class_id));
+    });
+    byRing[k] = byRing[k].slice(0, 3);
+  }
+  return byRing;
+}
+
+function renderRings(rings, classes) {
+  const root = document.getElementById('ringsSection');
+  if (!rings.length) {
+    root.innerHTML = `<div class="section-banner standalone">Rings <span class="count">0 rings</span></div>`;
+    return;
+  }
+  const slug = getSlug();
+  const counts = countByRing(classes);
+  const recent = recentClassesByRing(classes);
+
+  // Section banner: total ring count + (when active) live ring count.
+  // The class API doesn't carry per-ring class_live yet on this endpoint,
+  // so for now the banner just shows total rings — once the show page
+  // shifts to /v3/listShowsWithRings (or class_live per ring is added to
+  // /v3/listClasses), wire the live pulse here too.
+  const totalRings = rings.length;
+  const ringWord = totalRings === 1 ? 'ring' : 'rings';
+  let html = `<div class="section-banner">Rings <span class="count">${totalRings} ${ringWord}</span></div>`;
+  html += '<ul class="section-rows">';
+  for (const r of rings) {
+    const ringName = escapeHtml(r.name || `Ring ${r.ring_num}`);
+    const ringCount = counts[r.ring_num] || 0;
+    const countLabel = ringCount === 1 ? '1 class' : `${ringCount} classes`;
+    const ringRecent = recent[r.ring_num] || [];
+
+    // Inline class preview when the ring has classes worth surfacing.
+    let preview = '';
+    if (ringRecent.length) {
+      preview = `<div class="ring-preview">
+        <div class="ring-preview-title">Recent classes</div>
+        <ul class="ring-class-list">`;
+      for (const c of ringRecent) {
+        const classUrl = `class.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
+        preview += `<li><a class="ring-class" href="${classUrl}">
+          <span class="cls-num">${escapeHtml(c.class_id)}</span>
+          <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
+        </a></li>`;
+      }
+      preview += '</ul></div>';
+    }
+
+    // "Live" pill — only rendered when the worker reports this ring has a
+    // recent scoring frame (class_live, set by /v3/listRings's KV lookup).
+    // event.stopPropagation prevents the row's outer link from firing too.
+    const livePill = r.class_live
+      ? `<a class="live-pill" href="live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}" onclick="event.stopPropagation();"><span class="dot"></span>Live</a>`
+      : '';
+
+    html += `<li class="ring-row-item">
+      <a class="ring-row" href="ring.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}">
+        <div class="ring-row-badge"><div class="num">${r.ring_num}</div><div class="lbl">RING</div></div>
+        <div class="ring-row-info">
+          <div class="ring-row-name">${ringName}</div>
+          <div class="ring-row-meta">${countLabel}</div>
+        </div>
+        <div class="ring-row-right">
+          ${livePill}
+          <span class="ring-row-chevron">▸</span>
+        </div>
+      </a>
+      ${preview}
+    </li>`;
+  }
+  html += '</ul>';
+  root.innerHTML = html;
+}
+
 const fetchJson = WEST.api.fetchJson;
+
+function showHeroError(title, sub) {
+  // The hero is a 3-col grid (logo | text | side) — span the whole row
+  // for a clean error message instead of trying to fit the grid shape.
+  document.getElementById('hero').innerHTML = `
+    <div style="grid-column: 1 / -1;">
+      <div class="show-hero-name" style="font-size: 28px;">${escapeHtml(title)}</div>
+      ${sub ? `<div class="show-hero-loc">${sub}</div>` : ''}
+    </div>`;
+  document.getElementById('ringsSection').innerHTML = '';
+  document.getElementById('weatherStrip').style.display = 'none';
+  document.getElementById('showStatsSection').style.display = 'none';
+}
 
 async function load() {
   const slug = getSlug();
   if (!slug) {
-    document.getElementById('hero').innerHTML = '<div class="hero-name">No show specified</div><div class="hero-location">Add ?slug=&lt;slug&gt; to the URL</div>';
-    document.getElementById('rings').innerHTML = '';
+    showHeroError('No show specified', 'Add ?slug=&lt;slug&gt; to the URL');
     return;
   }
   try {
@@ -359,7 +403,10 @@ async function load() {
       fetchJson(`/v3/listClasses?slug=${encodeURIComponent(slug)}`),
     ]);
     renderHero(showRes.show);
-    renderRings(ringsRes.rings || [], countByRing(classesRes.classes || []));
+    // Pass the raw classes array — renderRings derives both counts and
+    // recent-classes from it (the previous signature took a pre-computed
+    // count dict, but that lost the data needed for the inline preview).
+    renderRings(ringsRes.rings || [], classesRes.classes || []);
     // Weather — current-temp + show-dates forecast. Both fail silently
     // (weather is optional, never blocks page load).
     loadCurrentWeather(showRes.show);
@@ -370,8 +417,7 @@ async function load() {
     const hasJumperClass = (classesRes.classes || []).some(c => c.class_type === 'J' || c.class_type === 'T');
     if (hasJumperClass) loadShowStats(slug);
   } catch (e) {
-    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load show</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
-    document.getElementById('rings').innerHTML = '';
+    showHeroError(`Couldn't load show`, escapeHtml(e.message));
   }
 }
 
@@ -400,69 +446,76 @@ async function loadShowStats(slug) {
 }
 
 function renderShowStats(stats) {
-  const root = document.getElementById('showStats');
   const section = document.getElementById('showStatsSection');
-  const subtitle = document.getElementById('showStatsSubtitle');
 
   // Hide entirely when nothing to show (no jumper classes, no entries).
   if (!stats || (stats.classes_total || 0) === 0) {
     section.style.display = 'none';
+    section.innerHTML = '';
     return;
   }
   section.style.display = '';
-  subtitle.textContent = `${stats.classes_total} jumper class${stats.classes_total === 1 ? '' : 'es'} · ${stats.total_entries} entries`;
 
+  const subtitle = `${stats.classes_total} jumper class${stats.classes_total === 1 ? '' : 'es'} · ${stats.total_entries} entries`;
   const html = [];
 
-  // Top riders + horses side-by-side leaderboards.
-  if ((stats.top_riders && stats.top_riders.length) || (stats.top_horses && stats.top_horses.length)) {
-    html.push(`<div class="ss-leaderboards">`);
-    if (stats.top_riders && stats.top_riders.length) {
-      html.push(renderLeaderboard('Top Riders', stats.top_riders, r => ({
-        name: r.rider, wins: r.wins, podiums: r.podiums, sub: `${r.classes_entered} class${r.classes_entered === 1 ? '' : 'es'}`,
+  // Stats banner + leaderboard card grid (top riders / horses).
+  const hasRiders  = stats.top_riders && stats.top_riders.length;
+  const hasHorses  = stats.top_horses && stats.top_horses.length;
+  if (hasRiders || hasHorses) {
+    html.push(`<div class="section-banner standalone">Show stats <span class="count">${escapeHtml(subtitle)}</span></div>`);
+    html.push('<div class="stats-grid">');
+    if (hasRiders) {
+      html.push(renderLeaderboardCard('Top Riders', stats.top_riders, r => ({
+        name: r.rider,
+        wins: r.wins,
+        podiums: r.podiums,
+        sub: `${r.classes_entered} class${r.classes_entered === 1 ? '' : 'es'}`,
       })));
     }
-    if (stats.top_horses && stats.top_horses.length) {
-      html.push(renderLeaderboard('Top Horses', stats.top_horses, h => ({
-        name: h.horse, wins: h.wins, podiums: h.podiums, sub: h.sample_rider || '',
+    if (hasHorses) {
+      html.push(renderLeaderboardCard('Top Horses', stats.top_horses, h => ({
+        name: h.horse,
+        wins: h.wins,
+        podiums: h.podiums,
+        sub: h.sample_rider || '',
       })));
     }
-    html.push(`</div>`);
+    html.push('</div>');
   }
 
-  // Championship list — when there are championship classes.
+  // Championship banner + champion/reserve lines.
   if (stats.championships && stats.championships.length) {
-    html.push(`<div class="ss-sub-label">Championships</div><div class="ss-champ-list">`);
+    const champCount = stats.championships.length;
+    html.push(`<div class="section-banner">Championships <span class="count">${champCount} division${champCount === 1 ? '' : 's'} awarded</span></div>`);
+    html.push('<ul class="section-rows">');
     for (const c of stats.championships) {
-      html.push(`<div class="ss-champ-row">
-        <div class="ss-champ-class"><span class="ss-champ-num">${escapeHtml(c.class_id)}</span> <span class="ss-champ-name">${escapeHtml(c.class_name || '—')}</span></div>
-        ${c.champion ? `<div class="ss-champ-line"><span class="ss-champ-tag ss-champ-tag-ch">Ch</span> ${escapeHtml(c.champion.horse_name || '')} <span class="ss-champ-rider">— ${escapeHtml(c.champion.rider_name || '')}</span></div>` : ''}
-        ${c.reserve  ? `<div class="ss-champ-line"><span class="ss-champ-tag ss-champ-tag-res">Res</span> ${escapeHtml(c.reserve.horse_name || '')} <span class="ss-champ-rider">— ${escapeHtml(c.reserve.rider_name || '')}</span></div>` : ''}
-      </div>`);
+      html.push(`<li class="champ-row">
+        <div class="champ-cls"><span class="num">${escapeHtml(c.class_id)}</span>${escapeHtml(c.class_name || '—')}</div>
+        ${c.champion ? `<div class="champ-line"><span class="champ-tag champ-tag-ch">Ch</span>${escapeHtml(c.champion.horse_name || '')} <span class="champ-rider">— ${escapeHtml(c.champion.rider_name || '')}</span></div>` : ''}
+        ${c.reserve  ? `<div class="champ-line"><span class="champ-tag champ-tag-res">Res</span>${escapeHtml(c.reserve.horse_name || '')} <span class="champ-rider">— ${escapeHtml(c.reserve.rider_name || '')}</span></div>` : ''}
+      </li>`);
     }
-    html.push(`</div>`);
+    html.push('</ul>');
   }
 
-  root.innerHTML = html.join('');
+  section.innerHTML = html.join('');
 }
 
-function renderLeaderboard(title, rows, fmt) {
+function renderLeaderboardCard(title, rows, fmt) {
   const items = rows.map((r, i) => {
     const f = fmt(r);
-    return `<div class="ss-lb-row">
-      <span class="ss-lb-rank">${i + 1}</span>
-      <div class="ss-lb-body">
-        <div class="ss-lb-name">${escapeHtml(f.name || '—')}</div>
-        ${f.sub ? `<div class="ss-lb-sub">${escapeHtml(f.sub)}</div>` : ''}
+    return `<div class="lb-row">
+      <span class="lb-rank">${i + 1}</span>
+      <div>
+        <div class="lb-name">${escapeHtml(f.name || '—')}</div>
+        ${f.sub ? `<div class="lb-sub">${escapeHtml(f.sub)}</div>` : ''}
       </div>
-      <span class="ss-lb-stat">
-        <span class="ss-lb-wins">${f.wins}</span><span class="ss-lb-stat-lbl">W</span>
-        <span class="ss-lb-pods">${f.podiums}</span><span class="ss-lb-stat-lbl">P</span>
-      </span>
+      <span class="lb-stat"><span class="num">${f.wins}</span><span class="lbl">W</span><span class="num">${f.podiums}</span><span class="lbl">P</span></span>
     </div>`;
   }).join('');
-  return `<div class="ss-lb">
-    <div class="ss-lb-title">${escapeHtml(title)}</div>
+  return `<div class="stat-card">
+    <div class="stat-card-title">${escapeHtml(title)}</div>
     ${items}
   </div>`;
 }

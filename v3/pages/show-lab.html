@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WEST · Show Lab — page vocabulary applied to show page</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Big Shoulders Display + Inter + JetBrains Mono — the G combo from font-lab.
+     Standalone lab page (does NOT link west.css) so the design choices
+     are visible at a glance and can be tweaked without touching shipped CSS. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --navy: #0a0a0a;
+  --navy-2: #1a1a1a;
+  --black: #111111;
+  --red: #b82025;
+  --green: #2e7d32;
+  --gold: #c9a440;
+  --off-white: #f7f7f8;
+  --row-bg: #ffffff;
+  --row-bg-hover: #f3f5f9;
+  --border: #e5e7eb;
+  --border-strong: #cdd2d9;
+  --text-body: #1f2937;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--off-white);
+  color: var(--text-body);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px; line-height: 1.5;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+
+/* ── COMPARE STRIP (lab navigation) ─────────────────────────────────── */
+.compare-strip {
+  background: #fffbeb; border-bottom: 1px solid #fde68a;
+  padding: 8px 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: #92400e;
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+}
+.compare-strip a { color: #92400e; text-decoration: underline; }
+.compare-strip a.current { font-weight: 600; text-decoration: underline; }
+
+/* ── HEADER (matches index lab) ─────────────────────────────────────── */
+.app-header {
+  background: #fff; border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex; align-items: center; gap: 24px;
+}
+.brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.brand-mark {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.brand-mark img {
+  width: 40px; height: 40px; object-fit: contain;
+  /* logo.png is the black compass on transparent — reads on the
+     white app-header without any backdrop circle. */
+}
+.brand-name {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 22px; letter-spacing: .04em;
+  color: var(--navy); line-height: 1;
+}
+.brand-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-muted); margin-left: 4px;
+}
+.app-nav { margin-left: auto; display: flex; gap: 4px; }
+.app-nav a {
+  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
+  color: var(--text-body); padding: 8px 14px; border-radius: 6px;
+}
+.app-nav a:hover { background: var(--off-white); }
+
+/* ── BREADCRUMBS ────────────────────────────────────────────────────── */
+.crumbs {
+  max-width: 1100px; margin: 0 auto; padding: 14px 16px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: var(--text-muted);
+}
+.crumbs a { color: var(--text-muted); text-decoration: none; }
+.crumbs a:hover { color: var(--navy); text-decoration: underline; }
+.crumbs .sep { color: var(--text-faint); margin: 0 6px; }
+.crumbs .current { color: var(--text-body); }
+
+/* ── SHOW HERO (the page-head pattern, adapted) ─────────────────────── */
+/* Show name takes the role of the page title. Logo goes inline at left,
+   meta line below the name (date · location), status pill on the right. */
+.show-hero {
+  max-width: 1100px; margin: 0 auto;
+  padding: 22px 16px 16px;
+  display: grid; grid-template-columns: 120px 1fr auto;
+  gap: 22px; align-items: center;
+}
+.show-hero-logo {
+  width: 120px; height: 120px; background: #fff;
+  border: 1px solid var(--border); border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.show-hero-logo.placeholder {
+  background: var(--off-white); color: var(--text-faint);
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 42px; letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.show-hero-text { min-width: 0; }
+.show-hero-name {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 44px; letter-spacing: -0.005em;
+  color: var(--navy); line-height: 1.05;
+  margin-bottom: 8px;
+}
+.show-hero-meta {
+  font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500;
+  color: var(--text-body); margin-bottom: 4px;
+}
+.show-hero-loc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.show-hero-side {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+
+/* Pills (live / upcoming / past) — same family used on the index page. */
+.live-pill, .upcoming-pill, .past-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  font-weight: 600; padding: 5px 9px; border-radius: 999px;
+}
+.live-pill { background: rgba(46,125,50,.12); color: var(--green); }
+.live-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 rgba(46,125,50,.7);
+  animation: pulse 1.6s infinite;
+}
+.upcoming-pill { background: #eef2ff; color: #4338ca; }
+.past-pill { background: var(--off-white); color: var(--text-faint); font-weight: 500; }
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(74,222,128,.6); }
+  50%     { box-shadow: 0 0 0 8px rgba(74,222,128,0); }
+}
+
+.entry-stat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-muted);
+}
+.entry-stat strong { color: var(--text-body); font-weight: 600; }
+
+/* ── SECTION BANNER + ROWS (the index pattern, reused as-is) ────────── */
+.section-banner {
+  max-width: 1100px; margin: 22px auto 0;
+  background: var(--navy); color: #fff;
+  padding: 12px 16px;
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 18px; letter-spacing: .06em;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 12px;
+  border-radius: 8px 8px 0 0;
+}
+.section-banner .count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em;
+  background: rgba(255,255,255,.15);
+  padding: 3px 9px; border-radius: 999px;
+  text-transform: none; font-weight: 500;
+}
+.section-banner.live::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 0 rgba(74,222,128,.7);
+  animation: pulse 1.6s infinite;
+}
+.section-rows {
+  max-width: 1100px; margin: 0 auto 18px;
+  background: var(--row-bg); border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 8px 8px; overflow: hidden;
+  list-style: none; padding: 0;
+}
+
+/* ── RING ROW (the show-row pattern, adapted for rings inside a show) ─ */
+/* Layout mirrors index .show-row: badge cell + info column + right meta.
+   The "logo cell" becomes the big ring-number badge for visual anchor. */
+.ring-row-item { border-bottom: 1px solid var(--border); }
+.ring-row-item:last-child { border-bottom: none; }
+.ring-row {
+  display: grid; grid-template-columns: 96px 1fr auto;
+  gap: 18px; padding: 16px 18px;
+  cursor: pointer; transition: background .12s;
+  align-items: center;
+}
+.ring-row:hover { background: var(--row-bg-hover); }
+.ring-row-badge {
+  width: 80px; height: 80px;
+  background: var(--navy); color: #fff;
+  border-radius: 12px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; line-height: 1;
+}
+.ring-row-badge .num { font-size: 32px; }
+.ring-row-badge .lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: .14em;
+  font-weight: 500; margin-top: 4px; opacity: .7;
+}
+.ring-row-name {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 22px;
+  letter-spacing: -.005em; color: var(--navy);
+  line-height: 1.15; margin-bottom: 4px;
+}
+.ring-row-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ring-row-right {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  flex-shrink: 0; min-width: 90px;
+}
+.ring-row-chevron { font-size: 18px; color: var(--text-faint); }
+
+/* Inline class preview under live rings (mirrors index ring-preview). */
+.ring-preview {
+  padding: 0 18px 14px 132px;
+  border-top: 1px solid var(--border);
+  background: var(--row-bg);
+  display: flex; flex-direction: column;
+  padding-top: 12px;
+}
+.ring-preview-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 6px;
+}
+.ring-class-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.ring-class {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 5px 8px; margin: 0 -8px; border-radius: 4px;
+  text-decoration: none; color: inherit; transition: background .1s;
+}
+.ring-class:hover { background: var(--off-white); }
+.ring-class .cls-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--red); font-weight: 500;
+  min-width: 40px; flex-shrink: 0;
+}
+.ring-class .cls-name {
+  font-family: 'Inter', sans-serif; font-size: 13px; color: var(--text-body);
+  flex: 1;
+}
+.ring-class.is-live .cls-name::after {
+  content: ''; display: inline-block; width: 7px; height: 7px;
+  background: var(--green); border-radius: 50%;
+  margin-left: 8px; vertical-align: middle;
+  box-shadow: 0 0 0 0 rgba(46,125,50,.7);
+  animation: pulse 1.6s infinite;
+}
+
+/* ── WEATHER (compact, sits inside its own section) ─────────────────── */
+.weather-strip {
+  max-width: 1100px; margin: 0 auto 18px;
+  display: grid; grid-template-columns: 280px 1fr;
+  gap: 12px;
+}
+.weather-now {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+  color: #fff; border-radius: 8px; padding: 14px 18px;
+  display: flex; align-items: center; gap: 14px;
+}
+.weather-now-icon { font-size: 34px; line-height: 1; }
+.weather-now-temp {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 34px; line-height: 1;
+}
+.weather-now-desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  margin-top: 2px; opacity: .8;
+}
+.weather-days { display: flex; gap: 6px; }
+.weather-day {
+  flex: 1; background: #fff; border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 8px; text-align: center;
+}
+.weather-day.today { border-color: var(--navy); box-shadow: 0 0 0 1px var(--navy); }
+.weather-day-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 4px;
+}
+.weather-day.today .weather-day-label { color: var(--navy); font-weight: 600; }
+.weather-day-icon { font-size: 22px; line-height: 1; margin-bottom: 4px; }
+.weather-day-high {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 18px; color: var(--navy); line-height: 1;
+}
+.weather-day-low {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-muted); margin-top: 1px;
+}
+
+/* ── SHOW STATS (leaderboards, championship strip) ──────────────────── */
+.stats-grid {
+  max-width: 1100px; margin: 0 auto 18px;
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 700px) { .stats-grid { grid-template-columns: 1fr; } }
+.stat-card {
+  background: var(--row-bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px 18px;
+}
+.stat-card-title {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 16px; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--navy);
+  margin-bottom: 12px;
+  border-left: 3px solid var(--red); padding-left: 8px; line-height: 1;
+}
+.lb-row {
+  display: grid; grid-template-columns: 24px 1fr auto;
+  gap: 10px; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.lb-row:last-child { border-bottom: none; }
+.lb-rank {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+}
+.lb-name {
+  font-family: 'Inter', sans-serif; font-size: 14px;
+  font-weight: 600; color: var(--navy);
+}
+.lb-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--text-muted); letter-spacing: .02em;
+  margin-top: 1px;
+}
+.lb-stat {
+  font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums;
+  font-size: 12px; color: var(--text-body); white-space: nowrap;
+}
+.lb-stat .num { font-weight: 600; }
+.lb-stat .lbl { color: var(--text-faint); margin-right: 4px; margin-left: 1px; }
+
+.champ-row {
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.champ-row:last-child { border-bottom: none; }
+.champ-cls {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.champ-cls .num { color: var(--red); font-weight: 500; margin-right: 6px; }
+.champ-line {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.4;
+  color: var(--navy); margin-bottom: 2px;
+}
+.champ-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; font-weight: 700; letter-spacing: .12em; color: #fff;
+}
+.champ-tag-ch  { background: var(--gold); }
+.champ-tag-res { background: var(--text-muted); }
+.champ-rider { color: var(--text-muted); font-style: italic; }
+
+/* ── FOOTER + lab note ──────────────────────────────────────────────── */
+.lab-note {
+  max-width: 1100px; margin: 0 auto;
+  padding: 16px 24px; margin-top: 12px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: #92400e;
+}
+footer {
+  max-width: 1100px; margin: 0 auto;
+  padding: 32px 24px 60px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .06em; color: var(--text-faint);
+  text-align: right;
+}
+
+/* ── MOBILE ─────────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .show-hero {
+    grid-template-columns: 80px 1fr;
+    gap: 14px; padding: 16px 14px 12px;
+  }
+  .show-hero-logo { width: 80px; height: 80px; border-radius: 8px; }
+  .show-hero-logo.placeholder { font-size: 28px; }
+  .show-hero-name { font-size: 28px; }
+  .show-hero-side { grid-column: 1 / 3; flex-direction: row; align-items: center; }
+  .ring-row { grid-template-columns: 64px 1fr auto; gap: 12px; padding: 14px 14px; }
+  .ring-row-badge { width: 64px; height: 64px; }
+  .ring-row-badge .num { font-size: 24px; }
+  .ring-row-badge .lbl { display: none; }
+  .ring-preview { padding-left: 14px; }
+  .weather-strip { grid-template-columns: 1fr; }
+  .weather-now { padding: 10px 14px; }
+}
+</style>
+</head>
+<body>
+
+<div class="compare-strip">
+  <span>Show-page lab · compare with:</span>
+  <a href="index-lab-black.html">Index lab</a>
+  <a href="font-lab.html">Font lab</a>
+  <a class="current" href="show-lab.html">Show lab (this)</a>
+</div>
+
+<header class="app-header">
+  <div class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div><div class="brand-name">WEST</div></div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </div>
+  <nav class="app-nav">
+    <a href="#">Shows</a>
+    <a href="#">Search</a>
+    <a href="#">Admin</a>
+  </nav>
+</header>
+
+<nav class="crumbs">
+  <a href="#">All shows</a>
+  <span class="sep">/</span>
+  <span class="current">HITS Culpeper Spring</span>
+</nav>
+
+<div class="show-hero">
+  <div class="show-hero-logo placeholder">HC</div>
+  <div class="show-hero-text">
+    <div class="show-hero-name">HITS Culpeper Spring</div>
+    <div class="show-hero-meta">Apr 21 – 24, 2026 · Day 3 of 4</div>
+    <div class="show-hero-loc">Culpeper, VA · Hunter / Jumper · 312 entries</div>
+  </div>
+  <div class="show-hero-side">
+    <span class="live-pill"><span class="dot"></span>2 rings live</span>
+    <span class="entry-stat"><strong>312</strong> entries</span>
+  </div>
+</div>
+
+<div class="weather-strip">
+  <div class="weather-now">
+    <span class="weather-now-icon">⛅</span>
+    <div>
+      <div class="weather-now-temp">68°</div>
+      <div class="weather-now-desc">Partly cloudy</div>
+    </div>
+  </div>
+  <div class="weather-days">
+    <div class="weather-day">
+      <div class="weather-day-label">Mon</div>
+      <div class="weather-day-icon">☀️</div>
+      <div class="weather-day-high">71°</div>
+      <div class="weather-day-low">52°</div>
+    </div>
+    <div class="weather-day">
+      <div class="weather-day-label">Tue</div>
+      <div class="weather-day-icon">☀️</div>
+      <div class="weather-day-high">74°</div>
+      <div class="weather-day-low">55°</div>
+    </div>
+    <div class="weather-day today">
+      <div class="weather-day-label">Wed · Today</div>
+      <div class="weather-day-icon">⛅</div>
+      <div class="weather-day-high">68°</div>
+      <div class="weather-day-low">49°</div>
+    </div>
+    <div class="weather-day">
+      <div class="weather-day-label">Thu</div>
+      <div class="weather-day-icon">🌧️</div>
+      <div class="weather-day-high">63°</div>
+      <div class="weather-day-low">48°</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── RINGS ──────────────────────────────────────────────────────── -->
+<div class="section-banner live">Rings <span class="count">4 rings · 2 live</span></div>
+<ul class="section-rows">
+
+  <!-- live ring with class preview -->
+  <li class="ring-row-item">
+    <a class="ring-row" href="#">
+      <div class="ring-row-badge"><div class="num">1</div><div class="lbl">RING</div></div>
+      <div>
+        <div class="ring-row-name">Jumper 1</div>
+        <div class="ring-row-meta">12 classes · grass · in arena</div>
+      </div>
+      <div class="ring-row-right">
+        <span class="live-pill"><span class="dot"></span>Live</span>
+        <span class="ring-row-chevron">▸</span>
+      </div>
+    </a>
+    <div class="ring-preview">
+      <div class="ring-preview-title">Now scoring · most recent</div>
+      <ul class="ring-class-list">
+        <li><a class="ring-class is-live"><span class="cls-num">412</span><span class="cls-name">$25,000 Welcome Stake</span></a></li>
+        <li><a class="ring-class"><span class="cls-num">411</span><span class="cls-name">Open Jumper II.1</span></a></li>
+        <li><a class="ring-class"><span class="cls-num">410</span><span class="cls-name">Junior/AO Jumper Classic</span></a></li>
+      </ul>
+    </div>
+  </li>
+
+  <!-- live ring with class preview -->
+  <li class="ring-row-item">
+    <a class="ring-row" href="#">
+      <div class="ring-row-badge"><div class="num">2</div><div class="lbl">RING</div></div>
+      <div>
+        <div class="ring-row-name">Hunter Field</div>
+        <div class="ring-row-meta">18 classes · grass · in arena</div>
+      </div>
+      <div class="ring-row-right">
+        <span class="live-pill"><span class="dot"></span>Live</span>
+        <span class="ring-row-chevron">▸</span>
+      </div>
+    </a>
+    <div class="ring-preview">
+      <div class="ring-preview-title">Now scoring · most recent</div>
+      <ul class="ring-class-list">
+        <li><a class="ring-class is-live"><span class="cls-num">214</span><span class="cls-name">3' Working Hunter</span></a></li>
+        <li><a class="ring-class"><span class="cls-num">213</span><span class="cls-name">3'3" Performance Hunter</span></a></li>
+        <li><a class="ring-class"><span class="cls-num">212</span><span class="cls-name">Open Hunter Classic</span></a></li>
+      </ul>
+    </div>
+  </li>
+
+  <!-- inactive ring, collapsed row -->
+  <li class="ring-row-item">
+    <a class="ring-row" href="#">
+      <div class="ring-row-badge"><div class="num">3</div><div class="lbl">RING</div></div>
+      <div>
+        <div class="ring-row-name">Equitation</div>
+        <div class="ring-row-meta">8 classes · sand · indoor</div>
+      </div>
+      <div class="ring-row-right">
+        <span class="upcoming-pill">Up next 2:30 PM</span>
+        <span class="ring-row-chevron">▸</span>
+      </div>
+    </a>
+  </li>
+
+  <!-- ring with no classes today -->
+  <li class="ring-row-item">
+    <a class="ring-row" href="#">
+      <div class="ring-row-badge"><div class="num">4</div><div class="lbl">RING</div></div>
+      <div>
+        <div class="ring-row-name">Schooling</div>
+        <div class="ring-row-meta">2 schooling sessions today</div>
+      </div>
+      <div class="ring-row-right">
+        <span class="past-pill">No competition</span>
+        <span class="ring-row-chevron">▸</span>
+      </div>
+    </a>
+  </li>
+
+</ul>
+
+<!-- ─── SHOW STATS (jumper) ────────────────────────────────────────── -->
+<div class="section-banner">Show stats <span class="count">12 jumper classes · 234 entries</span></div>
+<ul class="section-rows" style="border-radius:0 0 0 0; border-bottom:none;">
+  <!-- Empty intentionally — a section banner with no rows looks visually
+       tied to whatever follows (the leaderboards grid below). -->
+</ul>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-card-title">Top Riders</div>
+    <div class="lb-row">
+      <span class="lb-rank">1</span>
+      <div>
+        <div class="lb-name">Bridget Hallman</div>
+        <div class="lb-sub">14 classes</div>
+      </div>
+      <span class="lb-stat"><span class="num">4</span><span class="lbl">W</span><span class="num">9</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">2</span>
+      <div>
+        <div class="lb-name">Daniel Coyle</div>
+        <div class="lb-sub">11 classes</div>
+      </div>
+      <span class="lb-stat"><span class="num">3</span><span class="lbl">W</span><span class="num">7</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">3</span>
+      <div>
+        <div class="lb-name">Jessica Springsteen</div>
+        <div class="lb-sub">9 classes</div>
+      </div>
+      <span class="lb-stat"><span class="num">2</span><span class="lbl">W</span><span class="num">6</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">4</span>
+      <div>
+        <div class="lb-name">McLain Ward</div>
+        <div class="lb-sub">8 classes</div>
+      </div>
+      <span class="lb-stat"><span class="num">2</span><span class="lbl">W</span><span class="num">4</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">5</span>
+      <div>
+        <div class="lb-name">Beat Mändli</div>
+        <div class="lb-sub">7 classes</div>
+      </div>
+      <span class="lb-stat"><span class="num">1</span><span class="lbl">W</span><span class="num">4</span><span class="lbl">P</span></span>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-title">Top Horses</div>
+    <div class="lb-row">
+      <span class="lb-rank">1</span>
+      <div>
+        <div class="lb-name">Catch Me If You Can</div>
+        <div class="lb-sub">Bridget Hallman</div>
+      </div>
+      <span class="lb-stat"><span class="num">3</span><span class="lbl">W</span><span class="num">7</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">2</span>
+      <div>
+        <div class="lb-name">Diamonds Are Forever</div>
+        <div class="lb-sub">Daniel Coyle</div>
+      </div>
+      <span class="lb-stat"><span class="num">2</span><span class="lbl">W</span><span class="num">5</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">3</span>
+      <div>
+        <div class="lb-name">Quicksilver</div>
+        <div class="lb-sub">Jessica Springsteen</div>
+      </div>
+      <span class="lb-stat"><span class="num">2</span><span class="lbl">W</span><span class="num">4</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">4</span>
+      <div>
+        <div class="lb-name">Above and Beyond</div>
+        <div class="lb-sub">McLain Ward</div>
+      </div>
+      <span class="lb-stat"><span class="num">2</span><span class="lbl">W</span><span class="num">3</span><span class="lbl">P</span></span>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">5</span>
+      <div>
+        <div class="lb-name">Aria's Legacy</div>
+        <div class="lb-sub">Beat Mändli</div>
+      </div>
+      <span class="lb-stat"><span class="num">1</span><span class="lbl">W</span><span class="num">3</span><span class="lbl">P</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── CHAMPIONSHIPS ─────────────────────────────────────────────── -->
+<div class="section-banner">Championships <span class="count">3 divisions awarded</span></div>
+<ul class="section-rows">
+  <li class="champ-row" style="padding-left: 18px; padding-right: 18px;">
+    <div class="champ-cls"><span class="num">2HC</span> 3' Working Hunter Championship</div>
+    <div class="champ-line"><span class="champ-tag champ-tag-ch">Ch</span> Catch Me If You Can <span class="champ-rider">— Bridget Hallman</span></div>
+    <div class="champ-line"><span class="champ-tag champ-tag-res">Res</span> Diamonds Are Forever <span class="champ-rider">— Daniel Coyle</span></div>
+  </li>
+  <li class="champ-row" style="padding-left: 18px; padding-right: 18px;">
+    <div class="champ-cls"><span class="num">3HC</span> 3'3" Performance Hunter Championship</div>
+    <div class="champ-line"><span class="champ-tag champ-tag-ch">Ch</span> Quicksilver <span class="champ-rider">— Jessica Springsteen</span></div>
+    <div class="champ-line"><span class="champ-tag champ-tag-res">Res</span> Above and Beyond <span class="champ-rider">— McLain Ward</span></div>
+  </li>
+  <li class="champ-row" style="padding-left: 18px; padding-right: 18px;">
+    <div class="champ-cls"><span class="num">EQC</span> Hunt Seat Equitation Championship</div>
+    <div class="champ-line"><span class="champ-tag champ-tag-ch">Ch</span> Aria's Legacy <span class="champ-rider">— Beat Mändli</span></div>
+    <div class="champ-line"><span class="champ-tag champ-tag-res">Res</span> Catch Me If You Can <span class="champ-rider">— Bridget Hallman</span></div>
+  </li>
+</ul>
+
+<div class="lab-note">
+// Mockup. Hard-coded content. Reuses the index-lab vocabulary on the show page:
+//   - section-banner + section-rows for every major block
+//   - row pattern: [badge|info|right-meta with pill+chevron]
+//   - same pill family (live / upcoming / past)
+//   - hero adapts page-head: show name in Big Shoulders + meta line below
+//   - weather card uses navy gradient — first chance to use --navy as a brand surface
+//   - leaderboards/championships in cards instead of rows (different content shape)
+// If approved, real data wires in via existing /v3/getShow + /v3/listRings +
+// /v3/listClasses + /v3/listShowJumperStats endpoints.
+</div>
+
+<footer>WEST · show lab · pitch v1 · 2026-05-03</footer>
+
+</body>
+</html>

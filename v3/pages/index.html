@@ -9,42 +9,33 @@
 <title>WEST Scoring — v3</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="west.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="west.css"><!-- west.css @imports the Google Fonts; do not add a font <link> here -->
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a href="index.html" class="logo-tap">
-      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-tag">V3</div>
-  </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
-<div class="toolbar">
-  <div class="toolbar-left">
-    <div class="active-block">
-      <div class="active-num" id="statNumber">—</div>
-      <div class="active-lbl">Active<br>Shows</div>
+<div class="idx-page-head">
+  <h1 class="idx-page-title">Shows</h1>
+  <div class="idx-page-sub">Live scoring across the East Coast hunter/jumper circuit</div>
+  <div class="idx-toolbar">
+    <input type="search" id="searchInput" class="idx-filter" placeholder="Filter by name, venue, or location…" oninput="filter()" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div class="idx-tabs" role="tablist">
+      <button class="idx-tab active" data-view="current" onclick="setView('current')">Current <span class="count" id="countCurrent">0</span></button>
+      <button class="idx-tab" data-view="previous" onclick="setView('previous')">Previous <span class="count" id="countPrevious">0</span></button>
     </div>
   </div>
-  <button class="refresh-btn" onclick="loadShows()">↻ Refresh</button>
-</div>
-
-<div class="search-bar">
-  <div class="search-wrap">
-    <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <circle cx="6.5" cy="6.5" r="5" stroke="#888" stroke-width="1.5"/>
-      <path d="M10.5 10.5L14 14" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
-    </svg>
-    <input type="search" id="searchInput" class="search-input" placeholder="Search shows…" oninput="filter()" autocomplete="off" autocorrect="off" spellcheck="false">
-  </div>
-  <select id="yearSelect" class="year-sel" onchange="filter()">
-    <option value="recent">Recent</option>
-  </select>
 </div>
 
 <div class="page">
@@ -63,6 +54,7 @@ const AUTH = 'west-scoring-2026';
 const BASE = 'https://west-worker.bill-acb.workers.dev';
 
 let SHOWS = [];
+let VIEW  = 'current'; // 'current' (active+upcoming) | 'previous' (past)
 
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -106,149 +98,183 @@ function daysBetween(isoA, isoB) {
   return Math.floor((b - a) / 86400000);
 }
 
-function buildYearDropdown() {
-  const sel = document.getElementById('yearSelect');
-  const years = {};
-  SHOWS.forEach(s => {
-    const y = s.start_date ? s.start_date.slice(0, 4) : null;
-    if (y) years[y] = true;
-  });
-  const sorted = Object.keys(years).sort().reverse();
-  const current = sel.value || 'recent';
-  sel.innerHTML = '<option value="recent">Recent</option>';
-  for (const y of sorted) {
-    sel.innerHTML += `<option value="${y}">${y}</option>`;
-  }
-  sel.innerHTML += '<option value="all">All Shows</option>';
-  // Restore prior selection if still valid
-  if ([...sel.options].some(o => o.value === current)) sel.value = current;
+function showInitials(name) {
+  return String(name || '?').split(/\s+/).slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
+}
+
+function startsInLabel(s) {
+  if (!s.start_date) return 'Soon';
+  const today = todayInTz(s.timezone);
+  const days = daysBetween(today, s.start_date);
+  if (days <= 0) return 'Starts today';
+  if (days === 1) return 'In 1 day';
+  if (days < 14) return `In ${days} days`;
+  if (days < 60) return `In ${Math.round(days / 7)} weeks`;
+  return s.start_date;
+}
+
+function endedAgoLabel(s) {
+  if (!s.end_date) return 'Wrapped';
+  const today = todayInTz(s.timezone);
+  const days = daysBetween(s.end_date, today);
+  if (days <= 0) return 'Just wrapped';
+  if (days === 1) return '1 day ago';
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return fmtDateRange(s);
 }
 
 function applyFilter(shows) {
   const q = document.getElementById('searchInput').value.trim().toLowerCase();
-  const year = document.getElementById('yearSelect').value;
-  const today = new Date().toISOString().slice(0, 10);
+  if (!q) return shows.slice();
+  return shows.filter(s =>
+    (s.name || '').toLowerCase().includes(q) ||
+    (s.slug || '').toLowerCase().includes(q) ||
+    (s.location || '').toLowerCase().includes(q) ||
+    (s.venue || '').toLowerCase().includes(q)
+  );
+}
 
-  let pool = shows.slice();
-
-  // year filter
-  if (year === 'recent') {
-    // Recent = end_date within 90 days forward OR backward, OR undated (show anyway)
-    pool = pool.filter(s => {
-      if (!s.end_date && !s.start_date) return true;
-      const end = s.end_date || s.start_date;
-      if (!end) return true;
-      return Math.abs(daysBetween(today, end)) <= 90;
-    });
-  } else if (year !== 'all') {
-    pool = pool.filter(s => (s.start_date || '').slice(0, 4) === year);
-  }
-
-  // search filter
-  if (q) {
-    pool = pool.filter(s =>
-      (s.name || '').toLowerCase().includes(q) ||
-      (s.slug || '').toLowerCase().includes(q)
-    );
-  }
-
-  // auto-fallback: if Recent yields nothing AND there's no search, try all
-  if (year === 'recent' && !q && !pool.length && shows.length) {
-    pool = shows.slice();
-  }
-
-  return pool;
+function setView(v) {
+  VIEW = v;
+  document.querySelectorAll('.idx-tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
+  render();
 }
 
 function filter() { render(); }
 
+function renderShowRow(s, key, expandRings) {
+  const logoUrl = s.logo_url
+    ? `${BASE}/v3/showLogo?slug=${encodeURIComponent(s.slug)}`
+    : `../../assets/show-logos/${encodeURIComponent(s.slug)}.png`;
+  const initials = showInitials(s.name);
+
+  // Right-meta pill — varies by lifecycle.
+  let pill = '';
+  if (key === 'active') {
+    const liveRings = (s.rings || []).filter(r => r.class_live).length;
+    pill = liveRings
+      ? `<span class="live-pill"><span class="dot"></span>${liveRings} ring${liveRings === 1 ? '' : 's'} live</span>`
+      : `<span class="upcoming-pill">In progress</span>`;
+  } else if (key === 'upcoming') {
+    pill = `<span class="upcoming-pill">${escapeHtml(startsInLabel(s))}</span>`;
+  } else if (key === 'past') {
+    pill = `<span class="past-pill">${escapeHtml(endedAgoLabel(s))}</span>`;
+  }
+
+  const dateLine = fmtDateRange(s);
+  const locLine  = escapeHtml(s.location || s.venue || '');
+
+  // Build the (optional) ring preview as a sibling block — keeps the show
+  // row a clean <a> and lets ring-class items also be <a> without nesting.
+  const rings = (s.rings || []).filter(r => (r.classes || []).length > 0);
+  let preview = '';
+  if (expandRings && rings.length) {
+    preview = '<div class="ring-preview">';
+    for (const r of rings) {
+      const ringLabel = escapeHtml(r.name || '');
+      preview += `<div class="ring-block">
+        <div class="ring-label"><span class="ring-badge">R${r.ring_num}</span>${ringLabel}</div>
+        <ul class="ring-classes">`;
+      for (const c of r.classes) {
+        const liveCls = c.class_live ? ' is-live' : '';
+        const classUrl = `class.html?slug=${encodeURIComponent(s.slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
+        preview += `<li><a class="ring-class${liveCls}" href="${classUrl}">
+          <span class="cls-num">${escapeHtml(c.class_id)}</span>
+          <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
+        </a></li>`;
+      }
+      preview += '</ul></div>';
+    }
+    preview += '</div>';
+  }
+
+  // Logo cell: uses an <img> if logo_url is present, else a placeholder
+  // with the show's initials. The onerror swap covers the file-convention
+  // fallback path failing (404) — convert the cell to a placeholder in
+  // place so the row stays the same shape.
+  const logoCell = s.logo_url
+    ? `<div class="show-logo-cell"><img src="${logoUrl}" alt="" onerror="this.parentElement.classList.add('placeholder');this.replaceWith(document.createTextNode('${initials}'));"></div>`
+    : `<div class="show-logo-cell placeholder">${initials}</div>`;
+
+  return `<li class="show-row-item">
+    <a class="show-row" href="show.html?slug=${encodeURIComponent(s.slug)}">
+      ${logoCell}
+      <div class="show-info">
+        <div class="show-name">${escapeHtml(s.name)}</div>
+        <div class="show-dates">${dateLine}</div>
+        ${locLine ? `<div class="show-loc">${locLine}</div>` : ''}
+      </div>
+      <div class="show-meta-right">
+        ${pill}
+        <span class="show-chevron">▸</span>
+      </div>
+    </a>
+    ${preview}
+  </li>`;
+}
+
 function render() {
-  const content = document.getElementById('content');
+  const content   = document.getElementById('content');
   const noResults = document.getElementById('noResults');
-  const today = new Date().toISOString().slice(0, 10);
 
   const filtered = applyFilter(SHOWS);
+  const groups = { active: [], upcoming: [], past: [] };
+  for (const s of filtered) groups[showGroup(s)].push(s);
 
-  // Active count always reflects truly-active shows regardless of filter
-  const activeCount = SHOWS.filter(s => showGroup(s) === 'active').length;
-  document.getElementById('statNumber').textContent = activeCount;
+  // Tab counts always reflect what's filterable, regardless of which tab is active.
+  document.getElementById('countCurrent').textContent  = groups.active.length + groups.upcoming.length;
+  document.getElementById('countPrevious').textContent = groups.past.length;
 
-  if (!filtered.length) {
+  // Pick which sections to render based on the active tab.
+  // Active shows are expanded by default; "just wrapped" past shows
+  // (within 3 days) also get the ring preview so spectators can see
+  // recently-completed classes.
+  const sections = (VIEW === 'current')
+    ? [
+        { key: 'active',   label: 'Active',        shows: groups.active,   expand: true  },
+        { key: 'upcoming', label: 'Upcoming',      shows: groups.upcoming, expand: false },
+      ]
+    : [
+        { key: 'past',     label: 'Past shows',    shows: groups.past,     expand: false },
+      ];
+  const visibleSections = sections.filter(s => s.shows.length);
+
+  if (!visibleSections.length) {
     content.innerHTML = '';
-    noResults.style.display = SHOWS.length ? 'block' : 'none';
     if (!SHOWS.length) {
       content.innerHTML = '<div class="empty-state"><h2>No shows yet</h2><p>Nothing scheduled. Check back soon.</p></div>';
+      noResults.style.display = 'none';
+    } else {
+      noResults.style.display = 'block';
     }
     return;
   }
   noResults.style.display = 'none';
 
-  const groups = { active: [], upcoming: [], past: [] };
-  for (const s of filtered) groups[showGroup(s)].push(s);
-
-  const order = [
-    ['active', 'Active now'],
-    ['upcoming', 'Upcoming'],
-    ['past', 'Past shows'],
-  ];
   let html = '';
-  for (const [key, label] of order) {
-    if (!groups[key].length) continue;
-    html += `<div class="group"><div class="group-header">${label} (${groups[key].length})</div><ul class="show-list">`;
-    for (const s of groups[key]) {
-      // Prefer admin-uploaded logo (logo_url set on the show row → served
-      // by worker from R2). Fall back to file convention so any logos
-      // dropped at assets/show-logos/<slug>.png pre-upload still render.
-      const logoUrl = s.logo_url
-        ? `${BASE}/v3/showLogo?slug=${encodeURIComponent(s.slug)}`
-        : `../../assets/show-logos/${encodeURIComponent(s.slug)}.png`;
-
-      // Per-ring "what's running" preview (v2 pattern). Each ring shows
-      // its three most-recent classes-with-entries. Rings with no entered
-      // classes are skipped. Past shows older than 3 days collapse to
-      // just the show card — old results aren't what spectators are
-      // looking for on the index.
-      const rings = (s.rings || []).filter(r => (r.classes || []).length > 0);
-      const ended = s.end_date ? new Date(s.end_date + 'T23:59:59') : null;
-      const daysSinceEnd = ended ? Math.floor((Date.now() - ended.getTime()) / 86400000) : 0;
-      const previewAllowed = key !== 'past' || daysSinceEnd <= 3;
-      let preview = '';
-      if (rings.length && previewAllowed) {
-        preview = '<div class="show-rings-preview">';
-        for (const r of rings) {
-          const ringLabel = r.name || `Ring ${r.ring_num}`;
-          preview += `<div class="show-ring-block">
-            <div class="show-ring-hdr">
-              <span class="show-ring-num">R${r.ring_num}</span>
-              <span class="show-ring-name">${escapeHtml(ringLabel)}</span>
-            </div>
-            <ul class="show-ring-classes">`;
-          for (const c of r.classes) {
-            const classUrl = `class.html?slug=${encodeURIComponent(s.slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
-            preview += `<li><a class="show-ring-class" href="${classUrl}" onclick="event.stopPropagation();">
-              <span class="cls-num">${escapeHtml(c.class_id)}</span>
-              <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
-            </a></li>`;
-          }
-          preview += '</ul></div>';
-        }
-        preview += '</div>';
+  for (const sec of visibleSections) {
+    // Section banner — adds the live pulse + " · N rings live" suffix
+    // when any show in the section has a currently-scoring ring.
+    const liveRings = sec.shows.reduce(
+      (n, s) => n + (s.rings || []).filter(r => r.class_live).length, 0
+    );
+    const liveSuffix = liveRings ? ` · ${liveRings} ring${liveRings === 1 ? '' : 's'} live` : '';
+    const bannerCls  = liveRings ? 'section-banner live' : 'section-banner';
+    const showWord   = sec.shows.length === 1 ? 'show' : 'shows';
+    html += `<div class="${bannerCls}">${sec.label} <span class="count">${sec.shows.length} ${showWord}${liveSuffix}</span></div>`;
+    html += '<ul class="section-rows">';
+    for (const s of sec.shows) {
+      // For past shows, expand ring preview only if within 3-day "just wrapped" window.
+      let expandRings = sec.expand;
+      if (sec.key === 'past') {
+        const ended = s.end_date ? new Date(s.end_date + 'T23:59:59') : null;
+        const daysSinceEnd = ended ? Math.floor((Date.now() - ended.getTime()) / 86400000) : 0;
+        expandRings = daysSinceEnd <= 3;
       }
-
-      const dotClasses = `${key}${s.class_live ? ' live' : ''}`;
-      html += `<li><div class="show-card-wrap">
-        <a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
-          <span class="show-dot ${dotClasses}" title="${s.class_live ? 'Class live now' : ''}"></span>
-          <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
-          <div class="show-body">
-            <div class="show-name">${escapeHtml(s.name)}</div>
-            <div class="show-meta">${[fmtDateRange(s), escapeHtml(s.location || s.venue || '')].filter(Boolean).join(' · ')}</div>
-          </div>
-        </a>
-        ${preview}
-      </div></li>`;
+      html += renderShowRow(s, sec.key, expandRings);
     }
-    html += `</ul></div>`;
+    html += '</ul>';
   }
   content.innerHTML = html;
 }
@@ -260,7 +286,6 @@ async function loadShows() {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Failed');
     SHOWS = data.shows || [];
-    buildYearDropdown();
     render();
   } catch (e) {
     content.innerHTML = `<div class="empty-state"><h2>Couldn't load shows</h2><p>${escapeHtml(e.message)}</p></div>`;

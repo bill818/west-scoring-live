@@ -9,19 +9,21 @@
 <title>WEST Scoring — Class Stats</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="west.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="west.css"><!-- west.css @imports the Google Fonts; do not add a font <link> here -->
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a href="index.html" class="logo-tap">
-      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-tag">V3</div>
-  </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
 <nav class="breadcrumbs">
@@ -36,8 +38,8 @@
   <span class="bc-current">Stats</span>
 </nav>
 
-<div id="hero" class="hero">
-  <div class="spinner"></div>
+<div id="hero" class="show-hero">
+  <div class="spinner" style="grid-column: 1 / 4;"></div>
 </div>
 
 <div id="content">
@@ -70,30 +72,55 @@ const state = { cls: null, stats: null, show: null, ring: null, statsEtag: null,
 const POLL_MS = 10000;
 let pollTimer = null;
 
+function showInitials(name) {
+  return String(name || '?').split(/\s+/).slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
+}
+
 // Hero render — mirrors class.html so the page reads as a continuation
-// of the class page, just one breadcrumb deeper. Lens tint applies the
-// same way (.hero.hero-{h|j|t}).
+// of the class page, just one breadcrumb deeper. Side column gets a
+// "Stats" pill instead of class.html's action buttons.
 function renderHero(show, ring, cls) {
-  const parts = [];
-  parts.push(`<div class="hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')} <span class="hero-stats-tag">Stats</span></div>`);
+  const initials = showInitials(show.name);
+  const logoUrl = show.logo_url
+    ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
+    : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
+  const logoCell = show.logo_url
+    ? `<div class="show-hero-logo"><img src="${logoUrl}" alt="" onerror="this.parentElement.classList.add('placeholder');this.replaceWith(document.createTextNode('${initials}'));"></div>`
+    : `<div class="show-hero-logo placeholder">${initials}</div>`;
+
   const ringLabel = ring.name || `Ring ${ring.ring_num}`;
-  const sub = [escapeHtml(show.name), escapeHtml(ringLabel)];
-  if (cls.scheduled_date) sub.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
-  parts.push(`<div class="hero-dates">${sub.join(' · ')}</div>`);
+  const metaParts = [escapeHtml(show.name), escapeHtml(ringLabel)];
+  if (cls.scheduled_date) metaParts.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
+
   const methodStr = WEST.format.classDescription(cls);
-  if (methodStr) parts.push(`<div class="hero-location">${escapeHtml(methodStr)}</div>`);
   const taStr = WEST.format.timeAllowedSummary(cls);
-  if (taStr) parts.push(`<div class="hero-ta">${escapeHtml(taStr)}</div>`);
-  const hero = document.getElementById('hero');
-  hero.innerHTML = parts.join('');
-  hero.className = 'hero hero-' + (cls.class_type || 'u').toLowerCase();
+
+  document.getElementById('hero').innerHTML = `
+    ${logoCell}
+    <div class="show-hero-text">
+      <div class="show-hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')} <span class="hero-stats-tag">Stats</span></div>
+      <div class="show-hero-meta">${metaParts.join(' · ')}</div>
+      ${methodStr ? `<div class="show-hero-loc">${escapeHtml(methodStr)}</div>` : ''}
+      ${taStr ? `<div class="show-hero-loc" style="margin-top:2px;">${escapeHtml(taStr)}</div>` : ''}
+    </div>
+    <div class="show-hero-side"></div>`;
+
   document.getElementById('bcShow').textContent = show.name;
   document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
-  document.getElementById('bcRing').textContent = ring.name || `Ring ${ring.ring_num}`;
+  document.getElementById('bcRing').textContent = ringLabel;
   document.getElementById('bcRing').href = `ring.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}`;
   document.getElementById('bcClass').textContent = `#${cls.class_id}`;
   document.getElementById('bcClass').href = `class.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}&class=${encodeURIComponent(cls.class_id)}`;
   document.title = `Stats · ${cls.class_id} ${cls.class_name || ''} — ${show.name}`;
+}
+
+function statsHeroError(title, sub) {
+  document.getElementById('hero').innerHTML = `
+    <div style="grid-column: 1 / -1;">
+      <div class="show-hero-name" style="font-size: 28px;">${escapeHtml(title)}</div>
+      ${sub ? `<div class="show-hero-loc">${sub}</div>` : ''}
+    </div>`;
+  document.getElementById('content').innerHTML = '';
 }
 
 // One-line summary chips at the top — class-level numbers + a couple
@@ -334,8 +361,7 @@ async function load() {
   const ringNum = parseInt(getQueryParam('ring') || '1', 10);
   const classNum = getQueryParam('class');
   if (!slug || !classNum || !Number.isFinite(ringNum)) {
-    document.getElementById('hero').innerHTML = '<div class="hero-name">Missing slug / ring / class in URL</div>';
-    document.getElementById('content').innerHTML = '';
+    statsHeroError('Missing slug / ring / class in URL', '');
     return;
   }
   try {
@@ -347,19 +373,16 @@ async function load() {
     const show = showRes.show;
     const ring = (ringsRes.rings || []).find(r => r.ring_num === ringNum);
     if (!ring) {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Ring ${ringNum} not found</div>`;
-      document.getElementById('content').innerHTML = '';
+      statsHeroError(`Ring ${ringNum} not found`, '');
       return;
     }
     const cls = (classesRes.classes || []).find(c => String(c.class_id) === String(classNum));
     if (!cls) {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Class ${escapeHtml(classNum)} not found</div>`;
-      document.getElementById('content').innerHTML = '';
+      statsHeroError(`Class ${escapeHtml(classNum)} not found`, '');
       return;
     }
     if (cls.class_type !== 'J' && cls.class_type !== 'T') {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Stats not available for this class type</div><div class="hero-location">Hunter / equitation stats coming soon.</div>`;
-      document.getElementById('content').innerHTML = '';
+      statsHeroError('Stats not available for this class type', 'Hunter / equitation stats coming soon.');
       return;
     }
     const fetched = await WEST.api.fetchJsonEtag(`/v3/listJumperStats?class_id=${cls.id}`, null);
@@ -375,8 +398,7 @@ async function load() {
     renderContent(cls, state.stats);
     startPolling();
   } catch (e) {
-    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load stats</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
-    document.getElementById('content').innerHTML = '';
+    statsHeroError(`Couldn't load stats`, escapeHtml(e.message));
   }
 }
 

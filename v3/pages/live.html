@@ -7,27 +7,20 @@
 <title>Live · WEST Scoring v3</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Web fonts come from west.css's @import (linked further down). Do not
+     add a Google Fonts <link> here — west.css is the single source of truth. -->
 <style>
-  /* v3 live page — unified with site stack 2026-05-02.
-     Light theme. Oswald for display headers + place numbers.
-     Lato body. DM Mono for labels and codes. */
-  :root {
-    --black: #111111;
-    --red:   #b82025;
-    --green: #2e7d32;
-    --gold:  #c9a440;
-    --white: #ffffff;
-    --off-white: #f5f5f5;
-    --border: #e2e2e2;
-    --text-muted: #777;
-    --text-body: #333;
-  }
+  /* v3 live page — unified with site stack 2026-05-02; type flipped 2026-05-03.
+     Light theme. Big Shoulders Display for display headers + place numbers.
+     Inter body. JetBrains Mono for labels and codes.
+     All --tokens are defined in west.css (linked at the bottom of this <head>);
+     CSS variables resolve at render-time so the order is fine. */
   *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body {
     background: var(--off-white);
     color: var(--text-body);
-    font-family: 'Lato', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-body), -apple-system, BlinkMacSystemFont, sans-serif;
     min-height: 100vh;
   }
   a { color: inherit; }
@@ -46,15 +39,15 @@
   }
   .logo-tap { display: flex; align-items: center; gap: 8px; text-decoration: none; }
   .logo-img { height: 26px; width: auto; filter: invert(1); }
-  .logo-west { font-family: 'Oswald', sans-serif; font-weight: 700;
+  .logo-west { font-family: var(--font-display); font-weight: 700;
                font-size: 20px; color: #fff; letter-spacing: 0.04em; }
-  .logo-sep { font-family: 'DM Mono', monospace; font-size: 12px;
+  .logo-sep { font-family: var(--font-mono); font-size: 12px;
               color: var(--red); margin: 0 3px; }
-  .logo-scoring { font-family: 'DM Mono', monospace; font-size: 12px;
+  .logo-scoring { font-family: var(--font-mono); font-size: 12px;
                   color: var(--red); letter-spacing: 0.04em; }
   .header-ring {
     margin-left: auto; display: flex; align-items: center; gap: 10px;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
     letter-spacing: 0.06em; color: #ddd;
   }
   .header-ring .ring-slug { color: #fff; }
@@ -62,7 +55,7 @@
   .live-pill-hdr {
     display: inline-flex; align-items: center; gap: 5px;
     background: var(--red); color: #fff;
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     letter-spacing: 0.12em; text-transform: uppercase;
     padding: 4px 9px; border-radius: 2px;
   }
@@ -82,16 +75,16 @@
     padding: 14px 16px 12px;
   }
   .class-bar-num {
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--red); margin-bottom: 2px;
   }
   .class-bar-name {
-    font-family: 'Oswald', sans-serif; font-size: 22px;
+    font-family: var(--font-display); font-size: 22px;
     font-weight: 700; color: var(--black); line-height: 1.2;
   }
   .class-bar-sub {
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     letter-spacing: 0.06em; text-transform: uppercase;
     color: var(--text-muted); margin-top: 4px;
   }
@@ -119,34 +112,34 @@
                           justify-content: center; }
   .hunter-score-round { display: flex; flex-direction: column; align-items: center; }
   .hunter-score-round-lbl {
-    font-family: 'DM Mono', monospace; font-size: 9px;
+    font-family: var(--font-mono); font-size: 9px;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--text-muted);
   }
   .hunter-score-round-val {
-    font-family: 'DM Mono', monospace; font-size: 16px;
+    font-family: var(--font-mono); font-size: 16px;
     color: var(--text-body); font-weight: 600;
   }
   .hunter-score-total-lbl {
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--red); font-weight: 600; margin-top: 4px;
   }
   .hunter-score-total-val {
-    font-family: 'Oswald', sans-serif; font-size: 32px;
+    font-family: var(--font-display); font-size: 32px;
     color: var(--green); font-weight: 700; line-height: 1;
   }
   .hunter-score-place {
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
     color: var(--text-muted); margin-top: 4px;
     letter-spacing: 0.06em;
   }
   .hunter-score-place .val {
-    color: var(--red); font-family: 'Oswald', sans-serif;
+    color: var(--red); font-family: var(--font-display);
     font-size: 18px; font-weight: 700; margin-left: 4px;
   }
   .hunter-score-empty {
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     letter-spacing: 0.1em; text-transform: uppercase;
     color: #ccc;
   }
@@ -157,7 +150,7 @@
     margin-top: 6px; padding-top: 6px;
     border-top: 1px solid var(--border);
     width: 100%;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
   }
   .hunter-judge-row {
     display: grid; grid-template-columns: 24px 1fr 1fr;
@@ -182,16 +175,16 @@
   }
   .oc-card-info { display: flex; flex-direction: column; }
   .oc-entry-num {
-    font-family: 'DM Mono', monospace; font-size: 13px;
+    font-family: var(--font-mono); font-size: 13px;
     color: var(--red); margin-bottom: 3px;
   }
   .oc-horse {
-    font-family: 'Oswald', sans-serif; font-weight: 700;
+    font-family: var(--font-display); font-weight: 700;
     font-size: 22px; color: var(--black); line-height: 1.15;
     margin-bottom: 4px;
   }
   .oc-rider { font-size: 14px; font-weight: 500; color: var(--text-body); }
-  .oc-rider-role { color: var(--text-muted); font-family: 'DM Mono', monospace;
+  .oc-rider-role { color: var(--text-muted); font-family: var(--font-mono);
                     font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
                     margin-left: 6px; }
   .oc-owner { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
@@ -201,12 +194,12 @@
     align-items: center; justify-content: center;
   }
   .oc-phase-label {
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--text-muted); margin-bottom: 4px;
   }
   .oc-clock {
-    font-family: 'DM Mono', monospace; font-size: 42px;
+    font-family: var(--font-mono); font-size: 42px;
     font-weight: 500; color: var(--black); line-height: 1;
     transition: color 0.15s;
   }
@@ -217,7 +210,7 @@
   .oc-clock.idle      { color: #ccc; }
   .oc-no-rider {
     text-align: center; color: var(--text-muted);
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
     letter-spacing: 0.08em; text-transform: uppercase;
     padding: 24px 0;
   }
@@ -234,19 +227,19 @@
     border-bottom: 2px solid var(--black);
   }
   .standings-title {
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--text-muted);
   }
   .standings-hint {
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     color: var(--text-muted);
   }
   .standings-table {
     width: 100%; border-collapse: collapse;
   }
   .standings-table thead th {
-    font-family: 'DM Mono', monospace; font-size: 9px;
+    font-family: var(--font-mono); font-size: 9px;
     letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--text-muted); font-weight: 400;
     padding: 8px 10px; text-align: left;
@@ -266,46 +259,77 @@
   .standings-table tbody tr.elim td { opacity: 0.55; }
   .col-place {
     width: 48px; text-align: right;
-    font-family: 'Oswald', sans-serif;
+    font-family: var(--font-display);
     font-size: 16px; font-weight: 700; color: var(--black);
   }
   .col-place.status {
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
     color: var(--red); font-weight: 600;
     letter-spacing: 0.06em; text-transform: uppercase;
   }
   .col-place.unplaced {
-    color: #c0c0c0; font-family: 'DM Mono', monospace; font-size: 13px;
+    color: #c0c0c0; font-family: var(--font-mono); font-size: 13px;
     font-weight: 400;
   }
   .col-bib {
     width: 56px;
-    font-family: 'DM Mono', monospace; font-size: 12px;
+    font-family: var(--font-mono); font-size: 12px;
     color: var(--red); font-weight: 600;
   }
   .col-horse {
-    font-family: 'Lato', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600; color: var(--black);
   }
   .col-rider {
     font-size: 13px; color: var(--text-muted);
   }
   .col-num {
-    font-family: 'DM Mono', monospace; font-size: 13px;
+    font-family: var(--font-mono); font-size: 13px;
     text-align: right; color: var(--text-body);
     width: 110px;
   }
   .col-num.clean { color: var(--green); font-weight: 600; }
   .col-num.muted { color: var(--text-muted); }
 
-  /* RECENT EVENTS / TRANSPORT FOOTER */
+  /* PIPE STATUS — compact one-liner with collapsible "More" for debug. */
+  .pipe-status {
+    max-width: 1100px; margin: 18px auto 0; padding: 8px 14px;
+    background: var(--off-white); border: 1px solid var(--border); border-radius: 6px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+    flex-wrap: wrap;
+  }
+  .pipe-status-row { display: flex; align-items: center; gap: 6px; }
+  .pipe-status-row .k { color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+  .pipe-status-row .v { color: var(--text-body); }
+  .pipe-status-row .sep { color: var(--text-faint); margin: 0 4px; }
+  .pipe-status-more { font-size: 11px; }
+  .pipe-status-more summary {
+    cursor: pointer; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px;
+    list-style: none; padding: 2px 6px;
+  }
+  .pipe-status-more summary::-webkit-details-marker { display: none; }
+  .pipe-status-more summary::before { content: '▸ '; color: var(--text-faint); }
+  .pipe-status-more[open] summary::before { content: '▾ '; }
+  .pipe-status-more[open] {
+    flex-basis: 100%;
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+  }
+  .pipe-status-more .footer-grid {
+    display: grid; grid-template-columns: auto 1fr; gap: 2px 12px;
+    margin-top: 6px;
+  }
+
+  /* RECENT EVENTS / TRANSPORT FOOTER (legacy classes — still used inside
+     the .pipe-status-more debug panel above for the Recent events block). */
   .footer-section {
     background: var(--white);
     border-top: 1px solid var(--border);
     padding: 12px 16px;
   }
   .footer-section h3 {
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: var(--font-mono); font-size: 10px;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--text-muted); font-weight: 500;
     margin-bottom: 8px;
@@ -313,7 +337,7 @@
   .footer-grid {
     display: grid; grid-template-columns: auto auto;
     gap: 4px 16px;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
   }
   .footer-grid .k { color: var(--text-muted); }
   .footer-grid .v { color: var(--text-body); }
@@ -325,7 +349,7 @@
   .recent-events th, .recent-events td {
     padding: 4px 8px; text-align: left;
     border-bottom: 1px solid var(--border);
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
   }
   .recent-events th {
     color: var(--text-muted); font-weight: 500; font-size: 9px;
@@ -338,12 +362,12 @@
   .empty {
     color: var(--text-muted); font-style: italic;
     padding: 20px; text-align: center;
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-mono); font-size: 11px;
   }
 
   footer {
     background: var(--black); padding: 18px 16px;
-    text-align: center; font-family: 'DM Mono', monospace;
+    text-align: center; font-family: var(--font-mono);
     font-size: 11px; letter-spacing: 0.06em; color: #777;
   }
   footer a { color: #aaa; text-decoration: none; }
@@ -377,21 +401,24 @@
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a class="logo-tap" href="index.html">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-ring">
-      <span class="ring-slug" id="ringSlug">…</span>
-      <span class="ring-sep">·</span>
-      <span>Ring <span class="ring-num" id="ringNum">…</span></span>
-      <span class="live-pill-hdr is-idle" id="livePill">
-        <span class="live-blink"></span>
-        <span id="livePillText">…</span>
-      </span>
-    </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <div class="header-ring">
+    <span class="ring-slug" id="ringSlug">…</span>
+    <span class="ring-sep">·</span>
+    <span>Ring <span class="ring-num" id="ringNum">…</span></span>
   </div>
+  <span class="live-pill-hdr is-idle" id="livePill">
+    <span class="live-blink"></span>
+    <span id="livePillText">…</span>
+  </span>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+  </nav>
 </header>
 
 <!-- CLASS INFO BAR — class id, name, lens, transport -->
@@ -411,14 +438,14 @@
       <div id="ocIdentity" style="display:none;">
         <div class="oc-entry-num">Entry #<span id="idEntry">—</span></div>
         <div class="oc-horse" id="idHorse">—</div>
-        <div class="oc-rider"><span id="idRider">—</span><span class="oc-rider-role">rider</span></div>
+        <div class="oc-rider"><span id="idRider">—</span></div>
       </div>
     </div>
     <div class="oc-card oc-card-clock" id="ocClockCard">
       <div class="oc-phase-label" id="clockPhase">idle</div>
       <div class="oc-clock idle" id="clockBig">—</div>
-      <div id="ocRoundLabel" style="display:none; font-family:'DM Mono', monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--red); font-weight:600; margin-top:6px;"></div>
-      <div id="ocTaLabel" style="display:none; font-family:'DM Mono', monospace; font-size:10px; color:var(--text-muted); margin-top:2px;"></div>
+      <div id="ocRoundLabel" style="display:none; font-family:var(--font-mono); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--red); font-weight:600; margin-top:6px;"></div>
+      <div id="ocTaLabel" style="display:none; font-family:var(--font-mono); font-size:10px; color:var(--text-muted); margin-top:2px;"></div>
     </div>
   </div>
 </div>
@@ -441,25 +468,33 @@
   <div id="jumperStandingsBox"></div>
 </div>
 
-<!-- RECENT EVENTS + STATUS -->
-<div class="footer-section">
-  <h3>Pipe status</h3>
-  <div class="footer-grid">
-    <div class="k">Transport</div>     <div class="v" id="transportLabel">—</div>
-    <div class="k">Last update</div>   <div class="v" id="lastUpdate">—</div>
-    <div class="k">Last batch</div>    <div class="v" id="lastBatchId">—</div>
-    <div class="k">Events in batch</div><div class="v" id="batchSize">—</div>
-    <div class="k">Class id</div>      <div class="v" id="focusClass">—</div>
-    <div class="k">Last frame</div>    <div class="v"><span id="lastChannel">—</span> · fr=<span id="lastFrame">—</span></div>
-    <div class="k">Last tags</div>     <div class="v" id="lastTags" style="word-break:break-word;">—</div>
-  </div>
-</div>
-
-<div class="footer-section">
-  <h3>Recent events <span class="standings-hint" id="eventsCount"></span></h3>
-  <div class="recent-events" id="eventsBox">
-    <div class="empty">Waiting for engine batches…</div>
-  </div>
+<!-- Pipe status — stripped to the two operator-relevant fields. The full
+     debug panel (recent events, batch info, last tags) lives behind the
+     "More" toggle. Whole block likely goes away once the live page is
+     stable. Hidden offscreen elements keep the existing JS happy without
+     leaking into the visible UI. -->
+<div class="pipe-status">
+  <span class="pipe-status-row">
+    <span class="k">Last update</span>
+    <span class="v" id="lastUpdate">—</span>
+    <span class="sep">·</span>
+    <span class="k">Delivery</span>
+    <span class="v" id="transportLabel">—</span>
+  </span>
+  <details class="pipe-status-more">
+    <summary>More</summary>
+    <div class="footer-grid">
+      <div class="k">Last batch</div>    <div class="v" id="lastBatchId">—</div>
+      <div class="k">Events in batch</div><div class="v" id="batchSize">—</div>
+      <div class="k">Class id</div>      <div class="v" id="focusClass">—</div>
+      <div class="k">Last frame</div>    <div class="v"><span id="lastChannel">—</span> · fr=<span id="lastFrame">—</span></div>
+      <div class="k">Last tags</div>     <div class="v" id="lastTags" style="word-break:break-word;">—</div>
+    </div>
+    <div class="recent-events" id="eventsBox">
+      <div class="empty">Waiting for engine batches…</div>
+    </div>
+    <div style="display:none;"><span id="eventsCount"></span></div>
+  </details>
 </div>
 
 <footer>
@@ -482,8 +517,13 @@
   var qs = new URLSearchParams(location.search);
   var slug    = qs.get('slug')     || 'v3-smoke-test-2026-04';
   var ringNum = qs.get('ring_num') || '1';
+  // Design-iteration mock: ?mock=1 injects a hard-coded snapshot and
+  // skips WebSocket/polling. ?mock=hunter switches the lens. Useful for
+  // visual edits without needing a running engine.
+  var MOCK_MODE = qs.get('mock') === '1' || qs.get('mock') === 'hunter';
+  var MOCK_LENS = qs.get('mock') === 'hunter' ? 'hunter' : 'jumper';
 
-  document.getElementById('ringSlug').textContent = slug;
+  document.getElementById('ringSlug').textContent = MOCK_MODE ? 'MOCK · ' + slug : slug;
   document.getElementById('ringNum').textContent  = ringNum;
 
   var $ = function(id) { return document.getElementById(id); };
@@ -1060,6 +1100,103 @@
       }
     });
   }
+  // ── Mock mode (?mock=1 / ?mock=hunter) ────────────────────────────────────
+  // Hard-coded snapshot for visual iteration. Bypasses WS/polling so no
+  // worker round-trip is needed. Ticks every 250ms; cycles through three
+  // riders, each progressing INTRO → COUNTDOWN → ON_COURSE → FINISHED.
+  // Phase tags are written to last_scoring.tags on Channel A frame 1
+  // (the only frame west-clock.js reads).
+  var MOCK_RIDERS = [
+    { entry: '237', horse: 'CATCH ME IF YOU CAN',    rider: 'BRIDGET HALLMAN',    owner: 'STARGAZER FARM',       country: 'USA', finish: '8.234' },
+    { entry: '108', horse: 'DIAMONDS ARE FOREVER',   rider: 'DANIEL COYLE',       owner: 'SUSAN GRANGE',         country: 'IRL', finish: '7.812' },
+    { entry: '142', horse: 'QUICKSILVER',            rider: 'JESSICA SPRINGSTEEN',owner: 'SPRINGSTEEN STABLES',  country: 'USA', finish: '9.105' },
+  ];
+  var PHASE_MS = { intro: 2000, countdown: 4000, on_course: 6000, finished: 2000 };
+  var CYCLE_MS = PHASE_MS.intro + PHASE_MS.countdown + PHASE_MS.on_course + PHASE_MS.finished;
+  var mockStartedAt = Date.now();
+
+  function buildMockSnapshot() {
+    var elapsed = Date.now() - mockStartedAt;
+    var riderIdx = Math.floor(elapsed / CYCLE_MS) % MOCK_RIDERS.length;
+    var inCycle  = elapsed % CYCLE_MS;
+    var rider = MOCK_RIDERS[riderIdx];
+
+    // Build the clock tags based on where we are in the cycle.
+    // INTRO: entry only (no {17}, no {23}) → clock module shows "-45" hold
+    // COUNTDOWN: {23} ticks from -4 up to 0
+    // ON_COURSE: {17} = 0 (integer); clock module interpolates fractional seconds
+    // FINISHED: {17} = decimal value; clock locks at finalValue
+    var clockTags = { '1': rider.entry, '13': '71' /* TA — drives round label */ };
+    var cursor = inCycle;
+    if (cursor < PHASE_MS.intro) {
+      // intro — no clock tag
+    } else if ((cursor -= PHASE_MS.intro) < PHASE_MS.countdown) {
+      var cdSec = -Math.ceil((PHASE_MS.countdown - cursor) / 1000);
+      clockTags['23'] = String(cdSec);
+    } else if ((cursor -= PHASE_MS.countdown) < PHASE_MS.on_course) {
+      clockTags['17'] = '0';
+    } else {
+      clockTags['17'] = rider.finish;
+    }
+
+    var nowIso = new Date().toISOString();
+    var classMeta = MOCK_LENS === 'hunter'
+      ? { class_id: '214', class_name: '3\' Working Hunter',     scoring_method: 4, scoring_modifier: 0, class_type: 'H', num_judges: 2, show_flags: 0 }
+      : { class_id: '412', class_name: '$25,000 Welcome Stake', scoring_method: 1, scoring_modifier: 0, class_type: 'J', num_judges: 1, show_flags: 1 };
+
+    var snap = {
+      slug: slug,
+      ring_num: ringNum,
+      received_at: nowIso,
+      batch_id: 'mock-' + Math.floor(Date.now() / 1000),
+      class_kind: MOCK_LENS,
+      live_running_tenth: true,
+      events: [],
+      class_meta: classMeta,
+      // Identity card — Channel A frame 1 carries entry/horse/rider/owner/country.
+      last_identity: {
+        class_id: classMeta.class_id, channel: 'A', frame: 1, received_at: nowIso,
+        tags: { '1': rider.entry, '2': rider.horse, '3': rider.rider, '4': rider.owner, '5': rider.country },
+      },
+      // Scoring frame (also Channel A frame 1 — clock module reads this only).
+      // Tags carry the phase-driven clock state.
+      last_scoring: {
+        class_id: classMeta.class_id, channel: 'A', frame: 1, received_at: nowIso,
+        tags: clockTags,
+      },
+      // Focus frame — class id + name appear in the class info bar.
+      last_focus: {
+        class_id: classMeta.class_id, channel: 'B', frame: 28, received_at: nowIso,
+        tags: { '27': classMeta.class_id, '28': classMeta.class_name },
+      },
+    };
+    if (MOCK_LENS === 'jumper') {
+      snap.jumper_scores = [
+        { entry_num: '108', horse_name: 'Diamonds Are Forever', rider_name: 'Daniel Coyle',         owner_name: 'Susan Grange',          country_code: 'IRL', overall_place: 1, r1_faults: 0, r1_time: 65.234, r1_status: null },
+        { entry_num: '142', horse_name: 'Quicksilver',          rider_name: 'Jessica Springsteen',  owner_name: 'Springsteen Stables',   country_code: 'USA', overall_place: 2, r1_faults: 0, r1_time: 67.041, r1_status: null },
+        { entry_num: '094', horse_name: 'Above and Beyond',     rider_name: 'McLain Ward',          owner_name: 'Castle Hill Farm',      country_code: 'USA', overall_place: 3, r1_faults: 4, r1_time: 64.820, r1_status: null },
+        { entry_num: '256', horse_name: "Aria's Legacy",        rider_name: 'Beat Mändli',          owner_name: 'Grant Road Partners',   country_code: 'SUI', overall_place: 4, r1_faults: 4, r1_time: 66.117, r1_status: null },
+        { entry_num: '171', horse_name: 'Cassiopeia',           rider_name: 'Karl Cook',            owner_name: 'Signe Ostby',           country_code: 'USA', overall_place: 5, r1_faults: 8, r1_time: 67.890, r1_status: null },
+      ];
+    } else {
+      snap.hunter_scores = [
+        { entry_num: '044', horse_name: 'Quintessential', rider_name: 'Kelley Farmer',  owner_name: 'Larry Glefke',     overall_place: 1, total_score: 178, judge_a: 89, judge_b: 89 },
+        { entry_num: '081', horse_name: 'Brunello',       rider_name: 'Liza Boyd',      owner_name: 'Janet Peterson',   overall_place: 2, total_score: 174, judge_a: 87, judge_b: 87 },
+        { entry_num: '156', horse_name: 'Inclusive',      rider_name: 'Hunt Tosh',      owner_name: 'Ceil Wheeler',     overall_place: 3, total_score: 170, judge_a: 86, judge_b: 84 },
+        { entry_num: '212', horse_name: 'Practical Joke', rider_name: 'Scott Stewart',  owner_name: 'Krista Weisman',   overall_place: 4, total_score: 165, judge_a: 82, judge_b: 83 },
+      ];
+    }
+    return snap;
+  }
+
+  if (MOCK_MODE) {
+    setTransport('mock (no engine)');
+    setPipe('live');
+    render(buildMockSnapshot());
+    setInterval(function () { render(buildMockSnapshot()); }, 250);
+    return;
+  }
+
   setTransport('connecting…');
   connectWs();
   setTimeout(function() {

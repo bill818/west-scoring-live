@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 /* ═══════════════════════════════════════════════════════════════════════
    WEST v3 — shared stylesheet for all v3 pages
    ═══════════════════════════════════════════════════════════════════════
@@ -5,17 +7,36 @@
    All v3 HTML pages link this one file; edit here, applies everywhere.
    Page-specific class names don't collide (admin uses .app/.sidebar/
    .ring-row; index uses .page/.toolbar/.show-card — different namespaces).
+
+   FONTS: loaded centrally via the @import on line 1. To add/remove a font
+   family or weight site-wide, edit that URL and the --font-* tokens below.
+   Pages do NOT include their own Google Fonts <link> — they just reference
+   var(--font-display) / var(--font-body) / var(--font-mono) and trust
+   this stylesheet to deliver the fonts.
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ── TOKENS ──────────────────────────────────────────────────────────── */
 :root {
+  /* Type system — Big Shoulders Display (display) + Inter (body) + JetBrains Mono (codes).
+     Confirmed font-lab Round 2 / index-lab pitch, flipped 2026-05-03. */
+  --font-display: 'Big Shoulders Display', sans-serif;
+  --font-body:    'Inter', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* Palette — flipped to the index-lab-black values 2026-05-03 (Phase 5).
+     Slightly cooler grays and borders; --off-white moved from #f5f5f5 to #f7f7f8.
+     The --navy / --navy-2 tokens are the deep-black brand surface used by the
+     redesigned section banners and brand mark (lands with Phase 6 layouts).
+     --blue/--amber are admin/status accents, left untouched. */
   --black: #111111;
   --red: #b82025;
   --white: #ffffff;
-  --off-white: #f5f5f5;
-  --border: #e2e2e2;
-  --text-muted: #777;
-  --text-body: #333;
+  --off-white: #f7f7f8;
+  --border: #e5e7eb;
+  --border-strong: #cdd2d9;
+  --text-body: #1f2937;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
   --green: #2e7d32;
   --green-bg: #e8f5e9;
   --blue: #1565c0;
@@ -23,13 +44,18 @@
   --amber: #b45309;
   --amber-bg: #fef3c7;
   --gray: #757575;
+  --gold: #c9a440;
+  --navy: #0a0a0a;          /* deep black brand surface — section banners, brand mark */
+  --navy-2: #1a1a1a;
+  --row-bg: #ffffff;
+  --row-bg-hover: #f3f5f9;
   --card-radius: 10px;
 }
 
 /* ── RESETS + BASE ───────────────────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
-body{background:var(--off-white);color:var(--text-body);font-family:'Lato',sans-serif;min-height:100vh;}
+body{background:var(--off-white);color:var(--text-body);font-family:var(--font-body);min-height:100vh;}
 button{font-family:inherit;cursor:pointer;border:none;background:none;}
 input,select{font-family:inherit;}
 a{color:var(--blue);text-decoration:none;}
@@ -40,11 +66,11 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .header-inner{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
 .logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
 .logo-img{height:30px;width:auto;filter:invert(1);}
-.logo-west{font-family:'Oswald',sans-serif;font-weight:700;font-size:24px;color:#fff;line-height:1;}
-.logo-sep{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);margin:0 4px;}
-.logo-scoring{font-family:'DM Mono',monospace;font-size:14px;color:var(--red);letter-spacing:.04em;}
+.logo-west{font-family:var(--font-display);font-weight:700;font-size:24px;color:#fff;line-height:1;}
+.logo-sep{font-family:var(--font-mono);font-size:14px;color:var(--red);margin:0 4px;}
+.logo-scoring{font-family:var(--font-mono);font-size:14px;color:var(--red);letter-spacing:.04em;}
 @media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
-.header-tag{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#fff;background:var(--red);padding:3px 8px;border-radius:2px;}
+.header-tag{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#fff;background:var(--red);padding:3px 8px;border-radius:2px;}
 
 /* ── BUTTONS ─────────────────────────────────────────────────────────── */
 .btn-primary{display:block;width:100%;padding:10px;background:var(--red);color:#fff;border-radius:6px;font-weight:600;font-size:14px;margin-bottom:16px;transition:background .15s;}
@@ -54,7 +80,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .btn-danger{padding:6px 12px;background:#fff;color:var(--red);border:1px solid var(--red);border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;}
 .btn-danger:hover:not(:disabled){background:#fef3f3;}
 .btn-danger:disabled{opacity:.4;cursor:not-allowed;}
-.refresh-btn{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);cursor:pointer;transition:background .15s;}
+.refresh-btn{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-family:var(--font-mono);font-size:12px;color:var(--text-body);cursor:pointer;transition:background .15s;}
 .refresh-btn:hover{background:var(--off-white);}
 
 /* ── ADMIN: MASTER-DETAIL LAYOUT ─────────────────────────────────────── */
@@ -67,7 +93,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .search-box{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;background:#fff;margin-bottom:10px;}
 
 .group{margin-bottom:4px;}
-.group-header{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);cursor:pointer;user-select:none;border-radius:4px;}
+.group-header{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);cursor:pointer;user-select:none;border-radius:4px;}
 .group-header:hover{background:var(--off-white);}
 .group-header .chevron{font-size:10px;transition:transform .15s;}
 .group.collapsed .chevron{transform:rotate(-90deg);}
@@ -92,45 +118,45 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 }
 .show-item-body{flex:1;overflow:hidden;}
 .show-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.show-date{display:block;font-size:11px;color:var(--text-muted);font-family:'DM Mono',monospace;}
+.show-date{display:block;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);}
 .show-lock{font-size:12px;flex-shrink:0;opacity:.75;}
 
 .system{margin-top:24px;padding-top:16px;border-top:1px solid var(--border);}
-.system-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;}
+.system-header{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;}
 .system-item{padding:6px 10px;font-size:13px;color:var(--text-muted);opacity:.6;}
 
 .detail{min-height:400px;}
 .empty-state{padding:60px 20px;text-align:center;color:var(--text-muted);}
-.empty-state h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
+.empty-state h2{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
 .empty-state p{font-size:14px;max-width:400px;margin:0 auto;}
 
 .show-header{padding:20px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin-bottom:20px;}
 .show-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px;}
-.show-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
+.show-title{font-family:var(--font-display);font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
 .show-title-actions{display:flex;gap:8px;flex-shrink:0;}
-.show-meta{display:flex;gap:20px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
+.show-meta{display:flex;gap:20px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);}
 .show-meta-item span{color:var(--text-body);}
 
 .section{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:20px;margin-bottom:16px;}
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;}
-.section-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);border-left:3px solid var(--red);padding-left:10px;line-height:1.1;}
+.section-title{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);border-left:3px solid var(--red);padding-left:10px;line-height:1.1;}
 .section-actions{display:flex;gap:8px;align-items:center;}
 .section-search{padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;width:180px;}
-.section-sort{padding:6px 10px;font-size:12px;font-family:'DM Mono',monospace;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;}
-.section-toggle{padding:6px 10px;font-size:12px;font-family:'DM Mono',monospace;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;transition:background .15s,border-color .15s;}
+.section-sort{padding:6px 10px;font-size:12px;font-family:var(--font-mono);border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;}
+.section-toggle{padding:6px 10px;font-size:12px;font-family:var(--font-mono);border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-body);cursor:pointer;transition:background .15s,border-color .15s;}
 .section-toggle:hover{background:var(--off-white);}
 .section-toggle.is-compact{background:var(--off-white);border-color:var(--text-muted);color:var(--text-body);}
 
 .ring-list{list-style:none;padding:0;margin:0;}
 .ring-row{padding:12px 14px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:12px;}
-.ring-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:6px 10px;border-radius:4px;min-width:52px;text-align:center;}
+.ring-num{font-family:var(--font-mono);font-weight:600;font-size:16px;background:var(--off-white);padding:6px 10px;border-radius:4px;min-width:52px;text-align:center;}
 .ring-body{flex:1;}
 .ring-name{font-weight:500;}
 .ring-name.ring-name-placeholder{color:var(--text-muted);font-style:italic;}
 .btn-ring-edit{margin-left:8px;flex-shrink:0;}
-.ring-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:2px;}
+.ring-meta{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-top:2px;}
 .ring-engine{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);}
-.ring-cls{margin-top:4px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.ring-cls{margin-top:4px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);}
 .ring-cls-file{color:var(--text-body);font-weight:500;}
 .engine-dot{width:8px;height:8px;border-radius:50%;}
 .engine-dot.online{background:var(--green);}
@@ -140,13 +166,13 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .placeholder{padding:20px;text-align:center;color:var(--text-muted);font-size:13px;font-style:italic;}
 
 /* ── CLASS LIST (Phase 2b/2c) ────────────────────────────────────────── */
-.class-list-header{display:grid;grid-template-columns:48px 28px 1fr 220px 100px;gap:10px;align-items:center;padding:6px 10px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);margin-bottom:4px;}
+.class-list-header{display:grid;grid-template-columns:48px 28px 1fr 220px 100px;gap:10px;align-items:center;padding:6px 10px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);margin-bottom:4px;}
 .class-group{margin-bottom:16px;}
 .class-group:last-child{margin-bottom:0;}
-.class-group-header{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;border-bottom:1px solid var(--border);}
+.class-group-header{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;border-bottom:1px solid var(--border);}
 .class-group-count{opacity:.5;}
 .day-group{margin:8px 0 8px 12px;}
-.day-group-header{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--blue);padding:4px 10px;margin-bottom:2px;background:var(--blue-bg);border-radius:4px;display:inline-block;}
+.day-group-header{font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--blue);padding:4px 10px;margin-bottom:2px;background:var(--blue-bg);border-radius:4px;display:inline-block;}
 .day-group-count{opacity:.7;}
 .class-list{list-style:none;padding:0;margin:0;}
 .class-row-wrap{margin-bottom:2px;}
@@ -161,40 +187,40 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .class-group-deleted{margin-top:20px;border-top:1px dashed var(--border);padding-top:8px;}
 .class-group-header-deleted{color:var(--red);}
 .deleted-actions{display:flex;gap:6px;justify-content:flex-end;}
-.btn-download-cls{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:4px;cursor:pointer;}
+.btn-download-cls{font-family:var(--font-mono);font-size:11px;padding:4px 10px;background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:4px;cursor:pointer;}
 .btn-download-cls:hover{background:var(--blue-bg);}
-.btn-hard-delete{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;background:#fff;color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;}
+.btn-hard-delete{font-family:var(--font-mono);font-size:11px;padding:4px 10px;background:#fff;color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;}
 .btn-hard-delete:hover{background:#fef3f3;}
-.class-id{font-family:'DM Mono',monospace;font-weight:600;color:var(--text-body);}
-.class-type-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;}
+.class-id{font-family:var(--font-mono);font-weight:600;color:var(--text-body);}
+.class-type-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;font-family:var(--font-mono);font-size:11px;font-weight:600;}
 .class-type-h{background:var(--blue-bg);color:var(--blue);}
 .class-type-j{background:var(--green-bg);color:var(--green);}
 .class-type-t{background:var(--amber-bg);color:var(--amber);}
 .class-type-u{background:var(--off-white);color:var(--text-muted);}
 .class-name-cell{display:flex;align-items:center;gap:8px;overflow:hidden;}
 .class-name{color:var(--text-body);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.class-method{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
-.class-count{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);text-align:right;}
+.class-method{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);}
+.class-count{font-family:var(--font-mono);font-size:11px;color:var(--blue);text-align:right;}
 .class-count.class-count-empty{color:var(--text-muted);opacity:.5;}
-.schedule-flag{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.04em;padding:1px 6px;border-radius:3px;text-transform:uppercase;}
+.schedule-flag{font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;padding:1px 6px;border-radius:3px;text-transform:uppercase;}
 .schedule-flag-s{background:var(--green-bg);color:var(--green);}
 .schedule-flag-jo{background:var(--blue-bg);color:var(--blue);}
 .schedule-flag-l{background:var(--amber-bg);color:var(--amber);}
 
 /* Expanded entries table */
 .entries-table{width:100%;border-collapse:collapse;margin:6px 10px 8px 10px;width:calc(100% - 20px);font-size:12px;background:#fff;border:1px solid var(--border);border-radius:4px;}
-.entries-table thead th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-weight:500;}
+.entries-table thead th{font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-weight:500;}
 .entries-table tbody td{padding:6px 10px;border-bottom:1px solid var(--off-white);color:var(--text-body);}
 .entries-table tbody tr:last-child td{border-bottom:none;}
 .entries-table tbody tr:hover{background:var(--off-white);}
-.entries-table .entry-num{font-family:'DM Mono',monospace;font-weight:600;width:50px;}
-.entries-table .entry-usef{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);}
+.entries-table .entry-num{font-family:var(--font-mono);font-weight:600;width:50px;}
+.entries-table .entry-usef{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);}
 .entries-loading,.entries-empty{padding:12px;text-align:center;font-size:12px;color:var(--text-muted);font-style:italic;}
 
 /* ── Jumper scoring drill-down cells (Phase 2d Piece 4) ─────────────── */
 .entries-table .entry-ro,
-.entries-table .entry-place{font-family:'DM Mono',monospace;text-align:right;font-variant-numeric:tabular-nums;}
-.entries-table .entry-round{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.entries-table .entry-place{font-family:var(--font-mono);text-align:right;font-variant-numeric:tabular-nums;}
+.entries-table .entry-round{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .entries-table .round-faults{font-weight:600;color:var(--text-body);}
 .entries-table .round-time{color:var(--text-muted);font-size:11px;}
 .entries-table .round-status{color:#b82025;font-weight:600;letter-spacing:.04em;} /* red = elim/retire/withdraw — matches v2 color semantics */
@@ -221,11 +247,11 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 dialog{border:none;border-radius:var(--card-radius);padding:0;max-width:450px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);}
 dialog::backdrop{background:rgba(0,0,0,.4);}
 .dialog-header{padding:20px 24px 0;}
-.dialog-header h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:20px;}
+.dialog-header h2{font-family:var(--font-display);font-weight:700;font-size:20px;}
 .dialog-body{padding:20px 24px;}
 .dialog-footer{padding:16px 24px;background:var(--off-white);border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;border-radius:0 0 var(--card-radius) var(--card-radius);}
 .form-group{margin-bottom:16px;}
-.form-group label{display:block;font-size:12px;font-weight:500;color:var(--text-body);margin-bottom:6px;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.05em;}
+.form-group label{display:block;font-size:12px;font-weight:500;color:var(--text-body);margin-bottom:6px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.05em;}
 .form-group input{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;}
 .form-group input:focus{outline:2px solid var(--blue);outline-offset:-1px;}
 .form-group select{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;background:#fff;}
@@ -247,16 +273,16 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .toolbar{max-width:1100px;margin:0 auto;padding:16px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .toolbar-left{display:flex;align-items:center;gap:16px;}
 .active-block{display:flex;align-items:center;gap:10px;}
-.active-num{font-family:'Oswald',sans-serif;font-weight:700;font-size:32px;line-height:1;color:var(--red);}
-.active-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);line-height:1.2;}
+.active-num{font-family:var(--font-display);font-weight:700;font-size:32px;line-height:1;color:var(--red);}
+.active-lbl{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);line-height:1.2;}
 
 .search-bar{background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;max-width:1100px;margin:0 auto;}
 .search-wrap{flex:1;position:relative;}
 .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;pointer-events:none;}
-.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:'Lato',sans-serif;font-size:15px;color:var(--text-body);outline:none;}
+.search-input{width:100%;background:var(--off-white);border:1px solid var(--border);border-radius:8px;padding:10px 12px 10px 34px;font-family:var(--font-body);font-size:15px;color:var(--text-body);outline:none;}
 .search-input::placeholder{color:#aaa;}
 .search-input:focus{border-color:var(--black);}
-.year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-body);outline:none;cursor:pointer;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.year-sel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 28px 8px 12px;font-family:var(--font-mono);font-size:12px;color:var(--text-body);outline:none;cursor:pointer;min-width:90px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
 
 .page{max-width:1100px;margin:0 auto;padding:20px 12px 80px;}
 .show-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .2s,transform .2s,box-shadow .2s;}
@@ -267,10 +293,10 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .show-body .show-name{font-size:17px;font-weight:500;margin-bottom:2px;}
 
 .no-results{padding:60px 20px;text-align:center;color:var(--text-muted);display:none;}
-.no-results h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
+.no-results h2{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--text-body);margin-bottom:8px;}
 
 /* ── PUBLIC SHOW PAGE: BREADCRUMBS / HERO / RING CARDS ───────────────── */
-.breadcrumbs{max-width:1100px;margin:0 auto;padding:10px 12px;display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);}
+.breadcrumbs{max-width:1100px;margin:0 auto;padding:10px 12px;display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--text-muted);}
 .bc-link{color:var(--blue);text-decoration:none;}
 .bc-link:hover{text-decoration:underline;}
 .bc-sep{color:var(--red);}
@@ -284,43 +310,43 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .hero.hero-h{background:linear-gradient(180deg,var(--blue-bg) 0%,#fff 70%);}
 .hero.hero-j{background:linear-gradient(180deg,var(--green-bg) 0%,#fff 70%);}
 .hero.hero-t{background:linear-gradient(180deg,var(--amber-bg) 0%,#fff 70%);}
-.hero-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
-.hero-dates{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:6px;}
+.hero-name{font-family:var(--font-display);font-weight:700;font-size:28px;color:var(--black);line-height:1.15;margin-bottom:6px;}
+.hero-dates{font-family:var(--font-mono);font-size:12px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:6px;}
 .hero-venue{font-size:15px;color:var(--text-body);margin-bottom:2px;}
-.hero-location{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
+.hero-location{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
 /* Sponsor (H[29] text) — patron / award context line in the hero. */
-.hero-sponsor{font-family:'Lato',sans-serif;font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
-.hero-ta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-top:4px;}
-.status-badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:10px;}
+.hero-sponsor{font-family:var(--font-body);font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
+.hero-ta{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-top:4px;}
+.status-badge{display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:600;margin-top:10px;}
 .status-active{background:var(--green-bg);color:var(--green);}
 .status-pending,.status-upcoming{background:var(--blue-bg);color:var(--blue);}
 .status-complete,.status-archived{background:var(--off-white);color:var(--gray);}
 
 .section-block{max-width:1100px;margin:0 auto;padding:20px 12px 0;}
-.section-block-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;}
+.section-block-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;}
 
 .ring-grid{display:grid;grid-template-columns:1fr;gap:10px;}
 @media(min-width:600px){.ring-grid{grid-template-columns:repeat(2,1fr);}}
 .ring-card{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:16px 18px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;transition:border-color .2s,transform .2s,box-shadow .2s;}
 .ring-card:hover{border-color:var(--blue);text-decoration:none;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.10);}
-.ring-card-num{font-family:'DM Mono',monospace;font-weight:600;font-size:16px;background:var(--off-white);padding:8px 12px;border-radius:6px;min-width:52px;text-align:center;flex-shrink:0;}
+.ring-card-num{font-family:var(--font-mono);font-weight:600;font-size:16px;background:var(--off-white);padding:8px 12px;border-radius:6px;min-width:52px;text-align:center;flex-shrink:0;}
 .ring-card-body{flex:1;min-width:0;}
-.ring-card-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:17px;color:var(--black);line-height:1.2;margin-bottom:2px;}
-.ring-card-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
+.ring-card-name{font-family:var(--font-display);font-weight:700;font-size:17px;color:var(--black);line-height:1.2;margin-bottom:2px;}
+.ring-card-meta{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.04em;}
 .ring-card-chevron{font-size:20px;color:#ccc;flex-shrink:0;}
 
 /* ── PUBLIC RING PAGE: CLASS LIST ────────────────────────────────────── */
 .day-section{margin-top:20px;}
 .day-section:first-child{margin-top:0;}
-.day-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:0 4px 8px;}
+.day-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:0 4px 8px;}
 .cls-list{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
 .cls-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;transition:background .1s;}
 .cls-row:last-child{border-bottom:none;}
 .cls-row:hover{background:var(--off-white);text-decoration:none;}
-.cls-num{font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--red);min-width:42px;flex-shrink:0;}
+.cls-num{font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--red);min-width:42px;flex-shrink:0;}
 .cls-body{flex:1;min-width:0;}
 .cls-name{font-size:15px;color:var(--text-body);line-height:1.3;overflow:hidden;text-overflow:ellipsis;}
-.cls-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.cls-meta{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
 .cls-arrow{color:#ccc;font-size:20px;flex-shrink:0;line-height:1;}
 .cls-row.is-unscheduled .cls-name{font-style:italic;color:var(--text-muted);}
 .cls-row.is-unscheduled .cls-num{opacity:.5;font-style:italic;}
@@ -328,7 +354,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 
 /* Sort/view toggle bar — pill buttons, single active state */
 .sort-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
-.sort-btn{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--text-muted);background:#fff;border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;transition:all .12s;}
+.sort-btn{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;color:var(--text-muted);background:#fff;border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;transition:all .12s;}
 .sort-btn:hover{color:var(--text-body);border-color:#999;}
 .sort-btn.is-active{background:var(--black);color:#fff;border-color:var(--black);}
 
@@ -336,12 +362,12 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 /* Independent namespace from admin's .entries-table — public table has
    fewer columns, larger row height, and a hero-to-table visual flow. */
 .results-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
-.results-table thead th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:500;background:var(--off-white);}
+.results-table thead th{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:500;background:var(--off-white);}
 .results-table tbody td{padding:10px 12px;border-bottom:1px solid var(--off-white);color:var(--text-body);vertical-align:middle;font-size:13px;}
 .results-table tbody tr:last-child td{border-bottom:none;}
 .results-table tbody tr:hover{background:var(--off-white);}
 .results-table .entry-place,
-.results-table .entry-num{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
+.results-table .entry-num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right;}
 .results-table .entry-place{width:48px;}
 .results-table .entry-num{width:48px;}
 .results-table .entry-horse-rider{width:100%;}
@@ -360,19 +386,19 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 /* Subtitle lines beneath horse/rider — owner (italic) and pedigree
    (sire × dam, wrapped in parens via ::before/::after). Breeding hides
    below 480px (see media query above). */
-.results-table .entry-owner{font-family:'DM Mono',monospace;font-size:11px;font-style:italic;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:1px;}
-.results-table .entry-pedigree{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
+.results-table .entry-owner{font-family:var(--font-mono);font-size:11px;font-style:italic;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:1px;}
+.results-table .entry-pedigree{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
 .results-table .entry-pedigree::before{content:'(';}
 .results-table .entry-pedigree::after{content:')';}
 /* EQ city/state subtitle — single line, same treatment as owner. */
-.results-table .entry-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
+.results-table .entry-meta{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.03em;line-height:1.3;margin-top:3px;}
 /* EQ template flips emphasis: rider primary (bold + body color),
    horse secondary (smaller + muted). Cross-template overrides scoped
    to the .results-eq class added by jumper-templates.renderTable. */
 .results-table.results-eq .entry-rider{font-size:inherit;font-weight:600;color:var(--black);line-height:1.2;}
 .results-table.results-eq .entry-horse{font-size:12px;font-weight:normal;color:var(--text-muted);line-height:1.3;}
-.results-table .entry-round{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
-.results-table .entry-score{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;width:80px;}
+.results-table .entry-round{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
+.results-table .entry-score{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right;width:80px;}
 /* Default round-cell hierarchy:
      "0 Flts"   — secondary, smaller, dim (the "in/out" gate signal)
      "32.757"   — primary, bold, body color (the ranking number) */
@@ -393,12 +419,12 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
    classes. When solo (place-marker-solo) it REPLACES the place number
    entirely (Ch implies 1, Res implies 2 — number is redundant), so it
    needs to read as prominently as a place number would. */
-.results-table .place-marker{display:inline-block;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fef3f3;border:1px solid var(--red);border-radius:3px;padding:1px 4px;line-height:1.1;vertical-align:middle;margin-left:4px;}
+.results-table .place-marker{display:inline-block;font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fef3f3;border:1px solid var(--red);border-radius:3px;padding:1px 4px;line-height:1.1;vertical-align:middle;margin-left:4px;}
 .results-table .place-marker-solo{font-size:11px;padding:3px 7px;letter-spacing:.08em;margin-left:0;}
 .results-table .entry-flag{font-size:18px;line-height:1;margin-left:6px;vertical-align:-2px;}
 /* Stacked layout — rounds collapse into one column, latest round on top.
    round-label is the small "Round 1 / Jump Off / Phase 2" prefix. */
-.results-table .entry-round-stack{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;vertical-align:top;}
+.results-table .entry-round-stack{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;vertical-align:top;}
 .results-table .round-stacked{line-height:1.4;}
 .results-table .round-stacked + .round-stacked{margin-top:2px;padding-top:4px;border-top:1px dashed #eee;}
 .results-table .round-label{font-size:10px;color:var(--text-muted);letter-spacing:.04em;text-transform:uppercase;margin-right:6px;}
@@ -406,8 +432,8 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 
 /* Hunter score columns. Per-round total is medium weight; combined
    total is bold + larger to read as the authoritative ranking number. */
-.results-table .hunter-score{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;font-weight:600;color:var(--text-body);font-size:13px;}
-.results-table .entry-combined{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+.results-table .hunter-score{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600;color:var(--text-body);font-size:13px;}
+.results-table .entry-combined{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
 .results-table .hunter-combined{font-weight:700;font-size:14px;color:var(--black);}
 /* EQ template — rider primary, horse muted (mirrors the jumper EQ
    override pattern). */
@@ -426,7 +452,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 /* "▸ View judges" hint chip — appears under the score (last cell of
    the row) so the affordance lives where the eye lands after reading
    the total. Arrow flips to ▾ when row is open. */
-.results-table .judges-hint{display:inline-flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:3px 7px;margin-top:6px;background:#fafafa;white-space:nowrap;width:fit-content;margin-left:auto;}
+.results-table .judges-hint{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:3px 7px;margin-top:6px;background:#fafafa;white-space:nowrap;width:fit-content;margin-left:auto;}
 .results-table .judges-hint::before{content:'▸';font-size:9px;}
 .results-table tr.has-judges-toggle:hover .judges-hint{color:var(--text-body);border-color:#999;}
 .results-table tr.has-judges-toggle.is-open .judges-hint{color:var(--red);border-color:#ffd0d0;background:#fff8f8;}
@@ -434,7 +460,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table tr.judges-detail-row{display:none;}
 .results-table tr.judges-detail-row.is-open{display:table-row;}
 .results-table tr.judges-detail-row > td{padding:14px 16px 18px;background:#fafafa;border-top:1px dashed var(--border);}
-.entry-judge-grid{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;width:fit-content;margin-left:auto;}
+.entry-judge-grid{font-family:var(--font-mono);font-variant-numeric:tabular-nums;width:fit-content;margin-left:auto;}
 .entry-judge-grid .ejg-row{display:grid;gap:16px;align-items:baseline;text-align:right;font-size:13px;padding:3px 0;justify-content:end;}
 .entry-judge-grid .ejg-row.ejg-header{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:6px;}
 .entry-judge-grid .ejg-hdr{font-weight:500;color:var(--text-body);text-decoration:underline;}
@@ -451,31 +477,31 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 /* Hero trophy + class info banner area. Trophy reads as the patron
    line; banners surface non-obvious format rules (Reverse rank,
    Ribbons only, Jogged, etc.) so spectators understand the class. */
-.hero-trophy{font-family:'Oswald',sans-serif;font-size:14px;font-style:italic;color:var(--red);margin-top:6px;letter-spacing:.02em;}
+.hero-trophy{font-family:var(--font-display);font-size:14px;font-style:italic;color:var(--red);margin-top:6px;letter-spacing:.02em;}
 .class-notices{max-width:1100px;margin:0 auto;padding:0 12px 0;}
-.class-notice{display:block;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-muted);background:var(--off-white);border-left:3px solid var(--border);padding:8px 12px;margin-top:8px;border-radius:3px;}
+.class-notice{display:block;font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--text-muted);background:var(--off-white);border-left:3px solid var(--border);padding:8px 12px;margin-top:8px;border-radius:3px;}
 
 .spinner{margin:40px auto;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
-footer{text-align:center;padding:24px 16px 40px;color:var(--text-muted);font-size:12px;font-family:'DM Mono',monospace;}
+footer{text-align:center;padding:24px 16px 40px;color:var(--text-muted);font-size:12px;font-family:var(--font-mono);}
 footer a{color:var(--blue);}
 
 /* ── STATS PAGE ──────────────────────────────────────────────────────── */
 /* "Stats" tag in the hero next to the class title — small chip that
    reads as the page identifier. */
-.hero-stats-tag{display:inline-block;background:var(--red);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:2px;margin-left:8px;vertical-align:middle;font-weight:500;}
+.hero-stats-tag{display:inline-block;background:var(--red);color:#fff;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:2px;margin-left:8px;vertical-align:middle;font-weight:500;}
 
 /* Stats button on class.html hero — links to stats.html for this class. */
-.hero-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-right:8px;padding:8px 14px;background:#fff;color:var(--text-body);border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:border-color .15s,color .15s,background .15s;}
+.hero-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-right:8px;padding:8px 14px;background:#fff;color:var(--text-body);border:1px solid var(--border);border-radius:6px;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:border-color .15s,color .15s,background .15s;}
 .hero-action:hover{border-color:var(--red);color:var(--red);text-decoration:none;background:#fff;}
-.hero-action.judges-toggle{font-family:'DM Mono',monospace;}
+.hero-action.judges-toggle{font-family:var(--font-mono);}
 .hero-action.judges-toggle.is-active{background:var(--red);color:#fff;border-color:var(--red);}
 .hero-action.judges-toggle.is-active:hover{background:#c62020;border-color:#c62020;color:#fff;}
 
 /* Split-decision pill — multi-judge hunter classes where judges
    disagreed on the placed top-N. Reads as a flag, not a button. */
-.split-pill{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-left:4px;padding:6px 10px;background:#fff8f8;color:var(--red);border:1px solid #ffd0d0;border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle;}
+.split-pill{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-left:4px;padding:6px 10px;background:#fff8f8;color:var(--red);border:1px solid #ffd0d0;border-radius:6px;font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle;}
 .split-pill::before{content:'⚖';margin-right:2px;font-size:13px;}
 
 /* By-judge view — class regrouped by judge. One section per judge,
@@ -484,30 +510,30 @@ footer a{color:var(--blue);}
 .by-judge-view{max-width:1100px;margin:0 auto;padding:0 12px;}
 .by-judge-section{margin-top:24px;}
 .by-judge-section:first-child{margin-top:0;}
-.by-judge-hdr{font-family:'Oswald',sans-serif;font-weight:700;font-size:16px;color:var(--black);margin:0 0 6px;padding:6px 12px;background:var(--off-white);border-left:3px solid var(--red);text-transform:uppercase;letter-spacing:.08em;}
+.by-judge-hdr{font-family:var(--font-display);font-weight:700;font-size:16px;color:var(--black);margin:0 0 6px;padding:6px 12px;background:var(--off-white);border-left:3px solid var(--red);text-transform:uppercase;letter-spacing:.08em;}
 .by-judge-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
-.by-judge-table thead th{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);font-weight:500;text-align:left;padding:8px 10px;background:var(--off-white);border-bottom:1px solid var(--border);}
+.by-judge-table thead th{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);font-weight:500;text-align:left;padding:8px 10px;background:var(--off-white);border-bottom:1px solid var(--border);}
 .by-judge-table .bj-h-rank{width:56px;text-align:center;}
 .by-judge-table .bj-h-num{width:50px;}
 .by-judge-table .bj-h-rnd{width:60px;text-align:right;}
 .by-judge-table .bj-h-total{width:80px;text-align:right;}
 .by-judge-table tbody tr{border-top:1px solid var(--border);}
 .by-judge-table tbody tr:first-child{border-top:none;}
-.by-judge-table tbody td{padding:8px 10px;font-family:'Lato',sans-serif;font-size:13px;vertical-align:middle;}
+.by-judge-table tbody td{padding:8px 10px;font-family:var(--font-body);font-size:13px;vertical-align:middle;}
 .by-judge-row.is-elim{opacity:.5;}
 .bj-rank-cell{text-align:center;}
-.bj-rank{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);}
-.bj-rank-status{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;}
+.bj-rank{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);}
+.bj-rank-status{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;}
 .bj-rank-blank{color:var(--text-muted);}
-.bj-num-cell{font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);}
+.bj-num-cell{font-family:var(--font-mono);font-size:12px;color:var(--text-muted);}
 .bj-id-cell{color:var(--text-body);}
 .bj-id-cell .entry-horse-line{font-size:13px;}
 .bj-id-cell .entry-owner,.bj-id-cell .entry-pedigree{font-size:11px;color:var(--text-muted);}
-.bj-rnd-cell{text-align:right;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;}
+.bj-rnd-cell{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
 .bj-rnd-val{font-size:13px;color:var(--text-body);}
 .bj-rnd-blank{color:var(--text-muted);}
 .bj-rnd-status{font-size:11px;color:var(--red);font-weight:700;text-transform:uppercase;}
-.bj-total-cell{text-align:right;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;}
+.bj-total-cell{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
 .bj-total{font-size:15px;font-weight:700;color:var(--black);}
 @media (max-width:600px){
   .by-judge-table thead th,.by-judge-table tbody td{padding:6px 6px;}
@@ -519,46 +545,46 @@ footer a{color:var(--blue);}
 /* Stats summary chips — top of stats.html, headline numbers. */
 .stat-chips{display:flex;flex-wrap:wrap;gap:10px;max-width:1100px;margin:20px auto 0;padding:0 12px;}
 .stat-chip{flex:1 1 140px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px 16px;text-align:center;}
-.chip-num{font-family:'Oswald',sans-serif;font-weight:700;font-size:32px;color:var(--black);line-height:1;}
-.chip-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
+.chip-num{font-family:var(--font-display);font-weight:700;font-size:32px;color:var(--black);line-height:1;}
+.chip-lbl{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:6px;}
 .chip-sub{display:block;font-size:11px;color:var(--red);letter-spacing:.04em;margin-top:2px;text-transform:none;font-weight:500;}
 
 /* Per-round stats sections — one card per round. */
 .stats-section{max-width:1100px;margin:16px auto 0;padding:18px 20px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);}
-.stats-section .section-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);border-left:3px solid var(--red);padding-left:10px;line-height:1.1;margin-bottom:14px;}
-.round-stats-lines{font-family:'Lato',sans-serif;font-size:14px;color:var(--text-body);line-height:1.6;margin-bottom:14px;}
-.round-stats-lines strong{font-family:'DM Mono',monospace;font-weight:600;color:var(--black);}
+.stats-section .section-title{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);border-left:3px solid var(--red);padding-left:10px;line-height:1.1;margin-bottom:14px;}
+.round-stats-lines{font-family:var(--font-body);font-size:14px;color:var(--text-body);line-height:1.6;margin-bottom:14px;}
+.round-stats-lines strong{font-family:var(--font-mono);font-weight:600;color:var(--black);}
 
 /* Fastest-clear callout — featured per-round line, slightly louder. */
 .fastest-clear{background:var(--off-white);border-left:3px solid var(--green);padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;}
-.fc-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px;}
+.fc-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px;}
 .fc-body{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;}
 .fc-horse{font-weight:600;color:var(--black);}
 .fc-rider{font-size:13px;color:var(--text-muted);}
 .fc-sep{color:#bbb;font-size:11px;}
-.fc-time{margin-left:auto;font-family:'DM Mono',monospace;font-size:15px;font-weight:600;color:var(--green);font-variant-numeric:tabular-nums;}
+.fc-time{margin-left:auto;font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--green);font-variant-numeric:tabular-nums;}
 
 /* Fault histogram — horizontal bars, scaled to the largest non-zero
    bucket. Zero-count buckets are filtered at render time. */
 .histogram{margin-top:8px;}
-.hist-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;}
-.hist-row{display:grid;grid-template-columns:90px 1fr 36px;gap:10px;align-items:center;margin-bottom:4px;font-family:'DM Mono',monospace;font-size:12px;}
+.hist-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;}
+.hist-row{display:grid;grid-template-columns:90px 1fr 36px;gap:10px;align-items:center;margin-bottom:4px;font-family:var(--font-mono);font-size:12px;}
 .hist-lbl{color:var(--text-body);text-align:right;}
 .hist-bar{background:var(--off-white);height:14px;border-radius:3px;overflow:hidden;}
 .hist-fill{display:block;height:100%;background:var(--blue);transition:width .3s;}
 .hist-count{font-weight:600;color:var(--black);text-align:right;font-variant-numeric:tabular-nums;}
 
-.stats-footer{max-width:1100px;margin:18px auto 0;padding:0 12px;text-align:right;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.06em;}
+.stats-footer{max-width:1100px;margin:18px auto 0;padding:0 12px;text-align:right;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:.06em;}
 
 /* Entry Summary section — populates pre-flight from the entries table.
    Smaller cards than the top-line chip strip (these are secondary). */
 .es-cards{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
 .es-card{flex:1 1 110px;background:var(--off-white);border:1px solid var(--border);border-radius:6px;padding:10px 12px;text-align:center;}
-.es-num{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--black);line-height:1;}
-.es-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:4px;}
+.es-num{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--black);line-height:1;}
+.es-lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-top:4px;}
 
-.es-sub-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px;}
-.es-countries{display:flex;flex-wrap:wrap;gap:12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text-body);line-height:1.5;}
+.es-sub-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px;}
+.es-countries{display:flex;flex-wrap:wrap;gap:12px;font-family:var(--font-mono);font-size:13px;color:var(--text-body);line-height:1.5;}
 .es-country{display:inline-flex;align-items:center;gap:4px;}
 .es-country-code{font-weight:600;letter-spacing:.04em;}
 .es-country-count{color:var(--text-muted);font-size:11px;}
@@ -566,13 +592,13 @@ footer a{color:var(--blue);}
 .es-multi{border:1px solid var(--border);border-radius:6px;overflow:hidden;}
 .es-multi-row{display:flex;align-items:baseline;gap:12px;padding:8px 12px;border-bottom:1px solid var(--border);}
 .es-multi-row:last-child{border-bottom:none;}
-.es-multi-name{font-family:'Lato',sans-serif;font-size:13px;font-weight:700;color:var(--black);min-width:160px;flex-shrink:0;}
-.es-multi-horses{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.02em;}
+.es-multi-name{font-family:var(--font-body);font-size:13px;font-weight:700;color:var(--black);min-width:160px;flex-shrink:0;}
+.es-multi-horses{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.02em;}
 
 /* Per-round standings table — V1/V2 5-column layout, fully server-
    rendered (every value comes pre-formatted from /v3/listJumperStats). */
 .standings-wrap{margin-top:14px;background:#fff;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
-.standings-hdr{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--off-white);border-bottom:2px solid var(--black);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
+.standings-hdr{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--off-white);border-bottom:2px solid var(--black);font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);}
 .col-place{width:80px;text-align:left;flex-shrink:0;}
 .col-entry{flex:1;min-width:0;}
 .col-faults{width:64px;text-align:right;flex-shrink:0;}
@@ -584,23 +610,23 @@ footer a{color:var(--blue);}
 .standing-row:hover{background:var(--off-white);}
 .standing-row.is-elim{opacity:.65;}
 
-.s-place{width:80px;flex-shrink:0;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--text-body);}
+.s-place{width:80px;flex-shrink:0;font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--text-body);}
 .s-place.s-place-status{color:var(--red);font-size:10px;letter-spacing:.06em;font-weight:600;}
 /* JO qualifier chip — small red pill on R1 of multi-round methods. */
 .s-place.s-place-jo{display:inline-block;padding:2px 6px;background:var(--red);color:#fff;font-size:9px;letter-spacing:.12em;font-weight:700;border-radius:3px;width:auto;text-align:center;line-height:1.3;}
 
 .s-entry{flex:1;min-width:0;}
-.s-horse{font-family:'Lato',sans-serif;font-size:14px;font-weight:600;color:var(--black);line-height:1.2;}
-.s-rider{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.02em;line-height:1.3;margin-top:1px;}
+.s-horse{font-family:var(--font-body);font-size:14px;font-weight:600;color:var(--black);line-height:1.2;}
+.s-rider{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.02em;line-height:1.3;margin-top:1px;}
 
-.s-faults{width:64px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:13px;font-variant-numeric:tabular-nums;}
+.s-faults{width:64px;text-align:right;flex-shrink:0;font-family:var(--font-mono);font-size:13px;font-variant-numeric:tabular-nums;}
 .s-faults.clear{color:var(--green);font-weight:600;}
 .s-faults.faulted{color:var(--text-body);}
 .s-faults.elim{color:var(--red);font-size:10px;letter-spacing:.06em;font-weight:600;}
 
-.s-time{width:70px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
+.s-time{width:70px;text-align:right;flex-shrink:0;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
 
-.s-gap{width:140px;text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
+.s-gap{width:140px;text-align:right;flex-shrink:0;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
 .s-gap.leader{color:var(--green);font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;}
 .s-gap.behind{color:var(--amber);}
 .s-gap.fault-gap{color:var(--red);}
@@ -608,7 +634,7 @@ footer a{color:var(--blue);}
 /* ── DISPLAY PRIMITIVES (v3/js/west-display.js) ──────────────────────
    wd-chip = small uppercase-mono pill. Variants tint the background
    and color; .wd-chip-solid swaps to filled background + white text. */
-.wd-chip{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.1em;font-weight:600;border-radius:3px;padding:3px 8px;line-height:1.3;}
+.wd-chip{display:inline-flex;align-items:center;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.1em;font-weight:600;border-radius:3px;padding:3px 8px;line-height:1.3;}
 .wd-chip-sm{font-size:10px;}
 .wd-chip-md{font-size:12px;letter-spacing:.08em;padding:4px 10px;}
 /* Tinted variants — soft background, colored text */
@@ -627,58 +653,58 @@ footer a{color:var(--blue);}
 .wd-chip-solo{font-size:11px;padding:4px 10px;letter-spacing:.12em;}
 
 /* Country chip — flag + code + optional count, inline. */
-.wd-country-chip{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text-body);}
+.wd-country-chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:13px;color:var(--text-body);}
 .wd-country-code{font-weight:600;letter-spacing:.04em;}
 .wd-country-count{color:var(--text-muted);font-size:11px;}
 
 /* ── STATS DISPLAY CONFIG DIALOG (admin) ──────────────────────────── */
-.sc-group-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;display:block;}
-.sc-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-family:'Lato',sans-serif;font-size:13px;color:var(--text-body);cursor:pointer;}
+.sc-group-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;display:block;}
+.sc-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-family:var(--font-body);font-size:13px;color:var(--text-body);cursor:pointer;}
 .sc-row:hover{color:var(--black);}
 .sc-row input[type=checkbox]{margin-top:2px;flex-shrink:0;}
-.sc-row-hint{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.02em;}
+.sc-row-hint{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:.02em;}
 
 /* Stats config dialog — Jumpers / Hunters section grouping. Section
    header reads as a lens divider so operators don't have to scan a
    flat checkbox list. */
 .sc-section{margin-bottom:18px;padding:14px 14px 6px;border:1px solid var(--border);border-radius:6px;background:#fcfcfc;}
 .sc-section + .sc-section{margin-top:0;}
-.sc-section-hdr{font-family:'Oswald',sans-serif;font-weight:700;font-size:14px;color:var(--black);margin:0 0 4px;text-transform:uppercase;letter-spacing:.08em;}
-.sc-section-hint{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:10px;letter-spacing:.02em;}
+.sc-section-hdr{font-family:var(--font-display);font-weight:700;font-size:14px;color:var(--black);margin:0 0 4px;text-transform:uppercase;letter-spacing:.08em;}
+.sc-section-hint{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-bottom:10px;letter-spacing:.02em;}
 .sc-row.sc-row-inline{align-items:center;cursor:default;}
-.sc-input-num{font-family:'DM Mono',monospace;font-size:13px;width:60px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:#fff;}
+.sc-input-num{font-family:var(--font-mono);font-size:13px;width:60px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:#fff;}
 
 /* ── SHOW STATS SECTION (show.html) ──────────────────────────────────
    Aggregated jumper stats across all classes in a show. Inline section
    below the rings list. Visual language echoes the per-class stats
    page (chips, cards, sub-labels). */
-.section-block-sublabel{font-family:'Lato',sans-serif;font-size:13px;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;margin-left:12px;}
+.section-block-sublabel{font-family:var(--font-body);font-size:13px;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;margin-left:12px;}
 
 .ss-leaderboards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media(max-width:640px){.ss-leaderboards{grid-template-columns:1fr;}}
 .ss-lb{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);padding:14px 16px;}
-.ss-lb-title{font-family:'Oswald',sans-serif;font-weight:700;font-size:15px;color:var(--black);border-left:3px solid var(--red);padding-left:8px;margin-bottom:10px;line-height:1.1;}
+.ss-lb-title{font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--black);border-left:3px solid var(--red);padding-left:8px;margin-bottom:10px;line-height:1.1;}
 .ss-lb-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);}
 .ss-lb-row:last-child{border-bottom:none;}
-.ss-lb-rank{width:24px;font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--text-muted);}
+.ss-lb-rank{width:24px;font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text-muted);}
 .ss-lb-body{flex:1;min-width:0;}
-.ss-lb-name{font-family:'Lato',sans-serif;font-size:14px;font-weight:600;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.ss-lb-sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.02em;margin-top:1px;}
-.ss-lb-stat{display:inline-flex;align-items:baseline;gap:3px;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;flex-shrink:0;}
+.ss-lb-name{font-family:var(--font-body);font-size:14px;font-weight:600;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ss-lb-sub{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:.02em;margin-top:1px;}
+.ss-lb-stat{display:inline-flex;align-items:baseline;gap:3px;font-family:var(--font-mono);font-variant-numeric:tabular-nums;flex-shrink:0;}
 .ss-lb-wins{font-size:14px;font-weight:700;color:var(--green);}
 .ss-lb-pods{font-size:13px;font-weight:600;color:var(--text-body);margin-left:6px;}
 .ss-lb-stat-lbl{font-size:9px;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;}
 
-.ss-sub-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px;}
+.ss-sub-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px;}
 
 .ss-champ-list{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
 .ss-champ-row{padding:10px 14px;border-bottom:1px solid var(--border);}
 .ss-champ-row:last-child{border-bottom:none;}
-.ss-champ-class{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:4px;}
+.ss-champ-class{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-bottom:4px;}
 .ss-champ-num{color:var(--red);font-weight:600;}
 .ss-champ-name{color:var(--text-body);}
-.ss-champ-line{display:flex;align-items:baseline;gap:8px;font-family:'Lato',sans-serif;font-size:14px;color:var(--black);line-height:1.4;}
-.ss-champ-tag{display:inline-block;padding:1px 6px;border-radius:3px;font-family:'DM Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.12em;color:#fff;}
+.ss-champ-line{display:flex;align-items:baseline;gap:8px;font-family:var(--font-body);font-size:14px;color:var(--black);line-height:1.4;}
+.ss-champ-tag{display:inline-block;padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.12em;color:#fff;}
 .ss-champ-tag-ch{background:var(--red);}
 .ss-champ-tag-res{background:#999;}
 .ss-champ-rider{color:var(--text-muted);font-size:13px;font-weight:400;}
@@ -695,7 +721,7 @@ footer a{color:var(--blue);}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(540px,100vw);background:#fff;border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.14);z-index:1000;transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;}
 .drawer.open{transform:translateX(0);}
 .drawer-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;}
-.drawer-header h2{font-family:'Oswald',sans-serif;font-weight:700;font-size:18px;color:var(--black);flex:1;margin:0;line-height:1.2;}
+.drawer-header h2{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);flex:1;margin:0;line-height:1.2;}
 .drawer-close-btn{background:none;border:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text-muted);padding:6px 10px;border-radius:4px;font-family:inherit;}
 .drawer-close-btn:hover{background:var(--off-white);color:var(--text-body);}
 .drawer-body{flex:1;overflow-y:auto;padding:16px 18px;}
@@ -722,7 +748,7 @@ footer a{color:var(--blue);}
 .show-rings-preview{padding:0;border-top:1px solid var(--border);background:#fafafa;}
 .show-ring-block{padding:8px 16px 10px;border-bottom:1px solid var(--border);}
 .show-ring-block:last-child{border-bottom:none;}
-.show-ring-hdr{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);}
+.show-ring-hdr{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);}
 .show-ring-num{color:var(--red);font-weight:600;}
 .show-ring-name{color:var(--text-body);font-weight:500;}
 .show-ring-classes{list-style:none;margin:0;padding:0;}
@@ -730,5 +756,228 @@ footer a{color:var(--blue);}
 .show-ring-class{display:flex;align-items:baseline;gap:10px;padding:4px 8px;margin:0 -8px;border-radius:4px;text-decoration:none;color:inherit;transition:background .12s;font-size:13px;}
 .show-ring-class:hover{background:var(--off-white);}
 .show-ring-class:hover .cls-num{color:var(--red);}
-.show-ring-class .cls-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-width:36px;flex-shrink:0;}
+.show-ring-class .cls-num{font-family:var(--font-mono);font-size:11px;color:var(--red);min-width:36px;flex-shrink:0;}
 .show-ring-class .cls-name{font-size:13px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   INDEX PAGE — REDESIGNED LAYOUT (Phase 6, 2026-05-03)
+   Source mockup: v3/pages/index-lab-black.html. Equipe-inspired patterns:
+   heavy section banners, fixed-logo-column show rows, expanded-by-default
+   active rows with inline ring previews. Pulses on the section banner
+   indicate at least one ring is currently scoring.
+
+   The old .show-card-wrap / .show-rings-preview rules above are kept for
+   now but no longer emitted by index.html; safe to delete in a cleanup pass.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Page head (title + filter + tabs) ─────────────────────────────── */
+.idx-page-head{max-width:1100px;margin:0 auto;padding:28px 16px 14px;}
+.idx-page-title{font-family:var(--font-display);font-weight:800;font-size:38px;letter-spacing:-0.005em;color:var(--navy);line-height:1;margin-bottom:6px;}
+.idx-page-sub{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:18px;}
+.idx-toolbar{display:flex;gap:12px;align-items:center;}
+.idx-filter{flex:1;padding:11px 14px;border:1px solid var(--border-strong);border-radius:8px;background:#fff;font-family:var(--font-body);font-size:14px;color:var(--text-body);outline:none;transition:border-color .15s,box-shadow .15s;}
+.idx-filter:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(10,10,10,.08);}
+.idx-tabs{display:inline-flex;background:#eaecef;border-radius:8px;padding:3px;font-family:var(--font-body);font-size:13px;font-weight:500;}
+.idx-tab{padding:7px 14px;border-radius:6px;cursor:pointer;color:var(--text-muted);display:flex;align-items:center;gap:6px;background:none;border:none;}
+.idx-tab.active{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.idx-tab .count{font-family:var(--font-mono);font-size:11px;background:var(--navy);color:#fff;padding:2px 7px;border-radius:999px;line-height:1;}
+.idx-tab:not(.active) .count{background:#d1d5db;color:var(--text-muted);}
+
+/* ── Section banner (heavy uppercase, with optional pulse + count) ── */
+.section-banner{max-width:1100px;margin:18px auto 0;background:var(--navy);color:#fff;padding:12px 16px;font-family:var(--font-display);font-weight:700;font-size:18px;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:12px;border-radius:8px 8px 0 0;}
+.section-banner .count{font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;background:rgba(255,255,255,.15);padding:3px 9px;border-radius:999px;text-transform:none;font-weight:500;}
+.section-banner.live::before{content:'';width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 0 rgba(74,222,128,.7);animation:idx-pulse 1.6s infinite;}
+@keyframes idx-pulse{0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,.6);}50%{box-shadow:0 0 0 8px rgba(74,222,128,0);}}
+
+/* ── Section rows (the show-row container) ────────────────────────── */
+.section-rows{max-width:1100px;margin:0 auto 14px;padding:0;list-style:none;background:var(--row-bg);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow:hidden;}
+
+/* ── Show row (logo cell + info + right meta) ─────────────────────────
+   Structure: <li class="show-row-item"> wraps two children — an <a>
+   class="show-row" (the navigable row) and an optional sibling
+   <div class="ring-preview"> below it. Sibling structure avoids the
+   nested-anchor problem (ring-class items inside the preview are <a>). */
+.show-row-item{border-bottom:1px solid var(--border);}
+.show-row-item:last-child{border-bottom:none;}
+.show-row{display:grid;grid-template-columns:96px 1fr auto;gap:18px;padding:16px 18px;cursor:pointer;transition:background .12s;align-items:center;text-decoration:none;color:inherit;}
+.show-row:hover{background:var(--row-bg-hover);}
+.show-logo-cell{width:80px;height:80px;background:var(--off-white);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}
+.show-logo-cell img{max-width:70px;max-height:70px;object-fit:contain;}
+.show-logo-cell.placeholder{color:var(--text-faint);font-family:var(--font-display);font-weight:700;font-size:24px;letter-spacing:.04em;text-transform:uppercase;}
+.show-info{min-width:0;}
+.show-row .show-name{font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:-.005em;color:var(--navy);line-height:1.15;margin-bottom:4px;}
+.show-row .show-dates{font-family:var(--font-body);font-size:13px;color:var(--text-body);}
+.show-row .show-loc{font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--text-muted);margin-top:2px;}
+.show-meta-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;min-width:90px;}
+.live-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(46,125,50,.12);color:var(--green);font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;padding:5px 9px;border-radius:999px;}
+.live-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(46,125,50,.7);animation:idx-pulse 1.6s infinite;}
+.upcoming-pill{display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#4338ca;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;padding:5px 9px;border-radius:999px;}
+.past-pill{display:inline-flex;align-items:center;gap:5px;background:var(--off-white);color:var(--text-faint);font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;padding:5px 9px;border-radius:999px;}
+.show-chevron{font-size:18px;color:var(--text-faint);}
+
+/* ── Ring preview (sibling block below .show-row, indented to align
+   with the .show-info column above). ──────────────────────────────── */
+.ring-preview{padding:0 18px 14px 132px;border-top:1px solid var(--border);margin-top:-1px;background:var(--row-bg);display:flex;flex-direction:column;gap:10px;padding-top:12px;}
+.show-row-item:hover .ring-preview{background:var(--row-bg);} /* keep preview clean even when row hovers */
+.ring-block{display:grid;grid-template-columns:80px 1fr;gap:14px;align-items:start;}
+.ring-label{font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--navy);letter-spacing:.06em;text-transform:uppercase;padding-top:2px;display:flex;align-items:center;gap:6px;}
+.ring-badge{display:inline-block;background:var(--navy);color:#fff;padding:2px 7px;border-radius:4px;font-family:var(--font-mono);font-size:11px;font-weight:500;}
+.ring-classes{display:flex;flex-direction:column;gap:2px;list-style:none;padding:0;margin:0;}
+.ring-class{display:flex;align-items:baseline;gap:10px;padding:5px 8px;margin:0 -8px;border-radius:4px;text-decoration:none;color:inherit;transition:background .1s;}
+.ring-class:hover{background:var(--off-white);}
+.ring-class .cls-num{font-family:var(--font-mono);font-size:11px;color:var(--red);font-weight:500;min-width:38px;flex-shrink:0;}
+.ring-class .cls-name{font-family:var(--font-body);font-size:13px;color:var(--text-body);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ring-class.is-live .cls-name::after{content:'';display:inline-block;width:7px;height:7px;background:var(--green);border-radius:50%;margin-left:8px;vertical-align:middle;box-shadow:0 0 0 0 rgba(46,125,50,.7);animation:idx-pulse 1.6s infinite;}
+
+/* Stack the ring label above the class list on narrow screens. */
+@media (max-width:600px){
+  .ring-block{grid-template-columns:1fr;gap:4px;}
+  .show-row{grid-template-columns:56px 1fr auto;gap:12px;padding:14px 14px;}
+  .show-logo-cell{width:56px;height:56px;}
+  .show-logo-cell img{max-width:48px;max-height:48px;}
+  .show-row .show-name{font-size:18px;}
+  .ring-preview{padding-left:14px;}
+  .idx-page-title{font-size:28px;}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   APP HEADER — REDESIGNED MINIMAL NAV (Phase 6, 2026-05-03)
+   White header with the compass logo + WEST wordmark + nav links.
+   Replaces the legacy <header> black-bar pattern on pages that have
+   been ported to the redesign. The legacy <header> rules at the top
+   of this file are still used by un-ported pages (admin, ring, class,
+   live, stats) — safe to delete after they're all ported.
+   ═══════════════════════════════════════════════════════════════════════ */
+.app-header{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:24px;position:sticky;top:0;z-index:50;}
+.app-header .brand{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.app-header .brand-mark{width:40px;height:40px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.app-header .brand-mark img{width:40px;height:40px;object-fit:contain;}
+.app-header .brand-name{font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:.04em;color:var(--navy);line-height:1;text-decoration:none;}
+.app-header .brand-tag{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-left:4px;}
+.app-header .app-nav{margin-left:auto;display:flex;gap:4px;}
+.app-header .app-nav a{font-family:var(--font-body);font-size:13px;font-weight:500;color:var(--text-body);padding:8px 14px;border-radius:6px;text-decoration:none;}
+.app-header .app-nav a:hover{background:var(--off-white);}
+
+/* Standalone section banner — rounded all four corners when there's no
+   .section-rows directly below (e.g. when followed by a card grid). */
+.section-banner.standalone{border-radius:8px;margin-bottom:8px;}
+
+/* Width constraint for dynamic content containers. These IDs hold
+   server-rendered children (results tables, class lists, stats blocks,
+   notices, sort bars) that don't always carry their own max-width and
+   would otherwise stretch full-viewport while the .section-banner /
+   .show-hero blocks above stay at 1100px. */
+#results, #notices, #classes, #sortBar, #content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 12px;
+}
+#results, #classes, #content { margin-bottom: 18px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SHOW PAGE — REDESIGNED LAYOUT (Phase 6, 2026-05-03)
+   Source mockup: v3/pages/show-lab.html. Adapts the index vocabulary:
+   show name takes the role of page title in the hero; rings render as
+   row items with a navy badge cell; stats use a card grid alongside
+   the section-banner family.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Show hero (page-head pattern, single-show variant) ────────────── */
+.show-hero{max-width:1100px;margin:0 auto;padding:22px 16px 16px;display:grid;grid-template-columns:120px 1fr auto;gap:22px;align-items:center;}
+.show-hero-logo{width:120px;height:120px;background:#fff;border:1px solid var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}
+.show-hero-logo img{max-width:108px;max-height:108px;object-fit:contain;}
+.show-hero-logo.placeholder{background:var(--off-white);color:var(--text-faint);font-family:var(--font-display);font-weight:800;font-size:42px;letter-spacing:.04em;text-transform:uppercase;}
+/* Navy ring-number badge — used by ring.html as the hero's logo slot. */
+.show-hero-logo.ring-badge{background:var(--navy);border:none;color:#fff;flex-direction:column;gap:4px;}
+.show-hero-logo.ring-badge .num{font-family:var(--font-display);font-weight:800;font-size:56px;line-height:1;}
+.show-hero-logo.ring-badge .lbl{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;font-weight:500;opacity:.7;}
+.show-hero-text{min-width:0;}
+.show-hero-name{font-family:var(--font-display);font-weight:800;font-size:44px;letter-spacing:-.005em;color:var(--navy);line-height:1.05;margin-bottom:8px;}
+.show-hero-meta{font-family:var(--font-body);font-size:14px;font-weight:500;color:var(--text-body);margin-bottom:4px;}
+.show-hero-loc{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);}
+/* Optional secondary lines used by the class hero — patron / award text. */
+.show-hero-sponsor{font-family:var(--font-body);font-size:13px;font-style:italic;color:var(--text-body);margin-top:6px;}
+.show-hero-trophy{font-family:var(--font-display);font-size:14px;font-style:italic;color:var(--red);margin-top:6px;letter-spacing:.02em;}
+.show-hero-side{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+.entry-stat{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);}
+.entry-stat strong{color:var(--text-body);font-weight:600;}
+
+/* ── Weather strip ──────────────────────────────────────────────────── */
+.weather-strip{max-width:1100px;margin:0 auto 18px;display:grid;grid-template-columns:280px 1fr;gap:12px;}
+.weather-now{background:linear-gradient(135deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;border-radius:8px;padding:14px 18px;display:flex;align-items:center;gap:14px;}
+.weather-now-icon{font-size:34px;line-height:1;}
+.weather-now-temp{font-family:var(--font-display);font-weight:800;font-size:34px;line-height:1;}
+.weather-now-desc{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-top:2px;opacity:.8;}
+.weather-now-loc{font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;color:#aaa;margin-left:auto;}
+.weather-days{display:flex;gap:6px;}
+.weather-day{flex:1;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 8px;text-align:center;}
+.weather-day.today{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy);}
+.weather-day-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;}
+.weather-day.today .weather-day-label{color:var(--navy);font-weight:600;}
+.weather-day-icon{font-size:22px;line-height:1;margin-bottom:4px;}
+.weather-day-high{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--navy);line-height:1;}
+.weather-day-low{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-top:1px;}
+.weather-day-extras{display:flex;flex-direction:column;gap:1px;font-family:var(--font-mono);font-size:9px;margin-top:3px;}
+.weather-day-precip{color:#4a90d9;}
+.weather-day-wind{color:var(--text-faint);}
+
+/* ── Ring rows on show page (badge replaces logo) ─────────────────────
+   Scoped under .ring-row-item so they don't collide with admin's
+   .ring-row (admin's sidebar uses the same name for a different layout). */
+.ring-row-item{border-bottom:1px solid var(--border);}
+.ring-row-item:last-child{border-bottom:none;}
+.ring-row-item .ring-row{display:grid;grid-template-columns:96px 1fr auto;gap:18px;padding:16px 18px;cursor:pointer;transition:background .12s;align-items:center;text-decoration:none;color:inherit;}
+.ring-row-item .ring-row:hover{background:var(--row-bg-hover);}
+.ring-row-badge{width:80px;height:80px;background:var(--navy);color:#fff;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;line-height:1;}
+.ring-row-badge .num{font-size:32px;}
+.ring-row-badge .lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;font-weight:500;margin-top:4px;opacity:.7;}
+.ring-row-info{min-width:0;}
+.ring-row-name{font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:-.005em;color:var(--navy);line-height:1.15;margin-bottom:4px;}
+.ring-row-meta{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);}
+.ring-row-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;min-width:90px;}
+.ring-row-chevron{font-size:18px;color:var(--text-faint);}
+.ring-preview-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
+.ring-class-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px;}
+
+/* ── Stats grid (top riders / top horses cards) ─────────────────────── */
+.stats-grid{max-width:1100px;margin:0 auto 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.stat-card{background:var(--row-bg);border:1px solid var(--border);border-radius:8px;padding:16px 18px;}
+.stat-card-title{font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:.04em;text-transform:uppercase;color:var(--navy);margin-bottom:12px;border-left:3px solid var(--red);padding-left:8px;line-height:1;}
+.lb-row{display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);}
+.lb-row:last-child{border-bottom:none;}
+.lb-rank{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text-muted);}
+.lb-name{font-family:var(--font-body);font-size:14px;font-weight:600;color:var(--navy);}
+.lb-sub{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:.02em;margin-top:1px;}
+.lb-stat{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-body);white-space:nowrap;}
+.lb-stat .num{font-weight:600;}
+.lb-stat .lbl{color:var(--text-faint);margin-right:4px;margin-left:1px;}
+
+/* ── Championship rows ──────────────────────────────────────────────── */
+.champ-row{padding:10px 18px;border-bottom:1px solid var(--border);list-style:none;}
+.champ-row:last-child{border-bottom:none;}
+.champ-cls{font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--text-muted);margin-bottom:4px;}
+.champ-cls .num{color:var(--red);font-weight:500;margin-right:6px;}
+.champ-line{display:flex;align-items:baseline;gap:8px;font-family:var(--font-body);font-size:13px;line-height:1.4;color:var(--navy);margin-bottom:2px;}
+.champ-tag{display:inline-block;padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.12em;color:#fff;}
+.champ-tag-ch{background:var(--gold);}
+.champ-tag-res{background:var(--text-muted);}
+.champ-rider{color:var(--text-muted);font-style:italic;}
+
+/* ── Mobile: stack hero, shrink ring badge, single-col weather + stats ── */
+@media (max-width:700px){
+  .show-hero{grid-template-columns:80px 1fr;gap:14px;padding:16px 14px 12px;}
+  .show-hero-logo{width:80px;height:80px;border-radius:8px;}
+  .show-hero-logo img{max-width:72px;max-height:72px;}
+  .show-hero-logo.placeholder{font-size:28px;}
+  .show-hero-name{font-size:28px;}
+  .show-hero-side{grid-column:1 / 3;flex-direction:row;align-items:center;}
+  .ring-row{grid-template-columns:64px 1fr auto;gap:12px;padding:14px 14px;}
+  .ring-row-badge{width:64px;height:64px;}
+  .ring-row-badge .num{font-size:24px;}
+  .ring-row-badge .lbl{display:none;}
+  .weather-strip{grid-template-columns:1fr;}
+  .stats-grid{grid-template-columns:1fr;}
+  .app-header{padding:10px 14px;gap:14px;}
+  .app-header .brand-name{font-size:18px;}
+  .app-header .brand-tag{display:none;}
+}

@@ -3118,11 +3118,26 @@ export default {
           'SELECT id, ring_num, name, sort_order, created_at, updated_at FROM rings WHERE show_id = ? ORDER BY sort_order, ring_num'
         ).bind(show.id).all();
         const rings = results || [];
+        // class_live = a scoring frame landed in the last 2 minutes (mirrors
+        // the live-detection in /v3/listShowsWithRings). Used by show.html
+        // and class.html to gate the public "Watch Live" button.
+        const LIVE_WINDOW_MS = 2 * 60 * 1000;
+        const liveCutoff = Date.now() - LIVE_WINDOW_MS;
         for (const r of rings) {
           const hbRaw = await env.WEST_LIVE.get(`engine:${slug}:${r.ring_num}`);
           r.last_heartbeat = hbRaw ? JSON.parse(hbRaw) : null;
           const clsRaw = await env.WEST_LIVE.get(`cls-last:${slug}:${r.ring_num}`);
           r.last_cls = clsRaw ? JSON.parse(clsRaw) : null;
+          const stateRaw = await env.WEST_LIVE.get(`ring-state:${slug}:${r.ring_num}`);
+          let class_live = false;
+          if (stateRaw) {
+            try {
+              const snap = JSON.parse(stateRaw);
+              const ts = snap && snap.last_scoring && snap.last_scoring.at;
+              if (ts && ts > liveCutoff) class_live = true;
+            } catch (e) { /* malformed snapshot, treat as not live */ }
+          }
+          r.class_live = class_live;
         }
         return json({ ok: true, rings });
       } catch (e) { return err('DB error: ' + e.message); }

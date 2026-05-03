@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WEST · Live Lab — multi-class stacked layout</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --navy: #0a0a0a; --navy-2: #1a1a1a; --black: #111111;
+  --red: #b82025; --green: #2e7d32; --gold: #c9a440;
+  --off-white: #f7f7f8; --row-bg: #ffffff; --row-bg-hover: #f3f5f9;
+  --border: #e5e7eb; --border-strong: #cdd2d9;
+  --text-body: #1f2937; --text-muted: #6b7280; --text-faint: #9ca3af;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--off-white); color: var(--text-body);
+  font-family: 'Inter', sans-serif; font-size: 14px; line-height: 1.5;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+
+.compare-strip {
+  background: #fffbeb; border-bottom: 1px solid #fde68a;
+  padding: 8px 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: #92400e;
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+}
+.compare-strip a { color: #92400e; text-decoration: underline; }
+.compare-strip a.current { font-weight: 600; }
+
+/* HEADER */
+.app-header {
+  background: #fff; border-bottom: 1px solid var(--border);
+  padding: 14px 24px; display: flex; align-items: center; gap: 24px;
+  position: sticky; top: 0; z-index: 50;
+}
+.brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.brand-mark { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+.brand-mark img { width: 40px; height: 40px; object-fit: contain; }
+.brand-name {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 22px; letter-spacing: .04em;
+  color: var(--navy); line-height: 1;
+}
+.brand-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-muted); margin-left: 4px;
+}
+.header-ring {
+  display: flex; align-items: baseline; gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--text-muted);
+  margin-left: 16px;
+}
+.header-ring strong { color: var(--text-body); font-weight: 600; }
+.live-pill-hdr {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(46,125,50,.12); color: var(--green);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  font-weight: 600; padding: 5px 9px; border-radius: 999px;
+  margin-left: auto;
+}
+.live-pill-hdr .blink {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(46,125,50,.6); }
+  50%     { box-shadow: 0 0 0 8px rgba(46,125,50,0); }
+}
+
+/* PAGE WRAP */
+.page-wrap {
+  max-width: 1200px; margin: 0 auto;
+  padding: 18px 16px 40px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+
+/* PINNED LIVE BOX — identity + clock side-by-side. This block does NOT
+   move. It always shows the rider currently on course (mapped to whichever
+   class Ryegate has focused). */
+.live-box {
+  background: var(--row-bg); border: 1px solid var(--border-strong);
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+}
+.live-box-banner {
+  background: var(--navy); color: #fff;
+  padding: 10px 18px;
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 16px; letter-spacing: .08em;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px;
+}
+.live-box-banner::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: #4ade80;
+  animation: pulse 1.6s infinite;
+}
+.live-box-banner .for {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; text-transform: none;
+  color: rgba(255,255,255,.7); font-weight: 400;
+  margin-left: auto;
+}
+.live-box-banner .for strong { color: #fff; font-weight: 600; }
+.live-box-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 1px; background: var(--border);
+}
+.live-box-cell {
+  background: var(--row-bg); padding: 22px 24px;
+}
+.live-box-cell-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 12px;
+}
+.live-entry-num {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 14px; color: var(--text-muted);
+  letter-spacing: .04em; margin-bottom: 6px;
+}
+.live-entry-num strong {
+  color: var(--text-body); font-weight: 800; font-size: 18px;
+  margin-left: 4px;
+}
+.live-horse {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 36px; line-height: 1.05;
+  color: var(--navy); margin-bottom: 6px;
+}
+.live-rider {
+  font-family: 'Inter', sans-serif; font-weight: 500;
+  font-size: 16px; color: var(--text-body);
+}
+.live-rider .flag { color: var(--text-muted); margin-right: 6px; }
+
+/* Right cell — status line on top, time+faults+rank stacked below.
+   Status line collapses 4 fields onto one row: Round # · Phase · TA. */
+.live-status-line {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 14px;
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+}
+.live-status-line .round { color: var(--text-body); font-weight: 700; }
+.live-status-line .phase { color: var(--green); font-weight: 700; }
+.live-status-line .phase.cd { color: var(--red); }
+.live-status-line .phase.intro { color: var(--text-muted); }
+.live-status-line .phase.finished { color: var(--text-body); }
+.live-status-line .ta { color: var(--text-muted); }
+.live-status-line .sep { color: var(--text-faint); }
+
+.live-clock {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 56px; line-height: 1;
+  color: var(--green); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.live-clock.finished { color: var(--text-body); }
+.live-clock.countdown { color: var(--red); }
+.live-clock.intro { color: var(--text-muted); }
+
+/* Faults + Rank — small label, big numeric value. Stacked rows. */
+.live-stat {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-top: 12px;
+}
+.live-stat-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-muted);
+  width: 60px;
+}
+.live-stat-value {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 28px; line-height: 1;
+  color: var(--navy); font-variant-numeric: tabular-nums;
+}
+.live-stat-value.clear { color: var(--green); }
+
+/* ── Live-box responsive scaling ────────────────────────────────────────
+   Phone (≤640): stack identity above clock, smaller fonts.
+   Desktop (default): 50/50 grid as designed.
+   TV / large (≥1600): break out of the 1200px container, oversize type. */
+@media (max-width: 640px) {
+  /* Header — let the show/ring breadcrumb wrap to a second row so the
+     live pill stays beside the brand instead of pushing off-screen.
+     order:1 makes the breadcrumb the last flex child; flex-basis:100%
+     forces it onto its own line. */
+  .app-header {
+    flex-wrap: wrap; padding: 10px 14px; gap: 8px 12px;
+  }
+  .brand-mark { width: 32px; height: 32px; }
+  .brand-mark img { width: 32px; height: 32px; }
+  .brand-name { font-size: 18px; }
+  .brand-tag { font-size: 9px; }
+  .header-ring {
+    order: 1; flex-basis: 100%; margin-left: 0;
+    font-size: 11px;
+  }
+  .live-pill-hdr { margin-left: auto; padding: 4px 8px; font-size: 10px; }
+
+  /* Shrink the whole live box — sleek mobile, not "scaled-down desktop". */
+  .live-box { border-radius: 8px; }
+  .live-box-banner {
+    padding: 7px 12px; font-size: 12px; letter-spacing: .06em;
+  }
+  .live-box-banner::before { width: 6px; height: 6px; }
+  .live-box-banner .for { font-size: 10px; }
+  .live-box-grid { grid-template-columns: 1fr; gap: 1px; }
+  .live-box-cell { padding: 12px 14px; }
+  /* "Entry" / "Clock" labels are redundant context on a small screen. */
+  .live-box-cell-label { display: none; }
+  /* Identity row — entry # inline with horse on the same baseline,
+     rider on a second line. Reads more like a newspaper headline. */
+  .live-entry-num {
+    display: inline; font-size: 11px; margin-right: 6px; vertical-align: baseline;
+  }
+  .live-entry-num strong { font-size: 13px; }
+  .live-horse {
+    display: inline; font-size: 18px; line-height: 1.2; vertical-align: baseline;
+  }
+  .live-rider { display: block; font-size: 13px; margin-top: 4px; }
+  /* Status / clock cell — status line + smaller clock on the same row. */
+  .live-box-cell:last-child {
+    display: grid; grid-template-columns: 1fr auto;
+    column-gap: 12px; row-gap: 8px; align-items: center;
+  }
+  .live-status-line {
+    font-size: 10px; margin-bottom: 0;
+    grid-column: 1 / -1;
+  }
+  /* Standings Gap column drops on mobile — its multi-value formatting
+     ("+4 / −0.414") is the first thing to wrap awkwardly at narrow widths.
+     Place / # / Horse / Faults / Time stay. */
+  .standings .gap { display: none; }
+  .live-clock {
+    font-size: 32px; line-height: 1;
+    grid-column: 2; grid-row: 2 / span 2;
+    align-self: center;
+  }
+  /* Faults + Rank — small inline rows, not big stacked stats. */
+  .live-stat { margin-top: 0; gap: 8px; }
+  .live-stat-label { font-size: 10px; width: auto; min-width: 50px; }
+  .live-stat-value { font-size: 16px; }
+}
+@media (min-width: 1600px) {
+  /* Push the live box wider than the page-wrap container; class panels
+     below stay constrained to 1200px since the table doesn't need it. */
+  .live-box-wrap-wide { max-width: 1700px; margin: 0 auto; }
+  .live-horse { font-size: 56px; }
+  .live-rider { font-size: 22px; }
+  .live-entry-num { font-size: 18px; }
+  .live-entry-num strong { font-size: 24px; }
+  .live-clock { font-size: 120px; }
+  .live-status-line { font-size: 13px; margin-bottom: 22px; }
+  .live-stat-label { font-size: 13px; width: 80px; }
+  .live-stat-value { font-size: 44px; }
+  .live-box-cell { padding: 32px 40px; }
+}
+
+/* STACKED CLASS PANELS — each panel is a class header + standings table.
+   Newest-focused-class first. The "in ring" badge marks the panel that
+   the live box above is currently animating. */
+.class-panel {
+  background: var(--row-bg); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
+  transition: box-shadow .2s, border-color .2s;
+}
+.class-panel.is-focused {
+  border-color: var(--navy);
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+}
+.class-panel-header {
+  background: var(--navy); color: #fff;
+  padding: 14px 18px;
+  display: flex; align-items: center; gap: 14px;
+  font-family: 'Big Shoulders Display', sans-serif;
+}
+.class-panel-num {
+  font-weight: 800; font-size: 22px; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  padding-right: 14px; border-right: 1px solid rgba(255,255,255,.2);
+}
+.class-panel-name {
+  font-weight: 700; font-size: 18px; letter-spacing: .04em;
+  text-transform: uppercase; line-height: 1.2;
+  flex: 1;
+}
+.class-panel-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: rgba(255,255,255,.6); font-weight: 400;
+  margin-top: 4px;
+}
+.class-panel-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(74,222,128,.18); color: #4ade80;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  font-weight: 600; padding: 5px 10px; border-radius: 999px;
+}
+.class-panel-pill .blink {
+  width: 6px; height: 6px; border-radius: 50%; background: #4ade80;
+  animation: pulse 1.6s infinite;
+}
+.class-panel-pill.idle {
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.6);
+}
+.class-panel-pill.idle .blink { background: rgba(255,255,255,.5); animation: none; }
+
+/* Standings table — same vocabulary as the rest of the site. */
+.standings {
+  width: 100%; border-collapse: collapse;
+}
+.standings thead th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted); font-weight: 500;
+  text-align: left; padding: 8px 14px;
+  border-bottom: 1px solid var(--border); background: var(--off-white);
+}
+.standings tbody td {
+  padding: 10px 14px; border-bottom: 1px solid var(--off-white);
+  font-size: 13px; vertical-align: middle;
+}
+.standings tbody tr:last-child td { border-bottom: none; }
+.standings tbody tr:hover { background: var(--off-white); }
+.standings .place {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 18px;
+  color: var(--navy); width: 40px; text-align: right;
+}
+.standings .num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--text-muted);
+  width: 50px; font-variant-numeric: tabular-nums;
+}
+.standings .horse-rider .horse {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 15px; color: var(--navy); line-height: 1.2;
+}
+.standings .horse-rider .rider {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-muted); letter-spacing: .02em;
+  margin-top: 1px;
+}
+.standings .horse-rider .rider .flag { color: var(--text-faint); margin-right: 6px; }
+.standings .faults {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600;
+  text-align: right; width: 60px; color: var(--text-body);
+}
+.standings .faults.clear { color: var(--green); }
+.standings .faults.elim { color: var(--text-faint); }
+.standings .time {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums; font-size: 12px;
+  color: var(--text-muted); text-align: right; width: 80px;
+}
+.standings .gap {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums; font-size: 11px;
+  color: var(--text-faint); text-align: right; width: 90px;
+}
+
+/* Stacked rounds — for two-round classes (R1 + JO, R1 + R2, etc).
+   Each round renders on its own line within a single Rounds column,
+   matching the results page (v3/js/west-jumper-templates.js stacked layout). */
+.standings .rounds {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums; font-size: 12px;
+  text-align: right; white-space: nowrap; width: 180px;
+  vertical-align: top; padding-top: 8px; padding-bottom: 8px;
+}
+.standings .round-line {
+  display: flex; gap: 14px; justify-content: flex-end; align-items: baseline;
+  line-height: 1.5;
+}
+.standings .round-line .lbl {
+  font-family: 'Big Shoulders Display', sans-serif; font-weight: 700;
+  font-size: 11px; color: var(--red); letter-spacing: .04em;
+  text-align: left; min-width: 28px;
+}
+.standings .round-line .f { font-weight: 600; min-width: 18px; color: var(--text-body); }
+.standings .round-line .f.clear { color: var(--green); }
+.standings .round-line .f.elim { color: var(--text-faint); }
+.standings .round-line .t { color: var(--text-muted); min-width: 56px; text-align: right; }
+.standings .round-line.dim { opacity: .35; }
+
+.class-panel-footer {
+  display: flex; gap: 12px; padding: 8px 16px;
+  background: var(--off-white); border-top: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.class-panel-footer a {
+  color: var(--navy); text-decoration: underline; cursor: pointer;
+  font-weight: 600;
+}
+
+.lab-note {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+  padding: 14px 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: #92400e;
+}
+footer {
+  padding: 18px 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--text-faint); text-align: right;
+}
+</style>
+</head>
+<body>
+
+<div class="compare-strip">
+  <span>Live-page lab · multi-class stacked · compare with:</span>
+  <a href="live.html?mock=1">Live mock (current)</a>
+  <a href="show-lab.html">Show lab</a>
+  <a class="current" href="live-lab.html">Live lab (this)</a>
+</div>
+
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <div class="header-ring">
+    <span>HITS Culpeper Spring</span>
+    <span>·</span>
+    <span>Ring <strong>1</strong></span>
+  </div>
+  <span class="live-pill-hdr"><span class="blink"></span>Live</span>
+</header>
+
+<div class="page-wrap">
+
+  <!-- ─── PINNED LIVE BOX (rider on course + clock) ─────────────────── -->
+  <!-- This block stays at the top regardless of which class is focused.
+       The "for" tag in the banner names the class the on-course entry
+       belongs to (matches the focused class panel below). The wider
+       wrapper lets the box break out of the 1200px page-wrap on
+       large screens (TV / paddock display) while class tables below
+       stay at their tabular-comfortable width. -->
+  <div class="live-box-wrap-wide">
+    <div class="live-box">
+      <div class="live-box-banner">
+        In the ring
+        <span class="for">for · Class <strong>412</strong></span>
+      </div>
+      <div class="live-box-grid">
+        <div class="live-box-cell">
+          <div class="live-box-cell-label">Entry</div>
+          <div class="live-entry-num">#<strong>237</strong></div>
+          <div class="live-horse">CATCH ME IF YOU CAN</div>
+          <div class="live-rider"><span class="flag">🇺🇸</span>BRIDGET HALLMAN</div>
+        </div>
+        <div class="live-box-cell">
+          <!-- Status line: Round # · Phase · TA all on one line. -->
+          <div class="live-status-line">
+            <span class="round">Round 1</span>
+            <span class="sep">·</span>
+            <span class="phase">On course</span>
+            <span class="sep">·</span>
+            <span class="ta">TA 71s</span>
+          </div>
+          <!-- Time (the clock — interpolating during on-course) -->
+          <div class="live-clock">42.8</div>
+          <!-- Faults + Rank stat rows -->
+          <div class="live-stat">
+            <div class="live-stat-label">Faults</div>
+            <div class="live-stat-value clear">0</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label">Rank</div>
+            <div class="live-stat-value">3rd</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── STACKED CLASS PANELS — sorted most-recently-focused first ── -->
+
+  <!-- FOCUSED CLASS — this is the class the live box above belongs to. -->
+  <div class="class-panel is-focused">
+    <div class="class-panel-header">
+      <div class="class-panel-num">412</div>
+      <div>
+        <div class="class-panel-name">$25,000 Welcome Stake</div>
+        <div class="class-panel-sub">Jumper · Table II.2b · 24 entries · TA 71s</div>
+      </div>
+      <span class="class-panel-pill"><span class="blink"></span>In ring</span>
+    </div>
+    <table class="standings">
+      <thead><tr>
+        <th>Place</th><th>#</th><th>Horse / Rider</th>
+        <th style="text-align:right;">Faults</th>
+        <th style="text-align:right;">Time</th>
+        <th class="gap" style="text-align:right;">Gap</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="place">1</td><td class="num">108</td>
+          <td class="horse-rider"><div class="horse">DIAMONDS ARE FOREVER</div><div class="rider"><span class="flag">🇮🇪</span>Daniel Coyle</div></td>
+          <td class="faults clear">0</td><td class="time">65.234</td><td class="gap">—</td>
+        </tr>
+        <tr>
+          <td class="place">2</td><td class="num">142</td>
+          <td class="horse-rider"><div class="horse">QUICKSILVER</div><div class="rider"><span class="flag">🇺🇸</span>Jessica Springsteen</div></td>
+          <td class="faults clear">0</td><td class="time">67.041</td><td class="gap">+1.807</td>
+        </tr>
+        <tr>
+          <td class="place">3</td><td class="num">094</td>
+          <td class="horse-rider"><div class="horse">ABOVE AND BEYOND</div><div class="rider"><span class="flag">🇺🇸</span>McLain Ward</div></td>
+          <td class="faults">4</td><td class="time">64.820</td><td class="gap">+4 / −0.414</td>
+        </tr>
+        <tr>
+          <td class="place">4</td><td class="num">256</td>
+          <td class="horse-rider"><div class="horse">ARIA'S LEGACY</div><div class="rider"><span class="flag">🇨🇭</span>Beat Mändli</div></td>
+          <td class="faults">4</td><td class="time">66.117</td><td class="gap">+4 / +0.883</td>
+        </tr>
+        <tr>
+          <td class="place">5</td><td class="num">171</td>
+          <td class="horse-rider"><div class="horse">CASSIOPEIA</div><div class="rider"><span class="flag">🇺🇸</span>Karl Cook</div></td>
+          <td class="faults">8</td><td class="time">67.890</td><td class="gap">+8 / +2.656</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="class-panel-footer">
+      <span>24 entries · 18 competed · 2 clear</span>
+      <a href="#">Full results ↗</a>
+      <a href="#">Class stats ↗</a>
+    </div>
+  </div>
+
+  <!-- SECOND ACTIVE CLASS — two-round (R1 + Jump Off) example. The
+       "Rounds" column stacks each round vertically inside the cell so a
+       two-round class doesn't widen the table or sprout extra columns.
+       Riders who didn't make it to JO (4+ faults in R1) show R1 only,
+       with their JO line dimmed. Mirrors the results-page stacked layout. -->
+  <div class="class-panel">
+    <div class="class-panel-header">
+      <div class="class-panel-num">410</div>
+      <div>
+        <div class="class-panel-name">Junior/AO Jumper Classic</div>
+        <div class="class-panel-sub">Jumper · R1 + Jump Off · 18 entries · TA R1 65s · JO 38s</div>
+      </div>
+      <span class="class-panel-pill idle"><span class="blink"></span>Open</span>
+    </div>
+    <table class="standings">
+      <thead><tr>
+        <th>Place</th><th>#</th><th>Horse / Rider</th>
+        <th style="text-align:right;">Rounds</th>
+        <th class="gap" style="text-align:right;">Gap</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="place">1</td><td class="num">317</td>
+          <td class="horse-rider"><div class="horse">SECOND CHANCE</div><div class="rider"><span class="flag">🇺🇸</span>Lillie Keenan</div></td>
+          <td class="rounds">
+            <div class="round-line"><span class="lbl">R1</span><span class="f clear">0</span><span class="t">61.118</span></div>
+            <div class="round-line"><span class="lbl">JO</span><span class="f clear">0</span><span class="t">35.402</span></div>
+          </td>
+          <td class="gap">—</td>
+        </tr>
+        <tr>
+          <td class="place">2</td><td class="num">228</td>
+          <td class="horse-rider"><div class="horse">GREYSON</div><div class="rider"><span class="flag">🇺🇸</span>Spencer Smith</div></td>
+          <td class="rounds">
+            <div class="round-line"><span class="lbl">R1</span><span class="f clear">0</span><span class="t">62.504</span></div>
+            <div class="round-line"><span class="lbl">JO</span><span class="f clear">0</span><span class="t">36.789</span></div>
+          </td>
+          <td class="gap">+1.387</td>
+        </tr>
+        <tr>
+          <td class="place">3</td><td class="num">412</td>
+          <td class="horse-rider"><div class="horse">CASCADE</div><div class="rider"><span class="flag">🇺🇸</span>Lucy Deslauriers</div></td>
+          <td class="rounds">
+            <div class="round-line"><span class="lbl">R1</span><span class="f clear">0</span><span class="t">63.220</span></div>
+            <div class="round-line"><span class="lbl">JO</span><span class="f">4</span><span class="t">37.118</span></div>
+          </td>
+          <td class="gap">+4 / +1.716</td>
+        </tr>
+        <tr>
+          <td class="place">4</td><td class="num">044</td>
+          <td class="horse-rider"><div class="horse">HOPSCOTCH</div><div class="rider"><span class="flag">🇨🇦</span>Erynn Ballard</div></td>
+          <td class="rounds">
+            <div class="round-line"><span class="lbl">R1</span><span class="f">4</span><span class="t">60.330</span></div>
+            <div class="round-line dim"><span class="lbl">JO</span><span class="f">—</span><span class="t">—</span></div>
+          </td>
+          <td class="gap">+4 / −0.788</td>
+        </tr>
+        <tr>
+          <td class="place">5</td><td class="num">189</td>
+          <td class="horse-rider"><div class="horse">CHARLEMAGNE</div><div class="rider"><span class="flag">🇺🇸</span>Tori Colvin</div></td>
+          <td class="rounds">
+            <div class="round-line"><span class="lbl">R1</span><span class="f">8</span><span class="t">64.890</span></div>
+            <div class="round-line dim"><span class="lbl">JO</span><span class="f">—</span><span class="t">—</span></div>
+          </td>
+          <td class="gap">+8 / +3.772</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="class-panel-footer">
+      <span>18 entries · 12 competed R1 · 3 in JO · class in progress</span>
+      <a href="#">Full results ↗</a>
+      <a href="#">Class stats ↗</a>
+    </div>
+  </div>
+
+  <!-- THIRD ACTIVE CLASS — opened earliest, dropped to bottom. -->
+  <div class="class-panel">
+    <div class="class-panel-header">
+      <div class="class-panel-num">408</div>
+      <div>
+        <div class="class-panel-name">$5,000 Open Speed</div>
+        <div class="class-panel-sub">Jumper · Table II.2a · 32 entries · TA 58s</div>
+      </div>
+      <span class="class-panel-pill idle"><span class="blink"></span>Open</span>
+    </div>
+    <table class="standings">
+      <thead><tr>
+        <th>Place</th><th>#</th><th>Horse / Rider</th>
+        <th style="text-align:right;">Faults</th>
+        <th style="text-align:right;">Time</th>
+        <th class="gap" style="text-align:right;">Gap</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="place">1</td><td class="num">119</td>
+          <td class="horse-rider"><div class="horse">TIME WILL TELL</div><div class="rider"><span class="flag">🇺🇸</span>Margie Engle</div></td>
+          <td class="faults clear">0</td><td class="time">53.224</td><td class="gap">—</td>
+        </tr>
+        <tr>
+          <td class="place">2</td><td class="num">203</td>
+          <td class="horse-rider"><div class="horse">FINESSE</div><div class="rider"><span class="flag">🇲🇽</span>Andres Azcarraga</div></td>
+          <td class="faults clear">0</td><td class="time">54.118</td><td class="gap">+0.894</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="class-panel-footer">
+      <span>32 entries · 32 competed · 6 clear · class complete</span>
+      <a href="#">Full results ↗</a>
+      <a href="#">Class stats ↗</a>
+    </div>
+  </div>
+
+  <div class="lab-note">
+// Mockup. Hard-coded content. The live box at top is pinned — it never moves
+// regardless of which class is focused. The class panels stack below it,
+// sorted by most-recent-focus. When focus changes (e.g. operator selects
+// class 410), 410's panel jumps to the top of the stack, the "in ring" pill
+// migrates to it, and 412 drops down. The live box content updates to show
+// whoever's now in the ring on 410.
+//
+// Open questions for design review:
+//   - Is the live box's "for · Class N" tag the right place to surface the
+//     focus-class link, or should it sit elsewhere?
+//   - Class panels here all have full standings. Should past-focused panels
+//     auto-collapse to a one-line summary, with click-to-expand?
+//   - "In ring" pill on the focused panel + the live-box banner pulse — is
+//     that double-redundant or visually helpful?
+  </div>
+
+</div>
+
+<footer>WEST · live lab · multi-class stacked · 2026-05-03</footer>
+
+</body>
+</html>

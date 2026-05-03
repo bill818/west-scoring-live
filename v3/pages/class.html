@@ -9,19 +9,21 @@
 <title>WEST Scoring — Class</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="west.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="west.css"><!-- west.css @imports the Google Fonts; do not add a font <link> here -->
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a href="index.html" class="logo-tap">
-      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-tag">V3</div>
-  </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
 <nav class="breadcrumbs">
@@ -34,16 +36,14 @@
   <span class="bc-current" id="bcClass">…</span>
 </nav>
 
-<div id="hero" class="hero">
-  <div class="spinner"></div>
+<div id="hero" class="show-hero">
+  <div class="spinner" style="grid-column: 1 / 4;"></div>
 </div>
 
 <div id="notices" class="class-notices"></div>
 
-<div class="section-block">
-  <div class="section-block-title">Results</div>
-  <div id="results"><div class="spinner"></div></div>
-</div>
+<div class="section-banner standalone" id="resultsBanner">Results</div>
+<div id="results"><div class="spinner"></div></div>
 
 <footer>
   WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
@@ -75,64 +75,75 @@ const fmtDayLabel = WEST.format.dayLabel;
 // re-render.
 const state = { cls: null, entries: null, show: null, judgeGrid: null, judgeView: false };
 
+function showInitials(name) {
+  return String(name || '?').split(/\s+/).slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
+}
+
 function renderHero(show, ring, cls) {
-  const parts = [];
-  parts.push(`<div class="hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')}</div>`);
-  // Ring number ("Ring 1") is dropped from the subtitle when the ring has
-  // a custom name — the named form ("Jumper 1") is already in breadcrumbs
-  // and saying both is redundant. Falls back to "Ring N" only if unnamed.
-  const ringLabel = ring.name || `Ring ${ring.ring_num}`;
-  const sub = [escapeHtml(show.name), escapeHtml(ringLabel)];
-  if (cls.scheduled_date) sub.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
-  parts.push(`<div class="hero-dates">${sub.join(' · ')}</div>`);
-  // Human English class description — synthesized from mode + scoring
-  // type + round count + judges + derby subtype. Single shared formatter
-  // so admin / stats / live can use the same wording when they need it.
-  const methodStr = WEST.format.classDescription(cls);
-  if (methodStr) parts.push(`<div class="hero-location">${escapeHtml(methodStr)}</div>`);
-  // Time-allowed summary (jumper-only — formatter returns '' on hunter
-  // and on classes with no captured TA values). Method-aware: 1-round
-  // shows "TA Ns"; multi-round shows "R1 Ns · JO Ns" / "PH1 Ns · PH2 Ns".
-  const taStr = WEST.format.timeAllowedSummary(cls);
-  if (taStr) parts.push(`<div class="hero-ta">${escapeHtml(taStr)}</div>`);
-  // Sponsor text (when operator sets H[29] in Ryegate). Rendered as a
-  // dedicated subtitle so it reads as patron / award context.
-  if (cls.sponsor) parts.push(`<div class="hero-sponsor">${escapeHtml(cls.sponsor)}</div>`);
-  // Trophy text comes from the @foot row in the .cls (operator-typed
-  // award name). Italicized red display sans to read as a patron / prize line.
-  if (cls.trophy) parts.push(`<div class="hero-trophy">${escapeHtml(cls.trophy)}</div>`);
-  // Stats button — jumper classes only (where /v3/listJumperStats has data).
-  // Hunter analog can land here later when we wire hunter stats.
-  if (cls.class_type === 'J' || cls.class_type === 'T') {
-    const statsUrl = `stats.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}&class=${encodeURIComponent(cls.class_id)}`;
-    parts.push(`<a class="hero-action" href="${statsUrl}">📊 Class Stats</a>`);
-  }
-  // Judges-card toggle — multi-judge hunter classes only. Same gate as the
-  // judges grid fetch, so the button only appears when the data exists.
-  if (cls.class_type === 'H' && WEST.format.judgesGridApplies(cls) && state.judgeGrid) {
-    const label = state.judgeView ? 'View Combined' : 'View Judges Cards';
-    parts.push(`<button class="hero-action judges-toggle${state.judgeView ? ' is-active' : ''}" id="btnJudgeView">📋 ${label}</button>`);
-    // Split-decision pill — judges disagreed on top-N placement.
-    // Pre-computed ranks already in gridData; rules helper just compares
-    // each judge's top-N to overall top-N. N is per-show admin setting
-    // (shows.split_decision_top_n, default 3). Hidden mid-class until
-    // at least 2 entries are placed.
-    const judgeCount = Math.max(1, Number(cls.num_judges) || 1);
-    const splitN = Number((show && show.split_decision_top_n)) || 3;
-    if (WEST.rules.isSplitDecision(state.judgeGrid, judgeCount, splitN)) {
-      parts.push('<span class="split-pill">Split Decision</span>');
-    }
-  }
   const hero = document.getElementById('hero');
+  const initials = showInitials(show.name);
+
+  // Logo cell: parent show's logo at hero size — anchors the page in
+  // its show context. Falls back to initials placeholder.
   const logoUrl = show.logo_url
     ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
     : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
+  const logoCell = show.logo_url
+    ? `<div class="show-hero-logo"><img src="${logoUrl}" alt="" onerror="this.parentElement.classList.add('placeholder');this.replaceWith(document.createTextNode('${initials}'));"></div>`
+    : `<div class="show-hero-logo placeholder">${initials}</div>`;
+
+  // Meta line: show · ring · scheduled day. Ring number ("Ring 1") is
+  // dropped when the ring has a custom name — the named form is already
+  // in breadcrumbs and saying both is redundant.
+  const ringLabel = ring.name || `Ring ${ring.ring_num}`;
+  const metaParts = [escapeHtml(show.name), escapeHtml(ringLabel)];
+  if (cls.scheduled_date) metaParts.push(escapeHtml(fmtDayLabel(cls.scheduled_date)));
+
+  // Class description — method + scoring + judges + derby subtype.
+  // Time-allowed summary (jumper-only). Both come from shared formatters.
+  const methodStr = WEST.format.classDescription(cls);
+  const taStr     = WEST.format.timeAllowedSummary(cls);
+
+  // Side: Live button (only when this ring has a recent scoring frame —
+  // gated by ring.class_live, populated by /v3/listRings) / Stats button
+  // (jumper) / Judges toggle (multi-judge hunter) / Split-decision pill
+  // (when judges disagreed). Same .hero-action and .split-pill rules from
+  // west.css, just lifted into the hero side col.
+  const sideParts = [];
+  if (ring.class_live) {
+    const liveUrl = `live.html?slug=${encodeURIComponent(show.slug)}&ring_num=${ring.ring_num}`;
+    sideParts.push(`<a class="hero-action" href="${liveUrl}">▶ Watch Live</a>`);
+  }
+  if (cls.class_type === 'J' || cls.class_type === 'T') {
+    const statsUrl = `stats.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}&class=${encodeURIComponent(cls.class_id)}`;
+    sideParts.push(`<a class="hero-action" href="${statsUrl}">📊 Class Stats</a>`);
+  }
+  if (cls.class_type === 'H' && WEST.format.judgesGridApplies(cls) && state.judgeGrid) {
+    const label = state.judgeView ? 'View Combined' : 'View Judges Cards';
+    sideParts.push(`<button class="hero-action judges-toggle${state.judgeView ? ' is-active' : ''}" id="btnJudgeView">📋 ${label}</button>`);
+    const judgeCount = Math.max(1, Number(cls.num_judges) || 1);
+    const splitN = Number((show && show.split_decision_top_n)) || 3;
+    if (WEST.rules.isSplitDecision(state.judgeGrid, judgeCount, splitN)) {
+      sideParts.push('<span class="split-pill">Split Decision</span>');
+    }
+  }
+
   hero.innerHTML = `
-    <div class="hero-row">
-      <img class="hero-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
-      <div class="hero-text">${parts.join('')}</div>
+    ${logoCell}
+    <div class="show-hero-text">
+      <div class="show-hero-name">${escapeHtml(cls.class_id)} · ${escapeHtml(cls.class_name || '—')}</div>
+      <div class="show-hero-meta">${metaParts.join(' · ')}</div>
+      ${methodStr ? `<div class="show-hero-loc">${escapeHtml(methodStr)}</div>` : ''}
+      ${taStr ? `<div class="show-hero-loc" style="margin-top:2px;">${escapeHtml(taStr)}</div>` : ''}
+      ${cls.sponsor ? `<div class="show-hero-sponsor">${escapeHtml(cls.sponsor)}</div>` : ''}
+      ${cls.trophy ? `<div class="show-hero-trophy">${escapeHtml(cls.trophy)}</div>` : ''}
+    </div>
+    <div class="show-hero-side">
+      ${sideParts.join('')}
     </div>`;
-  hero.className = 'hero hero-' + (cls.class_type || 'u').toLowerCase();
+
+  // Judges-toggle handler — re-render the hero (to flip the button label)
+  // and re-render results (to swap the table view).
   const btnJV = document.getElementById('btnJudgeView');
   if (btnJV) {
     btnJV.addEventListener('click', () => {
@@ -152,8 +163,16 @@ function renderHero(show, ring, cls) {
 
 function renderResults() {
   const root = document.getElementById('results');
+  const banner = document.getElementById('resultsBanner');
   const cls = state.cls;
   const entries = state.entries;
+
+  // Update the section banner with the live entry count.
+  if (banner) {
+    const n = entries.length;
+    const word = n === 1 ? 'entry' : 'entries';
+    banner.innerHTML = `Results <span class="count">${n} ${word}</span>`;
+  }
 
   if (!entries.length) {
     root.innerHTML = '<div class="placeholder">No entries yet.</div>';
@@ -212,13 +231,25 @@ function renderNotices(cls) {
   ).join('');
 }
 
+function classHeroError(title, sub) {
+  // Show-hero is a 3-col grid (logo | text | side) — span the whole row
+  // for a clean error message instead of trying to fit the grid shape.
+  document.getElementById('hero').innerHTML = `
+    <div style="grid-column: 1 / -1;">
+      <div class="show-hero-name" style="font-size: 28px;">${escapeHtml(title)}</div>
+      ${sub ? `<div class="show-hero-loc">${sub}</div>` : ''}
+    </div>`;
+  document.getElementById('results').innerHTML = '';
+  const banner = document.getElementById('resultsBanner');
+  if (banner) banner.innerHTML = 'Results';
+}
+
 async function load() {
   const slug = getQueryParam('slug');
   const ringNum = parseInt(getQueryParam('ring') || '1', 10);
   const classNum = getQueryParam('class');
   if (!slug || !classNum || !Number.isFinite(ringNum)) {
-    document.getElementById('hero').innerHTML = '<div class="hero-name">Missing parameters</div><div class="hero-location">Need ?slug=&lt;slug&gt;&amp;ring=&lt;n&gt;&amp;class=&lt;c&gt;</div>';
-    document.getElementById('results').innerHTML = '';
+    classHeroError('Missing parameters', 'Need ?slug=&lt;slug&gt;&amp;ring=&lt;n&gt;&amp;class=&lt;c&gt;');
     return;
   }
   try {
@@ -233,19 +264,16 @@ async function load() {
     const show = showRes.show;
     const ring = (ringsRes.rings || []).find(r => r.ring_num === ringNum);
     if (!ring) {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Ring ${ringNum} not found</div>`;
-      document.getElementById('results').innerHTML = '';
+      classHeroError(`Ring ${ringNum} not found`, '');
       return;
     }
     const cls = (classesRes.classes || []).find(c => String(c.class_id) === String(classNum));
     if (!cls) {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Class ${escapeHtml(classNum)} not found</div>`;
-      document.getElementById('results').innerHTML = '';
+      classHeroError(`Class ${escapeHtml(classNum)} not found`, '');
       return;
     }
     if (cls.deleted_at) {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Class ${escapeHtml(cls.class_id)} removed</div><div class="hero-location">This class was removed from the show.</div>`;
-      document.getElementById('results').innerHTML = '';
+      classHeroError(`Class ${escapeHtml(cls.class_id)} removed`, 'This class was removed from the show.');
       return;
     }
     // /v3/listEntries keys off the DB PK, not the .cls class number.
@@ -267,8 +295,7 @@ async function load() {
     renderNotices(cls);
     renderResults();
   } catch (e) {
-    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load class</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
-    document.getElementById('results').innerHTML = '';
+    classHeroError(`Couldn't load class`, escapeHtml(e.message));
   }
 }
 

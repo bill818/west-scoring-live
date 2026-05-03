@@ -9,19 +9,21 @@
 <title>WEST Scoring — Ring</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="west.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="west.css"><!-- west.css @imports the Google Fonts; do not add a font <link> here -->
 </head>
 <body>
 
-<header>
-  <div class="header-inner">
-    <a href="index.html" class="logo-tap">
-      <img class="logo-img" src="../../assets/logo.png" alt="WEST">
-      <span class="logo-west">WEST</span><span class="logo-sep">|</span><span class="logo-scoring">Scoring.Live</span>
-    </a>
-    <div class="header-tag">V3</div>
-  </div>
+<header class="app-header">
+  <a href="index.html" class="brand">
+    <div class="brand-mark"><img src="../../assets/logo.png" alt="WEST"></div>
+    <div class="brand-name">WEST</div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </a>
+  <nav class="app-nav">
+    <a href="index.html">Shows</a>
+    <a href="admin.html">Admin</a>
+  </nav>
 </header>
 
 <nav class="breadcrumbs">
@@ -32,20 +34,18 @@
   <span class="bc-current" id="bcRing">…</span>
 </nav>
 
-<div id="hero" class="hero">
-  <div class="spinner"></div>
+<div id="hero" class="show-hero">
+  <div class="spinner" style="grid-column: 1 / 4;"></div>
 </div>
 
-<div class="section-block">
-  <div class="section-block-title">Classes</div>
-  <div class="sort-bar" id="sortBar">
-    <button class="sort-btn is-active" data-mode="scheduled" data-label="Scheduled">Scheduled</button>
-    <button class="sort-btn" data-mode="name" data-label="Class Name">Class Name</button>
-    <button class="sort-btn" data-mode="number" data-label="Class Number">Class Number</button>
-    <button class="sort-btn" data-mode="unscheduled" data-label="Unscheduled">Unscheduled</button>
-  </div>
-  <div id="classes"><div class="spinner"></div></div>
+<div class="section-banner standalone" id="classesBanner">Classes</div>
+<div class="sort-bar" id="sortBar">
+  <button class="sort-btn is-active" data-mode="scheduled" data-label="Scheduled">Scheduled</button>
+  <button class="sort-btn" data-mode="name" data-label="Class Name">Class Name</button>
+  <button class="sort-btn" data-mode="number" data-label="Class Number">Class Number</button>
+  <button class="sort-btn" data-mode="unscheduled" data-label="Unscheduled">Unscheduled</button>
 </div>
+<div id="classes"><div class="spinner"></div></div>
 
 <footer>
   WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
@@ -77,22 +77,44 @@ function renderHero() {
   const ring = state.ring;
   const show = state.show;
   const liveCount = state.classes.filter(c => !c.deleted_at).length;
-  const logoUrl = show.logo_url
-    ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
-    : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
-  const text = [];
-  text.push(`<div class="hero-name">${escapeHtml(ring.name || `Ring ${ring.ring_num}`)}</div>`);
-  text.push(`<div class="hero-dates">${escapeHtml(show.name)} · Ring ${ring.ring_num}</div>`);
-  text.push(`<div class="hero-location">${liveCount === 1 ? '1 class' : `${liveCount} classes`}</div>`);
+  const ringName = ring.name || `Ring ${ring.ring_num}`;
+  const countLabel = liveCount === 1 ? '1 class' : `${liveCount} classes`;
+
+  // Hero anchor: navy ring-number badge in the logo slot. Reuses the
+  // .show-hero-logo grid cell with a .ring-badge modifier defined in
+  // west.css (no inline styling here).
   document.getElementById('hero').innerHTML = `
-    <div class="hero-row">
-      <img class="hero-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
-      <div class="hero-text">${text.join('')}</div>
-    </div>`;
+    <div class="show-hero-logo ring-badge">
+      <div class="num">${ring.ring_num}</div>
+      <div class="lbl">RING</div>
+    </div>
+    <div class="show-hero-text">
+      <div class="show-hero-name">${escapeHtml(ringName)}</div>
+      <div class="show-hero-meta">${escapeHtml(show.name)}</div>
+      <div class="show-hero-loc">${countLabel}</div>
+    </div>
+    <div class="show-hero-side"></div>`;
+
+  // Banner count update — happens once we know the number of classes.
+  const banner = document.getElementById('classesBanner');
+  if (banner) banner.innerHTML = `Classes <span class="count">${countLabel}</span>`;
+
   document.getElementById('bcShow').textContent = show.name;
   document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
-  document.getElementById('bcRing').textContent = ring.name || `Ring ${ring.ring_num}`;
-  document.title = `${ring.name || `Ring ${ring.ring_num}`} — ${show.name}`;
+  document.getElementById('bcRing').textContent = ringName;
+  document.title = `${ringName} — ${show.name}`;
+}
+
+function ringHeroError(title, sub) {
+  // Span the show-hero grid cleanly with a single error block.
+  document.getElementById('hero').innerHTML = `
+    <div style="grid-column: 1 / -1;">
+      <div class="show-hero-name" style="font-size: 28px;">${escapeHtml(title)}</div>
+      ${sub ? `<div class="show-hero-loc">${sub}</div>` : ''}
+    </div>`;
+  document.getElementById('classes').innerHTML = '';
+  const banner = document.getElementById('classesBanner');
+  if (banner) banner.innerHTML = 'Classes';
 }
 
 function classRow(c, dimAsUnscheduled) {
@@ -222,8 +244,7 @@ async function load() {
   state.slug = getQueryParam('slug');
   state.ringNum = parseInt(getQueryParam('ring') || '1', 10);
   if (!state.slug || !Number.isFinite(state.ringNum)) {
-    document.getElementById('hero').innerHTML = '<div class="hero-name">Missing show or ring</div><div class="hero-location">Add ?slug=&lt;slug&gt;&amp;ring=&lt;n&gt;</div>';
-    document.getElementById('classes').innerHTML = '';
+    ringHeroError('Missing show or ring', 'Add ?slug=&lt;slug&gt;&amp;ring=&lt;n&gt;');
     return;
   }
   try {
@@ -235,16 +256,14 @@ async function load() {
     state.show = showRes.show;
     state.ring = (ringsRes.rings || []).find(r => r.ring_num === state.ringNum);
     if (!state.ring) {
-      document.getElementById('hero').innerHTML = `<div class="hero-name">Ring ${state.ringNum} not found</div>`;
-      document.getElementById('classes').innerHTML = '';
+      ringHeroError(`Ring ${state.ringNum} not found`, '');
       return;
     }
     state.classes = classesRes.classes || [];
     renderHero();
     renderClasses();
   } catch (e) {
-    document.getElementById('hero').innerHTML = `<div class="hero-name">Couldn't load ring</div><div class="hero-location">${escapeHtml(e.message)}</div>`;
-    document.getElementById('classes').innerHTML = '';
+    ringHeroError(`Couldn't load ring`, escapeHtml(e.message));
   }
 }
 
