@@ -230,9 +230,10 @@ function render() {
         preview += '</div>';
       }
 
+      const dotClasses = `${key}${s.class_live ? ' live' : ''}`;
       html += `<li><div class="show-card-wrap">
         <a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
-          <span class="show-dot ${key}"></span>
+          <span class="show-dot ${dotClasses}" title="${s.class_live ? 'Class live now' : ''}"></span>
           <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
           <div class="show-body">
             <div class="show-name">${escapeHtml(s.name)}</div>

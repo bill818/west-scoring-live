@@ -2647,17 +2647,47 @@ export default {
           if (arr.length < 3) arr.push(c);
         }
 
-        // Group rings by show_id, attach classes.
+        // Live-class detection: read each ring's KV ring-state snapshot
+        // and check last_scoring.at recency. "Class live" = there was a
+        // scoring frame in the last 2 min — distinct from engine alive
+        // (engine could be on overnight). Window is generous enough to
+        // survive a brief pause between entries but short enough that a
+        // ring that just finished doesn't keep pulsing for hours.
+        const LIVE_WINDOW_MS = 2 * 60 * 1000;
+        const liveCutoff = Date.now() - LIVE_WINDOW_MS;
+        const showsById = {};
+        for (const s of shows) showsById[s.id] = s;
+        const snapKeys = rings.map(r => ({
+          ring_id: r.id,
+          key: `ring-state:${showsById[r.show_id].slug}:${r.ring_num}`,
+        }));
+        const snaps = await Promise.all(snapKeys.map(k =>
+          env.WEST_LIVE.get(k.key).then(raw => ({ ring_id: k.ring_id, raw })).catch(() => ({ ring_id: k.ring_id, raw: null }))
+        ));
+        const liveByRing = {};
+        for (const { ring_id, raw } of snaps) {
+          if (!raw) continue;
+          try {
+            const snap = JSON.parse(raw);
+            const ts = snap && snap.last_scoring && snap.last_scoring.at;
+            if (ts && ts > liveCutoff) liveByRing[ring_id] = true;
+          } catch (e) { /* malformed snapshot, treat as not live */ }
+        }
+
+        // Group rings by show_id, attach classes + class_live.
         const ringsByShow = {};
         for (const r of rings) {
           (ringsByShow[r.show_id] || (ringsByShow[r.show_id] = [])).push({
             ring_num: r.ring_num,
             name: r.name,
             classes: classesByRing[r.id] || [],
+            class_live: !!liveByRing[r.id],
           });
         }
         for (const s of shows) {
           s.rings = ringsByShow[s.id] || [];
+          // Show-level rollup: any ring live = show shows the pulse.
+          s.class_live = s.rings.some(r => r.class_live);
         }
 
         return json({ ok: true, shows });
