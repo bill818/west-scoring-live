@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WEST · Index Lab — Equipe-inspired pitch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Big Shoulders Display + Inter + JetBrains Mono (the "G" combo) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --navy: #14213d;
+  --navy-2: #1c2a4a;
+  --black: #111111;
+  --red: #b82025;
+  --green: #2e7d32;
+  --gold: #c9a440;
+  --off-white: #f7f7f8;
+  --row-bg: #ffffff;
+  --row-bg-hover: #f3f5f9;
+  --border: #e5e7eb;
+  --border-strong: #cdd2d9;
+  --text-body: #1f2937;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--off-white);
+  color: var(--text-body);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+
+/* ── HEADER (minimal, Equipe-inspired) ──────────────────────────────── */
+.app-header {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.brand-mark {
+  width: 32px; height: 32px;
+  background: var(--navy);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 18px;
+}
+.brand-name {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 22px; letter-spacing: 0.04em;
+  color: var(--navy);
+  line-height: 1;
+}
+.brand-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+.app-nav {
+  margin-left: auto;
+  display: flex; gap: 4px;
+}
+.app-nav a {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px; font-weight: 500;
+  color: var(--text-body);
+  padding: 8px 14px;
+  border-radius: 6px;
+}
+.app-nav a:hover { background: var(--off-white); }
+
+/* ── PAGE TITLE + FILTER ────────────────────────────────────────────── */
+.page-head {
+  max-width: 1100px; margin: 0 auto;
+  padding: 28px 24px 16px;
+}
+.page-title {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 800; font-size: 38px; letter-spacing: -0.005em;
+  color: var(--navy);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.page-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 22px;
+}
+.toolbar {
+  display: flex; gap: 12px; align-items: center;
+  margin-bottom: 18px;
+}
+.filter-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  color: var(--text-body);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.filter-input:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(20,33,61,0.08);
+}
+.tabs {
+  display: inline-flex; background: #eaecef; border-radius: 8px; padding: 3px;
+  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
+}
+.tab {
+  padding: 7px 14px; border-radius: 6px; cursor: pointer;
+  color: var(--text-muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.tab.active { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.tab .count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: var(--navy); color: #fff;
+  padding: 2px 7px; border-radius: 999px;
+  line-height: 1;
+}
+.tab:not(.active) .count { background: #d1d5db; color: var(--text-muted); }
+
+/* ── SECTION BANNER (Equipe pattern) ────────────────────────────────── */
+.section-banner {
+  background: var(--navy);
+  color: #fff;
+  padding: 12px 24px;
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 18px; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 12px;
+}
+.section-banner .count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.15);
+  padding: 3px 9px; border-radius: 999px;
+  text-transform: none;
+  font-weight: 500;
+}
+.section-banner.live::before {
+  content: '';
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 0 rgba(74,222,128,0.7);
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0.6);} 50%{box-shadow:0 0 0 8px rgba(74,222,128,0);} }
+
+.section-rows {
+  background: var(--row-bg);
+  margin: 0;
+  list-style: none;
+}
+
+/* ── SHOW ROW (the heart of it) ─────────────────────────────────────── */
+.show-row {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  gap: 20px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+  align-items: center;
+}
+.show-row:hover { background: var(--row-bg-hover); }
+.show-row:last-child { border-bottom: none; }
+
+.show-logo-cell {
+  width: 80px; height: 80px;
+  background: var(--off-white);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.show-logo-cell img { max-width: 70px; max-height: 70px; object-fit: contain; }
+.show-logo-cell.placeholder {
+  color: var(--text-faint);
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 24px;
+  letter-spacing: 0.04em;
+}
+
+.show-info { min-width: 0; }
+.show-name {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 22px; letter-spacing: -0.005em;
+  color: var(--navy);
+  line-height: 1.15;
+  margin-bottom: 4px;
+}
+.show-tags {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.show-tags .tag-sep { color: var(--text-faint); margin: 0 4px; }
+.show-dates {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px; color: var(--text-body);
+}
+
+.show-meta-right {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  flex-shrink: 0; min-width: 100px;
+}
+.live-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(46,125,50,0.12);
+  color: var(--green);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-weight: 600;
+  padding: 5px 9px; border-radius: 999px;
+}
+.live-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 rgba(46,125,50,0.7);
+  animation: pulse 1.6s infinite;
+}
+.upcoming-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-weight: 600;
+  padding: 5px 9px; border-radius: 999px;
+}
+.past-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--off-white);
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-weight: 500;
+  padding: 5px 9px; border-radius: 999px;
+}
+.entry-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.entry-count strong {
+  color: var(--text-body);
+  font-weight: 600;
+}
+
+/* ── EXPANDED RING PREVIEW (per-show) ───────────────────────────────── */
+.show-row.expanded {
+  border-bottom: 1px solid var(--border);
+}
+.ring-preview {
+  grid-column: 2 / 4;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.ring-block {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.ring-label {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-weight: 700; font-size: 13px;
+  color: var(--navy);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-top: 2px;
+}
+.ring-label .ring-num {
+  display: inline-block;
+  background: var(--navy); color: #fff;
+  padding: 2px 7px; border-radius: 4px;
+  font-size: 11px;
+  margin-right: 6px;
+}
+.ring-classes {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ring-class {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 4px 8px; margin: 0 -8px;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.ring-class:hover { background: var(--off-white); }
+.ring-class .cls-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--red); font-weight: 500;
+  min-width: 36px; flex-shrink: 0;
+}
+.ring-class .cls-name {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px; color: var(--text-body);
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ring-class.is-live .cls-name::after {
+  content: '';
+  display: inline-block; width: 7px; height: 7px;
+  background: var(--green); border-radius: 50%;
+  margin-left: 8px; vertical-align: middle;
+  box-shadow: 0 0 0 0 rgba(46,125,50,0.7);
+  animation: pulse 1.6s infinite;
+}
+
+.show-chevron {
+  font-size: 18px; color: var(--text-faint);
+  transition: transform 0.2s;
+}
+.show-row.expanded .show-chevron { transform: rotate(90deg); }
+
+/* ── SAMPLE NOTE ────────────────────────────────────────────────────── */
+.lab-note {
+  max-width: 1100px; margin: 0 auto;
+  padding: 20px 24px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.04em;
+  color: #92400e;
+  margin-top: 24px;
+}
+
+footer {
+  max-width: 1100px; margin: 0 auto;
+  padding: 32px 24px 60px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.06em;
+  color: var(--text-faint);
+  text-align: right;
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <div class="brand-mark">W</div>
+    <div>
+      <div class="brand-name">WEST</div>
+    </div>
+    <span class="brand-tag">SCORING.LIVE</span>
+  </div>
+  <nav class="app-nav">
+    <a href="#">Shows</a>
+    <a href="#">Search</a>
+    <a href="#">Admin</a>
+  </nav>
+</header>
+
+<div class="page-head">
+  <div class="page-title">Shows</div>
+  <div class="page-sub">Live scoring across the East Coast hunter/jumper circuit</div>
+
+  <div class="toolbar">
+    <input class="filter-input" type="search" placeholder="Filter by name, venue, or location…">
+    <div class="tabs">
+      <div class="tab active">Current <span class="count">3</span></div>
+      <div class="tab">Previous <span class="count">12</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── ACTIVE ──────────────────────────────────────────────────────── -->
+<div class="section-banner live">Active <span class="count">1 show · 2 rings live</span></div>
+<ul class="section-rows">
+
+  <!-- expanded show with live rings -->
+  <li class="show-row expanded">
+    <div class="show-logo-cell placeholder">HC</div>
+    <div class="show-info">
+      <div class="show-name">HITS Culpeper Spring</div>
+      <div class="show-tags">
+        USA<span class="tag-sep">|</span>Hunter / Jumper<span class="tag-sep">|</span>4-day<span class="tag-sep">|</span>312 entries
+      </div>
+      <div class="show-dates">Apr 21–24, 2026 · Culpeper, VA</div>
+
+      <div class="ring-preview">
+        <div class="ring-block">
+          <div class="ring-label"><span class="ring-num">R1</span>Jumper 1</div>
+          <div class="ring-classes">
+            <a class="ring-class is-live"><span class="cls-num">412</span><span class="cls-name">$25,000 Welcome Stake</span></a>
+            <a class="ring-class"><span class="cls-num">411</span><span class="cls-name">Open Jumper II.1</span></a>
+            <a class="ring-class"><span class="cls-num">410</span><span class="cls-name">Junior/AO Jumper Classic</span></a>
+          </div>
+        </div>
+        <div class="ring-block">
+          <div class="ring-label"><span class="ring-num">R2</span>Hunter Field</div>
+          <div class="ring-classes">
+            <a class="ring-class is-live"><span class="cls-num">214</span><span class="cls-name">3' Working Hunter</span></a>
+            <a class="ring-class"><span class="cls-num">213</span><span class="cls-name">3'3" Performance Hunter</span></a>
+            <a class="ring-class"><span class="cls-num">212</span><span class="cls-name">Open Hunter Classic</span></a>
+          </div>
+        </div>
+        <div class="ring-block">
+          <div class="ring-label"><span class="ring-num">R3</span>Equitation</div>
+          <div class="ring-classes">
+            <a class="ring-class"><span class="cls-num">301</span><span class="cls-name">USEF Hunter Seat Medal</span></a>
+            <a class="ring-class"><span class="cls-num">300</span><span class="cls-name">ASPCA Maclay</span></a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="show-meta-right">
+      <span class="live-pill"><span class="dot"></span>Live</span>
+      <span class="entry-count"><strong>312</strong> entries</span>
+      <span class="show-chevron">▸</span>
+    </div>
+  </li>
+
+</ul>
+
+<!-- ─── UPCOMING ────────────────────────────────────────────────────── -->
+<div class="section-banner">Upcoming <span class="count">2 shows</span></div>
+<ul class="section-rows">
+
+  <li class="show-row">
+    <div class="show-logo-cell placeholder">DV</div>
+    <div class="show-info">
+      <div class="show-name">Devon Horse Show</div>
+      <div class="show-tags">
+        USA<span class="tag-sep">|</span>Hunter / Jumper<span class="tag-sep">|</span>11-day<span class="tag-sep">|</span>800+ entries
+      </div>
+      <div class="show-dates">May 21 – June 1, 2026 · Devon, PA</div>
+    </div>
+    <div class="show-meta-right">
+      <span class="upcoming-pill">in 19 days</span>
+      <span class="show-chevron">▸</span>
+    </div>
+  </li>
+
+  <li class="show-row">
+    <div class="show-logo-cell placeholder">SS</div>
+    <div class="show-info">
+      <div class="show-name">HITS Saugerties Summer</div>
+      <div class="show-tags">
+        USA<span class="tag-sep">|</span>Hunter / Jumper<span class="tag-sep">|</span>6-day<span class="tag-sep">|</span>~500 entries
+      </div>
+      <div class="show-dates">June 11–16, 2026 · Saugerties, NY</div>
+    </div>
+    <div class="show-meta-right">
+      <span class="upcoming-pill">in 40 days</span>
+      <span class="show-chevron">▸</span>
+    </div>
+  </li>
+
+</ul>
+
+<!-- ─── RECENT (past, within 3 days) ────────────────────────────────── -->
+<div class="section-banner">Just wrapped <span class="count">1 show</span></div>
+<ul class="section-rows">
+
+  <li class="show-row">
+    <div class="show-logo-cell placeholder">PB</div>
+    <div class="show-info">
+      <div class="show-name">Princeton Show Jumping Spring</div>
+      <div class="show-tags">
+        USA<span class="tag-sep">|</span>Jumper<span class="tag-sep">|</span>3-day<span class="tag-sep">|</span>180 entries
+      </div>
+      <div class="show-dates">Apr 18–20, 2026 · Princeton, NJ</div>
+    </div>
+    <div class="show-meta-right">
+      <span class="past-pill">2 days ago</span>
+      <span class="entry-count"><strong>180</strong> entries</span>
+      <span class="show-chevron">▸</span>
+    </div>
+  </li>
+
+</ul>
+
+<div class="lab-note">
+// Mockup. Hard-coded content. Big Shoulders Display + Inter + JetBrains Mono.
+// Real data + interactivity wired in if you green-light the direction.
+// Active show is expanded by default; others collapse to a single row.
+// Click any row → toggles the ring preview. Click a class row → goes to live/results.
+</div>
+
+<footer>WEST · index lab · pitch v1 · 2026-05-02</footer>
+
+</body>
+</html>
