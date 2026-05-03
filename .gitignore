@@ -27,6 +27,11 @@ west_udp_log.txt
 .claude/*
 # DO track the memory subfolder — these are project context notes that
 # should sync across machines via git so future Claude sessions (on any
-# computer) read the same priors.
+# computer) read the same priors. Same for user-scoped skills built for
+# this project (e.g. west-design-critic).
 !.claude/memory/
 !.claude/memory/**
+!.claude/skills/
+!.claude/skills/**
+# README explaining the cross-machine setup.
+!.claude/README.md
