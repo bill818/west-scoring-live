@@ -7,11 +7,11 @@
 <title>Live · WEST Scoring v3</title>
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  /* v3 live page — design language ported from v2's live.html.
-     Light theme. Playfair Display for big numbers + class names.
-     Source Sans 3 body. DM Mono for labels and codes. */
+  /* v3 live page — unified with site stack 2026-05-02.
+     Light theme. Oswald for display headers + place numbers.
+     Lato body. DM Mono for labels and codes. */
   :root {
     --black: #111111;
     --red:   #b82025;
@@ -27,7 +27,7 @@
   html, body {
     background: var(--off-white);
     color: var(--text-body);
-    font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, sans-serif;
     min-height: 100vh;
   }
   a { color: inherit; }
@@ -46,8 +46,8 @@
   }
   .logo-tap { display: flex; align-items: center; gap: 8px; text-decoration: none; }
   .logo-img { height: 26px; width: auto; filter: invert(1); }
-  .logo-west { font-family: 'Playfair Display', serif; font-weight: 900;
-               font-size: 20px; color: #fff; }
+  .logo-west { font-family: 'Oswald', sans-serif; font-weight: 700;
+               font-size: 20px; color: #fff; letter-spacing: 0.04em; }
   .logo-sep { font-family: 'DM Mono', monospace; font-size: 12px;
               color: var(--red); margin: 0 3px; }
   .logo-scoring { font-family: 'DM Mono', monospace; font-size: 12px;
@@ -75,7 +75,7 @@
   }
   @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
 
-  /* CLASS INFO BAR — red label, Playfair name */
+  /* CLASS INFO BAR — red label, Oswald name */
   .class-bar {
     background: var(--white);
     border-bottom: 1px solid var(--border);
@@ -87,7 +87,7 @@
     color: var(--red); margin-bottom: 2px;
   }
   .class-bar-name {
-    font-family: 'Playfair Display', serif; font-size: 22px;
+    font-family: 'Oswald', sans-serif; font-size: 22px;
     font-weight: 700; color: var(--black); line-height: 1.2;
   }
   .class-bar-sub {
@@ -133,7 +133,7 @@
     color: var(--red); font-weight: 600; margin-top: 4px;
   }
   .hunter-score-total-val {
-    font-family: 'Playfair Display', serif; font-size: 32px;
+    font-family: 'Oswald', sans-serif; font-size: 32px;
     color: var(--green); font-weight: 700; line-height: 1;
   }
   .hunter-score-place {
@@ -142,7 +142,7 @@
     letter-spacing: 0.06em;
   }
   .hunter-score-place .val {
-    color: var(--red); font-family: 'Playfair Display', serif;
+    color: var(--red); font-family: 'Oswald', sans-serif;
     font-size: 18px; font-weight: 700; margin-left: 4px;
   }
   .hunter-score-empty {
@@ -186,7 +186,7 @@
     color: var(--red); margin-bottom: 3px;
   }
   .oc-horse {
-    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-family: 'Oswald', sans-serif; font-weight: 700;
     font-size: 22px; color: var(--black); line-height: 1.15;
     margin-bottom: 4px;
   }
@@ -222,7 +222,7 @@
     padding: 24px 0;
   }
 
-  /* STANDINGS — full-width table, Playfair places, mono numbers */
+  /* STANDINGS — full-width table, Oswald places, mono numbers */
   .standings-wrap {
     background: var(--white);
     border-bottom: 1px solid var(--border);
@@ -266,7 +266,7 @@
   .standings-table tbody tr.elim td { opacity: 0.55; }
   .col-place {
     width: 48px; text-align: right;
-    font-family: 'Playfair Display', serif;
+    font-family: 'Oswald', sans-serif;
     font-size: 16px; font-weight: 700; color: var(--black);
   }
   .col-place.status {
@@ -284,7 +284,7 @@
     color: var(--red); font-weight: 600;
   }
   .col-horse {
-    font-family: 'Source Sans 3', sans-serif;
+    font-family: 'Lato', sans-serif;
     font-weight: 600; color: var(--black);
   }
   .col-rider {
