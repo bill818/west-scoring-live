@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WEST · Font Lab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Google Fonts: Geist (A), Manrope (C), Fraunces + Inter (D), DM Mono / JetBrains Mono (multiple) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Manrope:wght@300;400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Fontshare: Cabinet Grotesk + Switzer (B) -->
+<link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@700,800&f[]=switzer@400,500,600,700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --black: #111111;
+  --red: #b82025;
+  --green: #2e7d32;
+  --blue: #1f5fa0;
+  --gray: #888;
+  --off-white: #f5f5f5;
+  --border: #e2e2e2;
+  --text-body: #333;
+  --text-muted: #777;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--off-white);
+  color: var(--text-body);
+  min-height: 100vh;
+}
+.lab-nav {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--black); color: #fff;
+  padding: 14px 20px;
+  border-bottom: 3px solid var(--red);
+  display: flex; gap: 16px; align-items: center;
+  font-family: 'Geist', sans-serif;
+}
+.lab-nav-title { font-weight: 700; font-size: 16px; letter-spacing: .02em; }
+.lab-nav-sub { font-size: 12px; color: #ccc; margin-left: auto; }
+.lab-nav a { color: #fff; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+.lab-nav a:hover { background: rgba(255,255,255,.1); }
+
+.lab-section {
+  border-bottom: 8px solid var(--black);
+  padding: 32px 24px 48px;
+}
+.lab-section .lab-title {
+  display: flex; align-items: baseline; gap: 14px;
+  margin-bottom: 6px;
+}
+.lab-section .lab-letter {
+  font-family: 'Geist', sans-serif;
+  font-size: 36px; font-weight: 700; color: var(--red); line-height: 1;
+}
+.lab-section .lab-name {
+  font-family: 'Geist', sans-serif;
+  font-size: 20px; font-weight: 600; color: var(--black);
+}
+.lab-section .lab-stack {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px; letter-spacing: .04em; color: var(--text-muted);
+  margin-bottom: 26px;
+}
+.lab-grid {
+  display: grid; grid-template-columns: 1fr; gap: 22px;
+  max-width: 920px; margin: 0 auto;
+}
+@media (min-width: 1024px) {
+  .lab-grid { grid-template-columns: 1fr 1fr; }
+}
+.lab-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px;
+}
+.lab-card-label {
+  font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 10px;
+}
+
+/* Each combo defines its own family + sizing on shared "demo-*" classes */
+.demo-display { line-height: 1.15; color: var(--black); }
+.demo-name    { line-height: 1.2; color: var(--black); margin-bottom: 6px; }
+.demo-meta    { color: var(--text-muted); font-size: 12px; letter-spacing: .04em; }
+.demo-place   { color: var(--black); line-height: 1; }
+.demo-body    { color: var(--text-body); font-size: 14px; line-height: 1.5; }
+.demo-mono    { color: var(--text-muted); font-size: 11px; letter-spacing: .04em; }
+
+/* === A — Geist + Geist + Geist Mono ============================== */
+.combo-a { font-family: 'Geist', sans-serif; }
+.combo-a .demo-display { font-family: 'Geist', sans-serif; font-weight: 600; font-size: 24px; letter-spacing: -0.02em; }
+.combo-a .demo-name    { font-family: 'Geist', sans-serif; font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.combo-a .demo-meta    { font-family: 'Geist Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-a .demo-place   { font-family: 'Geist', sans-serif; font-weight: 700; font-size: 36px; }
+.combo-a .demo-body    { font-family: 'Geist', sans-serif; font-weight: 400; }
+.combo-a .demo-mono    { font-family: 'Geist Mono', monospace; }
+
+/* === B — Cabinet Grotesk + Switzer + JetBrains Mono ============== */
+.combo-b { font-family: 'Switzer', sans-serif; }
+.combo-b .demo-display { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -0.02em; }
+.combo-b .demo-name    { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 700; font-size: 18px; }
+.combo-b .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-b .demo-place   { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 800; font-size: 38px; }
+.combo-b .demo-body    { font-family: 'Switzer', sans-serif; font-weight: 500; }
+.combo-b .demo-mono    { font-family: 'JetBrains Mono', monospace; }
+
+/* === C — Manrope + Manrope + DM Mono ============================= */
+.combo-c { font-family: 'Manrope', sans-serif; }
+.combo-c .demo-display { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -0.03em; }
+.combo-c .demo-name    { font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+.combo-c .demo-meta    { font-family: 'DM Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-c .demo-place   { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 38px; }
+.combo-c .demo-body    { font-family: 'Manrope', sans-serif; font-weight: 500; }
+.combo-c .demo-mono    { font-family: 'DM Mono', monospace; }
+
+/* === D — Fraunces + Inter + JetBrains Mono ======================= */
+.combo-d { font-family: 'Inter', sans-serif; }
+.combo-d .demo-display { font-family: 'Fraunces', serif; font-weight: 700; font-size: 28px; font-variation-settings: "opsz" 144; letter-spacing: -0.01em; }
+.combo-d .demo-name    { font-family: 'Fraunces', serif; font-weight: 700; font-size: 19px; font-variation-settings: "opsz" 36; }
+.combo-d .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-d .demo-place   { font-family: 'Fraunces', serif; font-weight: 800; font-size: 40px; font-variation-settings: "opsz" 144; }
+.combo-d .demo-body    { font-family: 'Inter', sans-serif; font-weight: 400; }
+.combo-d .demo-mono    { font-family: 'JetBrains Mono', monospace; }
+
+/* === Demo content: show card / class header / standings row ======= */
+.demo-show-card {
+  display: flex; gap: 14px; align-items: center;
+  padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px;
+  background: #fff;
+}
+.demo-show-card .dot {
+  width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 0 0 rgba(46,160,67,.7); animation: dot-pulse 1.6s infinite;
+  flex-shrink: 0;
+}
+.demo-show-card .body { flex: 1; min-width: 0; }
+@keyframes dot-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(46,160,67,.6);} 50%{box-shadow:0 0 0 8px rgba(46,160,67,0);} }
+
+.demo-class-header {
+  border-left: 4px solid var(--red); padding: 10px 14px;
+}
+
+.demo-standings-row {
+  display: flex; gap: 12px; align-items: baseline;
+  padding: 8px 4px; border-bottom: 1px solid var(--border);
+}
+.demo-standings-row:last-child { border-bottom: none; }
+.demo-standings-row .place { width: 28px; text-align: right; }
+.demo-standings-row .horse { flex: 1; }
+.demo-standings-row .nums  { white-space: nowrap; }
+
+.demo-hero-num {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 14px 0;
+}
+</style>
+</head>
+<body>
+
+<div class="lab-nav">
+  <span class="lab-nav-title">WEST · Font Lab</span>
+  <a href="#a">A — Geist</a>
+  <a href="#b">B — Cabinet Grotesk</a>
+  <a href="#c">C — Manrope</a>
+  <a href="#d">D — Fraunces</a>
+  <span class="lab-nav-sub">scroll · same content · different fonts</span>
+</div>
+
+<!-- ─── A · Geist ─── -->
+<section class="lab-section combo-a" id="a">
+  <div class="lab-title">
+    <div class="lab-letter">A</div>
+    <div>
+      <div class="lab-name">Vercel-style — Geist family</div>
+      <div class="lab-stack">Geist (display + body) · Geist Mono (codes)</div>
+    </div>
+  </div>
+  <div class="lab-grid">
+    <div class="lab-card">
+      <div class="lab-card-label">Show card</div>
+      <div class="demo-show-card">
+        <div class="dot"></div>
+        <div class="body">
+          <div class="demo-name">HITS Culpeper Spring</div>
+          <div class="demo-meta">Apr 21–22, 2026 · Culpeper, VA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Class header</div>
+      <div class="demo-class-header">
+        <div class="demo-display">$25,000 Welcome Stake</div>
+        <div class="demo-meta">Class 412 · Jumper · II.2b · TA 65s</div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Hero place number</div>
+      <div class="demo-hero-num">
+        <div class="demo-place">1</div>
+        <div>
+          <div class="demo-name">Catch Me If You Can</div>
+          <div class="demo-mono">Bridget Hallman · USA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Standings (first 4)</div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Body sample (description)</div>
+      <div class="demo-body">A two-round jumper class scored under FEI Article 274 — competitors return for a second round at increased height. Time-allowed of 65 seconds; cumulative faults across both rounds determine the placing.</div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Mono / labels</div>
+      <div class="demo-mono">RING 1 · ACTIVE NOW · 24 ENTRIES · TA 65s</div>
+      <div class="demo-mono" style="margin-top:6px;">v3-smoke-test-2026-04 / class 412</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── B · Cabinet Grotesk + Switzer ─── -->
+<section class="lab-section combo-b" id="b">
+  <div class="lab-title">
+    <div class="lab-letter">B</div>
+    <div>
+      <div class="lab-name">Editorial-with-personality — Cabinet Grotesk + Switzer</div>
+      <div class="lab-stack">Cabinet Grotesk (display) · Switzer (body) · JetBrains Mono (codes)</div>
+    </div>
+  </div>
+  <div class="lab-grid">
+    <div class="lab-card">
+      <div class="lab-card-label">Show card</div>
+      <div class="demo-show-card">
+        <div class="dot"></div>
+        <div class="body">
+          <div class="demo-name">HITS Culpeper Spring</div>
+          <div class="demo-meta">Apr 21–22, 2026 · Culpeper, VA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Class header</div>
+      <div class="demo-class-header">
+        <div class="demo-display">$25,000 Welcome Stake</div>
+        <div class="demo-meta">Class 412 · Jumper · II.2b · TA 65s</div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Hero place number</div>
+      <div class="demo-hero-num">
+        <div class="demo-place">1</div>
+        <div>
+          <div class="demo-name">Catch Me If You Can</div>
+          <div class="demo-mono">Bridget Hallman · USA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Standings (first 4)</div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Body sample (description)</div>
+      <div class="demo-body">A two-round jumper class scored under FEI Article 274 — competitors return for a second round at increased height. Time-allowed of 65 seconds; cumulative faults across both rounds determine the placing.</div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Mono / labels</div>
+      <div class="demo-mono">RING 1 · ACTIVE NOW · 24 ENTRIES · TA 65s</div>
+      <div class="demo-mono" style="margin-top:6px;">v3-smoke-test-2026-04 / class 412</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── C · Manrope ─── -->
+<section class="lab-section combo-c" id="c">
+  <div class="lab-title">
+    <div class="lab-letter">C</div>
+    <div>
+      <div class="lab-name">Single-family minimalism — Manrope</div>
+      <div class="lab-stack">Manrope (display + body, weight contrast) · DM Mono (codes)</div>
+    </div>
+  </div>
+  <div class="lab-grid">
+    <div class="lab-card">
+      <div class="lab-card-label">Show card</div>
+      <div class="demo-show-card">
+        <div class="dot"></div>
+        <div class="body">
+          <div class="demo-name">HITS Culpeper Spring</div>
+          <div class="demo-meta">Apr 21–22, 2026 · Culpeper, VA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Class header</div>
+      <div class="demo-class-header">
+        <div class="demo-display">$25,000 Welcome Stake</div>
+        <div class="demo-meta">Class 412 · Jumper · II.2b · TA 65s</div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Hero place number</div>
+      <div class="demo-hero-num">
+        <div class="demo-place">1</div>
+        <div>
+          <div class="demo-name">Catch Me If You Can</div>
+          <div class="demo-mono">Bridget Hallman · USA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Standings (first 4)</div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Body sample (description)</div>
+      <div class="demo-body">A two-round jumper class scored under FEI Article 274 — competitors return for a second round at increased height. Time-allowed of 65 seconds; cumulative faults across both rounds determine the placing.</div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Mono / labels</div>
+      <div class="demo-mono">RING 1 · ACTIVE NOW · 24 ENTRIES · TA 65s</div>
+      <div class="demo-mono" style="margin-top:6px;">v3-smoke-test-2026-04 / class 412</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── D · Fraunces + Inter ─── -->
+<section class="lab-section combo-d" id="d">
+  <div class="lab-title">
+    <div class="lab-letter">D</div>
+    <div>
+      <div class="lab-name">Editorial-equestrian — Fraunces + Inter</div>
+      <div class="lab-stack">Fraunces (display, modern serif) · Inter (body) · JetBrains Mono (codes)</div>
+    </div>
+  </div>
+  <div class="lab-grid">
+    <div class="lab-card">
+      <div class="lab-card-label">Show card</div>
+      <div class="demo-show-card">
+        <div class="dot"></div>
+        <div class="body">
+          <div class="demo-name">HITS Culpeper Spring</div>
+          <div class="demo-meta">Apr 21–22, 2026 · Culpeper, VA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Class header</div>
+      <div class="demo-class-header">
+        <div class="demo-display">$25,000 Welcome Stake</div>
+        <div class="demo-meta">Class 412 · Jumper · II.2b · TA 65s</div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Hero place number</div>
+      <div class="demo-hero-num">
+        <div class="demo-place">1</div>
+        <div>
+          <div class="demo-name">Catch Me If You Can</div>
+          <div class="demo-mono">Bridget Hallman · USA</div>
+        </div>
+      </div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Standings (first 4)</div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Body sample (description)</div>
+      <div class="demo-body">A two-round jumper class scored under FEI Article 274 — competitors return for a second round at increased height. Time-allowed of 65 seconds; cumulative faults across both rounds determine the placing.</div>
+    </div>
+    <div class="lab-card">
+      <div class="lab-card-label">Mono / labels</div>
+      <div class="demo-mono">RING 1 · ACTIVE NOW · 24 ENTRIES · TA 65s</div>
+      <div class="demo-mono" style="margin-top:6px;">v3-smoke-test-2026-04 / class 412</div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
