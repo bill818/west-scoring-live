@@ -11,6 +11,79 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="west.css">
+<style>
+  /* show.html-specific extras: per-show logo + weather card.
+     Per-show logo is opt-in via assets/show-logos/<slug>.png (file
+     convention — drop a PNG named after the slug, image hides on 404). */
+  .hero-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .hero-logo {
+    max-height: 80px; max-width: 160px;
+    width: auto; height: auto; flex-shrink: 0;
+    object-fit: contain;
+  }
+  .hero-text { flex: 1; min-width: 240px; }
+
+  .weather-section {
+    max-width: 1100px; margin: 0 auto; padding: 8px 12px 0;
+  }
+  .weather-current {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 14px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  .weather-current-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+  .weather-current-temp {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 700; font-size: 20px; color: var(--black); line-height: 1;
+  }
+  .weather-current-desc {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); margin-top: 2px;
+  }
+  .weather-current-loc {
+    margin-left: auto;
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.04em; color: #aaa;
+  }
+  .weather-days {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .weather-day {
+    flex: 1; min-width: 90px;
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 8px;
+    text-align: center;
+  }
+  .weather-day.today {
+    border-color: var(--red); box-shadow: 0 0 0 1px var(--red);
+  }
+  .weather-day-label {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 4px;
+  }
+  .weather-day.today .weather-day-label { color: var(--red); }
+  .weather-day-icon { font-size: 22px; line-height: 1; margin-bottom: 4px; }
+  .weather-day-high {
+    font-family: 'Oswald', sans-serif; font-weight: 700;
+    font-size: 16px; color: var(--black); line-height: 1;
+  }
+  .weather-day-low {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: var(--text-muted); margin-top: 1px;
+  }
+  .weather-day-extras {
+    display: flex; flex-direction: column; gap: 1px;
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    margin-top: 3px;
+  }
+  .weather-day-precip { color: #4a90d9; }
+  .weather-day-wind   { color: #999; }
+</style>
 </head>
 <body>
 
@@ -32,6 +105,11 @@
 
 <div id="hero" class="hero">
   <div class="spinner"></div>
+</div>
+
+<div class="weather-section" id="weatherSection" style="display:none;">
+  <div id="weatherCurrent"></div>
+  <div id="weatherDays" class="weather-days"></div>
 </div>
 
 <div class="section-block">
@@ -100,15 +178,143 @@ function deriveStatus(show) {
 function renderHero(show) {
   const status = deriveStatus(show);
   const dates = fmtDateRange(show);
-  const parts = [];
-  parts.push(`<div class="hero-name">${escapeHtml(show.name)}</div>`);
-  if (dates) parts.push(`<div class="hero-dates">${escapeHtml(dates)}</div>`);
-  if (show.venue) parts.push(`<div class="hero-venue">${escapeHtml(show.venue)}</div>`);
-  if (show.location) parts.push(`<div class="hero-location">${escapeHtml(show.location)}</div>`);
-  parts.push(WEST.display.statusBadge(status));
-  document.getElementById('hero').innerHTML = parts.join('');
+  // Logo: file-convention at assets/show-logos/<slug>.png. onerror hides
+  // on 404 so shows without a logo render cleanly. Future iteration can
+  // swap to a stored URL or admin upload.
+  const logoUrl = `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
+  const text = [];
+  text.push(`<div class="hero-name">${escapeHtml(show.name)}</div>`);
+  if (dates) text.push(`<div class="hero-dates">${escapeHtml(dates)}</div>`);
+  if (show.venue) text.push(`<div class="hero-venue">${escapeHtml(show.venue)}</div>`);
+  if (show.location) text.push(`<div class="hero-location">${escapeHtml(show.location)}</div>`);
+  text.push(WEST.display.statusBadge(status));
+  document.getElementById('hero').innerHTML = `
+    <div class="hero-row">
+      <img class="hero-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
+      <div class="hero-text">${text.join('')}</div>
+    </div>`;
   document.getElementById('bcCurrent').textContent = show.name || show.slug;
   document.title = `${show.name} — WEST Scoring`;
+}
+
+/* ── Weather helpers (ported from v2) ─────────────────────────── */
+function weatherIcon(code) {
+  if (code === 0) return '☀️';
+  if (code >= 1 && code <= 3) return '⛅';
+  if (code >= 45 && code <= 48) return '🌫️';
+  if (code >= 51 && code <= 67) return '🌧️';
+  if (code >= 71 && code <= 77) return '🌨️';
+  if (code >= 80 && code <= 82) return '🌦️';
+  if (code >= 95 && code <= 99) return '⛈️';
+  return '☀️';
+}
+function weatherDesc(code) {
+  if (code === 0) return 'Clear';
+  if (code >= 1 && code <= 3) return 'Partly Cloudy';
+  if (code >= 45 && code <= 48) return 'Foggy';
+  if (code >= 51 && code <= 55) return 'Drizzle';
+  if (code >= 56 && code <= 57) return 'Freezing Drizzle';
+  if (code >= 61 && code <= 65) return 'Rain';
+  if (code >= 66 && code <= 67) return 'Freezing Rain';
+  if (code >= 71 && code <= 77) return 'Snow';
+  if (code >= 80 && code <= 82) return 'Rain Showers';
+  if (code >= 95 && code <= 99) return 'Thunderstorm';
+  return 'Clear';
+}
+function dayLabel(iso) {
+  try {
+    return new Date(iso + 'T12:00:00').toLocaleDateString('en-US',
+      { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch (e) { return iso; }
+}
+
+/* Direct Open-Meteo current-temp probe — independent of the worker
+   endpoint (which gives day-level high/low). Cached 30min. */
+async function loadCurrentWeather(show) {
+  if (!show || !show.location) return;
+  const cacheKey = 'weather_now_' + show.slug;
+  const cached = sessionStorage.getItem(cacheKey);
+  if (cached) {
+    try {
+      const c = JSON.parse(cached);
+      if (c.ts && (Date.now() - c.ts) < 30 * 60 * 1000) {
+        renderCurrentWeather(c.data, show.location);
+        return;
+      }
+    } catch (e) {}
+  }
+  try {
+    const city = show.location.split(',')[0].trim();
+    const geoR = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=1');
+    if (!geoR.ok) return;
+    const geo = await geoR.json();
+    if (!geo.results || !geo.results.length) return;
+    const lat = geo.results[0].latitude, lon = geo.results[0].longitude;
+    const wxR = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon
+      + '&current=temperature_2m,weathercode&timezone=America/New_York&temperature_unit=fahrenheit');
+    if (!wxR.ok) return;
+    const wx = await wxR.json();
+    sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: wx }));
+    renderCurrentWeather(wx, show.location);
+  } catch (e) { /* silent — weather is optional */ }
+}
+
+function renderCurrentWeather(wx, loc) {
+  if (!wx || !wx.current) return;
+  const cur = wx.current;
+  const el = document.getElementById('weatherCurrent');
+  el.className = 'weather-current';
+  el.innerHTML = `
+    <span class="weather-current-icon">${weatherIcon(cur.weathercode)}</span>
+    <div>
+      <div class="weather-current-temp">${Math.round(cur.temperature_2m)}°F</div>
+      <div class="weather-current-desc">${escapeHtml(weatherDesc(cur.weathercode))}</div>
+    </div>
+    <div class="weather-current-loc">${escapeHtml(loc)}</div>`;
+  document.getElementById('weatherSection').style.display = '';
+}
+
+/* Show-week forecast — calls /v3/getShowWeather which caches in D1. */
+async function loadShowWeather(show) {
+  if (!show || !show.start_date) return;
+  // Only render the forecast row when it's relevant (within 3 days of
+  // start, OR during show, OR completed shows where historical readings
+  // are interesting). Skip far-future shows where forecast would be
+  // forecast-of-a-forecast.
+  const today = todayInTz(show.timezone);
+  const daysUntil = Math.floor((new Date(show.start_date) - new Date(today)) / 86400000);
+  const daysSinceEnd = show.end_date
+    ? Math.floor((new Date(today) - new Date(show.end_date)) / 86400000)
+    : 0;
+  if (daysUntil > 7) return;        // too far out, forecast would be junk
+  if (daysSinceEnd > 60) return;    // ancient history — don't bother
+  try {
+    const fetched = await fetchJson(`/v3/getShowWeather?slug=${encodeURIComponent(show.slug)}`);
+    if (!fetched.days || !fetched.days.length) return;
+    renderShowWeatherDays(fetched.days, today);
+  } catch (e) { /* silent */ }
+}
+
+function renderShowWeatherDays(days, todayIso) {
+  const root = document.getElementById('weatherDays');
+  root.innerHTML = days.map(d => {
+    const isToday = d.date === todayIso;
+    const high = d.temp_high != null ? Math.round(d.temp_high) + '°' : '—';
+    const low  = d.temp_low  != null ? Math.round(d.temp_low)  + '°' : '';
+    const precipIn = d.precip_mm ? (d.precip_mm / 25.4).toFixed(2) + 'in' : '';
+    const wind = d.wind_max ? Math.round(d.wind_max) + ' mph' : '';
+    const extras = [];
+    if (precipIn) extras.push(`<span class="weather-day-precip">${precipIn}</span>`);
+    if (wind)     extras.push(`<span class="weather-day-wind">${wind}</span>`);
+    return `<div class="weather-day${isToday ? ' today' : ''}">
+      <div class="weather-day-label">${escapeHtml(dayLabel(d.date))}</div>
+      <div class="weather-day-icon">${weatherIcon(d.weather_code || 0)}</div>
+      <div class="weather-day-high">${high}</div>
+      ${low ? `<div class="weather-day-low">${low}</div>` : ''}
+      ${extras.length ? `<div class="weather-day-extras">${extras.join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('weatherSection').style.display = '';
 }
 
 function renderRings(rings, classCounts) {
@@ -159,6 +365,10 @@ async function load() {
     ]);
     renderHero(showRes.show);
     renderRings(ringsRes.rings || [], countByRing(classesRes.classes || []));
+    // Weather — current-temp + show-dates forecast. Both fail silently
+    // (weather is optional, never blocks page load).
+    loadCurrentWeather(showRes.show);
+    loadShowWeather(showRes.show);
     // Show-level jumper stats — only render when there's actually a
     // jumper class in the show. Hunter-only shows skip this section
     // since the endpoint is jumper-only by design.

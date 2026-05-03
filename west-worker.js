@@ -2598,6 +2598,123 @@ export default {
       return json({ manifest: ENGINE_LATEST });
     }
 
+    // ── GET /v3/getShowWeather ────────────────────────────────────────────────
+    // Per-day weather for a show's date range. D1 cache first; on miss,
+    // fetches from Open-Meteo (archive API for past dates, forecast for
+    // future). Historical days persist; forecast days are not stored.
+    // Ported from v2's /getShowWeather — same logic against WEST_DB_V3.
+    if (method === 'GET' && path === '/v3/getShowWeather') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id, location, start_date, end_date FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show || !show.start_date || !show.location) return json({ ok: true, days: [] });
+
+        const startDate = show.start_date;
+        const endDate = show.end_date || show.start_date;
+
+        const cached = await env.WEST_DB_V3.prepare(
+          'SELECT date, temp_high, temp_low, weather_code, precip_mm, wind_max, humidity_mean FROM show_weather WHERE show_id = ? ORDER BY date'
+        ).bind(show.id).all();
+        const cachedMap = {};
+        (cached.results || []).forEach(r => { cachedMap[r.date] = r; });
+
+        const allDates = [];
+        let cur = new Date(startDate + 'T12:00:00Z');
+        const end = new Date(endDate + 'T12:00:00Z');
+        while (cur <= end) {
+          allDates.push(cur.toISOString().split('T')[0]);
+          cur.setDate(cur.getDate() + 1);
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        const missingPast = allDates.filter(d => d <= today && !cachedMap[d]);
+        const missingFuture = allDates.filter(d => d > today && !cachedMap[d]);
+
+        let lat = null, lon = null;
+        if (missingPast.length || missingFuture.length) {
+          const city = show.location.split(',')[0].trim();
+          const geoR = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=1');
+          if (geoR.ok) {
+            const geo = await geoR.json();
+            if (geo.results && geo.results.length) {
+              lat = geo.results[0].latitude;
+              lon = geo.results[0].longitude;
+            }
+          }
+        }
+
+        // Past dates → archive API (real measurements). Persist.
+        if (lat && missingPast.length) {
+          const histStart = missingPast[0];
+          const histEnd = missingPast[missingPast.length - 1];
+          try {
+            const hr = await fetch('https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon
+              + '&start_date=' + histStart + '&end_date=' + histEnd
+              + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,relative_humidity_2m_mean'
+              + '&timezone=America/New_York&temperature_unit=fahrenheit');
+            if (hr.ok) {
+              const hd = await hr.json();
+              if (hd.daily && hd.daily.time) {
+                const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+                for (let i = 0; i < hd.daily.time.length; i++) {
+                  const date = hd.daily.time[i];
+                  if (!cachedMap[date]) {
+                    const row = {
+                      date, temp_high: hd.daily.temperature_2m_max[i],
+                      temp_low: hd.daily.temperature_2m_min[i],
+                      weather_code: hd.daily.weathercode[i],
+                      precip_mm: hd.daily.precipitation_sum ? hd.daily.precipitation_sum[i] : null,
+                      wind_max: hd.daily.windspeed_10m_max ? hd.daily.windspeed_10m_max[i] : null,
+                      humidity_mean: hd.daily.relative_humidity_2m_mean ? hd.daily.relative_humidity_2m_mean[i] : null,
+                    };
+                    cachedMap[date] = row;
+                    await env.WEST_DB_V3.prepare(
+                      'INSERT INTO show_weather (show_id, date, temp_high, temp_low, weather_code, precip_mm, wind_max, humidity_mean, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(show_id, date) DO UPDATE SET temp_high=excluded.temp_high, temp_low=excluded.temp_low, weather_code=excluded.weather_code, precip_mm=excluded.precip_mm, wind_max=excluded.wind_max, humidity_mean=excluded.humidity_mean, updated_at=excluded.updated_at'
+                    ).bind(show.id, date, row.temp_high, row.temp_low, row.weather_code, row.precip_mm, row.wind_max, row.humidity_mean, now).run();
+                  }
+                }
+              }
+            }
+          } catch(e) { console.error('[weather hist]', e.message); }
+        }
+
+        // Future dates → forecast API. Don't persist (changes daily).
+        if (lat && missingFuture.length) {
+          try {
+            const fr = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon
+              + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,relative_humidity_2m_mean'
+              + '&timezone=America/New_York&temperature_unit=fahrenheit&forecast_days=14');
+            if (fr.ok) {
+              const fd = await fr.json();
+              if (fd.daily && fd.daily.time) {
+                for (let i = 0; i < fd.daily.time.length; i++) {
+                  const date = fd.daily.time[i];
+                  if (missingFuture.includes(date) && !cachedMap[date]) {
+                    cachedMap[date] = {
+                      date, temp_high: fd.daily.temperature_2m_max[i],
+                      temp_low: fd.daily.temperature_2m_min[i],
+                      weather_code: fd.daily.weathercode[i],
+                      precip_mm: fd.daily.precipitation_sum ? fd.daily.precipitation_sum[i] : null,
+                      wind_max: fd.daily.windspeed_10m_max ? fd.daily.windspeed_10m_max[i] : null,
+                      humidity_mean: fd.daily.relative_humidity_2m_mean ? fd.daily.relative_humidity_2m_mean[i] : null,
+                    };
+                  }
+                }
+              }
+            }
+          } catch(e) { console.error('[weather forecast]', e.message); }
+        }
+
+        const days = allDates.map(d => cachedMap[d] || { date: d }).filter(d => d.temp_high != null);
+        return json({ ok: true, days });
+      } catch(e) { return err('Weather error: ' + e.message); }
+    }
+
     // ── GET /v3/listShows ─────────────────────────────────────────────────────
     // Each show carries an `engine_live` boolean — true when any of its
     // rings has a heartbeat in KV (TTL 600s, so presence ⇒ recent). Drives

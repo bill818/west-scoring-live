@@ -196,8 +196,10 @@ function render() {
     if (!groups[key].length) continue;
     html += `<div class="group"><div class="group-header">${label} (${groups[key].length})</div><ul class="show-list">`;
     for (const s of groups[key]) {
+      const logoUrl = `../../assets/show-logos/${encodeURIComponent(s.slug)}.png`;
       html += `<li><a class="show-card" href="show.html?slug=${encodeURIComponent(s.slug)}">
         <span class="show-dot ${key}"></span>
+        <img class="show-card-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
         <div class="show-body">
           <div class="show-name">${escapeHtml(s.name)}</div>
           <div class="show-meta">${fmtDateRange(s)} · ${escapeHtml(s.slug)}</div>
