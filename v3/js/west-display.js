@@ -115,6 +115,86 @@
     return html;
   };
 
+  // ── Drawer (slide-in side panel) ─────────────────────────────────────
+  // Replaces native <dialog> with a friendlier slide-in panel. Markup
+  // pattern in HTML:
+  //   <div class="drawer" id="dlgFoo">
+  //     <div class="drawer-header"><h2>Title</h2><button class="drawer-close-btn" data-drawer-close="dlgFoo">✕</button></div>
+  //     <div class="drawer-body">…</div>
+  //     <div class="drawer-footer">…</div>
+  //   </div>
+  // Open with WEST.drawer.open('dlgFoo'); close with WEST.drawer.close('dlgFoo'),
+  // ESC, the [data-drawer-close] button, or clicking the backdrop.
+  WEST.drawer = {};
+
+  // Internal: track the per-drawer ESC handler so we can detach on close.
+  var _drawerEsc = {};
+
+  function _ensureBackdrop(id) {
+    var bd = document.getElementById('drawer-bd-' + id);
+    if (bd) return bd;
+    bd = document.createElement('div');
+    bd.id = 'drawer-bd-' + id;
+    bd.className = 'drawer-backdrop';
+    bd.addEventListener('click', function () { WEST.drawer.close(id); });
+    document.body.appendChild(bd);
+    return bd;
+  }
+
+  WEST.drawer.open = function (id) {
+    var d = document.getElementById(id);
+    if (!d) return;
+    var bd = _ensureBackdrop(id);
+    // Two RAFs so the browser actually paints transform:translateX(100%)
+    // before we flip to translateX(0) — guarantees the slide animation.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        bd.classList.add('open');
+        d.classList.add('open');
+      });
+    });
+    document.body.style.overflow = 'hidden';
+    var handler = function (e) { if (e.key === 'Escape') WEST.drawer.close(id); };
+    _drawerEsc[id] = handler;
+    document.addEventListener('keydown', handler);
+  };
+
+  WEST.drawer.close = function (id) {
+    var d = document.getElementById(id);
+    var bd = document.getElementById('drawer-bd-' + id);
+    if (d) d.classList.remove('open');
+    if (bd) bd.classList.remove('open');
+    document.body.style.overflow = '';
+    if (_drawerEsc[id]) {
+      document.removeEventListener('keydown', _drawerEsc[id]);
+      delete _drawerEsc[id];
+    }
+  };
+
+  WEST.drawer.isOpen = function (id) {
+    var d = document.getElementById(id);
+    return !!(d && d.classList.contains('open'));
+  };
+
+  // Wire global [data-drawer-close="<id>"] buttons. Loaded once at DOM
+  // ready; pages that add more close buttons later can re-call this.
+  WEST.drawer.bindCloseButtons = function () {
+    document.querySelectorAll('[data-drawer-close]').forEach(function (btn) {
+      if (btn._drawerWired) return;
+      btn._drawerWired = true;
+      btn.addEventListener('click', function () {
+        WEST.drawer.close(btn.getAttribute('data-drawer-close'));
+      });
+    });
+  };
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', WEST.drawer.bindCloseButtons);
+    } else {
+      WEST.drawer.bindCloseButtons();
+    }
+  }
+
   // CommonJS export (harmless in browsers).
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.display;

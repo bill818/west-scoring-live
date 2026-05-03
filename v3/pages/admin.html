@@ -14,6 +14,7 @@
 <script src="../js/west-format.js"></script>
 <script src="../js/west-status.js"></script>
 <script src="../js/west-rules.js"></script>
+<script src="../js/west-display.js"></script>
 <style>
   /* Show-logo controls inside dlgShow */
   .logo-row { display: flex; align-items: center; gap: 14px; padding: 10px; background: var(--off-white); border-radius: 6px; }
@@ -131,9 +132,12 @@
 </div>
 
 <!-- SHOW DIALOG (unified Create / Edit) -->
-<dialog id="dlgShow">
-  <div class="dialog-header"><h2 id="dlgShowTitle">Create Show</h2></div>
-  <div class="dialog-body">
+<div class="drawer" id="dlgShow" role="dialog" aria-labelledby="dlgShowTitle">
+  <div class="drawer-header">
+    <h2 id="dlgShowTitle">Create Show</h2>
+    <button class="drawer-close-btn" data-drawer-close="dlgShow" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body">
     <div class="form-group">
       <label for="f_showName">Name</label>
       <input type="text" id="f_showName" placeholder="Culpeper Hunter Jumper Festival">
@@ -224,16 +228,20 @@
     </div>
     <div class="form-error" id="f_showError"></div>
   </div>
-  <div class="dialog-footer">
-    <button class="btn-secondary" data-close-dialog="dlgShow">Cancel</button>
+  <div class="drawer-footer">
+    <span class="drawer-footer-spacer"></span>
+    <button class="btn-secondary" data-drawer-close="dlgShow">Cancel</button>
     <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnShowSubmit">Create</button>
   </div>
-</dialog>
+</div>
 
-<!-- STATS DISPLAY DIALOG — per-show toggles for the public stats page -->
-<dialog id="dlgStatsConfig">
-  <div class="dialog-header"><h2>Stats Display Settings</h2></div>
-  <div class="dialog-body">
+<!-- STATS DISPLAY DRAWER — per-show toggles for the public stats page -->
+<div class="drawer" id="dlgStatsConfig" role="dialog" aria-labelledby="dlgStatsConfigTitle">
+  <div class="drawer-header">
+    <h2 id="dlgStatsConfigTitle">Stats Display Settings</h2>
+    <button class="drawer-close-btn" data-drawer-close="dlgStatsConfig" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body">
     <div class="form-hint" style="margin-bottom:12px;">Per-show display knobs for the public results + stats pages. Standings tables are always shown.</div>
 
     <div class="sc-section">
@@ -274,17 +282,21 @@
 
     <div class="form-error" id="f_scError"></div>
   </div>
-  <div class="dialog-footer">
-    <button class="btn-secondary" data-close-dialog="dlgStatsConfig">Cancel</button>
+  <div class="drawer-footer">
     <button class="btn-secondary" id="btnStatsConfigReset" title="Reset all to default">Reset to default</button>
+    <span class="drawer-footer-spacer"></span>
+    <button class="btn-secondary" data-drawer-close="dlgStatsConfig">Cancel</button>
     <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnStatsConfigSave">Save</button>
   </div>
-</dialog>
+</div>
 
-<!-- RING DIALOG (unified Add / Edit) -->
-<dialog id="dlgRing">
-  <div class="dialog-header"><h2 id="dlgRingTitle">Add Ring</h2></div>
-  <div class="dialog-body">
+<!-- RING DRAWER (unified Add / Edit) -->
+<div class="drawer" id="dlgRing" role="dialog" aria-labelledby="dlgRingTitle">
+  <div class="drawer-header">
+    <h2 id="dlgRingTitle">Add Ring</h2>
+    <button class="drawer-close-btn" data-drawer-close="dlgRing" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body">
     <div class="form-group">
       <label for="f_ringNum">Ring number</label>
       <input type="number" id="f_ringNum" min="1" max="99" value="1">
@@ -297,11 +309,12 @@
     </div>
     <div class="form-error" id="f_ringError"></div>
   </div>
-  <div class="dialog-footer">
-    <button class="btn-secondary" data-close-dialog="dlgRing">Cancel</button>
+  <div class="drawer-footer">
+    <span class="drawer-footer-spacer"></span>
+    <button class="btn-secondary" data-drawer-close="dlgRing">Cancel</button>
     <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnRingSubmit">Create</button>
   </div>
-</dialog>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -957,7 +970,7 @@ function openShowDialog(mode, show) {
     logoGroup.style.display = 'none';
   }
 
-  dlgShow.showModal();
+  WEST.drawer.open('dlgShow');
   document.getElementById('f_showName').focus();
 }
 
@@ -1079,7 +1092,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
     const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible, lock_override };
     if (showDialogMode === 'edit') {
       await api('POST', '/v3/updateShow', payload);
-      dlgShow.close();
+      WEST.drawer.close('dlgShow');
       toast('Show updated', 'success');
       await loadShows();
       // Refresh the detail header so the new values show
@@ -1087,7 +1100,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
       if (show) selectShow(slug);
     } else {
       await api('POST', '/v3/createShow', payload);
-      dlgShow.close();
+      WEST.drawer.close('dlgShow');
       toast('Show created', 'success');
       await loadShows();
       selectShow(slug);
@@ -1127,7 +1140,7 @@ function openStatsConfigDialog() {
   document.getElementById('f_sc_split_n').value =
     Number(show.split_decision_top_n) || 3;
   document.getElementById('f_scError').classList.remove('visible');
-  dlgStatsConfig.showModal();
+  WEST.drawer.open('dlgStatsConfig');
 }
 
 document.getElementById('btnStatsConfig').addEventListener('click', openStatsConfigDialog);
@@ -1168,7 +1181,7 @@ document.getElementById('btnStatsConfigSave').addEventListener('click', async ()
   };
   try {
     await api('POST', '/v3/updateShow', payload);
-    dlgStatsConfig.close();
+    WEST.drawer.close('dlgStatsConfig');
     toast('Stats display settings saved', 'success');
     await loadShows();
     selectShow(slug);
@@ -1206,7 +1219,7 @@ function openRingDialog(mode, ring) {
     document.getElementById('f_ringName').value = '';
   }
   document.getElementById('f_ringError').classList.remove('visible');
-  dlgRing.showModal();
+  WEST.drawer.open('dlgRing');
   (mode === 'edit'
     ? document.getElementById('f_ringName')
     : document.getElementById('f_ringNum')).focus();
@@ -1226,11 +1239,11 @@ document.getElementById('btnRingSubmit').addEventListener('click', async () => {
   try {
     if (ringDialogMode === 'edit') {
       await api('POST', '/v3/updateRing', { slug: state.selectedSlug, ring_num, name });
-      dlgRing.close();
+      WEST.drawer.close('dlgRing');
       toast('Ring updated', 'success');
     } else {
       await api('POST', '/v3/createRing', { slug: state.selectedSlug, ring_num, name });
-      dlgRing.close();
+      WEST.drawer.close('dlgRing');
       toast('Ring added', 'success');
     }
     await loadRings(state.selectedSlug);
@@ -1240,12 +1253,12 @@ document.getElementById('btnRingSubmit').addEventListener('click', async () => {
   }
 });
 
-// ── dialog close buttons ─────────────────────────────────────────────
-document.querySelectorAll('[data-close-dialog]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.getElementById(btn.dataset.closeDialog).close();
-  });
-});
+// Drawer close-button wiring is handled centrally by WEST.drawer.bindCloseButtons,
+// invoked once at DOMContentLoaded from west-display.js. Buttons use the
+// data-drawer-close="<id>" attribute. (The legacy data-close-dialog
+// handler was removed when the three admin <dialog> elements became
+// drawers — kept here as a comment so anyone searching for the old
+// pattern lands somewhere informative.)
 
 // ── group collapse ───────────────────────────────────────────────────
 document.querySelectorAll('.group-header').forEach(h => {
