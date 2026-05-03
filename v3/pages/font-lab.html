@@ -2,23 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>WEST · Font Lab</title>
+<title>WEST · Font Lab — Round 2</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- Google Fonts: Geist (A), Manrope (C), Fraunces + Inter (D), DM Mono / JetBrains Mono (multiple) -->
+<!-- Round 2: heavy/commanding sans-serifs (Bill said the strong presence of
+     his logo's serif W doesn't translate to body type — wants sans that
+     PUNCHES instead of polite-clean). All four pair a heavy display face
+     with a neutral body sans. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Manrope:wght@300;400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=Big+Shoulders+Display:wght@600;700;800&family=Funnel+Display:wght@500;600;700;800&family=Funnel+Sans:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<!-- Fontshare: Cabinet Grotesk + Switzer (B) -->
-<link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@700,800&f[]=switzer@400,500,600,700&display=swap" rel="stylesheet">
+<!-- Fontshare: Clash Display + Switzer -->
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=switzer@400,500,600,700&display=swap" rel="stylesheet">
 
 <style>
 :root {
   --black: #111111;
   --red: #b82025;
   --green: #2e7d32;
-  --blue: #1f5fa0;
   --gray: #888;
   --off-white: #f5f5f5;
   --border: #e2e2e2;
@@ -30,6 +32,7 @@ body {
   background: var(--off-white);
   color: var(--text-body);
   min-height: 100vh;
+  font-family: 'Inter', sans-serif;
 }
 .lab-nav {
   position: sticky; top: 0; z-index: 50;
@@ -37,12 +40,19 @@ body {
   padding: 14px 20px;
   border-bottom: 3px solid var(--red);
   display: flex; gap: 16px; align-items: center;
-  font-family: 'Geist', sans-serif;
+  font-family: 'Inter', sans-serif;
+  flex-wrap: wrap;
 }
-.lab-nav-title { font-weight: 700; font-size: 16px; letter-spacing: .02em; }
+.lab-nav-title { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
 .lab-nav-sub { font-size: 12px; color: #ccc; margin-left: auto; }
 .lab-nav a { color: #fff; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
 .lab-nav a:hover { background: rgba(255,255,255,.1); }
+.lab-nav-pitch {
+  width: 100%; flex-basis: 100%;
+  font-size: 11px; color: #aaa; letter-spacing: .04em;
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 4px;
+}
 
 .lab-section {
   border-bottom: 8px solid var(--black);
@@ -53,17 +63,23 @@ body {
   margin-bottom: 6px;
 }
 .lab-section .lab-letter {
-  font-family: 'Geist', sans-serif;
-  font-size: 36px; font-weight: 700; color: var(--red); line-height: 1;
+  font-family: 'Inter', sans-serif;
+  font-size: 36px; font-weight: 800; color: var(--red); line-height: 1;
 }
 .lab-section .lab-name {
-  font-family: 'Geist', sans-serif;
-  font-size: 20px; font-weight: 600; color: var(--black);
+  font-family: 'Inter', sans-serif;
+  font-size: 20px; font-weight: 700; color: var(--black);
+  letter-spacing: -0.01em;
 }
 .lab-section .lab-stack {
-  font-family: 'Geist Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 11px; letter-spacing: .04em; color: var(--text-muted);
-  margin-bottom: 26px;
+  margin-bottom: 6px;
+}
+.lab-section .lab-vibe {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px; color: var(--text-body); font-style: italic;
+  margin-bottom: 26px; max-width: 600px;
 }
 .lab-grid {
   display: grid; grid-template-columns: 1fr; gap: 22px;
@@ -79,53 +95,59 @@ body {
 .lab-card-label {
   font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
   color: var(--text-muted); margin-bottom: 10px;
+  font-family: 'JetBrains Mono', monospace;
 }
 
-/* Each combo defines its own family + sizing on shared "demo-*" classes */
-.demo-display { line-height: 1.15; color: var(--black); }
+.demo-display { line-height: 1.1; color: var(--black); }
 .demo-name    { line-height: 1.2; color: var(--black); margin-bottom: 6px; }
 .demo-meta    { color: var(--text-muted); font-size: 12px; letter-spacing: .04em; }
 .demo-place   { color: var(--black); line-height: 1; }
-.demo-body    { color: var(--text-body); font-size: 14px; line-height: 1.5; }
+.demo-body    { color: var(--text-body); font-size: 14px; line-height: 1.55; }
 .demo-mono    { color: var(--text-muted); font-size: 11px; letter-spacing: .04em; }
 
-/* === A — Geist + Geist + Geist Mono ============================== */
-.combo-a { font-family: 'Geist', sans-serif; }
-.combo-a .demo-display { font-family: 'Geist', sans-serif; font-weight: 600; font-size: 24px; letter-spacing: -0.02em; }
-.combo-a .demo-name    { font-family: 'Geist', sans-serif; font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
-.combo-a .demo-meta    { font-family: 'Geist Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
-.combo-a .demo-place   { font-family: 'Geist', sans-serif; font-weight: 700; font-size: 36px; }
-.combo-a .demo-body    { font-family: 'Geist', sans-serif; font-weight: 400; }
-.combo-a .demo-mono    { font-family: 'Geist Mono', monospace; }
+/* === E — Anton + Inter + JetBrains Mono ============================
+   Anton is condensed, uppercase-friendly, very heavy. Vintage poster
+   energy. Pair with Inter for readable body. */
+.combo-e .demo-display { font-family: 'Anton', sans-serif; font-size: 30px; letter-spacing: .01em; text-transform: uppercase; }
+.combo-e .demo-name    { font-family: 'Anton', sans-serif; font-size: 22px; letter-spacing: .01em; text-transform: uppercase; }
+.combo-e .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-e .demo-place   { font-family: 'Anton', sans-serif; font-size: 44px; }
+.combo-e .demo-body    { font-family: 'Inter', sans-serif; font-weight: 400; }
+.combo-e .demo-mono    { font-family: 'JetBrains Mono', monospace; }
+.combo-e .show-card-name { font-family: 'Anton', sans-serif; font-size: 22px; text-transform: uppercase; letter-spacing: .01em; }
 
-/* === B — Cabinet Grotesk + Switzer + JetBrains Mono ============== */
-.combo-b { font-family: 'Switzer', sans-serif; }
-.combo-b .demo-display { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -0.02em; }
-.combo-b .demo-name    { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 700; font-size: 18px; }
-.combo-b .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
-.combo-b .demo-place   { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 800; font-size: 38px; }
-.combo-b .demo-body    { font-family: 'Switzer', sans-serif; font-weight: 500; }
-.combo-b .demo-mono    { font-family: 'JetBrains Mono', monospace; }
+/* === F — Clash Display + Switzer + JetBrains Mono =================
+   Clash Display is heavy, geometric-grotesque, very 2024 brand work.
+   More refined than Anton — has shape variation across letters. */
+.combo-f .demo-display { font-family: 'Clash Display', sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.01em; }
+.combo-f .demo-name    { font-family: 'Clash Display', sans-serif; font-weight: 700; font-size: 19px; letter-spacing: -0.01em; }
+.combo-f .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-f .demo-place   { font-family: 'Clash Display', sans-serif; font-weight: 700; font-size: 42px; }
+.combo-f .demo-body    { font-family: 'Switzer', sans-serif; font-weight: 500; }
+.combo-f .demo-mono    { font-family: 'JetBrains Mono', monospace; }
 
-/* === C — Manrope + Manrope + DM Mono ============================= */
-.combo-c { font-family: 'Manrope', sans-serif; }
-.combo-c .demo-display { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -0.03em; }
-.combo-c .demo-name    { font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
-.combo-c .demo-meta    { font-family: 'DM Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
-.combo-c .demo-place   { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 38px; }
-.combo-c .demo-body    { font-family: 'Manrope', sans-serif; font-weight: 500; }
-.combo-c .demo-mono    { font-family: 'DM Mono', monospace; }
+/* === G — Big Shoulders Display + Inter + JetBrains Mono ===========
+   Big Shoulders is condensed-ish industrial-feeling, heavy, has slab
+   energy without being a slab serif. Made for civic/sports identities. */
+.combo-g .demo-display { font-family: 'Big Shoulders Display', sans-serif; font-weight: 800; font-size: 32px; letter-spacing: -0.01em; line-height: 1; }
+.combo-g .demo-name    { font-family: 'Big Shoulders Display', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.005em; line-height: 1.05; }
+.combo-g .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-g .demo-place   { font-family: 'Big Shoulders Display', sans-serif; font-weight: 800; font-size: 48px; }
+.combo-g .demo-body    { font-family: 'Inter', sans-serif; font-weight: 400; }
+.combo-g .demo-mono    { font-family: 'JetBrains Mono', monospace; }
 
-/* === D — Fraunces + Inter + JetBrains Mono ======================= */
-.combo-d { font-family: 'Inter', sans-serif; }
-.combo-d .demo-display { font-family: 'Fraunces', serif; font-weight: 700; font-size: 28px; font-variation-settings: "opsz" 144; letter-spacing: -0.01em; }
-.combo-d .demo-name    { font-family: 'Fraunces', serif; font-weight: 700; font-size: 19px; font-variation-settings: "opsz" 36; }
-.combo-d .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
-.combo-d .demo-place   { font-family: 'Fraunces', serif; font-weight: 800; font-size: 40px; font-variation-settings: "opsz" 144; }
-.combo-d .demo-body    { font-family: 'Inter', sans-serif; font-weight: 400; }
-.combo-d .demo-mono    { font-family: 'JetBrains Mono', monospace; }
+/* === H — Funnel Display + Funnel Sans + JetBrains Mono ============
+   Funnel is a 2024 Google Fonts release — heavy weights have a
+   distinctive geometry with tiny quirks. Less imposing than the
+   others, more "designed." */
+.combo-h .demo-display { font-family: 'Funnel Display', sans-serif; font-weight: 800; font-size: 30px; letter-spacing: -0.02em; }
+.combo-h .demo-name    { font-family: 'Funnel Display', sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; }
+.combo-h .demo-meta    { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+.combo-h .demo-place   { font-family: 'Funnel Display', sans-serif; font-weight: 800; font-size: 44px; }
+.combo-h .demo-body    { font-family: 'Funnel Sans', sans-serif; font-weight: 400; }
+.combo-h .demo-mono    { font-family: 'JetBrains Mono', monospace; }
 
-/* === Demo content: show card / class header / standings row ======= */
+/* === Demo content === */
 .demo-show-card {
   display: flex; gap: 14px; align-items: center;
   padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px;
@@ -161,21 +183,23 @@ body {
 <body>
 
 <div class="lab-nav">
-  <span class="lab-nav-title">WEST · Font Lab</span>
-  <a href="#a">A — Geist</a>
-  <a href="#b">B — Cabinet Grotesk</a>
-  <a href="#c">C — Manrope</a>
-  <a href="#d">D — Fraunces</a>
-  <span class="lab-nav-sub">scroll · same content · different fonts</span>
+  <span class="lab-nav-title">WEST · Font Lab — Round 2</span>
+  <a href="#e">E — Anton</a>
+  <a href="#f">F — Clash Display</a>
+  <a href="#g">G — Big Shoulders</a>
+  <a href="#h">H — Funnel Display</a>
+  <span class="lab-nav-sub">heavy sans · strong presence</span>
+  <div class="lab-nav-pitch">// round 1 (Geist / Cabinet / Manrope / Fraunces) felt too polite. round 2 picks fonts that PUNCH like the serif W in the logo, but in sans</div>
 </div>
 
-<!-- ─── A · Geist ─── -->
-<section class="lab-section combo-a" id="a">
+<!-- ─── E · Anton ─── -->
+<section class="lab-section combo-e" id="e">
   <div class="lab-title">
-    <div class="lab-letter">A</div>
+    <div class="lab-letter">E</div>
     <div>
-      <div class="lab-name">Vercel-style — Geist family</div>
-      <div class="lab-stack">Geist (display + body) · Geist Mono (codes)</div>
+      <div class="lab-name">Anton — vintage poster heavy</div>
+      <div class="lab-stack">Anton (display, uppercase) · Inter (body) · JetBrains Mono (codes)</div>
+      <div class="lab-vibe">Anton is a single weight: BIG. Condensed, all-caps, racing-poster energy. Massive presence at hero sizes; pair with Inter for legible body.</div>
     </div>
   </div>
   <div class="lab-grid">
@@ -184,7 +208,7 @@ body {
       <div class="demo-show-card">
         <div class="dot"></div>
         <div class="body">
-          <div class="demo-name">HITS Culpeper Spring</div>
+          <div class="show-card-name">HITS Culpeper Spring</div>
           <div class="demo-meta">Apr 21–22, 2026 · Culpeper, VA</div>
         </div>
       </div>
@@ -208,10 +232,10 @@ body {
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Standings (first 4)</div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">1</span><span class="horse demo-name" style="font-size:15px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">2</span><span class="horse demo-name" style="font-size:15px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">3</span><span class="horse demo-name" style="font-size:15px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">4</span><span class="horse demo-name" style="font-size:15px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Body sample (description)</div>
@@ -225,13 +249,14 @@ body {
   </div>
 </section>
 
-<!-- ─── B · Cabinet Grotesk + Switzer ─── -->
-<section class="lab-section combo-b" id="b">
+<!-- ─── F · Clash Display ─── -->
+<section class="lab-section combo-f" id="f">
   <div class="lab-title">
-    <div class="lab-letter">B</div>
+    <div class="lab-letter">F</div>
     <div>
-      <div class="lab-name">Editorial-with-personality — Cabinet Grotesk + Switzer</div>
-      <div class="lab-stack">Cabinet Grotesk (display) · Switzer (body) · JetBrains Mono (codes)</div>
+      <div class="lab-name">Clash Display — bold contemporary brand</div>
+      <div class="lab-stack">Clash Display (display) · Switzer (body) · JetBrains Mono (codes)</div>
+      <div class="lab-vibe">Heavy and confident, but more refined than Anton. Geometric grotesque with shape variation between letters. Reads "indie design studio in 2024."</div>
     </div>
   </div>
   <div class="lab-grid">
@@ -264,10 +289,10 @@ body {
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Standings (first 4)</div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">1</span><span class="horse demo-name" style="font-size:15px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">2</span><span class="horse demo-name" style="font-size:15px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">3</span><span class="horse demo-name" style="font-size:15px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">4</span><span class="horse demo-name" style="font-size:15px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Body sample (description)</div>
@@ -281,13 +306,14 @@ body {
   </div>
 </section>
 
-<!-- ─── C · Manrope ─── -->
-<section class="lab-section combo-c" id="c">
+<!-- ─── G · Big Shoulders Display ─── -->
+<section class="lab-section combo-g" id="g">
   <div class="lab-title">
-    <div class="lab-letter">C</div>
+    <div class="lab-letter">G</div>
     <div>
-      <div class="lab-name">Single-family minimalism — Manrope</div>
-      <div class="lab-stack">Manrope (display + body, weight contrast) · DM Mono (codes)</div>
+      <div class="lab-name">Big Shoulders — civic / sports identity</div>
+      <div class="lab-stack">Big Shoulders Display (display) · Inter (body) · JetBrains Mono (codes)</div>
+      <div class="lab-vibe">Designed for the City of Chicago's identity — heavy, slightly industrial, has slab-serif energy without serifs. Reads "athletic" + "established" simultaneously. Probably the closest match to a horse-show brand.</div>
     </div>
   </div>
   <div class="lab-grid">
@@ -320,10 +346,10 @@ body {
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Standings (first 4)</div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">1</span><span class="horse demo-name" style="font-size:15px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">2</span><span class="horse demo-name" style="font-size:15px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">3</span><span class="horse demo-name" style="font-size:15px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">4</span><span class="horse demo-name" style="font-size:15px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Body sample (description)</div>
@@ -337,13 +363,14 @@ body {
   </div>
 </section>
 
-<!-- ─── D · Fraunces + Inter ─── -->
-<section class="lab-section combo-d" id="d">
+<!-- ─── H · Funnel Display ─── -->
+<section class="lab-section combo-h" id="h">
   <div class="lab-title">
-    <div class="lab-letter">D</div>
+    <div class="lab-letter">H</div>
     <div>
-      <div class="lab-name">Editorial-equestrian — Fraunces + Inter</div>
-      <div class="lab-stack">Fraunces (display, modern serif) · Inter (body) · JetBrains Mono (codes)</div>
+      <div class="lab-name">Funnel Display — characterful 2024 release</div>
+      <div class="lab-stack">Funnel Display (display) · Funnel Sans (body) · JetBrains Mono (codes)</div>
+      <div class="lab-vibe">Newest of the four. Heavy weights have presence but with subtle quirks (rounded corners, shape variations). More "designed by hand" than the others. Single family across display + body.</div>
     </div>
   </div>
   <div class="lab-grid">
@@ -376,10 +403,10 @@ body {
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Standings (first 4)</div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">1</span><span class="horse demo-name" style="font-size:14px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">2</span><span class="horse demo-name" style="font-size:14px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">3</span><span class="horse demo-name" style="font-size:14px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
-      <div class="demo-standings-row"><span class="demo-place" style="font-size:18px;">4</span><span class="horse demo-name" style="font-size:14px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">1</span><span class="horse demo-name" style="font-size:15px;">Catch Me If You Can</span><span class="nums demo-mono">0 / 65.234</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">2</span><span class="horse demo-name" style="font-size:15px;">Diamonds Are Forever</span><span class="nums demo-mono">0 / 67.041</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">3</span><span class="horse demo-name" style="font-size:15px;">Quicksilver</span><span class="nums demo-mono">4 / 64.820</span></div>
+      <div class="demo-standings-row"><span class="demo-place" style="font-size:20px;">4</span><span class="horse demo-name" style="font-size:15px;">Above and Beyond</span><span class="nums demo-mono">4 / 66.117</span></div>
     </div>
     <div class="lab-card">
       <div class="lab-card-label">Body sample (description)</div>
