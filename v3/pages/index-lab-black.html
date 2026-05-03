@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>WEST · Index Lab — Equipe-inspired pitch</title>
+<title>WEST · Index Lab — BLACK variant</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <!-- Big Shoulders Display + Inter + JetBrains Mono (the "G" combo) -->
@@ -12,8 +12,8 @@
 
 <style>
 :root {
-  --navy: #14213d;
-  --navy-2: #1c2a4a;
+  --navy: #0a0a0a;       /* "navy" repurposed as deep black for this variant */
+  --navy-2: #1a1a1a;
   --black: #111111;
   --red: #b82025;
   --green: #2e7d32;
@@ -121,7 +121,7 @@ a { color: inherit; text-decoration: none; }
 }
 .filter-input:focus {
   border-color: var(--navy);
-  box-shadow: 0 0 0 3px rgba(20,33,61,0.08);
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.08);
 }
 .tabs {
   display: inline-flex; background: #eaecef; border-radius: 8px; padding: 3px;
@@ -366,8 +366,8 @@ footer {
 
 <div style="background:#fffbeb;border-bottom:1px solid #fde68a;padding:8px 24px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;color:#92400e;display:flex;gap:14px;align-items:center;">
   <span>Compare:</span>
-  <a href="index-lab.html" style="color:#92400e;font-weight:600;text-decoration:underline;">Navy</a>
-  <a href="index-lab-black.html" style="color:#92400e;text-decoration:none;">Black</a>
+  <a href="index-lab.html" style="color:#92400e;text-decoration:none;">Navy</a>
+  <a href="index-lab-black.html" style="color:#92400e;font-weight:600;text-decoration:underline;">Black</a>
 </div>
 
 <header class="app-header">
@@ -445,7 +445,6 @@ footer {
     </div>
   </li>
 
-  <!-- second active show — collapsed, has its own live state -->
   <li class="show-row">
     <div class="show-logo-cell placeholder">WC</div>
     <div class="show-info">
@@ -462,7 +461,6 @@ footer {
     </div>
   </li>
 
-  <!-- third active show — active by status but no rings currently scoring -->
   <li class="show-row">
     <div class="show-logo-cell placeholder">PB</div>
     <div class="show-info">
