@@ -12,16 +12,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="west.css">
 <style>
-  /* show.html-specific extras: per-show logo + weather card.
-     Per-show logo is opt-in via assets/show-logos/<slug>.png (file
-     convention — drop a PNG named after the slug, image hides on 404). */
-  .hero-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
-  .hero-logo {
-    max-height: 80px; max-width: 160px;
-    width: auto; height: auto; flex-shrink: 0;
-    object-fit: contain;
-  }
-  .hero-text { flex: 1; min-width: 240px; }
+  /* Page-specific extras: weather card. The .hero-row / .hero-logo /
+     .hero-text layout is in west.css so ring.html + class.html share. */
 
   .weather-section {
     max-width: 1100px; margin: 0 auto; padding: 8px 12px 0;

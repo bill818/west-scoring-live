@@ -124,7 +124,14 @@ function renderHero(show, ring, cls) {
     }
   }
   const hero = document.getElementById('hero');
-  hero.innerHTML = parts.join('');
+  const logoUrl = show.logo_url
+    ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
+    : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
+  hero.innerHTML = `
+    <div class="hero-row">
+      <img class="hero-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
+      <div class="hero-text">${parts.join('')}</div>
+    </div>`;
   hero.className = 'hero hero-' + (cls.class_type || 'u').toLowerCase();
   const btnJV = document.getElementById('btnJudgeView');
   if (btnJV) {

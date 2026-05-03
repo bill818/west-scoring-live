@@ -22,6 +22,15 @@
   .logo-empty { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); flex: 1; }
   .logo-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: auto; }
   .logo-actions .btn-secondary { font-size: 12px; padding: 6px 12px; }
+
+  /* Show-header logo (top of admin detail pane) */
+  .show-header-logo {
+    max-height: 56px; max-width: 100px;
+    width: auto; height: auto;
+    object-fit: contain;
+    flex-shrink: 0;
+    margin-right: 6px;
+  }
 </style>
 </head>
 <body>
@@ -72,6 +81,7 @@
     <div id="showDetail" hidden>
       <div class="show-header">
         <div class="show-title-row">
+          <img class="show-header-logo" id="showHeaderLogo" alt="" style="display:none;">
           <h1 class="show-title" id="showTitle"></h1>
           <div class="show-title-actions">
             <button class="btn-secondary" id="btnEditShow">Edit</button>
@@ -465,6 +475,16 @@ async function selectShow(slug) {
   document.getElementById('showLocation').textContent = show.location || '—';
   document.getElementById('showStatus').textContent = show.status || 'pending';
   document.getElementById('showStatsEligible').textContent = show.stats_eligible === 0 ? 'excluded' : 'included';
+  // Show logo in the header — sourced from the worker when uploaded,
+  // hidden when no logo on this show.
+  const headerLogo = document.getElementById('showHeaderLogo');
+  if (show.logo_url) {
+    headerLogo.src = `${BASE}/v3/showLogo?slug=${encodeURIComponent(slug)}&t=${Date.now()}`;
+    headerLogo.style.display = '';
+  } else {
+    headerLogo.removeAttribute('src');
+    headerLogo.style.display = 'none';
+  }
   await loadRings(slug);
   await loadClasses(slug);
 }

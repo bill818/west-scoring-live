@@ -77,11 +77,18 @@ function renderHero() {
   const ring = state.ring;
   const show = state.show;
   const liveCount = state.classes.filter(c => !c.deleted_at).length;
-  const parts = [];
-  parts.push(`<div class="hero-name">${escapeHtml(ring.name || `Ring ${ring.ring_num}`)}</div>`);
-  parts.push(`<div class="hero-dates">${escapeHtml(show.name)} · Ring ${ring.ring_num}</div>`);
-  parts.push(`<div class="hero-location">${liveCount === 1 ? '1 class' : `${liveCount} classes`}</div>`);
-  document.getElementById('hero').innerHTML = parts.join('');
+  const logoUrl = show.logo_url
+    ? `${WEST.api.BASE}/v3/showLogo?slug=${encodeURIComponent(show.slug)}`
+    : `../../assets/show-logos/${encodeURIComponent(show.slug)}.png`;
+  const text = [];
+  text.push(`<div class="hero-name">${escapeHtml(ring.name || `Ring ${ring.ring_num}`)}</div>`);
+  text.push(`<div class="hero-dates">${escapeHtml(show.name)} · Ring ${ring.ring_num}</div>`);
+  text.push(`<div class="hero-location">${liveCount === 1 ? '1 class' : `${liveCount} classes`}</div>`);
+  document.getElementById('hero').innerHTML = `
+    <div class="hero-row">
+      <img class="hero-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'">
+      <div class="hero-text">${text.join('')}</div>
+    </div>`;
   document.getElementById('bcShow').textContent = show.name;
   document.getElementById('bcShow').href = `show.html?slug=${encodeURIComponent(show.slug)}`;
   document.getElementById('bcRing').textContent = ring.name || `Ring ${ring.ring_num}`;

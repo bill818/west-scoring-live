@@ -702,3 +702,11 @@ footer a{color:var(--blue);}
 .drawer-footer{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-shrink:0;background:var(--off-white);}
 .drawer-footer-spacer{flex:1;}
 @media(max-width:600px){.drawer{width:100vw;border-left:none;}}
+
+/* ── HERO ROW (logo + text) ──────────────────────────────────────────
+   Used by show.html, ring.html, class.html. Logo on the left, text
+   on the right; logo hides on 404 (set img.style.display='none' in
+   onerror). When no logo, hero-text takes full width via flex. */
+.hero-row{display:flex;gap:20px;align-items:center;flex-wrap:wrap;}
+.hero-logo{max-height:80px;max-width:160px;width:auto;height:auto;flex-shrink:0;object-fit:contain;}
+.hero-text{flex:1;min-width:240px;}
