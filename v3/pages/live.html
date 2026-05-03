@@ -45,12 +45,15 @@
               color: var(--red); margin: 0 3px; }
   .logo-scoring { font-family: var(--font-mono); font-size: 12px;
                   color: var(--red); letter-spacing: 0.04em; }
+  /* Header ring/show breadcrumb — sits in the new white .app-header,
+     so colors are dark-on-light (was light-on-dark for the legacy header). */
   .header-ring {
-    margin-left: auto; display: flex; align-items: center; gap: 10px;
-    font-family: var(--font-mono); font-size: 11px;
-    letter-spacing: 0.06em; color: #ddd;
+    display: flex; align-items: baseline; gap: 6px;
+    font-family: var(--font-mono); font-size: 12px;
+    letter-spacing: 0.04em; color: var(--text-muted);
+    margin-left: 16px;
   }
-  .header-ring .ring-slug { color: #fff; }
+  .header-ring .ring-slug { color: var(--text-body); }
   .header-ring .ring-num  { color: var(--red); font-weight: 600; }
   .live-pill-hdr {
     display: inline-flex; align-items: center; gap: 5px;
@@ -346,6 +349,306 @@
     margin-top: 8px;
   }
   .recent-events table { width: 100%; border-collapse: collapse; }
+
+  /* ── Live page production layout (ported from live-lab 2026-05-03) ──
+     Pinned live box at top + stacked class panel(s) below. Multi-class
+     support is mocked here; real multi-class wiring needs a worker DO
+     refactor (carry multiple concurrent classes per ring-state). */
+  .page-wrap {
+    max-width: 1200px; margin: 0 auto;
+    padding: 18px 16px 40px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  /* Live box wide-wrapper — sits inside .page-wrap on desktop (1200px
+     constraint is fine there); breaks out edge-to-edge on mobile only,
+     where every pixel of horizontal real estate matters. */
+  .live-box-wrap-wide { max-width: 1200px; margin: 0 auto; }
+  .live-box {
+    background: var(--row-bg); border: 1px solid var(--border-strong);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,.06);
+  }
+  .live-box-banner {
+    background: var(--navy); color: #fff;
+    padding: 10px 18px;
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 16px; letter-spacing: .08em;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .live-box-banner::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%;
+    background: #4ade80;
+    animation: live-pulse 1.6s infinite;
+  }
+  .live-box-banner .for {
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .04em; text-transform: none;
+    color: rgba(255,255,255,.7); font-weight: 400;
+    margin-left: auto;
+  }
+  .live-box-banner .for strong { color: #fff; font-weight: 600; }
+  @keyframes live-pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(46,125,50,.6); }
+    50%     { box-shadow: 0 0 0 8px rgba(46,125,50,0); }
+  }
+  .live-box-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border);
+  }
+  .live-box-cell {
+    background: var(--row-bg); padding: 22px 24px;
+  }
+  .live-box-cell-label {
+    font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 12px;
+  }
+  /* Identity (left cell) */
+  .live-entry-num {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 14px; color: var(--text-muted);
+    letter-spacing: .04em; margin-bottom: 6px;
+  }
+  .live-entry-num strong {
+    color: var(--text-body); font-weight: 800; font-size: 18px;
+    margin-left: 4px;
+  }
+  .live-horse {
+    font-family: var(--font-display);
+    font-weight: 800; font-size: 36px; line-height: 1.05;
+    color: var(--navy); margin-bottom: 6px;
+  }
+  .live-rider {
+    font-family: var(--font-body); font-weight: 500;
+    font-size: 16px; color: var(--text-body);
+  }
+  .live-rider .flag { color: var(--text-muted); margin-right: 6px; }
+  /* Status / clock / faults / rank (right cell) */
+  .live-status-line {
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 14px;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+  }
+  .live-status-line .round { color: var(--text-body); font-weight: 700; }
+  .live-status-line .phase { color: var(--green); font-weight: 700; }
+  .live-status-line .phase.cd, .live-status-line .phase.countdown { color: var(--red); }
+  .live-status-line .phase.intro { color: var(--text-muted); }
+  .live-status-line .phase.finished { color: var(--text-body); }
+  .live-status-line .ta { color: var(--text-muted); }
+  .live-status-line .sep { color: var(--text-faint); }
+  /* Override the legacy .oc-clock classes on the new live-clock element. */
+  .live-box-cell .oc-clock {
+    font-family: var(--font-display);
+    font-weight: 800; font-size: 56px; line-height: 1;
+    color: var(--green); letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .live-box-cell .oc-clock.finished { color: var(--text-body); }
+  .live-box-cell .oc-clock.countdown { color: var(--red); }
+  .live-box-cell .oc-clock.intro { color: var(--text-muted); }
+  .live-box-cell .oc-clock.idle { color: var(--text-faint); }
+  .live-stat {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-top: 12px;
+  }
+  .live-stat-label {
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-muted); width: 60px;
+  }
+  .live-stat-value {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 28px; line-height: 1;
+    color: var(--navy); font-variant-numeric: tabular-nums;
+  }
+  .live-stat-value.clear { color: var(--green); }
+
+  /* Class panel — header + standings container. Multi-class would loop
+     this. .is-focused = the panel that owns the live box's current rider. */
+  .class-panel {
+    background: var(--row-bg); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .class-panel.is-focused {
+    border-color: var(--navy);
+    box-shadow: 0 4px 14px rgba(0,0,0,.06);
+  }
+  .class-panel-header {
+    background: var(--navy); color: #fff;
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px;
+    font-family: var(--font-display);
+  }
+  .class-panel-num {
+    font-weight: 800; font-size: 22px; line-height: 1;
+    font-variant-numeric: tabular-nums; color: #fff;
+    padding-right: 14px; border-right: 1px solid rgba(255,255,255,.2);
+  }
+  .class-panel-name {
+    font-weight: 700; font-size: 18px; letter-spacing: .04em;
+    text-transform: uppercase; line-height: 1.2; flex: 1;
+  }
+  .class-panel-sub {
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    color: rgba(255,255,255,.6); font-weight: 400; margin-top: 4px;
+  }
+  .class-panel-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(74,222,128,.18); color: #4ade80;
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 600; padding: 5px 10px; border-radius: 999px;
+  }
+  .class-panel-pill .blink {
+    width: 6px; height: 6px; border-radius: 50%; background: #4ade80;
+    animation: live-pulse 1.6s infinite;
+  }
+  /* Inside the class panel, the standings panel wrappers (jumper/hunter)
+     don't need their own backgrounds/borders — the class-panel provides them. */
+  .class-panel .standings-wrap {
+    background: transparent; border-bottom: none;
+  }
+  /* The custom .standings-hdr the wrappers ship is redundant inside the
+     class-panel-header context — hide. */
+  .class-panel .standings-hdr { display: none; }
+
+  /* Override the centralized template's .results-table styling when
+     rendered INSIDE a class-panel — gives the live page the lab's
+     Big-Shoulders-navy place numbers + stacked horse/rider look. Class
+     and stats pages keep their existing look since this is scoped. */
+  .class-panel .results-table {
+    width: 100%; border-collapse: collapse;
+    background: transparent; border: none; border-radius: 0;
+  }
+  .class-panel .results-table thead th {
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 500;
+    text-align: left; padding: 8px 14px;
+    border-bottom: 1px solid var(--border); background: var(--off-white);
+  }
+  .class-panel .results-table tbody td {
+    padding: 10px 14px; border-bottom: 1px solid var(--off-white);
+    font-size: 13px; vertical-align: middle;
+  }
+  .class-panel .results-table tbody tr:last-child td { border-bottom: none; }
+  .class-panel .results-table tbody tr:hover { background: var(--off-white); }
+  /* Place number — Big Shoulders navy, prominent. */
+  .class-panel .results-table .entry-place {
+    font-family: var(--font-display); font-weight: 700; font-size: 18px;
+    color: var(--navy); width: 36px; text-align: right;
+    padding-left: 16px;
+  }
+  /* Entry # — mono, muted. */
+  .class-panel .results-table .entry-num {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 12px; color: var(--text-muted);
+    width: 44px; text-align: right;
+  }
+  /* Horse + Rider — break onto two lines. Horse first (Big Shoulders
+     navy), rider below (mono caps muted). Hide the em-dash separator. */
+  .class-panel .results-table .entry-horse-line { display: block; line-height: 1.2; }
+  .class-panel .results-table .entry-sep { display: none; }
+  .class-panel .results-table .entry-horse {
+    display: block;
+    font-family: var(--font-display); font-weight: 700; font-size: 15px;
+    color: var(--navy); line-height: 1.2;
+  }
+  .class-panel .results-table .entry-rider {
+    display: block;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-muted); letter-spacing: .02em;
+    margin-top: 1px;
+  }
+  .class-panel .results-table .entry-owner,
+  .class-panel .results-table .entry-pedigree {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-faint); margin-top: 2px;
+  }
+  /* Round / score columns — tabular mono, right-aligned, tight. */
+  .class-panel .results-table .entry-round,
+  .class-panel .results-table .entry-round-stack,
+  .class-panel .results-table .entry-score,
+  .class-panel .results-table .entry-combined {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    text-align: right; padding-right: 16px;
+  }
+
+  /* Mobile: drop low-priority columns to keep the table readable. */
+  @media (max-width: 640px) {
+    .class-panel .results-table thead th.col-owner,
+    .class-panel .results-table .entry-owner,
+    .class-panel .results-table .entry-pedigree { display: none; }
+  }
+
+  /* ── Live page responsive scaling ─────────────────────────────────── */
+  @media (max-width: 640px) {
+    /* Header — let the show/ring breadcrumb wrap to a second row so the
+       live pill stays beside the brand. */
+    .app-header { flex-wrap: wrap; padding: 10px 14px; gap: 8px 12px; }
+    .header-ring {
+      order: 1; flex-basis: 100%; margin-left: 0;
+      font-size: 11px;
+    }
+    .live-pill-hdr { margin-left: auto; padding: 4px 8px; font-size: 10px; }
+
+    /* Sleek mobile live box — not a scaled-down desktop. */
+    .page-wrap { padding: 12px 12px 24px; gap: 12px; }
+    /* Live box goes edge-to-edge on mobile — every pixel of horizontal
+       real estate matters here. Negative margins cancel page-wrap padding. */
+    .live-box-wrap-wide {
+      margin-left: -12px; margin-right: -12px;
+      width: calc(100% + 24px); max-width: none;
+    }
+    .live-box {
+      border-radius: 0; border-left: none; border-right: none;
+      box-shadow: none;
+    }
+    .live-box-banner { padding: 7px 12px; font-size: 12px; letter-spacing: .06em; }
+    .live-box-banner::before { width: 6px; height: 6px; }
+    .live-box-banner .for { font-size: 10px; }
+    .live-box-grid { grid-template-columns: 1fr; gap: 1px; }
+    .live-box-cell { padding: 12px 14px; }
+    .live-box-cell-label { display: none; }
+    .live-entry-num { display: inline; font-size: 11px; margin-right: 6px; vertical-align: baseline; }
+    .live-entry-num strong { font-size: 13px; }
+    .live-horse { display: inline; font-size: 18px; line-height: 1.2; vertical-align: baseline; }
+    .live-rider { display: block; font-size: 13px; margin-top: 4px; }
+    .live-box-cell:last-child {
+      display: grid; grid-template-columns: 1fr auto;
+      column-gap: 12px; row-gap: 8px; align-items: center;
+    }
+    .live-status-line { font-size: 10px; margin-bottom: 0; grid-column: 1 / -1; }
+    .live-box-cell .oc-clock {
+      font-size: 32px; line-height: 1;
+      grid-column: 2; grid-row: 2 / span 2; align-self: center;
+    }
+    .live-stat { margin-top: 0; gap: 8px; }
+    .live-stat-label { font-size: 10px; width: auto; min-width: 50px; }
+    .live-stat-value { font-size: 16px; }
+
+    /* Class panel header — tighter on small screens. */
+    .class-panel-header { padding: 10px 14px; gap: 10px; }
+    .class-panel-num { font-size: 18px; padding-right: 10px; }
+    .class-panel-name { font-size: 14px; letter-spacing: .03em; }
+    .class-panel-sub { font-size: 9px; }
+  }
+  @media (min-width: 1600px) {
+    /* TV / wide — let the live box breathe. */
+    .live-box-wrap-wide { max-width: 1700px; }
+    .live-horse { font-size: 56px; }
+    .live-rider { font-size: 22px; }
+    .live-entry-num { font-size: 18px; }
+    .live-entry-num strong { font-size: 24px; }
+    .live-box-cell .oc-clock { font-size: 120px; }
+    .live-status-line { font-size: 13px; margin-bottom: 22px; }
+    .live-stat-label { font-size: 13px; width: 80px; }
+    .live-stat-value { font-size: 44px; }
+    .live-box-cell { padding: 32px 40px; }
+  }
   .recent-events th, .recent-events td {
     padding: 4px 8px; text-align: left;
     border-bottom: 1px solid var(--border);
@@ -421,51 +724,91 @@
   </nav>
 </header>
 
-<!-- CLASS INFO BAR — class id, name, lens, transport -->
-<div class="class-bar">
-  <div class="class-bar-num" id="classBarNum">Class …</div>
-  <div class="class-bar-name" id="classBarName">—</div>
-  <div class="class-bar-sub" id="classBarSub">—</div>
-</div>
+<!-- Live-page production layout — pinned live box at top, class panel(s)
+     below. All existing IDs preserved (placed in new wrappers) so the
+     existing render() + clock callback drive the new visual without a
+     rewrite. New IDs added: liveBoxFor (banner "for · Class N"), liveFaults,
+     liveRank. -->
+<div class="page-wrap">
 
-<!-- ON-COURSE BLOCK — identity card + clock side-by-side. Clock card
-     hides entirely on hunter classes (judged, no clock) so the identity
-     card spans full width. -->
-<div class="oc-wrap" id="ocWrap">
-  <div class="oc-grid" id="ocGrid">
-    <div class="oc-card oc-card-info" id="ocInfoCard">
-      <div class="oc-no-rider" id="ocNoRider">No rider on course</div>
-      <div id="ocIdentity" style="display:none;">
-        <div class="oc-entry-num">Entry #<span id="idEntry">—</span></div>
-        <div class="oc-horse" id="idHorse">—</div>
-        <div class="oc-rider"><span id="idRider">—</span></div>
+  <!-- Pinned live box — never moves; shows whoever is currently in the
+       ring on the focused class. Breaks out edge-to-edge on mobile only. -->
+  <div class="live-box-wrap-wide">
+    <div class="live-box">
+      <div class="live-box-banner">
+        In the ring
+        <span class="for">for · Class <strong id="liveBoxFor">…</strong></span>
+      </div>
+      <div class="live-box-grid">
+        <!-- Identity cell -->
+        <div class="live-box-cell">
+          <div class="live-box-cell-label">Entry</div>
+          <div class="oc-no-rider" id="ocNoRider">No rider on course</div>
+          <div id="ocIdentity" style="display:none;">
+            <div class="live-entry-num">#<strong id="idEntry">—</strong></div>
+            <div class="live-horse" id="idHorse">—</div>
+            <div class="live-rider"><span id="idRider">—</span></div>
+          </div>
+        </div>
+        <!-- Status line + clock + faults + rank cell -->
+        <div class="live-box-cell">
+          <div class="live-status-line">
+            <span class="round" id="ocRoundLabel" style="display:none;"></span>
+            <span class="sep" id="ocRoundSep" style="display:none;">·</span>
+            <span class="phase" id="clockPhase">—</span>
+            <span class="sep" id="ocTaSep" style="display:none;">·</span>
+            <span class="ta" id="ocTaLabel" style="display:none;"></span>
+          </div>
+          <div class="oc-clock idle" id="clockBig">—</div>
+          <div class="live-stat">
+            <div class="live-stat-label">Faults</div>
+            <div class="live-stat-value" id="liveFaults">—</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label">Rank</div>
+            <div class="live-stat-value" id="liveRank">—</div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="oc-card oc-card-clock" id="ocClockCard">
-      <div class="oc-phase-label" id="clockPhase">idle</div>
-      <div class="oc-clock idle" id="clockBig">—</div>
-      <div id="ocRoundLabel" style="display:none; font-family:var(--font-mono); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--red); font-weight:600; margin-top:6px;"></div>
-      <div id="ocTaLabel" style="display:none; font-family:var(--font-mono); font-size:10px; color:var(--text-muted); margin-top:2px;"></div>
+  </div>
+
+  <!-- Single class panel for now. Multi-class would loop a template here
+       once the worker DO carries multiple concurrent classes per ring. -->
+  <div class="class-panel is-focused">
+    <div class="class-panel-header">
+      <div class="class-panel-num" id="classBarNum">…</div>
+      <div style="flex:1; min-width:0;">
+        <div class="class-panel-name" id="classBarName">—</div>
+        <div class="class-panel-sub" id="classBarSub">—</div>
+      </div>
+      <span class="class-panel-pill"><span class="blink"></span>In ring</span>
+    </div>
+
+    <!-- Standings panels — only one renders at a time depending on lens.
+         Existing IDs kept so the render() logic that picks hunter vs
+         jumper and dispatches to the templates still works as-is. -->
+    <div class="standings-wrap hidden" id="hunterStandingsPanel">
+      <div class="standings-hdr">
+        <div class="standings-title">Hunter standings</div>
+        <div class="standings-hint" id="hunterStandingsHint"></div>
+      </div>
+      <div id="hunterStandingsBox"></div>
+    </div>
+    <div class="standings-wrap hidden" id="jumperStandingsPanel">
+      <div class="standings-hdr">
+        <div class="standings-title">Jumper standings</div>
+        <div class="standings-hint" id="jumperStandingsHint"></div>
+      </div>
+      <div id="jumperStandingsBox"></div>
     </div>
   </div>
-</div>
 
-<!-- STANDINGS — hunter -->
-<div class="standings-wrap hidden" id="hunterStandingsPanel">
-  <div class="standings-hdr">
-    <div class="standings-title">Hunter standings</div>
-    <div class="standings-hint" id="hunterStandingsHint"></div>
-  </div>
-  <div id="hunterStandingsBox"></div>
-</div>
+  <!-- Other open class panels (S45 multi-class). renderOtherClassPanels()
+       fills this with one .class-panel per non-focused class in
+       snapshot.classes. Empty / hidden until multi-class data arrives. -->
+  <div id="otherClassPanels"></div>
 
-<!-- STANDINGS — jumper -->
-<div class="standings-wrap hidden" id="jumperStandingsPanel">
-  <div class="standings-hdr">
-    <div class="standings-title">Jumper standings</div>
-    <div class="standings-hint" id="jumperStandingsHint"></div>
-  </div>
-  <div id="jumperStandingsBox"></div>
 </div>
 
 <!-- Pipe status — stripped to the two operator-relevant fields. The full
@@ -582,6 +925,67 @@
     return (v == null ? '' : String(v)).replace(/[\r\n]/g, '').trim();
   }
 
+  // Render the OTHER class panels (every entry in snapshot.classes
+  // except the focused one). The focused class still renders via the
+  // existing static .class-panel above (unchanged code path); this
+  // adds the secondary panels below.
+  function renderOtherClassPanels(snapshot) {
+    var container = document.getElementById('otherClassPanels');
+    if (!container) return;
+    if (!snapshot || !Array.isArray(snapshot.classes) || snapshot.classes.length <= 1) {
+      container.innerHTML = '';
+      return;
+    }
+    var focusedId = snapshot.focused_class_id;
+    var others = snapshot.classes.filter(function (c) { return c && c.class_id !== focusedId; });
+    if (!others.length) { container.innerHTML = ''; return; }
+    var esc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml) || function (s) { return String(s == null ? '' : s); };
+    var html = '';
+    others.forEach(function (entry) {
+      var meta = entry.class_meta || {};
+      var lens = entry.class_kind || null;
+      var lensLabel = lens === 'jumper' ? 'Jumper'
+                    : lens === 'hunter' ? 'Hunter'
+                    : lens === 'equitation' ? 'Equitation' : '';
+      // Standings — always via the centralized templates so per-method
+      // round labels + recent-round-first stacking + placement rules
+      // come through identically across all class panels.
+      var standingsHtml = '';
+      try {
+        if (lens === 'hunter' && Array.isArray(entry.hunter_scores) && entry.hunter_scores.length
+            && window.WEST && window.WEST.hunterTemplates) {
+          standingsHtml = window.WEST.hunterTemplates.renderTable(meta, entry.hunter_scores);
+        } else if ((lens === 'jumper' || lens === 'equitation')
+            && Array.isArray(entry.jumper_scores) && entry.jumper_scores.length
+            && window.WEST && window.WEST.jumperTemplates) {
+          standingsHtml = window.WEST.jumperTemplates.renderTable(meta, entry.jumper_scores);
+        }
+      } catch (e) {
+        if (window.console) console.warn('[live] panel render', entry.class_id, e.message);
+      }
+      if (!standingsHtml) {
+        standingsHtml = '<div class="empty" style="padding:18px;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Awaiting standings…</div>';
+      }
+      // Idle pill (gray) for non-focused panels — the In Ring pulse
+      // belongs only to whichever panel the live box is currently
+      // narrating.
+      html += '<div class="class-panel" style="margin-top:18px;">'
+        + '<div class="class-panel-header">'
+        +   '<div class="class-panel-num">' + esc(entry.class_id) + '</div>'
+        +   '<div style="flex:1; min-width:0;">'
+        +     '<div class="class-panel-name">' + esc(meta.class_name || '—') + '</div>'
+        +     '<div class="class-panel-sub">' + esc(lensLabel) + '</div>'
+        +   '</div>'
+        +   '<span class="class-panel-pill" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);">'
+        +     '<span class="blink" style="background:rgba(255,255,255,.5);animation:none;"></span>Open'
+        +   '</span>'
+        + '</div>'
+        + '<div class="standings-wrap">' + standingsHtml + '</div>'
+        + '</div>';
+    });
+    container.innerHTML = html;
+  }
+
   function render(snapshot) {
     if (window.WEST && window.WEST.clock) {
       if (snapshot && window.WEST.clock.setMode) {
@@ -591,9 +995,9 @@
     }
     if (!snapshot) {
       setPipe('idle');
-      $('classBarNum').textContent = 'Class …';
-      $('classBarName').textContent = '—';
-      $('classBarSub').textContent = 'waiting for engine';
+      $('classBarNum').textContent = '—';
+      $('classBarName').textContent = 'Waiting for engine…';
+      $('classBarSub').textContent = '';
       $('lastUpdate').textContent  = '—';
       $('lastBatchId').textContent = '—';
       $('batchSize').textContent   = '—';
@@ -603,8 +1007,14 @@
       $('lastTags').textContent    = '—';
       $('ocIdentity').style.display = 'none';
       $('ocNoRider').style.display = '';
+      // Reset live-box-only fields to neutral.
+      $('liveBoxFor').textContent = '—';
+      $('liveFaults').textContent = '—';
+      $('liveFaults').classList.remove('clear');
+      $('liveRank').textContent = '—';
       $('hunterStandingsPanel').classList.add('hidden');
       $('jumperStandingsPanel').classList.add('hidden');
+      renderOtherClassPanels(null);
       $('eventsCount').textContent = '';
       $('eventsBox').innerHTML = '<div class="empty">Waiting for engine batches…</div>';
       return;
@@ -628,14 +1038,41 @@
     var classIdFromFocus = (lastB && lastB.tags && lastB.tags['27']) || null;
     var classNameFromFocus = (lastB && lastB.tags && lastB.tags['28']) || null;
 
-    // Class info bar — class id + name + lens
+    // Class panel header — number, name, sub. Number is just the digits
+    // (no "Class " prefix); the navy panel-header context provides the framing.
     var hdrClassId = (primary && primary.class_id) || classIdFromFocus || '—';
-    $('classBarNum').textContent = 'Class ' + hdrClassId;
+    $('classBarNum').textContent = hdrClassId;
     $('classBarName').textContent = clean(classNameFromFocus) || '—';
     var lensLabel = lens
       ? (lens === 'jumper' ? 'Jumper' : lens === 'hunter' ? 'Hunter' : lens === 'equitation' ? 'Equitation' : lens)
       : '';
     $('classBarSub').textContent = lensLabel || '(unconfigured)';
+    // Live-box banner "for · Class N" tag mirrors the focused class id.
+    $('liveBoxFor').textContent = hdrClassId;
+    // Faults + Rank for the rider currently on course. We look the entry
+    // up in the lens-appropriate scores array — "—" until they finish and
+    // get a row. (Real-time fault count during the round would need a
+    // dedicated tag stream from Ryegate; not wired today.)
+    var faultsEl = $('liveFaults'), rankEl = $('liveRank');
+    var idTags = (snapshot.last_identity && snapshot.last_identity.tags) || {};
+    var oncEntry = clean(idTags['1']) || null;
+    var liveScores = lens === 'hunter' ? snapshot.hunter_scores : snapshot.jumper_scores;
+    var liveRow = (oncEntry && Array.isArray(liveScores))
+      ? liveScores.find(function (r) { return String(r.entry_num) === String(oncEntry); })
+      : null;
+    if (liveRow) {
+      var faultsVal = liveRow.r1_faults != null ? liveRow.r1_faults
+                    : liveRow.total_score != null ? liveRow.total_score
+                    : null;
+      faultsEl.textContent = faultsVal != null ? String(faultsVal) : '—';
+      faultsEl.classList.toggle('clear', faultsVal === 0);
+      rankEl.textContent = liveRow.overall_place != null
+        ? String(liveRow.overall_place) : '—';
+    } else {
+      faultsEl.textContent = '—';
+      faultsEl.classList.remove('clear');
+      rankEl.textContent = '—';
+    }
 
     // Identity card — fed by snapshot.last_identity (most recent A
     // frame in {1,11,14}, carried forward across batches within the
@@ -977,6 +1414,11 @@
           '<th>at</th><th>ch</th><th>frame</th><th>class</th><th>tags</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table>';
     }
+
+    // Multi-class panel stack — render the OTHER (non-focused) class
+    // panels below the focused one. Empty when the snapshot only
+    // carries a single class (single-class case stays unchanged).
+    renderOtherClassPanels(snapshot);
   }
 
   // ── Transport state ───────────────────────────────────────────────────────
@@ -1102,37 +1544,76 @@
   }
   // ── Mock mode (?mock=1 / ?mock=hunter) ────────────────────────────────────
   // Hard-coded snapshot for visual iteration. Bypasses WS/polling so no
-  // worker round-trip is needed. Ticks every 250ms; cycles through three
-  // riders, each progressing INTRO → COUNTDOWN → ON_COURSE → FINISHED.
+  // worker round-trip is needed. Ticks every 250ms.
+  //
+  // S45 multi-class refactor: the snapshot now carries .classes (array of
+  // per-class state) and .focused_class_id. Focus rotates through 3 classes
+  // every CYCLE_MS so you can see the panel stack reorder + the live box
+  // re-narrate. During each class's focus turn, ONE rider goes through
+  // INTRO → COUNTDOWN → ON_COURSE → FINISHED.
+  //
   // Phase tags are written to last_scoring.tags on Channel A frame 1
   // (the only frame west-clock.js reads).
-  var MOCK_RIDERS = [
-    { entry: '237', horse: 'CATCH ME IF YOU CAN',    rider: 'BRIDGET HALLMAN',    owner: 'STARGAZER FARM',       country: 'USA', finish: '8.234' },
-    { entry: '108', horse: 'DIAMONDS ARE FOREVER',   rider: 'DANIEL COYLE',       owner: 'SUSAN GRANGE',         country: 'IRL', finish: '7.812' },
-    { entry: '142', horse: 'QUICKSILVER',            rider: 'JESSICA SPRINGSTEEN',owner: 'SPRINGSTEEN STABLES',  country: 'USA', finish: '9.105' },
-  ];
+  var MOCK_CLASSES = MOCK_LENS === 'hunter'
+    ? [
+        // Hunter mock — single class for now (multi-class hunter cycling
+        // would need its own per-rider phase model; treat as future work).
+        { id: '214', name: '3\' Working Hunter', sub: 'Hunter · 32 entries',
+          rider: { entry: '044', horse: 'QUINTESSENTIAL', rider: 'KELLEY FARMER', owner: 'LARRY GLEFKE', country: 'USA', finish: '0' },
+          meta: { class_id: '214', class_name: '3\' Working Hunter', scoring_method: 4, scoring_modifier: 0, class_type: 'H', num_judges: 2, show_flags: 0 },
+          scores: [
+            { entry_num: '044', horse_name: 'Quintessential', rider_name: 'Kelley Farmer',  owner_name: 'Larry Glefke',     overall_place: 1, total_score: 178 },
+            { entry_num: '081', horse_name: 'Brunello',       rider_name: 'Liza Boyd',      owner_name: 'Janet Peterson',   overall_place: 2, total_score: 174 },
+            { entry_num: '156', horse_name: 'Inclusive',      rider_name: 'Hunt Tosh',      owner_name: 'Ceil Wheeler',     overall_place: 3, total_score: 170 },
+          ] },
+      ]
+    : [
+        { id: '412', name: '$25,000 Welcome Stake',     sub: 'Jumper · Table II.2b · 24 entries · TA 71s',
+          rider: { entry: '237', horse: 'CATCH ME IF YOU CAN', rider: 'BRIDGET HALLMAN', owner: 'STARGAZER FARM', country: 'USA', finish: '8.234' },
+          meta: { class_id: '412', class_name: '$25,000 Welcome Stake', scoring_method: 1, scoring_modifier: 0, class_type: 'J', num_judges: 1, show_flags: 1 },
+          scores: [
+            { entry_num: '108', horse_name: 'Diamonds Are Forever', rider_name: 'Daniel Coyle',         owner_name: 'Susan Grange',          country_code: 'IRL', overall_place: 1, r1_faults: 0, r1_time: 65.234, r1_status: null },
+            { entry_num: '142', horse_name: 'Quicksilver',          rider_name: 'Jessica Springsteen',  owner_name: 'Springsteen Stables',   country_code: 'USA', overall_place: 2, r1_faults: 0, r1_time: 67.041, r1_status: null },
+            { entry_num: '094', horse_name: 'Above and Beyond',     rider_name: 'McLain Ward',          owner_name: 'Castle Hill Farm',      country_code: 'USA', overall_place: 3, r1_faults: 4, r1_time: 64.820, r1_status: null },
+            { entry_num: '256', horse_name: "Aria's Legacy",        rider_name: 'Beat Mändli',          owner_name: 'Grant Road Partners',   country_code: 'SUI', overall_place: 4, r1_faults: 4, r1_time: 66.117, r1_status: null },
+            { entry_num: '171', horse_name: 'Cassiopeia',           rider_name: 'Karl Cook',            owner_name: 'Signe Ostby',           country_code: 'USA', overall_place: 5, r1_faults: 8, r1_time: 67.890, r1_status: null },
+          ] },
+        { id: '410', name: 'Junior/AO Jumper Classic', sub: 'Jumper · Table II.1 · 18 entries · TA 65s',
+          rider: { entry: '317', horse: 'SECOND CHANCE', rider: 'LILLIE KEENAN', owner: 'CHANSONETTE FARM', country: 'USA', finish: '7.018' },
+          meta: { class_id: '410', class_name: 'Junior/AO Jumper Classic', scoring_method: 1, scoring_modifier: 0, class_type: 'J', num_judges: 1, show_flags: 1 },
+          scores: [
+            { entry_num: '317', horse_name: 'Second Chance', rider_name: 'Lillie Keenan',   owner_name: 'Chansonette Farm', country_code: 'USA', overall_place: 1, r1_faults: 0, r1_time: 61.118 },
+            { entry_num: '228', horse_name: 'Greyson',       rider_name: 'Spencer Smith',   owner_name: 'Stranger Things',  country_code: 'USA', overall_place: 2, r1_faults: 0, r1_time: 62.504 },
+            { entry_num: '044', horse_name: 'Hopscotch',     rider_name: 'Erynn Ballard',   owner_name: 'Ilan Ferder',       country_code: 'CAN', overall_place: 3, r1_faults: 4, r1_time: 60.330 },
+          ] },
+        { id: '408', name: '$5,000 Open Speed', sub: 'Jumper · Table II.2a · 32 entries · TA 58s',
+          rider: { entry: '119', horse: 'TIME WILL TELL', rider: 'MARGIE ENGLE', owner: 'GLADEWINDS PARTNERS', country: 'USA', finish: '5.844' },
+          meta: { class_id: '408', class_name: '$5,000 Open Speed', scoring_method: 1, scoring_modifier: 0, class_type: 'J', num_judges: 1, show_flags: 1 },
+          scores: [
+            { entry_num: '119', horse_name: 'Time Will Tell', rider_name: 'Margie Engle',     owner_name: 'Gladewinds Partners', country_code: 'USA', overall_place: 1, r1_faults: 0, r1_time: 53.224 },
+            { entry_num: '203', horse_name: 'Finesse',        rider_name: 'Andres Azcarraga', owner_name: 'Azcarraga Family',     country_code: 'MEX', overall_place: 2, r1_faults: 0, r1_time: 54.118 },
+          ] },
+      ];
   var PHASE_MS = { intro: 2000, countdown: 4000, on_course: 6000, finished: 2000 };
   var CYCLE_MS = PHASE_MS.intro + PHASE_MS.countdown + PHASE_MS.on_course + PHASE_MS.finished;
   var mockStartedAt = Date.now();
 
   function buildMockSnapshot() {
     var elapsed = Date.now() - mockStartedAt;
-    var riderIdx = Math.floor(elapsed / CYCLE_MS) % MOCK_RIDERS.length;
+    var classIdx = Math.floor(elapsed / CYCLE_MS) % MOCK_CLASSES.length;
     var inCycle  = elapsed % CYCLE_MS;
-    var rider = MOCK_RIDERS[riderIdx];
+    var focused = MOCK_CLASSES[classIdx];
+    var rider = focused.rider;
+    var classMeta = focused.meta;
 
-    // Build the clock tags based on where we are in the cycle.
-    // INTRO: entry only (no {17}, no {23}) → clock module shows "-45" hold
-    // COUNTDOWN: {23} ticks from -4 up to 0
-    // ON_COURSE: {17} = 0 (integer); clock module interpolates fractional seconds
-    // FINISHED: {17} = decimal value; clock locks at finalValue
-    var clockTags = { '1': rider.entry, '13': '71' /* TA — drives round label */ };
+    // Phase-driven clock tags. INTRO: entry only · COUNTDOWN: {23} ticks ·
+    // ON_COURSE: {17}=0 (clock interpolates) · FINISHED: {17}=decimal locks.
+    var clockTags = { '1': rider.entry, '13': '71' };
     var cursor = inCycle;
     if (cursor < PHASE_MS.intro) {
-      // intro — no clock tag
+      // intro
     } else if ((cursor -= PHASE_MS.intro) < PHASE_MS.countdown) {
-      var cdSec = -Math.ceil((PHASE_MS.countdown - cursor) / 1000);
-      clockTags['23'] = String(cdSec);
+      clockTags['23'] = String(-Math.ceil((PHASE_MS.countdown - cursor) / 1000));
     } else if ((cursor -= PHASE_MS.countdown) < PHASE_MS.on_course) {
       clockTags['17'] = '0';
     } else {
@@ -1140,53 +1621,54 @@
     }
 
     var nowIso = new Date().toISOString();
-    var classMeta = MOCK_LENS === 'hunter'
-      ? { class_id: '214', class_name: '3\' Working Hunter',     scoring_method: 4, scoring_modifier: 0, class_type: 'H', num_judges: 2, show_flags: 0 }
-      : { class_id: '412', class_name: '$25,000 Welcome Stake', scoring_method: 1, scoring_modifier: 0, class_type: 'J', num_judges: 1, show_flags: 1 };
 
-    var snap = {
-      slug: slug,
-      ring_num: ringNum,
-      received_at: nowIso,
+    // Build the .classes panel stack — every class always present, but
+    // the FOCUSED one gets a fresh last_seen_at so it sorts to the top.
+    // Other classes' last_seen_at stays at their own previous focus turn.
+    var classes = MOCK_CLASSES.map(function (c) {
+      var lastSeenMs = c === focused
+        ? Date.now()
+        : Date.now() - ((MOCK_CLASSES.indexOf(c) - classIdx + MOCK_CLASSES.length) % MOCK_CLASSES.length) * CYCLE_MS;
+      return {
+        class_id: c.id,
+        class_kind: MOCK_LENS,
+        class_meta: c.meta,
+        jumper_scores: MOCK_LENS !== 'hunter' ? c.scores : null,
+        hunter_scores: MOCK_LENS === 'hunter' ? c.scores : null,
+        hunter_seen: null,
+        last_scoring: null, last_focus: null, last_identity: null,
+        last_seen_at: new Date(lastSeenMs).toISOString(),
+      };
+    });
+    // Sort most-recent-focus first (matches DO behavior).
+    classes.sort(function (a, b) {
+      return String(b.last_seen_at).localeCompare(String(a.last_seen_at));
+    });
+
+    return {
+      slug: slug, ring_num: ringNum, received_at: nowIso,
       batch_id: 'mock-' + Math.floor(Date.now() / 1000),
-      class_kind: MOCK_LENS,
-      live_running_tenth: true,
-      events: [],
+      class_kind: MOCK_LENS, live_running_tenth: true, events: [],
       class_meta: classMeta,
-      // Identity card — Channel A frame 1 carries entry/horse/rider/owner/country.
       last_identity: {
         class_id: classMeta.class_id, channel: 'A', frame: 1, received_at: nowIso,
         tags: { '1': rider.entry, '2': rider.horse, '3': rider.rider, '4': rider.owner, '5': rider.country },
       },
-      // Scoring frame (also Channel A frame 1 — clock module reads this only).
-      // Tags carry the phase-driven clock state.
       last_scoring: {
         class_id: classMeta.class_id, channel: 'A', frame: 1, received_at: nowIso,
         tags: clockTags,
       },
-      // Focus frame — class id + name appear in the class info bar.
       last_focus: {
         class_id: classMeta.class_id, channel: 'B', frame: 28, received_at: nowIso,
         tags: { '27': classMeta.class_id, '28': classMeta.class_name },
       },
+      // Top-level standings = focused class's standings (backwards compat).
+      jumper_scores: MOCK_LENS !== 'hunter' ? focused.scores : undefined,
+      hunter_scores: MOCK_LENS === 'hunter' ? focused.scores : undefined,
+      // S45 — multi-class envelope.
+      focused_class_id: classMeta.class_id,
+      classes: classes,
     };
-    if (MOCK_LENS === 'jumper') {
-      snap.jumper_scores = [
-        { entry_num: '108', horse_name: 'Diamonds Are Forever', rider_name: 'Daniel Coyle',         owner_name: 'Susan Grange',          country_code: 'IRL', overall_place: 1, r1_faults: 0, r1_time: 65.234, r1_status: null },
-        { entry_num: '142', horse_name: 'Quicksilver',          rider_name: 'Jessica Springsteen',  owner_name: 'Springsteen Stables',   country_code: 'USA', overall_place: 2, r1_faults: 0, r1_time: 67.041, r1_status: null },
-        { entry_num: '094', horse_name: 'Above and Beyond',     rider_name: 'McLain Ward',          owner_name: 'Castle Hill Farm',      country_code: 'USA', overall_place: 3, r1_faults: 4, r1_time: 64.820, r1_status: null },
-        { entry_num: '256', horse_name: "Aria's Legacy",        rider_name: 'Beat Mändli',          owner_name: 'Grant Road Partners',   country_code: 'SUI', overall_place: 4, r1_faults: 4, r1_time: 66.117, r1_status: null },
-        { entry_num: '171', horse_name: 'Cassiopeia',           rider_name: 'Karl Cook',            owner_name: 'Signe Ostby',           country_code: 'USA', overall_place: 5, r1_faults: 8, r1_time: 67.890, r1_status: null },
-      ];
-    } else {
-      snap.hunter_scores = [
-        { entry_num: '044', horse_name: 'Quintessential', rider_name: 'Kelley Farmer',  owner_name: 'Larry Glefke',     overall_place: 1, total_score: 178, judge_a: 89, judge_b: 89 },
-        { entry_num: '081', horse_name: 'Brunello',       rider_name: 'Liza Boyd',      owner_name: 'Janet Peterson',   overall_place: 2, total_score: 174, judge_a: 87, judge_b: 87 },
-        { entry_num: '156', horse_name: 'Inclusive',      rider_name: 'Hunt Tosh',      owner_name: 'Ceil Wheeler',     overall_place: 3, total_score: 170, judge_a: 86, judge_b: 84 },
-        { entry_num: '212', horse_name: 'Practical Joke', rider_name: 'Scott Stewart',  owner_name: 'Krista Weisman',   overall_place: 4, total_score: 165, judge_a: 82, judge_b: 83 },
-      ];
-    }
-    return snap;
   }
 
   if (MOCK_MODE) {

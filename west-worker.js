@@ -893,6 +893,76 @@ export class RingStateDO {
     this.state = state;
     this.env = env;
     this.snapshot = null;
+    // Multi-class store (S45 — Bill 2026-05-03): one entry per concurrently-
+    // open class on this ring, keyed by class_id. Each entry holds that
+    // class's own meta + standings + last_seen_at. The top-level snapshot
+    // tracks only the FOCUSED class for backwards compat; the multi-class
+    // panel stack on live.html reads .classes (sorted by recency).
+    this.byClass = {};
+  }
+
+  // Helper — pick the focused class id from the most relevant frames.
+  // Channel A scoring trumps Channel B focus; class_meta is the last fallback.
+  _focusedClassId(body) {
+    return (body.last_scoring && body.last_scoring.class_id)
+        || (body.last_focus   && body.last_focus.class_id)
+        || (body.class_meta   && body.class_meta.class_id)
+        || null;
+  }
+
+  // Helper — build the public snapshot view from the in-memory state.
+  // Keeps the top-level shape unchanged for backwards compat, plus new
+  // fields focused_class_id + classes (sorted most-recently-seen first).
+  //
+  // Stale-class eviction (Bill 2026-05-03): drop any class whose
+  // last_seen_at is more than CLASS_STALE_MS in the past. The class
+  // re-appears in the panel stack the next time a 31000 focus packet
+  // (or any event referencing it) arrives.
+  //
+  // IMPORTANT: This is UI hygiene only — it does NOT mark the class as
+  // final/complete. The class's D1 status stays untouched and no
+  // downstream "class complete" actions fire. A class is only marked
+  // final when the explicit 3× Ctrl+A → CLASS_COMPLETE signal arrives
+  // on port 31000 (wiring TBD). A 20-min idle class might be paused
+  // (operator at lunch, weather hold) and could resume — eviction is
+  // purely about keeping the live panel stack tidy.
+  _buildSnapshot(body) {
+    const CLASS_STALE_MS = 20 * 60 * 1000;
+    const cutoff = Date.now() - CLASS_STALE_MS;
+    for (const id of Object.keys(this.byClass)) {
+      const seenAt = Date.parse(this.byClass[id].last_seen_at || '');
+      if (Number.isFinite(seenAt) && seenAt < cutoff) {
+        delete this.byClass[id];
+      }
+    }
+    const classes = Object.values(this.byClass).sort((a, b) =>
+      String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
+    return {
+      ...body,
+      focused_class_id: this._focusedClassId(body),
+      classes,
+    };
+  }
+
+  // Helper — fold this batch's class-specific data into byClass[classId].
+  // Carries forward the prior entry's standings if the new batch only had
+  // Channel B (focus) frames — same rationale as the top-level carry-forward.
+  _updateByClass(body) {
+    const classId = this._focusedClassId(body);
+    if (!classId) return;
+    const prior = this.byClass[classId] || {};
+    this.byClass[classId] = {
+      class_id: classId,
+      class_kind: body.class_kind || prior.class_kind || null,
+      class_meta: body.class_meta || prior.class_meta || null,
+      jumper_scores: body.jumper_scores !== undefined ? body.jumper_scores : (prior.jumper_scores || null),
+      hunter_scores: body.hunter_scores !== undefined ? body.hunter_scores : (prior.hunter_scores || null),
+      hunter_seen:   body.hunter_seen   !== undefined ? body.hunter_seen   : (prior.hunter_seen   || null),
+      last_scoring:  body.last_scoring  || prior.last_scoring  || null,
+      last_focus:    body.last_focus    || prior.last_focus    || null,
+      last_identity: body.last_identity || prior.last_identity || null,
+      last_seen_at:  body.received_at   || new Date().toISOString(),
+    };
   }
 
   // Read KV into this.snapshot if we don't have it yet. Used on cold-DO
@@ -902,7 +972,16 @@ export class RingStateDO {
     if (this.snapshot) return;
     try {
       const raw = await this.env.WEST_LIVE.get(`ring-state:${slug}:${ringNum}`);
-      if (raw) this.snapshot = JSON.parse(raw);
+      if (raw) {
+        this.snapshot = JSON.parse(raw);
+        // Restore byClass from the persisted classes array so the DO can
+        // continue accumulating per-class state across evictions.
+        if (Array.isArray(this.snapshot.classes)) {
+          for (const c of this.snapshot.classes) {
+            if (c && c.class_id) this.byClass[c.class_id] = c;
+          }
+        }
+      }
     } catch (e) {
       console.log(`[RingStateDO/warmUp] KV read failed: ${e.message}`);
     }
@@ -940,13 +1019,19 @@ export class RingStateDO {
           body.last_identity = this.snapshot.last_identity;
         }
       }
-      this.snapshot = body;
+      // Update the per-class store (S45 multi-class), then build the public
+      // snapshot view that includes the .classes panel stack on top of all
+      // existing top-level fields.
+      this._updateByClass(body);
+      this.snapshot = this._buildSnapshot(body);
       // Mirror to KV — /v3/getRingState reads from here, and Chunk 8's
-      // polling fallback needs it when a WS handshake fails.
+      // polling fallback needs it when a WS handshake fails. We persist the
+      // full augmented snapshot (including .classes) so polling clients
+      // get the multi-class view too.
       try {
         await this.env.WEST_LIVE.put(
           `ring-state:${body.slug}:${body.ring_num}`,
-          JSON.stringify(body),
+          JSON.stringify(this.snapshot),
           { expirationTtl: 600 }
         );
       } catch (e) {
@@ -958,7 +1043,7 @@ export class RingStateDO {
       // state.getWebSockets() (hibernation API) so the runtime owns the
       // connection list across DO eviction. Dead sockets get caught by
       // the per-socket try/catch.
-      const wsMessage = JSON.stringify({ type: 'snapshot', data: body });
+      const wsMessage = JSON.stringify({ type: 'snapshot', data: this.snapshot });
       for (const ws of this.state.getWebSockets()) {
         try { ws.send(wsMessage); } catch (e) { /* runtime cleans dead */ }
       }
@@ -983,8 +1068,25 @@ export class RingStateDO {
       if (!this.snapshot) {
         return new Response(JSON.stringify({ ok: true, applied: false, reason: 'no snapshot' }));
       }
+      // Multi-class store update (S45) — apply to whichever class the
+      // body targets, regardless of which class is currently focused.
+      // Other-class score updates are valuable for the panel stack on
+      // live.html (a non-focused class panel can still reflect its
+      // latest results without waiting for it to be focused again).
+      const targetEntry = this.byClass[body.class_id];
+      if (targetEntry) {
+        const targetLens = targetEntry.class_kind;
+        const targetIsHunter = targetLens === 'hunter';
+        const targetIsJumper = targetLens === 'jumper' || targetLens === 'equitation';
+        if (targetIsHunter && body.hunter_scores !== undefined) {
+          targetEntry.hunter_scores = body.hunter_scores;
+        }
+        if (targetIsJumper && body.jumper_scores !== undefined) {
+          targetEntry.jumper_scores = body.jumper_scores;
+        }
+      }
+
       const lensKind = this.snapshot.class_kind;
-      // Bail if neither lens matches.
       const isHunter = lensKind === 'hunter';
       const isJumper = lensKind === 'jumper' || lensKind === 'equitation';
       if (!isHunter && !isJumper) {
@@ -995,16 +1097,21 @@ export class RingStateDO {
         (this.snapshot.last_scoring && this.snapshot.last_scoring.class_id) ||
         (this.snapshot.last_focus && this.snapshot.last_focus.class_id) ||
         (this.snapshot.last && this.snapshot.last.class_id) || null;
-      if (focusedClassId !== body.class_id) {
-        return new Response(JSON.stringify({ ok: true, applied: false, reason: 'class focus mismatch' }));
-      }
-      if (isHunter && body.hunter_scores !== undefined) {
-        this.snapshot.hunter_scores = body.hunter_scores;
-      }
-      if (isJumper && body.jumper_scores !== undefined) {
-        this.snapshot.jumper_scores = body.jumper_scores;
+      const focusMatched = focusedClassId === body.class_id;
+      if (focusMatched) {
+        // Top-level (focused class's) scores update — backwards-compat path.
+        if (isHunter && body.hunter_scores !== undefined) {
+          this.snapshot.hunter_scores = body.hunter_scores;
+        }
+        if (isJumper && body.jumper_scores !== undefined) {
+          this.snapshot.jumper_scores = body.jumper_scores;
+        }
       }
       this.snapshot.received_at = new Date().toISOString();
+      // Rebuild the .classes array so the panel-stack view reflects the
+      // updated byClass entry (last_seen_at order is unchanged; only
+      // the standings within the matching entry shift).
+      this.snapshot = this._buildSnapshot(this.snapshot);
       // Persist to KV so polling fallback also sees the fresh scores.
       try {
         await this.env.WEST_LIVE.put(
@@ -1021,7 +1128,7 @@ export class RingStateDO {
       for (const ws of this.state.getWebSockets()) {
         try { ws.send(wsMessage); broadcasts++; } catch (e) {}
       }
-      return new Response(JSON.stringify({ ok: true, applied: true, broadcasts }), {
+      return new Response(JSON.stringify({ ok: true, applied: true, focusMatched, broadcasts }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
