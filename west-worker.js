@@ -1083,6 +1083,28 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
+    // ── v2 RETIRED 2026-05-02 ────────────────────────────────────────────────
+    // Culpeper was the last show on v2. All v2 ingest + spectator endpoints
+    // return 410 Gone with a [V2-DEPRECATED] log line so we can see if
+    // anything (bookmarks, stale watcher PCs, bots) is still hitting them.
+    // After ~7 days of zero hits, the bodies below will be deleted for real.
+    // /admin/* is NOT in this list — admin tools haven't been ported to v3 yet.
+    const V2_RETIRED_PATHS = new Set([
+      '/postClassData', '/postClassEvent', '/postSchedule', '/heartbeat',
+      '/postUdpEvent',  // legacy v2 endpoint — distinct from /v3/postUdpEvent
+      '/getLiveClass', '/getShow', '/getShowStats', '/getShowWeather',
+      '/searchShow', '/getClasses', '/getResults', '/getShows',
+    ]);
+    if (V2_RETIRED_PATHS.has(path)) {
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const ua = request.headers.get('User-Agent') || 'unknown';
+      console.log(`[V2-DEPRECATED] ${method} ${path} ip=${ip} ua=${ua.slice(0, 80)}`);
+      return new Response(
+        JSON.stringify({ ok: false, error: 'This endpoint has been retired. v2 was decommissioned 2026-05-02. Please use the v3 engine and /v3/* endpoints.' }),
+        { status: 410, headers: { 'Content-Type': 'application/json', ...CORS } }
+      );
+    }
+
     // ── GET /ping ─────────────────────────────────────────────────────────────
     if (method === 'GET' && path === '/ping') {
       return json({ ok: true, ts: new Date().toISOString(), version: '2.2' });

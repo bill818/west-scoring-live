@@ -45,7 +45,9 @@ const sbFunnel = require('./scoreboard-funnel');
 const ENGINE_VERSION = '3.0.1';
 const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
-const HEARTBEAT_INTERVAL_MS = 10_000;
+const HEARTBEAT_INTERVAL_MS = 10_000;          // active cadence
+const HEARTBEAT_IDLE_INTERVAL_MS = 30_000;     // idle cadence (no UDP for a while)
+const HEARTBEAT_UDP_IDLE_THRESHOLD_MS = 5 * 60_000;  // how long no-UDP triggers idle
 const DEFAULT_CLS_DIR = 'C:\\Ryegate\\Jumper\\Classes';
 const DEFAULT_TSKED_PATH = 'C:\\Ryegate\\Jumper\\tsked.csv';
 const DEFAULT_RYEGATE_CONF = 'C:\\Ryegate\\Jumper\\config.dat';
@@ -895,6 +897,29 @@ function stopTskedWatcher() {
 }
 
 // ── Heartbeat ───────────────────────────────────────────────────────────────
+// Adaptive cadence: 10s default, 30s after 5 min of UDP silence. Self-
+// reschedules so the delay can vary per tick. UDP activity bumps lastUdpAt,
+// which is checked at scheduling time — the next heartbeat after UDP fires
+// uses the active cadence again.
+function nextHeartbeatDelay() {
+  const sinceLastUdp = lastUdpAt ? (Date.now() - lastUdpAt) : Infinity;
+  return sinceLastUdp > HEARTBEAT_UDP_IDLE_THRESHOLD_MS
+    ? HEARTBEAT_IDLE_INTERVAL_MS
+    : HEARTBEAT_INTERVAL_MS;
+}
+
+function scheduleHeartbeat() {
+  setTimeout(async () => {
+    if (configReady()) {
+      try { await sendHeartbeat(); } catch (e) {}
+      updateTrayTooltip();
+    } else {
+      updateTrayTooltip();
+    }
+    scheduleHeartbeat();
+  }, nextHeartbeatDelay());
+}
+
 async function sendHeartbeat() {
   if (!configReady()) return;
   if (!workerWritesAllowed()) return;
@@ -1677,7 +1702,6 @@ app.whenReady().then(() => {
 
   if (configReady()) {
     sendHeartbeat().then(updateTrayTooltip);
-    setInterval(async () => { await sendHeartbeat(); updateTrayTooltip(); }, HEARTBEAT_INTERVAL_MS);
     startClsWatcher();
     startTskedWatcher();
     syncAllCls().then(updateTrayTooltip).catch(e => log(`[SYNC UNCAUGHT] ${e.message}`));
@@ -1685,11 +1709,11 @@ app.whenReady().then(() => {
     backfillShowNameIfMissing().catch(() => {});
   } else {
     log('No show selected — heartbeat / .cls / tsked watchers paused until picker is used.');
-    setInterval(() => {
-      if (configReady()) sendHeartbeat().catch(() => {});
-      updateTrayTooltip();
-    }, HEARTBEAT_INTERVAL_MS);
   }
+  // Adaptive heartbeat: 10s when UDP is firing (active scoring), 30s after
+  // 5 min of UDP silence. Reverts to 10s the instant UDP wakes up. Cuts idle
+  // worker traffic ~67% without sacrificing freshness during real shows.
+  scheduleHeartbeat();
 
   // Tray + state-tick refresh — keeps "Xs ago" current for the tray tooltip
   // without spamming the renderer (renderer ticks itself on a 1Hz timer).
