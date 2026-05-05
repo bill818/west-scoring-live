@@ -17,3 +17,4 @@
 - [Ring display page (planned)](project_ring_display_page.md) — dedicated large-screen kiosk surface separate from live.html; live.html targets responsive web only, kiosk is its own page
 - [Use centralized templates for standings](feedback_use_centralized_templates.md) — always call WEST.jumperTemplates / WEST.hunterTemplates for standings; recent-round-first stacking + method-aware labels live there
 - [Class final/complete only on explicit signal](feedback_class_final_only_on_signal.md) — only the 3× Ctrl+A CLASS_COMPLETE on port 31000 marks a class final; idle-eviction is UI hygiene only, never status
+- [Engine flat-class wiring (NEXT SESSION TOP PRIORITY)](project_engine_hunter_flat_class.md) — hunter flat_entries / ribbon results frontend + contract done; engine UDP-event-to-snapshot plumbing is the missing piece

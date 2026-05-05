@@ -465,6 +465,54 @@
   }
   .live-stat-value.clear { color: var(--green); }
 
+  /* Flat-class mode — replaces the live-box grid when a hunter class
+     is in flat-class state (multiple entries in the ring at once,
+     accumulated from frame 11 rotations). The whole live-box body
+     becomes a single full-width entry list with a count header. */
+  .live-box-flat {
+    padding: 18px 24px 22px;
+    background: var(--row-bg);
+  }
+  .live-box-flat-count {
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 14px;
+  }
+  .live-box-flat-count .num {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 24px; color: var(--navy);
+    margin-right: 6px; vertical-align: baseline; letter-spacing: -.01em;
+  }
+  .flat-list {
+    list-style: none; padding: 0; margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 4px 28px;
+  }
+  .flat-entry {
+    display: grid; grid-template-columns: 44px 1fr;
+    gap: 12px; align-items: baseline;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .flat-list .flat-entry:last-child { border-bottom: none; }
+  .flat-entry .num {
+    font-family: var(--font-mono);
+    font-size: 13px; color: var(--red); font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .flat-entry .horse {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 16px; color: var(--navy);
+    line-height: 1.2;
+  }
+  .flat-entry .rider {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-muted);
+    letter-spacing: .02em; margin-top: 2px;
+  }
+
   /* Class panel — header + standings container. Multi-class would loop
      this. .is-focused = the panel that owns the live box's current rider. */
   .class-panel {
@@ -635,6 +683,16 @@
     .class-panel-num { font-size: 18px; padding-right: 10px; }
     .class-panel-name { font-size: 14px; letter-spacing: .03em; }
     .class-panel-sub { font-size: 9px; }
+
+    /* Flat-class mode — single column, denser rows on mobile. */
+    .live-box-flat { padding: 12px 14px; }
+    .live-box-flat-count { font-size: 9px; margin-bottom: 8px; }
+    .live-box-flat-count .num { font-size: 18px; }
+    .flat-list { grid-template-columns: 1fr; gap: 0; }
+    .flat-entry { grid-template-columns: 36px 1fr; gap: 10px; padding: 6px 0; }
+    .flat-entry .num { font-size: 11px; }
+    .flat-entry .horse { font-size: 14px; }
+    .flat-entry .rider { font-size: 10px; }
   }
   @media (min-width: 1600px) {
     /* TV / wide — let the live box breathe. */
@@ -736,10 +794,13 @@
   <div class="live-box-wrap-wide">
     <div class="live-box">
       <div class="live-box-banner">
-        In the ring
+        <span id="liveBoxBannerText">In the ring</span>
         <span class="for">for · Class <strong id="liveBoxFor">…</strong></span>
       </div>
-      <div class="live-box-grid">
+      <!-- Single-rider mode (jumper, single-entry hunter): identity left,
+           status/clock/faults/rank right. Hidden when the focused class
+           is in flat-class mode (hunter rotation across multiple entries). -->
+      <div class="live-box-grid" id="liveBoxGrid">
         <!-- Identity cell -->
         <div class="live-box-cell">
           <div class="live-box-cell-label">Entry</div>
@@ -769,6 +830,16 @@
             <div class="live-stat-value" id="liveRank">—</div>
           </div>
         </div>
+      </div>
+      <!-- Flat-class mode: a list of entries currently in the ring,
+           replacing the identity + clock cells. Visible only when the
+           focused class has flat_entries.length > 1 (hunter rotation
+           across multiple entries on course at the same time). -->
+      <div class="live-box-flat" id="liveBoxFlat" style="display:none;">
+        <div class="live-box-flat-count">
+          <span class="num" id="liveFlatCount">—</span> entries in the ring
+        </div>
+        <ul class="flat-list" id="liveFlatList"></ul>
       </div>
     </div>
   </div>
@@ -861,10 +932,15 @@
   var slug    = qs.get('slug')     || 'v3-smoke-test-2026-04';
   var ringNum = qs.get('ring_num') || '1';
   // Design-iteration mock: ?mock=1 injects a hard-coded snapshot and
-  // skips WebSocket/polling. ?mock=hunter switches the lens. Useful for
-  // visual edits without needing a running engine.
-  var MOCK_MODE = qs.get('mock') === '1' || qs.get('mock') === 'hunter';
-  var MOCK_LENS = qs.get('mock') === 'hunter' ? 'hunter' : 'jumper';
+  // skips WebSocket/polling. Three modes:
+  //   ?mock=1      → 3 jumper classes, focus cycles every CYCLE_MS
+  //   ?mock=hunter → 1 single-entry hunter class
+  //   ?mock=flat   → 1 flat hunter class (multi-entry rotation), shows
+  //                  the live-box flat-list mode
+  var MOCK_MODE = ['1', 'hunter', 'flat'].indexOf(qs.get('mock')) >= 0;
+  var MOCK_LENS = qs.get('mock') === 'hunter' ? 'hunter'
+                : qs.get('mock') === 'flat'   ? 'flat'
+                : 'jumper';
 
   document.getElementById('ringSlug').textContent = MOCK_MODE ? 'MOCK · ' + slug : slug;
   document.getElementById('ringNum').textContent  = ringNum;
@@ -923,6 +999,57 @@
 
   function clean(v) {
     return (v == null ? '' : String(v)).replace(/[\r\n]/g, '').trim();
+  }
+
+  // Detect flat-class state on the focused class and swap the live box
+  // body between single-rider mode (identity + clock) and flat mode
+  // (multi-entry list). Flat mode is hunter-only, triggered when the
+  // engine's frame 11 rotation has accumulated 2+ entries in flat_entries.
+  // Mirrors v2's pattern (live.html line 594-621).
+  function renderFlatClass(snapshot) {
+    var grid = document.getElementById('liveBoxGrid');
+    var flatEl = document.getElementById('liveBoxFlat');
+    var bannerText = document.getElementById('liveBoxBannerText');
+    if (!grid || !flatEl) return;
+
+    var focusedId = snapshot && snapshot.focused_class_id;
+    var focusedEntry = focusedId && Array.isArray(snapshot.classes)
+      ? snapshot.classes.find(function (c) { return c && c.class_id === focusedId; })
+      : null;
+    var flatEntries = focusedEntry && Array.isArray(focusedEntry.flat_entries)
+      ? focusedEntry.flat_entries : null;
+    var isFlat = flatEntries && flatEntries.length > 1;
+
+    if (!isFlat) {
+      grid.style.display = '';
+      flatEl.style.display = 'none';
+      if (bannerText) bannerText.textContent = 'In the ring';
+      return;
+    }
+
+    grid.style.display = 'none';
+    flatEl.style.display = '';
+    if (bannerText) bannerText.textContent = 'Flat class in the ring';
+    var countEl = document.getElementById('liveFlatCount');
+    if (countEl) countEl.textContent = String(flatEntries.length);
+
+    var esc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml)
+      || function (s) { return String(s == null ? '' : s).replace(/[<>&"]/g, function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];}); };
+    var listEl = document.getElementById('liveFlatList');
+    if (!listEl) return;
+    listEl.innerHTML = flatEntries.map(function (e) {
+      // Equitation: rider primary, horse muted (or locale if present).
+      // Hunter: horse primary, rider muted.
+      var primary = e.isEq ? (e.rider || e.horse || '') : (e.horse || '');
+      var sub     = e.isEq ? (e.locale || e.horse || '') : (e.rider || '');
+      return '<li class="flat-entry">'
+        + '<span class="num">#' + esc(e.entry || '') + '</span>'
+        + '<span>'
+        +   '<div class="horse">' + esc(primary || '—') + '</div>'
+        +   (sub ? '<div class="rider">' + esc(sub) + '</div>' : '')
+        + '</span>'
+        + '</li>';
+    }).join('');
   }
 
   // Render the OTHER class panels (every entry in snapshot.classes
@@ -1014,6 +1141,7 @@
       $('liveRank').textContent = '—';
       $('hunterStandingsPanel').classList.add('hidden');
       $('jumperStandingsPanel').classList.add('hidden');
+      renderFlatClass(null);
       renderOtherClassPanels(null);
       $('eventsCount').textContent = '';
       $('eventsBox').innerHTML = '<div class="empty">Waiting for engine batches…</div>';
@@ -1415,6 +1543,11 @@
         '</tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
+    // Flat-class detection — swap the live box body between single-rider
+    // mode (identity + clock) and flat mode (multi-entry list). Hunter
+    // flat classes accumulate entries via frame 11 rotation.
+    renderFlatClass(snapshot);
+
     // Multi-class panel stack — render the OTHER (non-focused) class
     // panels below the focused one. Empty when the snapshot only
     // carries a single class (single-class case stays unchanged).
@@ -1554,6 +1687,14 @@
   //
   // Phase tags are written to last_scoring.tags on Channel A frame 1
   // (the only frame west-clock.js reads).
+  // Derive lens from class meta — needed because the mock now mixes lenses
+  // in a single cycle (jumper classes + a hunter flat class).
+  function classKindFromMeta(meta) {
+    if (!meta) return null;
+    if (meta.class_type === 'H') return 'hunter';
+    if (Number(meta.scoring_method) === 7) return 'equitation';
+    return 'jumper';
+  }
   var MOCK_CLASSES = MOCK_LENS === 'hunter'
     ? [
         // Hunter mock — single class for now (multi-class hunter cycling
@@ -1565,6 +1706,34 @@
             { entry_num: '044', horse_name: 'Quintessential', rider_name: 'Kelley Farmer',  owner_name: 'Larry Glefke',     overall_place: 1, total_score: 178 },
             { entry_num: '081', horse_name: 'Brunello',       rider_name: 'Liza Boyd',      owner_name: 'Janet Peterson',   overall_place: 2, total_score: 174 },
             { entry_num: '156', horse_name: 'Inclusive',      rider_name: 'Hunt Tosh',      owner_name: 'Ceil Wheeler',     overall_place: 3, total_score: 170 },
+          ] },
+      ]
+    : MOCK_LENS === 'flat'
+    ? [
+        // Flat hunter mock — dedicated, single class. The live box stays
+        // in flat-list mode the whole time (no clock cycle, no rotation
+        // among other classes). Mirrors v2's flat-class state — multiple
+        // horses in the ring at once, accumulated from frame 11 rotations.
+        // Placeholder rider keeps the per-rider phase code happy; its
+        // output is hidden by .live-box-grid being display:none.
+        { id: '214', name: '3\' Working Hunter', sub: 'Hunter · Flat · 2 judges',
+          rider: { entry: '044', horse: 'CATCH ME', rider: 'PLACEHOLDER', owner: '', country: '', finish: '0' },
+          meta: { class_id: '214', class_name: '3\' Working Hunter', scoring_method: 4, scoring_modifier: 0, class_type: 'H', num_judges: 2, show_flags: 0 },
+          flat_entries: [
+            { entry: '044', horse: 'CATCH ME IF YOU CAN', rider: 'BRIDGET HALLMAN', owner: 'STARGAZER FARM',     locale: '', isEq: false },
+            { entry: '081', horse: 'BRUNELLO',            rider: 'LIZA BOYD',       owner: 'JANET PETERSON',     locale: '', isEq: false },
+            { entry: '156', horse: 'INCLUSIVE',           rider: 'HUNT TOSH',       owner: 'CEIL WHEELER',       locale: '', isEq: false },
+            { entry: '212', horse: 'PRACTICAL JOKE',      rider: 'SCOTT STEWART',   owner: 'KRISTA WEISMAN',     locale: '', isEq: false },
+            { entry: '019', horse: 'PUBLIC RECORD',       rider: 'TORI COLVIN',     owner: 'DR. BETSEE PARKER',  locale: '', isEq: false },
+            { entry: '262', horse: 'CONFIDANTE',          rider: 'JENNIFER ALFANO', owner: 'SUSAN SCHOELLKOPF',  locale: '', isEq: false },
+            { entry: '194', horse: 'AVENUE',              rider: 'PETER PLETCHER',  owner: 'ROBIN PARSKY',       locale: '', isEq: false },
+            { entry: '038', horse: 'STERLING',            rider: 'JOHN FRENCH',     owner: 'LAURA WASSERMAN',    locale: '', isEq: false },
+          ],
+          scores: [
+            { entry_num: '044', horse_name: 'Catch Me If You Can', rider_name: 'Bridget Hallman', overall_place: 1, total_score: 178 },
+            { entry_num: '081', horse_name: 'Brunello',            rider_name: 'Liza Boyd',       overall_place: 2, total_score: 174 },
+            { entry_num: '156', horse_name: 'Inclusive',           rider_name: 'Hunt Tosh',       overall_place: 3, total_score: 170 },
+            { entry_num: '212', horse_name: 'Practical Joke',      rider_name: 'Scott Stewart',   overall_place: 4, total_score: 165 },
           ] },
       ]
     : [
@@ -1622,6 +1791,11 @@
 
     var nowIso = new Date().toISOString();
 
+    // Per-class lens — mock now mixes lenses (jumper classes + a hunter
+    // flat class), so derive from each class's own meta instead of using
+    // the URL-level MOCK_LENS as the lens for everything.
+    var focusedKind = classKindFromMeta(classMeta);
+
     // Build the .classes panel stack — every class always present, but
     // the FOCUSED one gets a fresh last_seen_at so it sorts to the top.
     // Other classes' last_seen_at stays at their own previous focus turn.
@@ -1629,13 +1803,17 @@
       var lastSeenMs = c === focused
         ? Date.now()
         : Date.now() - ((MOCK_CLASSES.indexOf(c) - classIdx + MOCK_CLASSES.length) % MOCK_CLASSES.length) * CYCLE_MS;
+      var kind = classKindFromMeta(c.meta);
       return {
         class_id: c.id,
-        class_kind: MOCK_LENS,
+        class_kind: kind,
         class_meta: c.meta,
-        jumper_scores: MOCK_LENS !== 'hunter' ? c.scores : null,
-        hunter_scores: MOCK_LENS === 'hunter' ? c.scores : null,
+        jumper_scores: kind !== 'hunter' ? c.scores : null,
+        hunter_scores: kind === 'hunter' ? c.scores : null,
         hunter_seen: null,
+        // S46 hunter flat — frame-11-rotation-derived entry list. Only
+        // populated for hunter flat classes; jumper classes leave it null.
+        flat_entries: c.flat_entries || null,
         last_scoring: null, last_focus: null, last_identity: null,
         last_seen_at: new Date(lastSeenMs).toISOString(),
       };
@@ -1648,7 +1826,7 @@
     return {
       slug: slug, ring_num: ringNum, received_at: nowIso,
       batch_id: 'mock-' + Math.floor(Date.now() / 1000),
-      class_kind: MOCK_LENS, live_running_tenth: true, events: [],
+      class_kind: focusedKind, live_running_tenth: true, events: [],
       class_meta: classMeta,
       last_identity: {
         class_id: classMeta.class_id, channel: 'A', frame: 1, received_at: nowIso,
@@ -1663,8 +1841,8 @@
         tags: { '27': classMeta.class_id, '28': classMeta.class_name },
       },
       // Top-level standings = focused class's standings (backwards compat).
-      jumper_scores: MOCK_LENS !== 'hunter' ? focused.scores : undefined,
-      hunter_scores: MOCK_LENS === 'hunter' ? focused.scores : undefined,
+      jumper_scores: focusedKind !== 'hunter' ? focused.scores : undefined,
+      hunter_scores: focusedKind === 'hunter' ? focused.scores : undefined,
       // S45 — multi-class envelope.
       focused_class_id: classMeta.class_id,
       classes: classes,
