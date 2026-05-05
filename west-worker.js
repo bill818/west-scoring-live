@@ -1019,6 +1019,67 @@ export class RingStateDO {
           body.last_identity = this.snapshot.last_identity;
         }
       }
+      // Hunter Flat accumulators — fr=11 builds the "in the ring"
+      // rotation list, fr=14 builds the placings list. Both append-only
+      // within a class; reset on class-id change. fr=0 does NOT clear
+      // (operator dimming the screen ≠ class reset). Frame-number gating
+      // only — no class_kind check. Mirrors v2 watcher (west-watcher.js
+      // ON_COURSE / HUNTER_RESULT handlers): forced/U-class hunters
+      // surface placings without waiting for class metadata to resolve.
+      // Consumer prefers hunter_scores[].current_place over flat_results
+      // once the .cls is written (forced/flat .cls writes col[14]=place).
+      {
+        const flatFocusClassId =
+          (body.last_focus   && body.last_focus.class_id) ||
+          (body.last_scoring && body.last_scoring.class_id) || null;
+        const priorFlatClassId = (this.snapshot && this.snapshot.flat_class_id) || null;
+        const classChanged = !!(priorFlatClassId && flatFocusClassId && priorFlatClassId !== flatFocusClassId);
+        const entriesSeen = classChanged ? [] :
+          ((this.snapshot && this.snapshot.flat_entries_seen) || []).slice();
+        const results = classChanged ? [] :
+          ((this.snapshot && this.snapshot.flat_results) || []).slice();
+        const seenIdx = new Map(entriesSeen.map((r, i) => [r.entry_num, i]));
+        const resIdx  = new Map(results.map((r, i)      => [r.entry_num, i]));
+        for (const e of (body.events || [])) {
+          if (!e || e.channel !== 'A') continue;
+          if (e.frame !== 11 && e.frame !== 14) continue;
+          if (flatFocusClassId && e.class_id && e.class_id !== flatFocusClassId) continue;
+          const tags = e.tags || {};
+          const entryNum = (tags['1'] || '').replace(/\r/g, '').trim();
+          if (!entryNum) continue;
+          // EQ branch: no {3} but has {7} → use {7} as rider, {2} is empty
+          const t3 = (tags['3'] || '').replace(/\r/g, '').trim();
+          const t7 = (tags['7'] || '').replace(/\r/g, '').trim();
+          const isEq = !t3 && !!t7;
+          const horse = isEq ? '' : (tags['2'] || '').replace(/\r/g, '').trim();
+          const rider = isEq ? t7 : t3;
+          const owner = (tags['4'] || '').replace(/\r/g, '').trim();
+          if (e.frame === 11) {
+            if (seenIdx.has(entryNum)) {
+              const i = seenIdx.get(entryNum);
+              entriesSeen[i] = { ...entriesSeen[i], horse, rider, owner, is_eq: isEq };
+            } else {
+              seenIdx.set(entryNum, entriesSeen.length);
+              entriesSeen.push({ entry_num: entryNum, horse, rider, owner, is_eq: isEq, first_seen_at: e.at });
+            }
+          } else if (e.frame === 14) {
+            const placeText = (tags['8'] || '').replace(/\r/g, '').trim();
+            if (!placeText) continue; // operator clearing a pin or empty announcement — skip
+            const m = placeText.match(/^(\d+)/);
+            const placeNum = m ? parseInt(m[1], 10) : null;
+            const scoreRaw = (tags['14'] || '').replace(/\r/g, '').trim();
+            const rec = { entry_num: entryNum, horse, rider, owner, is_eq: isEq,
+                          place_text: placeText, place_num: placeNum,
+                          score: scoreRaw || null, pinned_at: e.at };
+            if (resIdx.has(entryNum)) results[resIdx.get(entryNum)] = rec;
+            else { resIdx.set(entryNum, results.length); results.push(rec); }
+          }
+        }
+        body.flat_entries_seen = entriesSeen;
+        body.flat_results      = results;
+        body.flat_class_id     = flatFocusClassId;
+      }
+
       // Update the per-class store (S45 multi-class), then build the public
       // snapshot view that includes the .classes panel stack on top of all
       // existing top-level fields.
