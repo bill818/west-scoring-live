@@ -1113,6 +1113,22 @@
   document.getElementById('ringSlug').textContent = MOCK_MODE ? 'MOCK · ' + slug : slug;
   document.getElementById('ringNum').textContent  = ringNum;
 
+  // Bill 2026-05-06: header shouldn't show the raw slug — swap to the
+  // friendly show name once /v3/getShow returns. Slug is the fallback
+  // until the fetch completes (or if it fails). Skipped in mock mode
+  // since the slug there is the literal mock identifier.
+  if (!MOCK_MODE) {
+    fetch(BASE + '/v3/getShow?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.show && data.show.name) {
+          document.getElementById('ringSlug').textContent = data.show.name;
+          document.title = data.show.name + ' — Ring ' + ringNum + ' Live';
+        }
+      })
+      .catch(function () { /* leave slug fallback in place */ });
+  }
+
   var $ = function(id) { return document.getElementById(id); };
 
   var consecutiveErrors = 0;
