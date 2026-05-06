@@ -538,8 +538,15 @@ function rerenderStrip() {
   const root = document.getElementById('liveStrip');
   if (!root) return;
   const slug = getQueryParam('slug');
+  // Bill 2026-05-06 (option A): the strip on stats.html only shows
+  // live activity for the SAME ring the user is viewing stats for.
+  // Other rings on the show stay quiet — commentators are ring-scoped,
+  // and the live class on this ring (even if it's not the URL class)
+  // is the relevant "what's happening right now" context.
+  const myRing = parseInt(getQueryParam('ring') || '', 10);
   const liveRings = Object.values(stripRings)
     .filter(r => r.snapshot && r.snapshot.is_live)
+    .filter(r => !Number.isFinite(myRing) || r.ring_num === myRing)
     .sort((a, b) => a.ring_num - b.ring_num);
   if (!liveRings.length) {
     root.hidden = true;

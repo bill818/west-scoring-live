@@ -1659,7 +1659,9 @@ export class RingStateDO {
       // multi-press meaning "clear the on-course panel for real."
       // Tracks per-class via this._fr0ConsecutiveByClass; resets when
       // any non-zero fr=11/12/13/14/15/16 fires for that class.
-      // Clears last_identity (on-course panel) but leaves flat_results /
+      // Clears last_identity AND last_scoring (Bill 2026-05-06 — the
+      // 3x clear should wipe the rider AND their clock/faults/rank off
+      // the live banner, not just the identity). Leaves flat_results /
       // jog_order / standby_list intact — those are class-history.
       this._fr0ConsecutiveByClass = this._fr0ConsecutiveByClass || {};
       const fr0Map = this._fr0ConsecutiveByClass;
@@ -1670,6 +1672,16 @@ export class RingStateDO {
           fr0Map[cid] = (fr0Map[cid] || 0) + 1;
           if (fr0Map[cid] >= 3) {
             body.last_identity = null;
+            body.last_scoring = null;
+            // Mirror onto the byClass entry so _updateByClass's
+            // `body || prior` carry-forward doesn't resurrect them
+            // from the previous batch's data.
+            const cls = this.byClass[cid];
+            if (cls) {
+              cls.last_identity = null;
+              cls.last_scoring = null;
+              cls.previous_entry = null;
+            }
             // Don't reset to 0 here — additional fr=0s shouldn't keep
             // re-clearing if the operator is just sitting on it. The
             // counter resets on the next non-zero scoring frame.
