@@ -1101,8 +1101,17 @@ export class RingStateDO {
         if (ls && (!earliestLiveSince || ls < earliestLiveSince)) earliestLiveSince = ls;
       }
     }
+    // Top-level class_meta reflects the FOCUSED class, sourced from its
+    // byClass entry (which is now correctly per-class after the routing
+    // change in /event). Body.class_meta is the LENS class meta which
+    // might be a different class — falling back to it would re-introduce
+    // the data-mismatch bug. Bill 2026-05-06.
+    const focusedClassMeta = (focusedEntry && focusedEntry.class_meta) || null;
+    const focusedClassKind = (focusedEntry && focusedEntry.class_kind) || body.class_kind || null;
     return {
       ...body,
+      class_meta: focusedClassMeta,
+      class_kind: focusedClassKind,
       focused_class_id: focusedId,
       is_final: !!(focusedEntry && focusedEntry.is_final === true),
       finalized_at: focusedEntry ? (focusedEntry.finalized_at || null) : null,
@@ -1285,7 +1294,15 @@ export class RingStateDO {
     this.byClass[classId] = {
       class_id: classId,
       class_kind: body.class_kind || prior.class_kind || null,
-      class_meta: body.class_meta || prior.class_meta || null,
+      // Bill 2026-05-06: only adopt body.class_meta when it's actually
+      // FOR this class (matches by class_id stamp). The route fetches
+      // meta for the LAST event's class_id, which can be different
+      // from the focused class — we don't want lens-class meta poisoning
+      // a different focused class's entry. Routing of class_meta to
+      // its own byClass entry happens separately in /event handler.
+      class_meta: (body.class_meta && String(body.class_meta.class_id) === String(classId))
+        ? body.class_meta
+        : (prior.class_meta || null),
       jumper_scores: body.jumper_scores !== undefined ? body.jumper_scores : (prior.jumper_scores || null),
       hunter_scores: body.hunter_scores !== undefined ? body.hunter_scores : (prior.hunter_scores || null),
       hunter_seen:   body.hunter_seen   !== undefined ? body.hunter_seen   : (prior.hunter_seen   || null),
@@ -1993,6 +2010,19 @@ export class RingStateDO {
         }
       }
 
+      // Route class_meta to its OWN byClass entry (Bill 2026-05-06).
+      // /v3/postUdpEvent fetches class_meta for the last event's class
+      // id (lensClassId), which might not equal the currently-focused
+      // class. We stamp class_id onto class_meta there, then here we
+      // park it on the correct entry. Pre-creates the entry if needed
+      // so a class_meta arriving before B+intro pair doesn't get lost.
+      if (body.class_meta && body.class_meta.class_id != null) {
+        const metaCid = String(body.class_meta.class_id);
+        const target = this.byClass[metaCid] || (this.byClass[metaCid] = { class_id: metaCid });
+        target.class_meta = body.class_meta;
+        if (body.class_kind && !target.class_kind) target.class_kind = body.class_kind;
+      }
+
       // S46 LIVE detection — runs after FINAL/unfinal so a same-batch
       // FINAL takes precedence over any B+intro pair for that class.
       // _bumpLiveHeartbeats follows so a fresh-live class also gets its
@@ -2077,33 +2107,54 @@ export class RingStateDO {
       if (!this.snapshot) {
         return new Response(JSON.stringify({ ok: true, applied: false, reason: 'no snapshot' }));
       }
-      // .cls write = lock signal (Bill 2026-05-06). A .cls update is
-      // Ryegate's confirmation that real scoring happened for this class —
-      // strong enough to promote a tentative class to fully-live without
-      // waiting for the operator's B+intro pair. Mirrors the live-trigger
-      // behavior: creates byClass stub if needed, sets is_live + live_since,
-      // writes a 'cls_lock' trigger label so the manager report can tell
-      // the difference. Skipped when:
+      // .cls write = lock signal (Bill 2026-05-06, tightened: option 2 —
+      // "cls change not cls touch"). A .cls update with NEW scoring data
+      // is Ryegate's confirmation that real scoring happened — strong
+      // enough to promote a tentative class to fully-live without an
+      // explicit B+intro pair. A .cls TOUCH (file save with no content
+      // change — e.g., operator opened/closed in an editor) does NOT
+      // count. Compares the incoming scores array against what's
+      // currently stored on the byClass entry; identical = skip.
+      // Skipped when:
       //   • class is already final (don't relight a finalized class on a re-save)
       //   • class is already live (no-op)
-      //   • a manual Flush fired within FLUSH_COOLDOWN_MS — the trailing
-      //     .cls write that follows class-close shouldn't undo the flush
+      //   • a manual Flush fired within FLUSH_COOLDOWN_MS
+      //   • scoring data didn't actually change (touch, not change)
       const cidFromBody = body.class_id != null ? String(body.class_id) : '';
       const inFlushCooldown = this.flushedAt
         && (Date.now() - this.flushedAt) < FLUSH_COOLDOWN_MS;
       if (cidFromBody && !inFlushCooldown) {
-        let target = this.byClass[cidFromBody];
-        if (!target) {
-          target = this.byClass[cidFromBody] = { class_id: cidFromBody };
+        const existing = this.byClass[cidFromBody];
+        // Determine whether body carries genuinely new scoring data.
+        // For a brand-new class (no existing entry), any non-empty
+        // scores array counts as a change — that's the operator's
+        // first score and a legitimate live trigger.
+        let scoresChanged;
+        if (!existing) {
+          const candidate = (body.hunter_scores && body.hunter_scores.length)
+            ? body.hunter_scores
+            : (body.jumper_scores || []);
+          scoresChanged = !!(candidate && candidate.length);
+        } else {
+          const prevH = existing.hunter_scores || null;
+          const prevJ = existing.jumper_scores || null;
+          const nextH = body.hunter_scores !== undefined ? body.hunter_scores : prevH;
+          const nextJ = body.jumper_scores !== undefined ? body.jumper_scores : prevJ;
+          scoresChanged = JSON.stringify(prevH) !== JSON.stringify(nextH)
+                       || JSON.stringify(prevJ) !== JSON.stringify(nextJ);
         }
-        if (!target.is_live && !target.is_final) {
-          const now = Date.now();
-          target.is_live = true;
-          target.live_since = now;
-          target.last_live_event_at = now;
-          target.live_trigger = 'cls_lock';
-          target.went_unlive_at = null;
-          target.unlive_reason = null;
+        if (scoresChanged) {
+          let target = existing;
+          if (!target) target = this.byClass[cidFromBody] = { class_id: cidFromBody };
+          if (!target.is_live && !target.is_final) {
+            const now = Date.now();
+            target.is_live = true;
+            target.live_since = now;
+            target.last_live_event_at = now;
+            target.live_trigger = 'cls_lock';
+            target.went_unlive_at = null;
+            target.unlive_reason = null;
+          }
         }
       }
 
@@ -6244,6 +6295,13 @@ export default {
         // consumes for /v3/listEntries — single source of truth so the
         // live page and the results page render identically.
         class_meta: row.class_pk ? {
+          // class_id stamped on the meta so the DO can route it to the
+          // RIGHT byClass entry instead of polluting whatever class is
+          // currently focused (Bill 2026-05-06). Without this, opening
+          // a different focus class while UDP is still firing for class
+          // X would write class X's meta into byClass[focused], leaving
+          // both with the wrong name.
+          class_id: lensClassId,
           class_name: row.class_name || null,
           class_type: row.class_type || null,
           class_mode: row.class_mode != null ? row.class_mode : null,
