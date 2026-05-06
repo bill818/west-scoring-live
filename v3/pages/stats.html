@@ -483,6 +483,16 @@ function chipHtml(slug, ringNum, ringName, snapshot) {
   const liveUrl = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${ringNum}`;
   const ringLabel = escapeHtml(ringName || `Ring ${ringNum}`);
   const fp = (snapshot && snapshot.focus_preview) || {};
+
+  // Class line — id + name. fp.class_id falls back to live_class_ids[0]
+  // when the focus_preview hasn't carried a class_id yet.
+  const classIds = (snapshot && Array.isArray(snapshot.live_class_ids)) ? snapshot.live_class_ids : [];
+  const classId = fp.class_id || classIds[0] || null;
+  const classLabel = classId ? `Class ${escapeHtml(String(classId))}` : 'Live';
+  const className = fp.class_name ? ` — ${escapeHtml(fp.class_name)}` : '';
+
+  // On-course line — entry info + stats. If no entry on course
+  // (between rounds, intro hasn't fired yet), the line is hidden.
   const idBits = [];
   if (fp.entry_num) idBits.push(`<span class="ls-entry">#${escapeHtml(fp.entry_num)}</span>`);
   if (fp.horse)     idBits.push(`<span class="ls-horse">${escapeHtml(fp.horse)}</span>`);
@@ -497,17 +507,23 @@ function chipHtml(slug, ringNum, ringName, snapshot) {
   if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">Rank ${escapeHtml(fp.rank)}</span>`);
   const faults = fmtFaults(fp);
   if (faults && faults !== '0F') stats.push(`<span class="ls-stat ls-faults">${escapeHtml(faults)}</span>`);
-  const classIds = (snapshot && Array.isArray(snapshot.live_class_ids)) ? snapshot.live_class_ids : [];
-  const classId = classIds[0] || fp.class_id || null;
-  const classLabel = classId ? `Class ${escapeHtml(String(classId))}` : 'Live';
-  const className = fp.class_name ? `<span class="ls-cname">${escapeHtml(fp.class_name)}</span>` : '';
+
+  const onCourseLine = idBits.length ? `
+    <div class="ls-row ls-row-oc">
+      <span class="ls-oc-lbl">On Course</span>
+      <span class="ls-id">${idBits.join(' ')}</span>
+      ${stats.length ? `<span class="ls-stats">${stats.join(' ')}</span>` : ''}
+    </div>` : '';
+
   return `<a class="live-strip-chip" data-ring="${ringNum}" href="${liveUrl}">
-    <span class="ls-dot"></span>
-    <span class="ls-ring">${ringLabel}</span>
-    <span class="ls-cls">${classLabel}</span>
-    ${className}
-    ${idBits.length ? `<span class="ls-id">${idBits.join(' ')}</span>` : ''}
-    ${stats.length ? `<span class="ls-stats">${stats.join(' ')}</span>` : ''}
+    <div class="ls-row ls-row-hdr">
+      <span class="ls-dot"></span>
+      <span class="ls-ring">${ringLabel}</span>
+    </div>
+    <div class="ls-row ls-row-cls">
+      <span class="ls-cls">${classLabel}</span><span class="ls-cname">${className}</span>
+    </div>
+    ${onCourseLine}
   </a>`;
 }
 

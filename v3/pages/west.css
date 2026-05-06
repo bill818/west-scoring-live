@@ -946,20 +946,28 @@ footer a{color:var(--blue);}
 .ring-class-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px;}
 
 /* Live strip on stats.html — commentator's at-a-glance view of every
-   live ring on the show. One chip per live ring. Hidden when nothing
-   live. (Bill 2026-05-06.) */
-.live-strip{max-width:1100px;margin:0 auto 12px;padding:0 18px;display:flex;flex-wrap:wrap;gap:8px;}
-.live-strip-chip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:rgba(46,125,50,.10);border-left:4px solid var(--green);border-radius:4px;text-decoration:none;color:inherit;transition:background .15s ease;flex:1 1 320px;min-width:0;}
+   live ring on the show. One chip per live ring with three rows:
+     Row 1 — Ring header (pulsing dot + ring name)
+     Row 2 — Class id + class name
+     Row 3 — On Course label + entry info + clock/rank/faults
+   Row 3 hides when no entry is on course (between rounds, etc).
+   Bill 2026-05-06. */
+.live-strip{max-width:1100px;margin:0 auto 12px;padding:0 18px;display:flex;flex-wrap:wrap;gap:10px;}
+.live-strip-chip{display:flex;flex-direction:column;gap:4px;padding:10px 14px;background:rgba(46,125,50,.10);border-left:4px solid var(--green);border-radius:4px;text-decoration:none;color:inherit;transition:background .15s ease;flex:1 1 360px;min-width:0;}
 .live-strip-chip:hover{background:rgba(46,125,50,.18);}
+.live-strip-chip .ls-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;}
+.live-strip-chip .ls-row-hdr{align-items:center;}
+.live-strip-chip .ls-row-oc{padding-top:4px;border-top:1px solid rgba(46,125,50,.18);margin-top:2px;}
 .live-strip-chip .ls-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(46,125,50,.7);animation:idx-pulse 1.6s infinite;flex-shrink:0;}
 .live-strip-chip .ls-ring{font-family:var(--font-display);font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--green);}
-.live-strip-chip .ls-cls{font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--navy);}
-.live-strip-chip .ls-cname{font-family:var(--font-body);font-size:12px;color:var(--text-body);font-weight:500;}
-.live-strip-chip .ls-id{display:flex;align-items:baseline;gap:6px;font-family:var(--font-body);font-size:13px;color:var(--text-body);}
+.live-strip-chip .ls-cls{font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--navy);}
+.live-strip-chip .ls-cname{font-family:var(--font-body);font-size:13px;color:var(--text-body);font-weight:500;}
+.live-strip-chip .ls-oc-lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);font-weight:600;flex-shrink:0;}
+.live-strip-chip .ls-id{display:flex;align-items:baseline;gap:6px;font-family:var(--font-body);font-size:13px;color:var(--text-body);min-width:0;}
 .live-strip-chip .ls-entry{font-family:var(--font-display);font-weight:700;color:var(--navy);}
 .live-strip-chip .ls-horse{font-weight:600;}
 .live-strip-chip .ls-rider{color:var(--text-muted);font-size:11px;}
-.live-strip-chip .ls-stats{display:flex;gap:8px;margin-left:auto;font-variant-numeric:tabular-nums;}
+.live-strip-chip .ls-stats{display:flex;gap:8px;margin-left:auto;font-variant-numeric:tabular-nums;flex-shrink:0;}
 .live-strip-chip .ls-stat{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--text-body);}
 .live-strip-chip .ls-stat.ls-clock{color:var(--green);}
 .live-strip-chip .ls-stat.ls-cd{color:var(--red);animation:m4CdPulse 1s ease-in-out infinite;}
@@ -968,7 +976,7 @@ footer a{color:var(--blue);}
 @media (max-width:700px){
   .live-strip{padding:0 14px;}
   .live-strip-chip{flex-basis:100%;}
-  .live-strip-chip .ls-stats{margin-left:0;width:100%;}
+  .live-strip-chip .ls-stats{margin-left:0;width:100%;padding-top:2px;}
 }
 
 /* Live banner under a ring row when the ring is currently LIVE
