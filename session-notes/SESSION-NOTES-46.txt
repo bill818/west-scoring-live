@@ -1,0 +1,359 @@
+SESSION-NOTES-46 — S46 LIVE state: pair-lock model, manager report, engine class actions, hunter score-box redesign
+Date: 2026-05-06
+Branch: main
+Status: clean tree on 0ddf584. Engine v3.1.5 published via OTA. Worker version 4a5f218f deployed. 3.1.4 installer staged in business OneDrive for field deployment.
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Built the explicit-intent LIVE state model end-to-end. Before today, any
+class touched by UDP would land on the public live page. Today: a class
+only appears live when the operator's intent is confirmed via either the
+explicit B+intro pair (1s window) or a .cls write (cls_lock). Adds the
+manager report's foundation (ring_live_segment table tracking continuous
+live spans), the engine's operator-facing class management UI (Live on
+Website pane + right-click Clear/Final/Focus + Flush live), and a hunter
+M4 score-box redesign that displays the actually-released round (not just
+the highest-scored one).
+
+End-to-end flow now:
+
+  Operator clicks focus on Ryegate → Channel B {29}=<class_id> fires
+       AND
+  Operator hits Intro (jumper) or rotates entry (hunter) → fr=1 / fr=11
+       (within 1s of the B click)
+       OR
+  .cls write happens for the class (Display Scores, score change)
+       ↓
+  byClass[cid].is_live = true, live_since = now, live_trigger set
+       ↓
+  ring_live_segment opens in D1
+       ↓
+  snapshot.classes includes the class, live page renders the panel,
+  engine "Live on Website" pane shows green LIVE pill
+
+Un-live paths: Channel B {29}=F (always wins), 30-min UDP timeout,
+manual right-click Clear live, manual right-click Make Final, Flush
+live button (nukes everything + 15s cls_lock cooldown).
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — by area
+═══════════════════════════════════════════════════════════════════════════
+
+WORKER (west-worker.js)
+
+  ── /v3/setClassLiveState ─────────────────────────────────────────────
+  POST, auth-gated. Routes to RingStateDO /class-action.
+  Body: { slug, ring_num, class_id, action }
+  action ∈ { clear | finalize | focus | flush_all }
+    clear     — delete byClass entry entirely (vanishes from live page)
+    finalize  — set is_final + clear is_live + clear previous_entry
+    focus     — set forcedFocusClassId (operator pin, overrides natural)
+    flush_all — nuke ALL byClass entries (live + final), wipe top-level
+                snapshot pointers, set flushedAt for cooldown
+
+  ── /v3/getShowLiveStatus?slug=X ──────────────────────────────────────
+  GET, public. Returns per-ring live status array.
+  Used by future show.html / classes.html bulk live-status display.
+
+  ── /v3/ringActivityReport?slug=X[&from=&to=&ring=] ───────────────────
+  GET, public. Manager report — daily totals + raw segments rolled up
+  from ring_live_segment table. Sums (ended_at - started_at) per
+  ring per day. Open segments not counted toward totals (they're
+  shown in segments[] with active_so_far_minutes for transparency).
+
+  ── DO RingStateDO additions ──────────────────────────────────────────
+  this.pendingLive — rolling per-class B+intro pair detector
+  this.ringOpenSegment — in-flight D1 segment row tracker
+  this.forcedFocusClassId — manual focus override
+  this.flushedAt — flush cooldown timestamp
+
+  Methods:
+    _processLiveTriggers(body) — scans events for B+intro pair
+    _bumpLiveHeartbeats(body) — refreshes last_live_event_at on live classes
+    _sweepLiveTimeouts() — flips is_live=false at 30min idle
+    _reconcileRingSegment(slug, ringNum, manualHint) — opens/closes D1
+      segment based on any-live-on-ring; manualHint passes explicit
+      ended_at + reason for clear/finalize/flush actions
+    _buildFocusPreview(focusedEntry) — engine's "On the air" peek data
+
+  Snapshot fields:
+    Top-level: is_live, live_since, live_class_ids, focused_class_id,
+               forced_focus_class_id, focus_preview, ring_open_segment
+    Per byClass entry: is_live, live_since, live_trigger, last_live_event_at,
+                       went_unlive_at, unlive_reason
+    classes filter: only entries with (is_live || live_since != null || is_final)
+                    surface in snapshot.classes — tentative classes filtered
+
+  ── /v3/postUdpEvent passthrough refactor ──────────────────────────────
+  Changed from cherry-picking individual fields off the DO response to
+  spreading the whole DO response (`...liveEcho`). After getting bitten
+  twice in one session by silent field drops, this is the new pattern
+  (see feedback_spread_response.md memory).
+
+  ── Channel B {29}=F always wins (fix) ─────────────────────────────────
+  Pre-scan finalizedThisBatch set, run un-finalize loop FIRST (skipping
+  classes in that set), then run FINAL loop. F can't be undone in same
+  batch by parallel B/intro events. Also clears _unfinalAt latch on F.
+
+  ── Un-finalize tightened (fix) ────────────────────────────────────────
+  Was: any Channel B without F + any Channel A frame > 0 = un-finalize.
+  Now: Channel B without F + (fr=1 OR fr=11) within LIVE_PAIR_WINDOW_MS.
+  Same criteria as the live trigger pair. Routine UDP cycling (ribbons,
+  display scores, idle frames) can no longer accidentally undo a FINAL.
+
+  ── Carry-forward TTL (fix) ────────────────────────────────────────────
+  last_focus / last_scoring only carry forward across batches if their
+  .at is within 20 minutes (CARRY_STALE_MS). Without this, a stale
+  focus from earlier sessions kept _focusedClassId returning the wrong
+  class forever — the engine pane showed yesterday's focus on today's
+  ring. CARRY_STALE_MS matches NON_FINAL_STALE_MS so anything that
+  would age out of byClass also ages out of the carry sources.
+
+  ── Tentative class filter (fix) ───────────────────────────────────────
+  snapshot.classes filtered to require is_live OR live_since OR is_final.
+  Bare Channel B touches (or fr=1 alone) populate byClass internally
+  for state tracking but no longer leak into the public live page.
+
+  ── cls_lock with flush cooldown ───────────────────────────────────────
+  /scores-update branches: if class isn't already live AND not final
+  AND not within 15s of a Flush, sets is_live=true with live_trigger='cls_lock'.
+  Handles the "operator forgot to click focus, started scoring" case
+  without nuking Flush's intent (the trailing .cls write at class-close
+  used to undo Flush).
+
+  ── previous_entry FINAL gate ──────────────────────────────────────────
+  Both _updateByClass and /scores-update score-update paths now skip
+  the previous_entry rebuild when class is_final. Without this, the
+  Just Finished banner would resurrect immediately after FINAL because
+  _updateByClass overwrote the FINAL handler's null with a fresh
+  candidate from the still-present last_identity + scoring row.
+
+D1
+
+  ── migration 031_ring_live_segment.sql ────────────────────────────────
+  CREATE TABLE ring_live_segment (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_slug TEXT NOT NULL,
+    ring_num INTEGER NOT NULL,
+    started_at INTEGER NOT NULL,           -- ms epoch, actual event time
+    ended_at INTEGER,                      -- nullable while live
+    ended_reason TEXT,                     -- final | timeout | recovery_close | manual_clear
+    classes_run INTEGER NOT NULL DEFAULT 1,
+    last_event_at INTEGER NOT NULL
+  );
+  + idx_ring_live_segment_lookup (show_slug, ring_num, started_at)
+  + idx_ring_live_segment_open (show_slug, ring_num) WHERE ended_at IS NULL
+
+  Applied to remote west-scoring-v3 D1 via wrangler d1 execute.
+
+  Critical accuracy rule baked in: started_at and ended_at are the
+  ACTUAL event timestamps (the FINAL event's .at, the last_event_at
+  on timeout), NOT the wall-clock when the worker noticed. Manager
+  report depends on this for honest active-time totals.
+
+ENGINE (v3.0.1 → v3.1.5, five releases this session)
+
+  v3.1.0 — Live on Website pane (initial)
+    Status tab gets a new pane between Current Focus and Status grid.
+    Pulsing green LIVE indicator + class pills when active.
+
+  v3.1.1 — Ryegate 2.4.4.2 compatibility note
+    Amber-accent banner above Folders in Settings: "Requires Ryegate 2.4.4.2."
+    Bundled the live-state preservation fix (was getting wiped by the
+    _updateByClass spread overwrite — now explicitly carried forward).
+
+  v3.1.2 — Right-click context menu + state badges
+    Live on Website pane lists every open class with state badges:
+      LIVE (green), FOCUS (red outline), PINNED (purple), FINAL (grey).
+    Right-click any class number → menu with three actions:
+      Clear live | Make Final | Make Focus
+    Calls /v3/setClassLiveState.
+
+  v3.1.3 — On the air pane
+    Read-only peek at the focused class's M4 lower-third content.
+    Shows class id/name, state badges, on-course identity (entry/horse/
+    rider), the live status line (countdown OR clock + rank + faults +
+    target time), and the just-finished overlay if present. Operator
+    sees what the public is seeing without opening the live page.
+
+  v3.1.4 — Flush live button
+    Top-right of the Live pane title. Clears live state on every class
+    on the ring (originally preserved finals, then changed mid-session
+    per Bill's clarification to nuke EVERYTHING including finals).
+
+  v3.1.5 — Tooltip refresh + bundled fixes
+    Flush live tooltip updated to "Wipe every class off the live page
+    (live and finalized). 15-second cooldown after, so trailing .cls
+    writes don't re-light anything."
+    Bundles all the worker-side fixes from today.
+
+  Dist: WEST-Engine-Setup-3.1.4.exe staged in business OneDrive at
+  `Live Scoring Deployment/` for Bill's field deployment. 3.1.5 OTAs
+  on top after install.
+
+PUBLIC PAGES
+
+  ── live.html ──────────────────────────────────────────────────────────
+  M4 lower-third for HUNTERS now uses WEST.hunterTemplates.renderLowerThird
+  (centralized — pages are dumb containers per memory rule).
+  Right column for hunters: rank / overall+round / per-judge cells.
+  All gating logic (single-round hides chips, single-judge hides judges
+  line, derbies carry granular base+hi-opt+handy) lives in the template.
+  Frame gate: only renders score data on fr=12/14/16 (Display Scores).
+  fr=11 (intro) hides everything in the right column.
+
+  Page-idle suppression: when M4 has identity but no locked class
+  exists (tentative focus), the "All quiet at the ring" placeholder
+  hides so the M4 bar can show the rider. Class panels stay hidden
+  until the class earns its lock.
+
+  ── class.html ─────────────────────────────────────────────────────────
+  "Watch Live" button now gates on `live_class_ids.includes(this_class)`
+  instead of any-ring-live, so the button only shows when THIS specific
+  class is currently live (not just any class on the ring).
+
+  ── /v3/listRings + /v3/listShowsWithRings ─────────────────────────────
+  Auto-upgraded class_live derivation to use the new is_live snapshot
+  field (with fallback to legacy 2-min "scoring frame received" heuristic
+  for old snapshots that don't carry it yet). Index page + show page
+  ring pulses are accurate to the explicit lock model now.
+
+HUNTER SCORE-BOX DETECTION (west-hunter-templates.js)
+
+  renderLowerThird returns { hasContent, rank, middleHtml, judgesHtml }
+  for the M4 right column.
+
+  Display mode picker (in priority order):
+    1. combined_total subset matching — finds the largest subset of
+       round score totals whose SUM equals combined_total. Largest
+       matching subset is the "released set." Stable across UDP cycling
+       because it's data-only.
+       - All rounds matched → Overall mode (big = "Overall <combined>")
+       - Subset matches → Round mode for highest-numbered round in subset
+    2. UDP {14} tag matching — fr=12 carries "T: 79.00" for the displayed
+       round; fr=16 carries "T:..." or "OV:...". Match value to combined
+       or to a round score. Used when subset method couldn't decide
+       (typically single-round classes or combined_total still null).
+    3. Highest scored round fallback — last-ditch when nothing else
+       works. Never auto-promotes to Overall (Overall requires explicit
+       detection via subset or "OV:" prefix).
+
+  Round chips loop bounded by num_rounds (no stale R3 chips on a 2-round
+  class). Judges line filters by the same displayedRound the big number
+  shows (re-display of R1 shows R1's judges, not R2's).
+
+═══════════════════════════════════════════════════════════════════════════
+NOTABLE BUGS HUNTED (in case any reappear)
+═══════════════════════════════════════════════════════════════════════════
+
+1. Cherry-pick passthrough drops (TWICE)
+   /v3/postUdpEvent was building its own response object and forgetting
+   to forward new DO fields. First miss: is_live wasn't reaching the
+   engine after the v3.1.0 install. Second miss: classes_summary +
+   focused_class_id missed when lifting them onto the DO response.
+   Fix: spread the whole DO response. See feedback_spread_response.md.
+
+2. Live state wiped by _updateByClass overwrite
+   _processLiveTriggers correctly set is_live=true on byClass[X], but
+   the next _updateByClass call rebuilt the entry from scratch and
+   forgot to carry is_live forward. Same trap that previously bit
+   is_final. Fix: explicit carry of is_live, live_since, live_trigger,
+   last_live_event_at, went_unlive_at, unlive_reason in the spread.
+
+3. Just Finished banner resurrects after FINAL
+   FINAL handler nulled previous_entry, but _updateByClass (and
+   /scores-update) immediately rebuilt it from the still-present
+   last_identity + scoring row. Fix: gate the rebuild on !is_final
+   in both code paths.
+
+4. F could be undone in same batch
+   Original order: FINAL handler then un-finalize loop. Same-batch
+   B-without-F + Channel A frame would un-finalize the just-set FINAL.
+   Fix: pre-scan finalizedThisBatch set, run un-finalize FIRST (skipping
+   F-this-batch classes), then FINAL. Plus: clear _unfinalAt latch when
+   F lands.
+
+5. Stale focus from old session pinned the wrong class
+   last_focus carry-forward had no TTL — a Channel B click from days
+   ago would still be returned as the focused class today, blocking
+   live activity from updating focus. Fix: 20-min TTL on carry-forward.
+
+6. Hunter Overall label fired when only R1 was displayed
+   combined_total = R1 alone (R2 in .cls but not yet released) fooled
+   the "all rounds scored + combined != null = Overall" heuristic into
+   showing "Overall 179" instead of "R1 179". Fix: subset matching —
+   if combined matches R1 alone (not R1+R2), only R1 is released.
+
+7. Channel-B-only classes leaked onto the live page
+   Bare Channel B touches created byClass entries via _updateByClass's
+   focused-class refresh. Without the lock filter, any class the
+   operator focused on (without the intro pair) would land on the
+   public site. Fix: snapshot.classes filter requires is_live OR
+   live_since OR is_final.
+
+8. Trailing .cls write undid Flush
+   After Flush wiped byClass, the next .cls write (Ryegate touching
+   the file as the class closed) hit /scores-update's cls_lock branch
+   and re-created the class. Fix: 15-second flushedAt cooldown blocks
+   cls_lock relight; explicit B+intro pair always works.
+
+9. Flush left top-level snapshot pointers in place
+   byClass got nuked but snapshot.last_focus / last_scoring /
+   focused_class_id were sticky — carry-forward and _focusedClassId's
+   sticky fallback kept promoting the stale class on every batch.
+   Engine pane still showed the old class as focused. Fix: wipe those
+   top-level pointers on flush_all.
+
+═══════════════════════════════════════════════════════════════════════════
+NEW MEMORIES (this session)
+═══════════════════════════════════════════════════════════════════════════
+
+- project_s46_live_state.md — full S46 spec, lock model, segment table,
+  engine pane, manager report, hunter score-box detection
+- feedback_spread_response.md — the cherry-pick lesson (with quote
+  from Bill: "just fix thats whare we're here for")
+- project_engine_packaging.md — updated header with 3.1.5 milestone +
+  OneDrive 3.1.4 deployment note
+- MEMORY.md — two new pointer lines, engine packaging line refreshed
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S OPEN
+═══════════════════════════════════════════════════════════════════════════
+
+- Manager report endpoint exists (/v3/ringActivityReport) but no admin
+  UI calls it yet. Small build when it's wanted.
+- show.html doesn't have a prominent "Ring N is currently Live" banner —
+  only the existing per-ring pill (which now uses the new is_live data).
+  Original Bill ask was for a more prominent banner; held off.
+- Flush live tooltip is fresh in 3.1.5 but Bill is field-testing 3.1.4
+  first. The 3.1.4 tooltip says "Doesn't affect FINAL" (stale).
+- /class-action response building still uses explicit field-listing —
+  could use the same spread refactor as /v3/postUdpEvent for symmetry.
+  Not critical; works correctly now.
+- Hunter live page redesign was previously "currently degraded" per
+  memory; the M4 right column for hunters is now first-class. The
+  full hunter page audit (standings table layout, ribbon ceremony,
+  jog-order display) is still parked.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF NOTES FOR NEXT CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Engine v3.1.5 is the current OTA target. v3.1.4 installer is in the
+  business OneDrive `Live Scoring Deployment/` folder for fresh installs.
+- Worker version at session end: 4a5f218f. All worker changes deployed
+  via `wrangler deploy --config wrangler.worker.toml`.
+- The lock model is non-obvious — read project_s46_live_state.md before
+  touching anything in _processLiveTriggers, _focusedClassId,
+  _updateByClass, /scores-update, or the un-finalize loop. They all
+  interact in subtle ways and a "small fix" will probably break one of
+  the eight bugs hunted today.
+- Don't cherry-pick fields off DO responses in worker routes. Spread
+  them. Read feedback_spread_response.md.
+- The hunter score-box round detection (combined_total subset matching)
+  is non-obvious — it handles re-display of earlier rounds correctly
+  by inferring "what's been released" from the data, not from UDP
+  cycling. Read the renderLowerThird implementation comments before
+  touching it.
