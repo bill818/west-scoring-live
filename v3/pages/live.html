@@ -554,6 +554,14 @@
     width: 6px; height: 6px; border-radius: 50%; background: #4ade80;
     animation: live-pulse 1.6s infinite;
   }
+  /* FINAL variant — operator-set CLASS_COMPLETE flag (Channel B {29}="F").
+     Solid red, no blink, replaces the "In ring" green pulse. */
+  .class-panel-pill.is-final {
+    background: var(--red); color: #fff;
+  }
+  .class-panel-pill.is-final .blink {
+    background: #fff; animation: none; opacity: 1;
+  }
   /* Inside the class panel, the standings panel wrappers (jumper/hunter)
      don't need their own backgrounds/borders — the class-panel provides them. */
   .class-panel .standings-wrap {
@@ -759,6 +767,8 @@
 <script src="../js/west-clock.js"></script>
 <script src="../js/west-jumper-templates.js"></script>
 <script src="../js/west-hunter-templates.js"></script>
+<script src="../js/west-flat.js"></script>
+<script src="../js/west-scoreboard.js"></script>
 </head>
 <body>
 
@@ -789,9 +799,10 @@
      liveRank. -->
 <div class="page-wrap">
 
-  <!-- Pinned live box — never moves; shows whoever is currently in the
-       ring on the focused class. Breaks out edge-to-edge on mobile only. -->
-  <div class="live-box-wrap-wide">
+  <!-- Pinned live box — collapses to hidden when there's no rider on
+       course AND no flat-mode content to show, so it doesn't hang
+       blank between entries. -->
+  <div class="live-box-wrap-wide" id="liveBoxWrap">
     <div class="live-box">
       <div class="live-box-banner">
         <span id="liveBoxBannerText">In the ring</span>
@@ -811,24 +822,34 @@
             <div class="live-rider"><span id="idRider">—</span></div>
           </div>
         </div>
-        <!-- Status line + clock + faults + rank cell -->
-        <div class="live-box-cell">
-          <div class="live-status-line">
-            <span class="round" id="ocRoundLabel" style="display:none;"></span>
-            <span class="sep" id="ocRoundSep" style="display:none;">·</span>
-            <span class="phase" id="clockPhase">—</span>
-            <span class="sep" id="ocTaSep" style="display:none;">·</span>
-            <span class="ta" id="ocTaLabel" style="display:none;"></span>
+        <!-- Right cell — slot for lens-specific content. Jumper gets
+             clock + faults + rank; hunter gets the score card; flat
+             takes over the whole live-box (this cell hides). Driven
+             by shared modules (per the centralize-render directive)
+             via render(). The clock module's element IDs (clockBig,
+             clockPhase, etc.) are wrapped in a jumper-only inner
+             <div> so they stay in DOM for jumper render but don't
+             leak into hunter mode. -->
+        <div class="live-box-cell" id="liveBoxRight">
+          <div id="liveBoxJumperContent" hidden>
+            <div class="live-status-line">
+              <span class="round" id="ocRoundLabel" style="display:none;"></span>
+              <span class="sep" id="ocRoundSep" style="display:none;">·</span>
+              <span class="phase" id="clockPhase">—</span>
+              <span class="sep" id="ocTaSep" style="display:none;">·</span>
+              <span class="ta" id="ocTaLabel" style="display:none;"></span>
+            </div>
+            <div class="oc-clock idle" id="clockBig">—</div>
+            <div class="live-stat">
+              <div class="live-stat-label">Faults</div>
+              <div class="live-stat-value" id="liveFaults">—</div>
+            </div>
+            <div class="live-stat">
+              <div class="live-stat-label">Rank</div>
+              <div class="live-stat-value" id="liveRank">—</div>
+            </div>
           </div>
-          <div class="oc-clock idle" id="clockBig">—</div>
-          <div class="live-stat">
-            <div class="live-stat-label">Faults</div>
-            <div class="live-stat-value" id="liveFaults">—</div>
-          </div>
-          <div class="live-stat">
-            <div class="live-stat-label">Rank</div>
-            <div class="live-stat-value" id="liveRank">—</div>
-          </div>
+          <div id="liveBoxHunterContent" hidden></div>
         </div>
       </div>
       <!-- Flat-class mode: a list of entries currently in the ring,
@@ -837,7 +858,8 @@
            across multiple entries on course at the same time). -->
       <div class="live-box-flat" id="liveBoxFlat" style="display:none;">
         <div class="live-box-flat-count">
-          <span class="num" id="liveFlatCount">—</span> entries in the ring
+          <span class="num" id="liveFlatCount">—</span>
+          <span id="liveFlatCountLabel">entries in the ring</span>
         </div>
         <ul class="flat-list" id="liveFlatList"></ul>
       </div>
@@ -853,7 +875,27 @@
         <div class="class-panel-name" id="classBarName">—</div>
         <div class="class-panel-sub" id="classBarSub">—</div>
       </div>
-      <span class="class-panel-pill"><span class="blink"></span>In ring</span>
+      <span class="class-panel-pill" id="classPanelPill"><span class="blink"></span>In ring</span>
+    </div>
+
+    <!-- SCOREBOARD CYCLING PANELS — fr=15 displays. Jog order is a
+         tentative numbered list (judges may reorder); standby list is
+         a bare roster (call-back, not a placing). Both sit above the
+         standings table — they don't replace it. Hidden until the
+         worker emits the relevant snapshot field. -->
+    <div class="sb-panel hidden" id="jogOrderPanel">
+      <div class="sb-panel-hdr">
+        <div class="sb-panel-title">Jog Order</div>
+        <div class="sb-panel-hint">tentative — judges may reorder</div>
+      </div>
+      <ul class="sb-list" id="jogOrderList"></ul>
+    </div>
+    <div class="sb-panel hidden" id="standbyListPanel">
+      <div class="sb-panel-hdr">
+        <div class="sb-panel-title">Standby List</div>
+        <div class="sb-panel-hint">called back for further testing</div>
+      </div>
+      <ul class="sb-list" id="standbyListList"></ul>
     </div>
 
     <!-- Standings panels — only one renders at a time depending on lens.
@@ -879,6 +921,14 @@
        fills this with one .class-panel per non-focused class in
        snapshot.classes. Empty / hidden until multi-class data arrives. -->
   <div id="otherClassPanels"></div>
+
+  <!-- Recent Results strip — collapsed bar per finalized class in the
+       10-30 min window after finalize. Each bar links to the static
+       class.html results page. Bill 2026-05-05 lifecycle. -->
+  <div id="recentResults" hidden>
+    <div class="recent-results-hdr">Recent Results</div>
+    <div id="recentResultsList"></div>
+  </div>
 
 </div>
 
@@ -953,6 +1003,16 @@
   // so the 10Hz tick can read the latest scoring_method/modifier.
   var currentClassMeta = null;
 
+  // Flat-class state — cadence tracker is module-owned (sticky inferred
+  // flag per class_id; lets U-class hunters surface as flat when their
+  // fr=11 rotation cadence is detected). animatedFlatRows tracks which
+  // entry_nums have already played fade-up so re-renders stay quiet;
+  // resets on class change via lastFlatClassId.
+  var flatCadenceTracker = (window.WEST && window.WEST.flat)
+    ? window.WEST.flat.createCadenceTracker() : null;
+  var animatedFlatRows = {};
+  var lastFlatClassId = null;
+
   function ageString(iso) {
     if (!iso) return '—';
     var t = Date.parse(iso);
@@ -1003,22 +1063,44 @@
 
   // Detect flat-class state on the focused class and swap the live box
   // body between single-rider mode (identity + clock) and flat mode
-  // (multi-entry list). Flat mode is hunter-only, triggered when the
-  // engine's frame 11 rotation has accumulated 2+ entries in flat_entries.
-  // Mirrors v2's pattern (live.html line 594-621).
+  // (entries-in-ring rotation OR pinned ribbons).
+  //
+  // Flat data shape (worker-side, west-worker.js RingStateDO):
+  //   snapshot.flat_class_id         — class_id the accumulators belong to
+  //   snapshot.flat_entries_seen[]   — fr=11 rotation, deduped by entry_num,
+  //                                    fields: entry_num, horse, rider, owner, is_eq, first_seen_at
+  //   snapshot.flat_results[]        — fr=14 ribbons, deduped + overwritten on re-pin,
+  //                                    fields above + place_text, place_num, score, pinned_at
+  //
+  // Trigger order:
+  //   - Definitive: class_meta.class_mode === 1 (Flat per H[02])
+  //   - Inferred (U-class fallback): 2+ entries seen (matches v2 pattern at
+  //     watcher.js ON_COURSE handler — fr=11 rotation with multiple entries
+  //     is the strongest signal of a flat class)
+  //
+  // Display:
+  //   - flat_results.length > 0 → "Results" mode, sorted by place_num ASC
+  //   - else if entries seen   → "In the ring" rotation list
   function renderFlatClass(snapshot) {
     var grid = document.getElementById('liveBoxGrid');
     var flatEl = document.getElementById('liveBoxFlat');
     var bannerText = document.getElementById('liveBoxBannerText');
     if (!grid || !flatEl) return;
+    if (!window.WEST || !window.WEST.flat) return;
 
-    var focusedId = snapshot && snapshot.focused_class_id;
-    var focusedEntry = focusedId && Array.isArray(snapshot.classes)
-      ? snapshot.classes.find(function (c) { return c && c.class_id === focusedId; })
-      : null;
-    var flatEntries = focusedEntry && Array.isArray(focusedEntry.flat_entries)
-      ? focusedEntry.flat_entries : null;
-    var isFlat = flatEntries && flatEntries.length > 1;
+    // Feed the cadence tracker so U-class hunters with rotation kicks
+    // into flat mode automatically.
+    if (flatCadenceTracker) flatCadenceTracker.update(snapshot);
+
+    var meta = (snapshot && snapshot.class_meta) || null;
+    var entriesSeen = (snapshot && snapshot.flat_entries_seen) || [];
+    var results     = (snapshot && snapshot.flat_results)      || [];
+    var classId = snapshot && (
+      snapshot.flat_class_id ||
+      (snapshot.last_focus    && snapshot.last_focus.class_id) ||
+      (snapshot.last_scoring  && snapshot.last_scoring.class_id) || null
+    );
+    var isFlat = window.WEST.flat.shouldRender(meta, snapshot, flatCadenceTracker);
 
     if (!isFlat) {
       grid.style.display = '';
@@ -1029,27 +1111,38 @@
 
     grid.style.display = 'none';
     flatEl.style.display = '';
-    if (bannerText) bannerText.textContent = 'Flat class in the ring';
     var countEl = document.getElementById('liveFlatCount');
-    if (countEl) countEl.textContent = String(flatEntries.length);
-
-    var esc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml)
-      || function (s) { return String(s == null ? '' : s).replace(/[<>&"]/g, function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];}); };
-    var listEl = document.getElementById('liveFlatList');
+    var listEl  = document.getElementById('liveFlatList');
+    var countLabelEl = document.getElementById('liveFlatCountLabel');
     if (!listEl) return;
-    listEl.innerHTML = flatEntries.map(function (e) {
-      // Equitation: rider primary, horse muted (or locale if present).
-      // Hunter: horse primary, rider muted.
-      var primary = e.isEq ? (e.rider || e.horse || '') : (e.horse || '');
-      var sub     = e.isEq ? (e.locale || e.horse || '') : (e.rider || '');
-      return '<li class="flat-entry">'
-        + '<span class="num">#' + esc(e.entry || '') + '</span>'
-        + '<span>'
-        +   '<div class="horse">' + esc(primary || '—') + '</div>'
-        +   (sub ? '<div class="rider">' + esc(sub) + '</div>' : '')
-        + '</span>'
-        + '</li>';
-    }).join('');
+
+    // Reset animation tracking on class change so a new class re-animates
+    // its first ribbons. Without this, switching ring focus would carry
+    // over animated entry_nums from the prior class.
+    if (lastFlatClassId !== classId) {
+      animatedFlatRows = {};
+      lastFlatClassId = classId;
+    }
+
+    if (results.length > 0) {
+      if (bannerText) bannerText.textContent = 'Results';
+      if (countEl) countEl.textContent = String(results.length);
+      if (countLabelEl) countLabelEl.textContent = results.length === 1 ? 'ribbon pinned' : 'ribbons pinned';
+      listEl.innerHTML = window.WEST.flat.renderResults(meta, results, {
+        animatedSet: animatedFlatRows,
+        markAnimated: true,
+      });
+      return;
+    }
+
+    if (bannerText) bannerText.textContent = 'Flat class in the ring';
+    if (countEl) countEl.textContent = String(entriesSeen.length);
+    if (countLabelEl) countLabelEl.textContent = entriesSeen.length === 1 ? 'entry in the ring' : 'entries in the ring';
+    if (entriesSeen.length === 0) {
+      listEl.innerHTML = '<li class="flat-entry"><span class="num">—</span><span><div class="horse" style="color: var(--text-muted); font-style: italic;">Waiting for entries…</div></span></li>';
+      return;
+    }
+    listEl.innerHTML = window.WEST.flat.renderEntries(meta, entriesSeen);
   }
 
   // Render the OTHER class panels (every entry in snapshot.classes
@@ -1058,17 +1151,58 @@
   // adds the secondary panels below.
   function renderOtherClassPanels(snapshot) {
     var container = document.getElementById('otherClassPanels');
+    var recentEl  = document.getElementById('recentResults');
+    var recentList = document.getElementById('recentResultsList');
     if (!container) return;
-    if (!snapshot || !Array.isArray(snapshot.classes) || snapshot.classes.length <= 1) {
+    if (!snapshot || !Array.isArray(snapshot.classes) || snapshot.classes.length === 0) {
       container.innerHTML = '';
+      if (recentEl) recentEl.hidden = true;
+      if (recentList) recentList.innerHTML = '';
       return;
     }
     var focusedId = snapshot.focused_class_id;
-    var others = snapshot.classes.filter(function (c) { return c && c.class_id !== focusedId; });
-    if (!others.length) { container.innerHTML = ''; return; }
+    var slug = snapshot.slug || '';
+    var ringNum = snapshot.ring_num != null ? String(snapshot.ring_num) : '';
     var esc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml) || function (s) { return String(s == null ? '' : s); };
+
+    // Split classes by lifecycle_state (worker-computed):
+    //   'full' (default) → render in the otherClassPanels stack
+    //   'collapsed'      → render as a bar in the Recent Results strip
+    // The focused class is always 'full' regardless of state — the
+    // operator-driven panel doesn't get demoted while it's being looked at.
+    var fullPanels = [];
+    var collapsedBars = [];
+    snapshot.classes.forEach(function (c) {
+      if (!c || !c.class_id) return;
+      if (c.class_id === focusedId) return; // focused panel renders elsewhere
+      if (c.lifecycle_state === 'collapsed') collapsedBars.push(c);
+      else fullPanels.push(c);
+    });
+
+    // Recent Results strip first (so it can hide cleanly).
+    if (collapsedBars.length && recentEl && recentList) {
+      var rrHtml = collapsedBars.map(function (c) {
+        var meta = c.class_meta || {};
+        var url = 'class.html?slug=' + encodeURIComponent(slug)
+          + '&ring=' + encodeURIComponent(ringNum)
+          + '&class=' + encodeURIComponent(c.class_id);
+        return '<a class="recent-result-bar" href="' + url + '">'
+          + '<span class="rr-num">' + esc(c.class_id) + '</span>'
+          + '<span class="rr-name">' + esc(meta.class_name || '—') + '</span>'
+          + '<span class="rr-pill">FINAL</span>'
+          + '<span class="rr-arrow">→</span>'
+          + '</a>';
+      }).join('');
+      recentList.innerHTML = rrHtml;
+      recentEl.hidden = false;
+    } else if (recentEl && recentList) {
+      recentList.innerHTML = '';
+      recentEl.hidden = true;
+    }
+
+    if (!fullPanels.length) { container.innerHTML = ''; return; }
     var html = '';
-    others.forEach(function (entry) {
+    fullPanels.forEach(function (entry) {
       var meta = entry.class_meta || {};
       var lens = entry.class_kind || null;
       var lensLabel = lens === 'jumper' ? 'Jumper'
@@ -1093,9 +1227,14 @@
       if (!standingsHtml) {
         standingsHtml = '<div class="empty" style="padding:18px;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Awaiting standings…</div>';
       }
-      // Idle pill (gray) for non-focused panels — the In Ring pulse
-      // belongs only to whichever panel the live box is currently
-      // narrating.
+      // Pill state — FINAL (red) when entry.is_final, OPEN (gray) otherwise.
+      // The In Ring (green pulse) pill belongs only to the focused panel
+      // above; non-focused classes that aren't final read as OPEN.
+      var isClassFinal = !!entry.is_final;
+      var pillClass = isClassFinal ? 'class-panel-pill is-final' : 'class-panel-pill';
+      var pillStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);"';
+      var pillBlinkStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.5);animation:none;"';
+      var pillText = isClassFinal ? 'FINAL' : 'Open';
       html += '<div class="class-panel" style="margin-top:18px;">'
         + '<div class="class-panel-header">'
         +   '<div class="class-panel-num">' + esc(entry.class_id) + '</div>'
@@ -1103,8 +1242,8 @@
         +     '<div class="class-panel-name">' + esc(meta.class_name || '—') + '</div>'
         +     '<div class="class-panel-sub">' + esc(lensLabel) + '</div>'
         +   '</div>'
-        +   '<span class="class-panel-pill" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);">'
-        +     '<span class="blink" style="background:rgba(255,255,255,.5);animation:none;"></span>Open'
+        +   '<span class="' + pillClass + '" ' + pillStyle + '>'
+        +     '<span class="blink" ' + pillBlinkStyle + '></span>' + pillText
         +   '</span>'
         + '</div>'
         + '<div class="standings-wrap">' + standingsHtml + '</div>'
@@ -1141,6 +1280,9 @@
       $('liveRank').textContent = '—';
       $('hunterStandingsPanel').classList.add('hidden');
       $('jumperStandingsPanel').classList.add('hidden');
+      var _jogP = $('jogOrderPanel'); if (_jogP) _jogP.classList.add('hidden');
+      var _sbP  = $('standbyListPanel'); if (_sbP) _sbP.classList.add('hidden');
+      var _lbw  = $('liveBoxWrap'); if (_lbw) _lbw.hidden = true;
       renderFlatClass(null);
       renderOtherClassPanels(null);
       $('eventsCount').textContent = '';
@@ -1160,6 +1302,47 @@
     currentLens = lens;
     currentClassMeta = snapshot.class_meta || null;
 
+    // Compute isFlat once for the whole render. Used by renderFlatClass
+    // (to switch the live-box body) AND by the standings panels below
+    // (to suppress them — flat classes have no per-round scores so the
+    // standings table is just empty rows; the flat panel is the result).
+    // Single source of truth via WEST.flat.shouldRender — same gate
+    // both renderFlatClass and the standings panels consume.
+    var renderIsFlat = !!(window.WEST && window.WEST.flat &&
+      window.WEST.flat.shouldRender(currentClassMeta, snapshot, flatCadenceTracker));
+
+    // Flat-class detection runs FIRST (before any score-card / standings
+    // logic) so a throw downstream in the hunter/jumper render blocks
+    // can't prevent the flat layout from activating. Wrapped in try/catch
+    // belt-and-suspenders.
+    try { renderFlatClass(snapshot); }
+    catch (e) { if (window.console) console.error('[live.html] renderFlatClass threw:', e); }
+
+    // Scoreboard cycling panels (jog order, standby list) — populated
+    // from snapshot.jog_order / snapshot.standby_list. Both via the
+    // shared WEST.scoreboard module so other pages can reuse the same
+    // render templates. Show iff the relevant array has data.
+    try {
+      var jogPanel = $('jogOrderPanel');
+      var jogList  = $('jogOrderList');
+      var jog = (snapshot.jog_order || []);
+      if (jogPanel && jogList && window.WEST && window.WEST.scoreboard && jog.length > 0) {
+        jogList.innerHTML = window.WEST.scoreboard.renderJogOrder(currentClassMeta, jog);
+        jogPanel.classList.remove('hidden');
+      } else if (jogPanel) {
+        jogPanel.classList.add('hidden');
+      }
+      var sbPanel = $('standbyListPanel');
+      var sbList  = $('standbyListList');
+      var sb = (snapshot.standby_list || []);
+      if (sbPanel && sbList && window.WEST && window.WEST.scoreboard && sb.length > 0) {
+        sbList.innerHTML = window.WEST.scoreboard.renderStandbyList(currentClassMeta, sb);
+        sbPanel.classList.remove('hidden');
+      } else if (sbPanel) {
+        sbPanel.classList.add('hidden');
+      }
+    } catch (e) { if (window.console) console.error('[live.html] scoreboard render threw:', e); }
+
     var lastA = snapshot.last_scoring || null;
     var lastB = snapshot.last_focus || null;
     var primary = lastA || snapshot.last;
@@ -1175,6 +1358,15 @@
       ? (lens === 'jumper' ? 'Jumper' : lens === 'hunter' ? 'Hunter' : lens === 'equitation' ? 'Equitation' : lens)
       : '';
     $('classBarSub').textContent = lensLabel || '(unconfigured)';
+    // FINAL pill — operator-set CLASS_COMPLETE flag from Channel B {29}.
+    // is_final is sticky per-class via the worker DO; once true it stays
+    // true for the class.
+    var pillEl = $('classPanelPill');
+    if (pillEl) {
+      var isFinalNow = !!snapshot.is_final;
+      pillEl.classList.toggle('is-final', isFinalNow);
+      pillEl.innerHTML = '<span class="blink"></span>' + (isFinalNow ? 'FINAL' : 'In ring');
+    }
     // Live-box banner "for · Class N" tag mirrors the focused class id.
     $('liveBoxFor').textContent = hdrClassId;
     // Faults + Rank for the rider currently on course. We look the entry
@@ -1275,106 +1467,59 @@
     // (snapshot.hunter_scores) and render in the clock-card slot.
     // Frame 11 (on-course) → blank (no score yet — rider is in ring).
     // Other frames / lenses → the clock callback handles its own thing.
-    if (lens === 'hunter') {
-      $('ocClockCard').classList.remove('hidden');
-      $('ocGrid').classList.remove('is-hunter');
-      var clockBigEl  = $('clockBig');
-      var clockPhase2 = $('clockPhase');
-      var displayedEntryNum = null;
-      if (snapshot.last_scoring && snapshot.last_scoring.channel === 'A'
-          && (snapshot.last_scoring.frame === 12 || snapshot.last_scoring.frame === 14
-              || snapshot.last_scoring.frame === 16)) {
-        var dt = snapshot.last_scoring.tags || {};
-        displayedEntryNum = clean(dt['1']);
+    // Live-box visibility — hide entirely when nothing meaningful is on
+    // course (no rider AND no flat content AND no score card). Prevents
+    // the empty blank card from hanging between entries.
+    var hasIdentity = !!(snapshot.last_identity && snapshot.last_identity.channel === 'A');
+    var hasFlatContent = renderIsFlat &&
+      (((snapshot.flat_results || []).length > 0) ||
+       ((snapshot.flat_entries_seen || []).length > 0));
+    var liveBoxWrapEl = $('liveBoxWrap');
+
+    // Live-box right cell — page is a dumb wiring file (per centralize
+    // rule). Three lens-driven containers in markup; render modules
+    // decide what fills them. liveBoxRight wraps both lens containers
+    // so the whole right cell hides cleanly when neither lens applies
+    // (flat mode, no class, etc).
+    var rightCell = $('liveBoxRight');
+    var jumperC = $('liveBoxJumperContent');
+    var hunterC = $('liveBoxHunterContent');
+    if (renderIsFlat) {
+      // Flat layout owns the whole live-box — hide both right-cell
+      // children. renderFlatClass hides liveBoxGrid entirely on top.
+      if (jumperC) jumperC.hidden = true;
+      if (hunterC) hunterC.hidden = true;
+      if (rightCell) rightCell.hidden = true;
+    } else if (lens === 'hunter') {
+      var scoreCardRes = (window.WEST && window.WEST.hunterTemplates && window.WEST.hunterTemplates.renderScoreCard)
+        ? window.WEST.hunterTemplates.renderScoreCard(currentClassMeta, snapshot.hunter_scores, snapshot)
+        : { html: '', hasScore: false };
+      if (jumperC) jumperC.hidden = true;
+      if (hunterC) {
+        hunterC.innerHTML = scoreCardRes.html;
+        hunterC.hidden = !scoreCardRes.hasScore;
       }
-      var entryRow = null;
-      if (displayedEntryNum && Array.isArray(snapshot.hunter_scores)) {
-        for (var hi = 0; hi < snapshot.hunter_scores.length; hi++) {
-          if (String(snapshot.hunter_scores[hi].entry_num) === String(displayedEntryNum)) {
-            entryRow = snapshot.hunter_scores[hi]; break;
-          }
-        }
-      }
-      if (entryRow) {
-        var fmtScore = function(v) { return (v == null) ? null : Number(v).toFixed(3); };
-        var r1 = fmtScore(entryRow.r1_score_total);
-        var r2 = fmtScore(entryRow.r2_score_total);
-        var r3 = fmtScore(entryRow.r3_score_total);
-        var combined = fmtScore(entryRow.combined_total);
-        var rounds = [];
-        if (r1) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R1</span><span class="hunter-score-round-val">' + r1 + '</span></div>');
-        if (r2) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R2</span><span class="hunter-score-round-val">' + r2 + '</span></div>');
-        if (r3) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R3</span><span class="hunter-score-round-val">' + r3 + '</span></div>');
-        var html = '<div class="hunter-score-block">';
-        if (rounds.length) html += '<div class="hunter-score-rounds">' + rounds.join('') + '</div>';
-        if (combined) {
-          html += '<div class="hunter-score-total-lbl">Total</div>';
-          html += '<div class="hunter-score-total-val">' + combined + '</div>';
-        }
-        // Use canonical placement rule — no place if entry's elim
-        // under hunterPlaceFor (R1 status check / scoring_type gate).
-        var placeApplied = window.WEST && window.WEST.rules
-          ? window.WEST.rules.hunterPlaceFor(entryRow.current_place,
-              currentClassMeta && currentClassMeta.scoring_type,
-              entryRow.r1_score_total, entryRow.r1_h_status)
-          : entryRow.current_place;
-        if (placeApplied != null) {
-          html += '<div class="hunter-score-place">PLACE<span class="val">' + placeApplied + '</span></div>';
-        }
-        // Judge breakdown — show per-judge per-round scores when multi-
-        // judge (num_judges > 1). Derby (class_mode=2) adds HighOption
-        // + Handy components per judge per round when present.
-        var nJudges = currentClassMeta && Number(currentClassMeta.num_judges);
-        var isDerby = currentClassMeta && currentClassMeta.class_mode === 2;
-        if (Array.isArray(entryRow.judges) && entryRow.judges.length > 0
-            && nJudges && nJudges > 1) {
-          // Group judges by round.
-          var byRound = {};
-          entryRow.judges.forEach(function(j) {
-            if (!byRound[j.round]) byRound[j.round] = {};
-            byRound[j.round][j.idx] = j;
-          });
-          html += '<div class="hunter-judge-grid">';
-          var roundKeys = Object.keys(byRound).map(Number).sort();
-          var rowCls = nJudges >= 3 ? 'hunter-judge-row three-judges' : 'hunter-judge-row';
-          roundKeys.forEach(function(rn) {
-            var cells = ['<span class="hunter-judge-rnd">R' + rn + '</span>'];
-            for (var ji = 0; ji < nJudges; ji++) {
-              var j = byRound[rn][ji];
-              if (!j || j.base == null) {
-                cells.push('<span class="hunter-judge-cell empty">—</span>');
-                continue;
-              }
-              var base = Number(j.base).toFixed(1);
-              var bonus = '';
-              if (isDerby) {
-                if (j.hiopt != null && j.hiopt > 0) bonus += ' <span class="bonus">+' + Number(j.hiopt).toFixed(0) + '</span>';
-                if (j.handy != null && j.handy > 0) bonus += ' <span class="bonus">+' + Number(j.handy).toFixed(0) + '</span>';
-              }
-              cells.push('<span class="hunter-judge-cell"><span class="base">' + base + '</span>' + bonus + '</span>');
-            }
-            html += '<div class="' + rowCls + '">' + cells.join('') + '</div>';
-          });
-          // Header row showing J1 / J2 etc. (Add at the top.)
-          var hdrCells = ['<span class="hunter-judge-rnd"></span>'];
-          for (var jh = 0; jh < nJudges; jh++) {
-            hdrCells.push('<span class="hunter-judge-cell" style="font-size:9px; color: var(--text-muted); letter-spacing:0.12em; text-transform:uppercase;">J' + (jh+1) + '</span>');
-          }
-          html = html.replace('<div class="hunter-judge-grid">',
-            '<div class="hunter-judge-grid"><div class="' + rowCls + '">' + hdrCells.join('') + '</div>');
-          html += '</div>';
-        }
-        html += '</div>';
-        clockBigEl.innerHTML = html;
-        clockBigEl.className = 'oc-clock';     // strip phase classes
-        clockBigEl.style.fontSize = '';
-        clockPhase2.textContent = 'displaying scores';
-      } else {
-        clockBigEl.innerHTML = '<span class="hunter-score-empty">awaiting score</span>';
-        clockBigEl.className = 'oc-clock';
-        clockBigEl.style.fontSize = '';
-        clockPhase2.textContent = '';
-      }
+      if (rightCell) rightCell.hidden = !scoreCardRes.hasScore;
+    } else {
+      // Jumper / equitation / unknown — show the clock-bearing
+      // jumper content. The clock module + its callbacks already
+      // populate clockBig / clockPhase / liveFaults / liveRank.
+      if (jumperC) jumperC.hidden = false;
+      if (hunterC) { hunterC.innerHTML = ''; hunterC.hidden = true; }
+      if (rightCell) rightCell.hidden = false;
+    }
+
+    // Live-box visibility — collapse the whole pinned card when it
+    // would render blank. Show iff there's a rider on course OR flat
+    // content OR score card OR jumper-clock activity (lens=jumper
+    // and not in idle phase). This keeps the page from showing an
+    // empty card between entries.
+    if (liveBoxWrapEl) {
+      var hasScoreCard = !renderIsFlat && lens === 'hunter' &&
+        rightCell && rightCell.hidden === false;
+      var hasJumperContent = !renderIsFlat && lens !== 'hunter' && hasIdentity;
+      var liveBoxShow = hasIdentity || hasFlatContent || hasScoreCard || hasJumperContent;
+      liveBoxWrapEl.hidden = !liveBoxShow;
     }
 
     var hsPanel = $('hunterStandingsPanel');
@@ -1382,7 +1527,7 @@
     var hsBox   = $('hunterStandingsBox');
     var hs = snapshot.hunter_scores;
     var hasHunterTemplates = !!(window.WEST && window.WEST.hunterTemplates && window.WEST.hunterTemplates.renderTable);
-    if (lens === 'hunter' && Array.isArray(hs) && hs.length > 0
+    if (lens === 'hunter' && !renderIsFlat && Array.isArray(hs) && hs.length > 0
         && currentClassMeta && hasHunterTemplates) {
       hsPanel.classList.remove('hidden');
       var placedH = hs.filter(function(e) {
@@ -1484,7 +1629,7 @@
     var js = snapshot.jumper_scores;
     var isJumperLens = (lens === 'jumper' || lens === 'equitation');
     var hasJumperTemplates = !!(window.WEST && window.WEST.jumperTemplates && window.WEST.jumperTemplates.renderTable);
-    if (isJumperLens && Array.isArray(js) && js.length > 0
+    if (isJumperLens && !renderIsFlat && Array.isArray(js) && js.length > 0
         && currentClassMeta && hasJumperTemplates) {
       jsPanel.classList.remove('hidden');
       var placedJ = js.filter(function(e) {

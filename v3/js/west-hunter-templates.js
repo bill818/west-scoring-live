@@ -806,6 +806,101 @@
     '</tr>';
   }
 
+  // ── LIVE SCORE CARD ──────────────────────────────────────────────────
+  // Right-side card shown on hunter live surfaces when a Display Scores
+  // trigger (fr=12/14/16) names a focused entry AND that entry has score
+  // data in hunter_scores. Returns { html, hasScore }; caller hides the
+  // card slot entirely when hasScore is false.
+  //
+  // Per Bill 2026-05-05: hunter has no clock — the right card stays
+  // empty (and HIDDEN) until scores populate.
+  WEST.hunterTemplates.renderScoreCard = function (meta, hunterScores, snapshot) {
+    const empty = { html: '', hasScore: false };
+    if (!snapshot || !Array.isArray(hunterScores)) return empty;
+    const ls = snapshot.last_scoring;
+    if (!ls || ls.channel !== 'A') return empty;
+    if (ls.frame !== 12 && ls.frame !== 14 && ls.frame !== 16) return empty;
+    const tagEntry = String((ls.tags || {})['1'] || '').replace(/\r/g, '').trim();
+    if (!tagEntry) return empty;
+    let entryRow = null;
+    for (let i = 0; i < hunterScores.length; i++) {
+      if (String(hunterScores[i].entry_num) === tagEntry) { entryRow = hunterScores[i]; break; }
+    }
+    if (!entryRow) return empty;
+
+    const fmt = function (v) { return (v == null) ? null : Number(v).toFixed(3); };
+    const r1 = fmt(entryRow.r1_score_total);
+    const r2 = fmt(entryRow.r2_score_total);
+    const r3 = fmt(entryRow.r3_score_total);
+    const combined = fmt(entryRow.combined_total);
+    const rounds = [];
+    if (r1) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R1</span><span class="hunter-score-round-val">' + r1 + '</span></div>');
+    if (r2) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R2</span><span class="hunter-score-round-val">' + r2 + '</span></div>');
+    if (r3) rounds.push('<div class="hunter-score-round"><span class="hunter-score-round-lbl">R3</span><span class="hunter-score-round-val">' + r3 + '</span></div>');
+
+    let html = '<div class="hunter-score-block">';
+    if (rounds.length) html += '<div class="hunter-score-rounds">' + rounds.join('') + '</div>';
+    if (combined) {
+      html += '<div class="hunter-score-total-lbl">Total</div>';
+      html += '<div class="hunter-score-total-val">' + combined + '</div>';
+    }
+    const placeApplied = (WEST.rules && WEST.rules.hunterPlaceFor)
+      ? WEST.rules.hunterPlaceFor(entryRow.current_place,
+          meta && meta.scoring_type, entryRow.r1_score_total, entryRow.r1_h_status)
+      : entryRow.current_place;
+    if (placeApplied != null) {
+      html += '<div class="hunter-score-place">PLACE<span class="val">' + placeApplied + '</span></div>';
+    }
+
+    const nJudges = meta && Number(meta.num_judges);
+    const isDerby = meta && meta.class_mode === 2;
+    if (Array.isArray(entryRow.judges) && entryRow.judges.length > 0 && nJudges && nJudges > 1) {
+      const byRound = {};
+      entryRow.judges.forEach(function (j) {
+        if (!byRound[j.round]) byRound[j.round] = {};
+        byRound[j.round][j.idx] = j;
+      });
+      // Dynamic grid: one column per judge plus a round-label column.
+      // Font + cell-padding scale down as judge count grows so the grid
+      // stays inside the score-card slot. Bill 2026-05-05 — "shrink
+      // font as needed for those multi judges" (he saw a 7-judge case
+      // overflow the slot).
+      const rndColPx = nJudges >= 6 ? 18 : 24;
+      const cols = rndColPx + 'px repeat(' + nJudges + ', 1fr)';
+      const baseFs = nJudges <= 3 ? 14 : nJudges <= 5 ? 12 : nJudges <= 7 ? 10 : 9;
+      const padPx  = nJudges <= 3 ? 2 : 1;
+      const hdrFs  = Math.max(7, baseFs - 4);
+      const rowStyle = 'display:grid;grid-template-columns:' + cols
+        + ';gap:' + padPx + 'px;align-items:baseline;font-size:' + baseFs + 'px;';
+      const hdrCellStyle = 'font-size:' + hdrFs + 'px;color:var(--text-muted);letter-spacing:.12em;text-transform:uppercase;text-align:center;';
+
+      let grid = '<div class="hunter-judge-grid">';
+      const hdrCells = ['<span class="hunter-judge-rnd"></span>'];
+      for (let jh = 0; jh < nJudges; jh++) {
+        hdrCells.push('<span class="hunter-judge-cell" style="' + hdrCellStyle + '">J' + (jh + 1) + '</span>');
+      }
+      grid += '<div class="hunter-judge-row" style="' + rowStyle + '">' + hdrCells.join('') + '</div>';
+      Object.keys(byRound).map(Number).sort().forEach(function (rn) {
+        const cells = ['<span class="hunter-judge-rnd">R' + rn + '</span>'];
+        for (let ji = 0; ji < nJudges; ji++) {
+          const j = byRound[rn][ji];
+          if (!j || j.base == null) { cells.push('<span class="hunter-judge-cell empty">—</span>'); continue; }
+          let bonus = '';
+          if (isDerby) {
+            if (j.hiopt != null && j.hiopt > 0) bonus += ' <span class="bonus">+' + Number(j.hiopt).toFixed(0) + '</span>';
+            if (j.handy != null && j.handy > 0) bonus += ' <span class="bonus">+' + Number(j.handy).toFixed(0) + '</span>';
+          }
+          cells.push('<span class="hunter-judge-cell"><span class="base">' + Number(j.base).toFixed(1) + '</span>' + bonus + '</span>');
+        }
+        grid += '<div class="hunter-judge-row" style="' + rowStyle + '">' + cells.join('') + '</div>';
+      });
+      grid += '</div>';
+      html += grid;
+    }
+    html += '</div>';
+    return { html: html, hasScore: true };
+  };
+
   // CommonJS export for tests / future Node consumers.
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.hunterTemplates;

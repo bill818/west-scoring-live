@@ -981,3 +981,51 @@ footer a{color:var(--blue);}
   .app-header .brand-name{font-size:18px;}
   .app-header .brand-tag{display:none;}
 }
+
+/* ── HUNTER FLAT — pinned-ribbon rows + fade-up animation ────────────
+   Layered on top of the .flat-entry / .flat-list styles already in
+   live.html. WEST.flat.renderResults emits .flat-result modifier on
+   the row when a ribbon is pinned; the .num cell holds the ribbon SVG
+   instead of the entry-number text. is-new triggers fade-up once. */
+.flat-entry.flat-result .num{display:flex;align-items:center;justify-content:center;}
+.flat-entry.flat-result .num svg{width:32px;height:32px;flex-shrink:0;}
+.flat-entry.flat-result .horse .flat-entry-num{font-family:var(--font-mono);font-size:11px;color:var(--red);font-weight:600;margin-right:6px;}
+.flat-entry.flat-result .flat-place-text{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);}
+.flat-entry.flat-result.is-new{animation:flatFadeUp .35s ease forwards;}
+@keyframes flatFadeUp{
+  from{opacity:0;transform:translateY(8px);}
+  to{opacity:1;transform:translateY(0);}
+}
+
+/* ── RECENT RESULTS STRIP — collapsed final-class bars ───────────────
+   Lifecycle: classes that went FINAL 10-30 min ago collapse from a
+   full standings panel to a single-line bar pointing to the static
+   class.html results page. Drop off entirely after 30 min. */
+#recentResults{margin-top:18px;}
+#recentResults[hidden]{display:none;}
+.recent-results-hdr{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin-bottom:8px;padding:0 4px;}
+.recent-result-bar{display:flex;align-items:center;gap:14px;padding:10px 16px;background:#fff;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;text-decoration:none;color:inherit;transition:border-color .12s, background .12s;}
+.recent-result-bar:hover{border-color:var(--red);background:var(--off-white);text-decoration:none;}
+.recent-result-bar .rr-num{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);min-width:54px;}
+.recent-result-bar .rr-name{font-family:var(--font-display);font-weight:600;font-size:14px;color:var(--text-body);flex:1;letter-spacing:.02em;}
+.recent-result-bar .rr-pill{font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);font-weight:600;background:rgba(184,32,37,.08);padding:3px 8px;border-radius:4px;}
+.recent-result-bar .rr-arrow{font-family:var(--font-mono);font-size:14px;color:var(--text-muted);}
+
+/* ── SCOREBOARD CYCLING DISPLAYS — jog order + standby list ──────────
+   fr=15 broadcasts. Both render in their own panels above the standings
+   table. Jog = tentative numbered list (judges may reorder). Standby
+   = bare roster (call-back list, no place semantics). Neither uses
+   ribbons — those are reserved for final placings. */
+.sb-panel{background:#fff;border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:12px;}
+.sb-panel.hidden{display:none;}
+.sb-panel-hdr{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.sb-panel-title{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);font-weight:600;}
+.sb-panel-hint{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);font-style:italic;}
+.sb-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0;}
+.jog-row,.standby-row{display:grid;align-items:baseline;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);}
+.jog-row:last-child,.standby-row:last-child{border-bottom:none;}
+.jog-row{grid-template-columns:32px 50px 1fr;}
+.standby-row{grid-template-columns:50px 1fr;}
+.jog-pos{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--black);text-align:right;}
+.jog-num,.standby-num{font-family:var(--font-mono);font-size:12px;color:var(--red);font-weight:600;}
+.jog-name,.standby-name{font-family:var(--font-display);font-weight:600;font-size:15px;color:var(--text-body);}

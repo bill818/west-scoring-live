@@ -927,19 +927,42 @@ export class RingStateDO {
   // (operator at lunch, weather hold) and could resume — eviction is
   // purely about keeping the live panel stack tidy.
   _buildSnapshot(body) {
-    const CLASS_STALE_MS = 20 * 60 * 1000;
-    const cutoff = Date.now() - CLASS_STALE_MS;
+    // Class lifecycle on the live page (Bill 2026-05-05):
+    //   • Non-final classes evict 20 min after last_seen_at (idle)
+    //   • Final classes hold "full" panel for 10 min from finalized_at
+    //   • Then collapse to a bar (10-30 min after finalized_at)
+    //   • Then drop entirely (>30 min after finalized_at)
+    const NON_FINAL_STALE_MS = 20 * 60 * 1000;
+    const FINAL_FULL_MS      = 10 * 60 * 1000;   // 0-10min: full panel
+    const FINAL_DROP_MS      = 30 * 60 * 1000;   // 30min+:  remove
+    const now = Date.now();
     for (const id of Object.keys(this.byClass)) {
-      const seenAt = Date.parse(this.byClass[id].last_seen_at || '');
-      if (Number.isFinite(seenAt) && seenAt < cutoff) {
-        delete this.byClass[id];
+      const c = this.byClass[id];
+      const seenAt = Date.parse(c.last_seen_at || '');
+      const finalAt = Date.parse(c.finalized_at || '');
+      if (c.is_final && Number.isFinite(finalAt)) {
+        if (now - finalAt > FINAL_DROP_MS) { delete this.byClass[id]; continue; }
+        c.lifecycle_state = (now - finalAt > FINAL_FULL_MS) ? 'collapsed' : 'full';
+      } else {
+        if (Number.isFinite(seenAt) && (now - seenAt) > NON_FINAL_STALE_MS) {
+          delete this.byClass[id]; continue;
+        }
+        c.lifecycle_state = 'full';
       }
     }
     const classes = Object.values(this.byClass).sort((a, b) =>
       String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
+    const focusedId = this._focusedClassId(body);
+    // Surface the persisted is_final / finalized_at for the focused
+    // class at the top level — preserves stickiness across batches
+    // where the operator's focus packets stop carrying {29}="F".
+    const focusedEntry = focusedId ? this.byClass[focusedId] : null;
+    const persistedFinal = focusedEntry && focusedEntry.is_final === true;
     return {
       ...body,
-      focused_class_id: this._focusedClassId(body),
+      focused_class_id: focusedId,
+      is_final: !!(body.is_final || persistedFinal),
+      finalized_at: focusedEntry ? (focusedEntry.finalized_at || null) : null,
       classes,
     };
   }
@@ -951,6 +974,13 @@ export class RingStateDO {
     const classId = this._focusedClassId(body);
     if (!classId) return;
     const prior = this.byClass[classId] || {};
+    // is_final transitions one-way per class until explicitly cleared:
+    // once the operator marks FINAL, we keep it true even if subsequent
+    // focus packets arrive without {29}="F" (Ryegate sometimes sends
+    // bare focus pings during the same class). Operator can flip it
+    // back via re-opening the class settings; that path is TBD.
+    const newFinal = body.is_final === true;
+    const finalStuck = prior.is_final === true || newFinal;
     this.byClass[classId] = {
       class_id: classId,
       class_kind: body.class_kind || prior.class_kind || null,
@@ -961,6 +991,8 @@ export class RingStateDO {
       last_scoring:  body.last_scoring  || prior.last_scoring  || null,
       last_focus:    body.last_focus    || prior.last_focus    || null,
       last_identity: body.last_identity || prior.last_identity || null,
+      is_final:      finalStuck,
+      finalized_at:  finalStuck ? (prior.finalized_at || (newFinal ? body.received_at : null)) : null,
       last_seen_at:  body.received_at   || new Date().toISOString(),
     };
   }
@@ -995,6 +1027,12 @@ export class RingStateDO {
       let body;
       try { body = await request.json(); }
       catch (e) { return new Response('Invalid JSON', { status: 400 }); }
+      // Cold-DO restoration — without this, a freshly-constructed DO
+      // (after Cloudflare's inactivity eviction) starts with byClass={}
+      // and would lose every previously-open class on the first new
+      // event. warmUp restores byClass from the last KV snapshot.
+      // Skipped when this.snapshot is already set (warm DO; no-op).
+      await this.warmUp(body.slug, body.ring_num);
       // Carry-forward cross-batch state — if this batch only had Channel B
       // events, last_scoring will be null even though we might have had
       // an on-course frame in the prior batch. Same for last_focus.
@@ -1019,6 +1057,89 @@ export class RingStateDO {
           body.last_identity = this.snapshot.last_identity;
         }
       }
+
+      // Un-finalize rule (Bill 2026-05-05): a class that's been marked
+      // FINAL transitions back to OPEN if Channel B fires WITHOUT
+      // {29}="F" AND a Channel A scoring/intro frame fires for the
+      // same class. Ryegate fires Channel B on each on-course click;
+      // pairing with a scoring frame distinguishes a deliberate
+      // on-course action from a stale focus ping.
+      //
+      // Order-agnostic: the same batch can have A-then-B or B-then-A
+      // (engine timestamps within 1ms of each other). Two-pass scan:
+      // first collect both signals per class, then apply un-final.
+      // Cross-batch tolerant: stash _unfinalAt in byClass so a B in
+      // one batch + A in the next still fires within ~1 second.
+      const UNFINAL_WINDOW_MS = 1500;
+      const unfinalCandidate = {}; // classId -> { hasUnfinalB, hasChanA, latestAt }
+      for (const e of (body.events || [])) {
+        if (!e || !e.class_id) continue;
+        const cid = String(e.class_id);
+        const cls = this.byClass[cid];
+        if (!cls || !cls.is_final) continue;
+        const evAt = Date.parse(e.at) || Date.now();
+        unfinalCandidate[cid] = unfinalCandidate[cid] || { hasUnfinalB: false, hasChanA: false, latestAt: 0 };
+        const slot = unfinalCandidate[cid];
+        slot.latestAt = Math.max(slot.latestAt, evAt);
+        if (e.channel === 'B') {
+          const hasF = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase() === 'F';
+          if (!hasF) slot.hasUnfinalB = true;
+        } else if (e.channel === 'A' && Number.isFinite(e.frame) && e.frame > 0) {
+          slot.hasChanA = true;
+        }
+      }
+      for (const cid of Object.keys(unfinalCandidate)) {
+        const slot = unfinalCandidate[cid];
+        const cls = this.byClass[cid];
+        if (!cls || !cls.is_final) continue;
+        // Same-batch pair: both signals present → un-final immediately.
+        if (slot.hasUnfinalB && slot.hasChanA) {
+          cls.is_final = false;
+          cls.finalized_at = null;
+          cls._unfinalAt = null;
+          if (this._focusedClassId(body) === cid) body.is_final = false;
+          continue;
+        }
+        // Cross-batch: B alone in this batch, A might come next batch.
+        if (slot.hasUnfinalB && !slot.hasChanA) {
+          cls._unfinalAt = slot.latestAt;
+        }
+        // A alone: check if a recent B is still pending within window.
+        if (slot.hasChanA && !slot.hasUnfinalB && cls._unfinalAt) {
+          if (slot.latestAt - cls._unfinalAt <= UNFINAL_WINDOW_MS) {
+            cls.is_final = false;
+            cls.finalized_at = null;
+            cls._unfinalAt = null;
+            if (this._focusedClassId(body) === cid) body.is_final = false;
+          }
+        }
+      }
+
+      // fr=0 × 3 consecutive → operator-intent CLEAR. Single fr=0 fires
+      // on auto-timeout (scoreboard going dim), so we don't treat one
+      // as a class reset. Three in a row is a deliberate hold-down /
+      // multi-press meaning "clear the on-course panel for real."
+      // Tracks per-class via this._fr0ConsecutiveByClass; resets when
+      // any non-zero fr=11/12/13/14/15/16 fires for that class.
+      // Clears last_identity (on-course panel) but leaves flat_results /
+      // jog_order / standby_list intact — those are class-history.
+      this._fr0ConsecutiveByClass = this._fr0ConsecutiveByClass || {};
+      const fr0Map = this._fr0ConsecutiveByClass;
+      for (const e of (body.events || [])) {
+        if (!e || e.channel !== 'A' || !e.class_id) continue;
+        const cid = String(e.class_id);
+        if (e.frame === 0) {
+          fr0Map[cid] = (fr0Map[cid] || 0) + 1;
+          if (fr0Map[cid] >= 3) {
+            body.last_identity = null;
+            // Don't reset to 0 here — additional fr=0s shouldn't keep
+            // re-clearing if the operator is just sitting on it. The
+            // counter resets on the next non-zero scoring frame.
+          }
+        } else if (e.frame >= 11) {
+          fr0Map[cid] = 0;
+        }
+      }
       // Hunter Flat accumulators — fr=11 builds the "in the ring"
       // rotation list, fr=14 builds the placings list. Both append-only
       // within a class; reset on class-id change. fr=0 does NOT clear
@@ -1040,14 +1161,110 @@ export class RingStateDO {
           ((this.snapshot && this.snapshot.flat_results) || []).slice();
         const seenIdx = new Map(entriesSeen.map((r, i) => [r.entry_num, i]));
         const resIdx  = new Map(results.map((r, i)      => [r.entry_num, i]));
+        // upsertSeen — dedupe by entry_num, refresh fields on repeat
+        const upsertSeen = (entryNum, horse, rider, owner, isEq, at) => {
+          if (!entryNum) return;
+          if (seenIdx.has(entryNum)) {
+            const i = seenIdx.get(entryNum);
+            entriesSeen[i] = { ...entriesSeen[i], horse, rider, owner, is_eq: isEq };
+          } else {
+            seenIdx.set(entryNum, entriesSeen.length);
+            entriesSeen.push({ entry_num: entryNum, horse, rider, owner, is_eq: isEq, first_seen_at: at });
+          }
+        };
+
+        // Scoreboard cycling-display accumulators (fr=15). Two distinct
+        // ceremonies share the frame, distinguished by the {13} label
+        // tag. Both preserve Ryegate's broadcast order — judges may
+        // arrange by back-number, class position, or anything else, and
+        // the page should render exactly that order. fr=0 doesn't clear.
+        let jogOrder = (this.snapshot && Array.isArray(this.snapshot.jog_order))
+          ? this.snapshot.jog_order.slice() : [];
+        let standbyList = (this.snapshot && Array.isArray(this.snapshot.standby_list))
+          ? this.snapshot.standby_list.slice() : [];
+        if (classChanged) { jogOrder = []; standbyList = []; }
+        // Each fr=15 packet broadcasts the FULL roster's most recent
+        // pair (cycling). To avoid duplicates while preserving order,
+        // we rebuild the array per-tick by appending each pair if not
+        // already present. Once a class has been seen, subsequent ticks
+        // that re-broadcast the same pairs become no-ops.
+        const jogIdx     = new Map(jogOrder.map((r, i) => [r.entry_num, i]));
+        const standbyIdx = new Map(standbyList.map((r, i) => [r.entry_num, i]));
+
         for (const e of (body.events || [])) {
           if (!e || e.channel !== 'A') continue;
-          if (e.frame !== 11 && e.frame !== 14) continue;
+          if (e.frame !== 11 && e.frame !== 13 && e.frame !== 14 && e.frame !== 15) continue;
           if (flatFocusClassId && e.class_id && e.class_id !== flatFocusClassId) continue;
           const tags = e.tags || {};
+
+          // Frame 15 — SCOREBOARD CYCLING DISPLAY (jog or standby).
+          // Two pairs per packet:
+          //   {1}=entry A, {2}=horse A, {8}=position A
+          //   {13}=label ("JOG ORDER" | "STANDBY LIST")
+          //   {17}=position B, {18}=entry B, {20}=horse B
+          // Routed by the {13} label into either jog_order or
+          // standby_list. Preserve append order so re-broadcast cycles
+          // don't shuffle.
+          if (e.frame === 15) {
+            const label = (tags['13'] || '').replace(/\r/g, '').trim().toUpperCase();
+            const eA = (tags['1']  || '').replace(/\r/g, '').trim();
+            const hA = (tags['2']  || '').replace(/\r/g, '').trim();
+            const pA = (tags['8']  || '').replace(/\r/g, '').trim();
+            const eB = (tags['18'] || '').replace(/\r/g, '').trim();
+            const hB = (tags['20'] || '').replace(/\r/g, '').trim();
+            const pB = (tags['17'] || '').replace(/\r/g, '').trim();
+            if (label === 'JOG ORDER') {
+              if (eA && !jogIdx.has(eA)) {
+                jogIdx.set(eA, jogOrder.length);
+                jogOrder.push({ entry_num: eA, horse: hA, position_text: pA });
+              }
+              if (eB && !jogIdx.has(eB)) {
+                jogIdx.set(eB, jogOrder.length);
+                jogOrder.push({ entry_num: eB, horse: hB, position_text: pB });
+              }
+            } else if (label === 'STANDBY LIST') {
+              if (eA && !standbyIdx.has(eA)) {
+                standbyIdx.set(eA, standbyList.length);
+                standbyList.push({ entry_num: eA, horse: hA });
+              }
+              if (eB && !standbyIdx.has(eB)) {
+                standbyIdx.set(eB, standbyList.length);
+                standbyList.push({ entry_num: eB, horse: hB });
+              }
+            }
+            // Unknown {13} labels: skip silently. Worth logging if a
+            // new ceremony surfaces in the wild (parse_warnings would
+            // be the destination once observability lands).
+            continue;
+          }
+
+          // Frame 13 — DUAL PURPOSE:
+          //   1) EQ FLAT rotation (class_mode=1 + is_equitation=1)
+          //   2) Hunter JOG ORDER display (fires after class complete,
+          //      regardless of class_mode)
+          // Two entries per packet:
+          //   {1}=entry A, {2}=rider A, {18}=entry B, {20}=rider B
+          // No horse, no owner (riders only on this frame). Gated on
+          // class_meta.class_mode === 1 so jog-order frames on non-flat
+          // hunters don't trip the flat-detection cadence rule (which
+          // would render an over-fences class as flat after its jog).
+          if (e.frame === 13) {
+            const isFlatClass = body.class_meta && body.class_meta.class_mode === 1;
+            if (!isFlatClass) continue;
+            const eA   = (tags['1']  || '').replace(/\r/g, '').trim();
+            const rA   = (tags['2']  || '').replace(/\r/g, '').trim();
+            const eB   = (tags['18'] || '').replace(/\r/g, '').trim();
+            const rB   = (tags['20'] || '').replace(/\r/g, '').trim();
+            if (eA) upsertSeen(eA, '', rA, '', true, e.at);
+            if (eB) upsertSeen(eB, '', rB, '', true, e.at);
+            continue;
+          }
+
           const entryNum = (tags['1'] || '').replace(/\r/g, '').trim();
           if (!entryNum) continue;
-          // EQ branch: no {3} but has {7} → use {7} as rider, {2} is empty
+          // EQ branch on fr=11/14: no {3} but has {7} → use {7} as rider,
+          // {2} is empty (v2 pattern). Hunter (non-EQ) uses {2}=horse,
+          // {3}=rider.
           const t3 = (tags['3'] || '').replace(/\r/g, '').trim();
           const t7 = (tags['7'] || '').replace(/\r/g, '').trim();
           const isEq = !t3 && !!t7;
@@ -1055,13 +1272,7 @@ export class RingStateDO {
           const rider = isEq ? t7 : t3;
           const owner = (tags['4'] || '').replace(/\r/g, '').trim();
           if (e.frame === 11) {
-            if (seenIdx.has(entryNum)) {
-              const i = seenIdx.get(entryNum);
-              entriesSeen[i] = { ...entriesSeen[i], horse, rider, owner, is_eq: isEq };
-            } else {
-              seenIdx.set(entryNum, entriesSeen.length);
-              entriesSeen.push({ entry_num: entryNum, horse, rider, owner, is_eq: isEq, first_seen_at: e.at });
-            }
+            upsertSeen(entryNum, horse, rider, owner, isEq, e.at);
           } else if (e.frame === 14) {
             const placeText = (tags['8'] || '').replace(/\r/g, '').trim();
             if (!placeText) continue; // operator clearing a pin or empty announcement — skip
@@ -1078,6 +1289,8 @@ export class RingStateDO {
         body.flat_entries_seen = entriesSeen;
         body.flat_results      = results;
         body.flat_class_id     = flatFocusClassId;
+        body.jog_order         = jogOrder;
+        body.standby_list      = standbyList;
       }
 
       // Update the per-class store (S45 multi-class), then build the public
@@ -1126,6 +1339,8 @@ export class RingStateDO {
       let body;
       try { body = await request.json(); }
       catch (e) { return new Response('Invalid JSON', { status: 400 }); }
+      // Cold-DO restoration — same rationale as /event handler.
+      await this.warmUp(body.slug, body.ring_num);
       if (!this.snapshot) {
         return new Response(JSON.stringify({ ok: true, applied: false, reason: 'no snapshot' }));
       }
@@ -3753,7 +3968,7 @@ export default {
             ctx.waitUntil(stub.fetch('https://do/scores-update', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ class_id: classId, hunter_scores: hs }),
+              body: JSON.stringify({ slug, ring_num: ringNum, class_id: classId, hunter_scores: hs }),
             }));
           }
         } else if (parsed.class_type === 'J' || parsed.class_type === 'T') {
@@ -3762,7 +3977,7 @@ export default {
             ctx.waitUntil(stub.fetch('https://do/scores-update', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ class_id: classId, jumper_scores: js }),
+              body: JSON.stringify({ slug, ring_num: ringNum, class_id: classId, jumper_scores: js }),
             }));
           }
         }
@@ -5038,6 +5253,12 @@ export default {
         }
         if (lastScoring && lastFocus && lastIdentity) break;
       }
+      // Channel B {29}="F" → operator marked the class FINAL on Ryegate
+      // (the long-flagged "wiring TBD" CLASS_COMPLETE signal — Bill
+      // 2026-05-05). Class-level state, captured per-focused-class.
+      // Other values (empty / missing / anything else) → not final.
+      const isFinal = !!(lastFocus && lastFocus.tags &&
+        ((lastFocus.tags['29'] || '').replace(/\r/g, '').trim().toUpperCase() === 'F'));
       const snapshot = {
         slug, ring_num: ringNumInt,
         received_at,
@@ -5051,6 +5272,7 @@ export default {
                                    // trigger frames (12/16) so the page
                                    // can keep showing the last rider during
                                    // score display
+        is_final: isFinal,         // operator-set class FINAL flag (Channel B {29}="F")
         // Lens-aware display flag (Phase 3b polish). Page uses class_kind
         // to render UDP tags with their human labels. Null → raw {N}=val.
         class_kind: classKind,
