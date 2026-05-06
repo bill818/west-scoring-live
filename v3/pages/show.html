@@ -356,6 +356,27 @@ function renderRings(rings, classes) {
       ? `<a class="live-pill" href="live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}" onclick="event.stopPropagation();"><span class="dot"></span>Live</a>`
       : '';
 
+    // Live banner under the ring row when ring is live (Bill 2026-05-06).
+    // "Live" = the LIVE-state lock model (B+intro pair OR cls_lock) —
+    // r.class_live is sourced from snapshot.is_live in /v3/listRings.
+    // Lists which class id(s) are live so the spectator knows what
+    // they'd be tuning into. Click anywhere on the banner to open
+    // the live page for the ring.
+    let liveBanner = '';
+    if (r.class_live) {
+      const liveUrl = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}`;
+      const liveIds = Array.isArray(r.live_class_ids) ? r.live_class_ids : [];
+      const classBits = liveIds.length
+        ? `<span class="live-banner-classes">Class${liveIds.length === 1 ? '' : 'es'} ${liveIds.map(escapeHtml).join(', ')}</span>`
+        : '';
+      liveBanner = `<a class="ring-live-banner" href="${liveUrl}">
+        <span class="ring-live-dot"></span>
+        <span class="ring-live-text">${ringName} is currently <strong>Live</strong></span>
+        ${classBits}
+        <span class="ring-live-cta">Watch ▸</span>
+      </a>`;
+    }
+
     html += `<li class="ring-row-item">
       <a class="ring-row" href="ring.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}">
         <div class="ring-row-badge"><div class="num">${r.ring_num}</div><div class="lbl">RING</div></div>
@@ -368,6 +389,7 @@ function renderRings(rings, classes) {
           <span class="ring-row-chevron">▸</span>
         </div>
       </a>
+      ${liveBanner}
       ${preview}
     </li>`;
   }

@@ -939,6 +939,21 @@ footer a{color:var(--blue);}
 .ring-preview-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
 .ring-class-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px;}
 
+/* Live banner under a ring row when the ring is currently LIVE
+   (Bill 2026-05-06). Per the LIVE-state lock model — only fires for
+   rings whose snapshot.is_live is true (B+intro pair OR cls_lock). */
+.ring-live-banner{display:flex;align-items:center;gap:12px;padding:10px 18px 10px 132px;background:rgba(46,125,50,.10);border-top:1px solid rgba(46,125,50,.25);border-left:3px solid var(--green);text-decoration:none;color:inherit;font-family:var(--font-body);transition:background .15s ease;}
+.ring-live-banner:hover{background:rgba(46,125,50,.16);}
+.ring-live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(46,125,50,.7);animation:idx-pulse 1.6s infinite;flex-shrink:0;}
+.ring-live-text{font-size:14px;color:var(--navy);font-weight:500;}
+.ring-live-text strong{color:var(--green);font-family:var(--font-display);font-weight:800;letter-spacing:.04em;text-transform:uppercase;font-size:13px;}
+.live-banner-classes{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.04em;margin-left:auto;}
+.ring-live-cta{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--green);letter-spacing:.06em;text-transform:uppercase;flex-shrink:0;}
+@media (max-width:700px){
+  .ring-live-banner{padding:10px 14px 10px 90px;gap:8px;flex-wrap:wrap;}
+  .live-banner-classes{margin-left:0;width:100%;}
+}
+
 /* ── Stats grid (top riders / top horses cards) ─────────────────────── */
 .stats-grid{max-width:1100px;margin:0 auto 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .stat-card{background:var(--row-bg);border:1px solid var(--border);border-radius:8px;padding:16px 18px;}
