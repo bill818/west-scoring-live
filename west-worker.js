@@ -980,6 +980,10 @@ export class RingStateDO {
       focused_class_id: focusedId,
       is_final: !!(focusedEntry && focusedEntry.is_final === true),
       finalized_at: focusedEntry ? (focusedEntry.finalized_at || null) : null,
+      // Sticky most-recent-completed entry for the focused class.
+      // Consumers (live page "Just Finished" banner, future scoreboard
+      // views, etc.) read this directly without client-side detection.
+      previous_entry: focusedEntry ? (focusedEntry.previous_entry || null) : null,
       classes,
     };
   }
@@ -987,13 +991,91 @@ export class RingStateDO {
   // Helper — fold this batch's class-specific data into byClass[classId].
   // Carries forward the prior entry's standings if the new batch only had
   // Channel B (focus) frames — same rationale as the top-level carry-forward.
+  // Build a flat previous_entry record from a scoring row. Picks the
+  // LATEST scored round (3 → 2 → 1) so jump-off / multi-round results
+  // surface correctly, not just R1. Returns null if the row has no
+  // scoring data.
+  _buildPrevEntry(row) {
+    if (!row) return null;
+    let round = null;
+    for (let n = 3; n >= 1; n--) {
+      const tf = row['r' + n + '_total_faults'];
+      const tt = row['r' + n + '_total_time'];
+      const sc = row['r' + n + '_score_total'];
+      if (tf != null || tt != null || sc != null) { round = n; break; }
+    }
+    if (round == null) {
+      // Hunter-only fallback (forced classes have only current_place).
+      if (row.current_place == null && row.overall_place == null) return null;
+    }
+    const r = round || 1;
+    return {
+      entry_num: row.entry_num,
+      horse_name: row.horse_name || null,
+      rider_name: row.rider_name || null,
+      owner_name: row.owner_name || null,
+      round: round,
+      // Latest-round flat fields (consumers read these directly).
+      faults: row['r' + r + '_total_faults'] != null ? row['r' + r + '_total_faults'] : null,
+      time:   row['r' + r + '_total_time']   != null ? row['r' + r + '_total_time']   : null,
+      jump_faults: row['r' + r + '_jump_faults'] != null ? row['r' + r + '_jump_faults'] : null,
+      time_faults: row['r' + r + '_time_faults'] != null ? row['r' + r + '_time_faults'] : null,
+      score_total: row['r' + r + '_score_total'] != null ? row['r' + r + '_score_total'] : null,
+      // Backward-compat: keep r1_* aliases so existing consumers don't break.
+      r1_total_faults: row.r1_total_faults != null ? row.r1_total_faults : null,
+      r1_total_time:   row.r1_total_time   != null ? row.r1_total_time   : null,
+      r1_jump_faults:  row.r1_jump_faults  != null ? row.r1_jump_faults  : null,
+      r1_time_faults:  row.r1_time_faults  != null ? row.r1_time_faults  : null,
+      r1_score_total:  row.r1_score_total  != null ? row.r1_score_total  : null,
+      combined_total:  row.combined_total  != null ? row.combined_total  : null,
+      overall_place:   row.overall_place   != null ? row.overall_place   : null,
+      current_place:   row.current_place   != null ? row.current_place   : null,
+    };
+  }
+
+  // Returns true if two previous_entry records carry the same data
+  // (entry + round + faults + time + place). finished_at and any meta
+  // are ignored. Used to skip pointless re-promotions.
+  _samePrevEntry(a, b) {
+    if (!a || !b) return false;
+    return String(a.entry_num) === String(b.entry_num)
+      && a.round === b.round
+      && a.faults === b.faults
+      && a.time === b.time
+      && a.overall_place === b.overall_place
+      && a.current_place === b.current_place;
+  }
+
   _updateByClass(body) {
     const classId = this._focusedClassId(body);
     if (!classId) return;
     const prior = this.byClass[classId] || {};
-    // is_final / finalized_at are NOT touched here — they're owned by
-    // the per-event Channel-B-with-F loop in POST /event so finalizing
-    // class B doesn't inadvertently mark focused class A as final.
+
+    // Previous-entry tracking (Bill 2026-05-06): the most recently
+    // SCORED entry per class. Trigger is the current on-course entry's
+    // scoring data CHANGING (jumper_scores/hunter_scores row updated).
+    // Detection is via _buildPrevEntry + _samePrevEntry so the same
+    // entry running multiple rounds (e.g., R1 then jump-off) gets
+    // promoted again with the LATEST round's data. Worker-owned;
+    // pages just read snapshot.previous_entry.
+    const newId = body.last_identity || prior.last_identity || null;
+    const newOnCourseEntry = newId && newId.tags
+      ? String((newId.tags['1'] || '')).replace(/\r/g, '').trim()
+      : '';
+    let previousEntry = prior.previous_entry || null;
+    if (newOnCourseEntry) {
+      const scores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
+                    : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
+                    : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
+                    : prior.hunter_scores) || [];
+      const oncRow = scores.find(r => String(r.entry_num) === String(newOnCourseEntry));
+      const candidate = this._buildPrevEntry(oncRow);
+      if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
+        candidate.finished_at = body.received_at || new Date().toISOString();
+        previousEntry = candidate;
+      }
+    }
+
     this.byClass[classId] = {
       class_id: classId,
       class_kind: body.class_kind || prior.class_kind || null,
@@ -1006,6 +1088,7 @@ export class RingStateDO {
       last_identity: body.last_identity || prior.last_identity || null,
       is_final:      prior.is_final     || false,
       finalized_at:  prior.finalized_at || null,
+      previous_entry: previousEntry,
       last_seen_at:  body.received_at   || new Date().toISOString(),
     };
   }
@@ -1397,6 +1480,22 @@ export class RingStateDO {
         }
         if (targetIsJumper && body.jumper_scores !== undefined) {
           targetEntry.jumper_scores = body.jumper_scores;
+        }
+        // Re-evaluate previous_entry via the shared helper so multi-round
+        // entries (R1 → JO) re-promote with their latest round's data.
+        const onCourseId = targetEntry.last_identity && targetEntry.last_identity.tags
+          ? String(targetEntry.last_identity.tags['1'] || '').replace(/\r/g, '').trim()
+          : '';
+        if (onCourseId) {
+          const scoresForPrev = targetIsHunter
+            ? (targetEntry.hunter_scores || [])
+            : (targetEntry.jumper_scores || []);
+          const oncRow = scoresForPrev.find(r => String(r.entry_num) === String(onCourseId));
+          const candidate = this._buildPrevEntry(oncRow);
+          if (candidate && !this._samePrevEntry(targetEntry.previous_entry, candidate)) {
+            candidate.finished_at = new Date().toISOString();
+            targetEntry.previous_entry = candidate;
+          }
         }
       }
 

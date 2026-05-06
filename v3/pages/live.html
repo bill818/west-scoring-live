@@ -482,15 +482,18 @@
   .m4-id .meta .phase.cd    { color: var(--red); }
   .m4-id .meta .phase.oc    { color: var(--green); }
   .m4-id .meta .phase.fin   { color: var(--green); font-weight: 800; letter-spacing: .16em; }
-  .m4-id .name { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); letter-spacing: -.005em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .m4-id .name .num   { color: var(--red); font-weight: 700; font-size: 12px; margin-right: 8px; font-family: var(--font-mono); vertical-align: 2px; }
-  .m4-id .name .rider { color: var(--text-muted); font-weight: 500; font-size: 13px; margin-left: 8px; font-family: var(--font-body); }
+  .m4-id .name-line { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); letter-spacing: -.005em; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m4-id .name-line .num { color: var(--red); font-weight: 700; font-size: 12px; margin-right: 10px; font-family: var(--font-mono); vertical-align: 2px; }
+  .m4-id .rider-line { font-family: var(--font-body); font-weight: 500; font-size: 13px; color: var(--text-muted); line-height: 1.2; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .m4-right { display: flex; flex-direction: column; min-width: 150px; border-left: 1px solid var(--border); transition: background .35s ease; }
   .m4-right.is-cd    { background: rgba(184,32,37,.05); }
   .m4-right.is-final { background: rgba(46,125,50,.06); }
   .m4-rank { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 18px; font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); max-height: 0; opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; transition: max-height .45s cubic-bezier(.2,.85,.3,1), opacity .3s ease, padding .45s cubic-bezier(.2,.85,.3,1); border-bottom: 1px solid transparent; }
   .m4-rank.is-in { max-height: 32px; opacity: 1; padding: 6px 18px; border-bottom-color: var(--border); }
   .m4-rank .v { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); line-height: 1; letter-spacing: 0; text-transform: none; }
+  /* TA in the same slot is a transient pre-round value; shrink so it
+     doesn't compete with the eventual Rank reveal. */
+  .m4-rank.is-ta .v { font-size: 13px; font-weight: 600; }
   .m4-clock { flex: 1; padding: 8px 18px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; }
   .m4-clock .lbl { font-family: var(--font-mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; transition: color .3s ease; }
   .m4-right.is-cd    .m4-clock .lbl { color: var(--red); font-weight: 700; }
@@ -509,6 +512,18 @@
   .m4-faults .stat .v { font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--navy); line-height: 1; letter-spacing: 0; text-transform: none; transition: color .3s ease; }
   .m4-faults .stat .v.clear { color: var(--green); }
   .m4-faults .stat.total .v { font-size: 18px; }
+
+  /* JUST FINISHED banner — two stacked rows: identity / stats. */
+  .just-finished { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--border); border-left: 3px solid var(--green); margin-top: 6px; max-width: 1200px; margin-left: auto; margin-right: auto; }
+  .just-finished.hidden { display: none; }
+  .just-finished .jf-row { display: flex; align-items: baseline; gap: 12px; }
+  .just-finished .jf-row.jf-stats { gap: 28px; padding-left: 6px; }
+  .just-finished .jf-lbl { font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--green); font-weight: 700; flex-shrink: 0; }
+  .just-finished .jf-num { font-family: var(--font-mono); font-size: 11px; color: var(--red); font-weight: 700; flex-shrink: 0; }
+  .just-finished .jf-name { font-family: var(--font-display); font-weight: 700; font-size: 13px; color: var(--navy); letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .just-finished .jf-stat { font-family: var(--font-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); display: inline-flex; align-items: baseline; gap: 4px; flex-shrink: 0; }
+  .just-finished .jf-stat-lbl { color: var(--text-muted); }
+  .just-finished .jf-stat span:not(.jf-stat-lbl) { font-family: var(--font-display); font-weight: 700; font-size: 12px; color: var(--navy); letter-spacing: 0; text-transform: none; }
 
   /* Flat-class mode — replaces the live-box grid when a hunter class
      is in flat-class state (multiple entries in the ring at once,
@@ -861,20 +876,22 @@
         <div class="num" id="m4ChipNum">—</div>
       </div>
       <div class="m4-id">
-        <!-- clockPhase ID is on the meta phase indicator so the clock
-             module (which writes phaseLabel here) drives our colored
-             phase text. The clock-area label uses a different ID. -->
-        <div class="meta"><span class="phase" id="clockPhase">—</span></div>
-        <div class="name">
-          <span class="num">#<span id="idEntry">—</span></span><span id="idHorse">—</span><span class="rider"> / <span id="idRider">—</span></span>
-        </div>
+        <!-- Two-line identity (Bill 2026-05-06): entry+horse top,
+             rider underneath. Uses the vertical space freed by the
+             dropped phase label and stops the rider name from being
+             ellipsis-cut on long names. -->
+        <div class="name-line"><span class="num">#<span id="idEntry">—</span></span><span id="idHorse">—</span></div>
+        <div class="rider-line"><span id="idRider">—</span></div>
       </div>
       <div class="m4-right" id="m4Right">
+        <!-- Top slot: Rank (preferred) OR TA. Same DOM cell, different
+             labels driven by which UDP tag is present. -->
         <div class="m4-rank" id="m4Rank">
-          <span>Rank</span><span class="v" id="m4RankVal">—</span>
+          <span id="m4TopLbl">Rank</span><span class="v" id="m4RankVal">—</span>
         </div>
         <div class="m4-clock">
-          <div class="lbl" id="m4ClockLbl">—</div>
+          <!-- Phase label removed (Bill 2026-05-06): flaky updates and
+               redundant with the color + pulse cues on the clock. -->
           <div class="v" id="clockBig">—</div>
         </div>
         <div class="m4-faults" id="m4Faults">
@@ -913,6 +930,10 @@
       <span id="ocTaLabel"></span>
       <div id="liveFaults"></div>
       <div id="liveRank"></div>
+      <!-- clockPhase: hidden stub so the clock module's textContent
+           writes still land somewhere; my JS reads it for phase
+           classification (isFinished / isCountdown). -->
+      <span id="clockPhase"></span>
     </div>
   </div>
 
@@ -957,6 +978,19 @@
         <div class="standings-hint" id="hunterStandingsHint"></div>
       </div>
       <div id="hunterStandingsBox"></div>
+    </div>
+    <!-- Just-finished banner — two lines: identity top, stats below. -->
+    <div class="just-finished hidden" id="justFinishedBar">
+      <div class="jf-row jf-id">
+        <span class="jf-lbl">Just finished</span>
+        <span class="jf-num" id="jfNum">—</span>
+        <span class="jf-name" id="jfName">—</span>
+      </div>
+      <div class="jf-row jf-stats">
+        <span class="jf-stat"><span class="jf-stat-lbl">F</span> <span id="jfFaults">—</span></span>
+        <span class="jf-stat"><span class="jf-stat-lbl">Time</span> <span id="jfTime">—</span></span>
+        <span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span id="jfRank">—</span></span>
+      </div>
     </div>
     <div class="standings-wrap hidden" id="jumperStandingsPanel">
       <div class="standings-hdr">
@@ -1285,6 +1319,31 @@
       var pillStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);"';
       var pillBlinkStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.5);animation:none;"';
       var pillText = isClassFinal ? 'FINAL' : 'Open';
+      // Per-class Just-Finished banner — non-focused classes get the
+      // same sticky callout from their own previous_entry (worker
+      // tracks per-class). Only renders for jumper-side classes for
+      // now (hunter has its own redesign coming).
+      var jfHtml = '';
+      var ep = entry.previous_entry;
+      var isJumperLensP = lens === 'jumper' || lens === 'equitation';
+      if (ep && isJumperLensP) {
+        var faultsTxt = ep.faults != null ? String(ep.faults) : '—';
+        var timeTxt   = ep.time   != null ? Number(ep.time).toFixed(3) : '—';
+        var rankTxt   = ep.overall_place != null ? String(ep.overall_place) : '—';
+        var nameTxt   = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
+        jfHtml = '<div class="just-finished">'
+          + '<div class="jf-row jf-id">'
+          +   '<span class="jf-lbl">Just finished</span>'
+          +   '<span class="jf-num">#' + esc(ep.entry_num) + '</span>'
+          +   '<span class="jf-name">' + esc(nameTxt) + '</span>'
+          + '</div>'
+          + '<div class="jf-row jf-stats">'
+          +   '<span class="jf-stat"><span class="jf-stat-lbl">F</span> <span>' + esc(faultsTxt) + '</span></span>'
+          +   '<span class="jf-stat"><span class="jf-stat-lbl">Time</span> <span>' + esc(timeTxt) + '</span></span>'
+          +   '<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>' + esc(rankTxt) + '</span></span>'
+          + '</div>'
+          + '</div>';
+      }
       html += '<div class="class-panel" style="margin-top:18px;">'
         + '<div class="class-panel-header">'
         +   '<div class="class-panel-num">' + esc(entry.class_id) + '</div>'
@@ -1296,6 +1355,7 @@
         +     '<span class="blink" ' + pillBlinkStyle + '></span>' + pillText
         +   '</span>'
         + '</div>'
+        + jfHtml
         + '<div class="standings-wrap">' + standingsHtml + '</div>'
         + '</div>';
     });
@@ -1572,74 +1632,96 @@
         m4Right.classList.toggle('is-cd',    isCountdown && !isFinished);
         m4Right.classList.toggle('is-final', isFinished || !!snapshot.is_final);
       }
-      // Clock area label — "Time" by default, "Countdown" on countdown,
-      // "Final" on finish.
-      if (m4ClockLbl) {
-        m4ClockLbl.textContent = isFinished ? 'Final'
-          : isCountdown ? 'Countdown'
-          : 'Time';
-      }
-      // Rank — prefer real-time UDP {8}="RANK N" over D1 overall_place
-      // so it appears live during on-course rather than waiting for the
-      // .cls write. Slides in above the clock as soon as Ryegate
-      // streams a rank.
+      // (Clock label removed — phase is already conveyed by the clock
+      // color + countdown pulse + background tint.)
+      // Top slot — Rank if present (finish/on-course), else TA (intro/
+      // countdown carries {13}="TA: N"). Bill 2026-05-06: rank takes
+      // priority; TA fills the slot before rank exists.
       if (m4Rank) {
-        var udpRank = null;
+        var udpRank = null, udpTa = null;
         var ls2 = snapshot.last_scoring;
         if (ls2 && ls2.channel === 'A' && ls2.frame === 1 && ls2.tags) {
-          var rt = String(ls2.tags['8'] || '').replace(/[\r\n]/g, '');
+          var rt = String(ls2.tags['8']  || '').replace(/[\r\n]/g, '').trim();
+          var at = String(ls2.tags['13'] || '').replace(/[\r\n]/g, '').trim();
           var mR = rt.match(/(\d+)/);
+          var mA = at.match(/(\d+)/);
           if (mR) udpRank = parseInt(mR[1], 10);
+          if (mA) udpTa = parseInt(mA[1], 10);
         }
-        var rankShown = (udpRank != null) ? udpRank : rankVal;
-        var showRank = rankShown != null;
-        m4Rank.classList.toggle('is-in', showRank);
-        if (showRank && m4RankVal) m4RankVal.textContent = String(rankShown);
+        var topLblEl = $('m4TopLbl');
+        if (udpRank != null) {
+          if (topLblEl) topLblEl.textContent = 'Rank';
+          if (m4RankVal) m4RankVal.textContent = String(udpRank);
+          m4Rank.classList.add('is-in');
+          m4Rank.classList.remove('is-ta');
+        } else if (udpTa != null) {
+          if (topLblEl) topLblEl.textContent = 'TA';
+          if (m4RankVal) m4RankVal.textContent = String(udpTa) + 's';
+          m4Rank.classList.add('is-in');
+          m4Rank.classList.add('is-ta');
+        } else {
+          m4Rank.classList.remove('is-in');
+          m4Rank.classList.remove('is-ta');
+        }
       }
-      // Faults — REAL-TIME from UDP fr=1 tags (Bill 2026-05-05).
-      // Ryegate streams running faults every ~1Hz during on-course:
+      // Faults — UDP IS THE GUIDE (Bill 2026-05-06): if the tag is
+      // present in the latest fr=1 frame, show that field. If absent
+      // (intro/countdown frames don't carry {14}/{15}), hide it.
+      // No phase regex, no D1 fallback — UDP truth.
+      //
       //   {14}="JUMP N"   → jump faults
       //   {15}="TIME N"   → time faults
-      //   {8}="RANK N"    → rank (already parsed for m4Rank below)
-      // Prefer UDP values (live) over D1 values (post-round). At finish,
-      // both should agree; D1 fills any gaps if UDP went silent.
+      //   {14}="\r" or "" → tag absent (not just zero)
+      var jf = null, tf = null;
+      var lsf = snapshot.last_scoring;
+      if (lsf && lsf.channel === 'A' && lsf.frame === 1 && lsf.tags) {
+        var jt = String(lsf.tags['14'] || '').replace(/[\r\n]/g, '').trim();
+        var tt = String(lsf.tags['15'] || '').replace(/[\r\n]/g, '').trim();
+        var mJ = jt.match(/(\d+)/);
+        var mT = tt.match(/(\d+)/);
+        if (mJ) jf = parseInt(mJ[1], 10);
+        if (mT) tf = parseInt(mT[1], 10);
+      }
+      var hasJf = jf != null;
+      var hasTf = tf != null;
       if (m4Faults) {
-        var udpJf = null, udpTf = null;
-        var ls = snapshot.last_scoring;
-        if (ls && ls.channel === 'A' && ls.frame === 1 && ls.tags) {
-          var jt = String(ls.tags['14'] || '').replace(/[\r\n]/g, '');
-          var tt = String(ls.tags['15'] || '').replace(/[\r\n]/g, '');
-          var mJ = jt.match(/(\d+)/);
-          var mT = tt.match(/(\d+)/);
-          if (mJ) udpJf = parseInt(mJ[1], 10);
-          if (mT) udpTf = parseInt(mT[1], 10);
+        // Visibility: tags present → show, absent → hide.
+        // Refinement (Bill 2026-05-06): during on-course, ALSO hide when
+        // both faults are zero (clean round shouldn't clutter the bar).
+        // Finish/final always shows (clean 0/0/0 is information at finish).
+        var showFaults;
+        if (hasJf || hasTf) {
+          if (isFinished || !!snapshot.is_final) {
+            showFaults = true;
+          } else {
+            showFaults = (hasJf && jf > 0) || (hasTf && tf > 0);
+          }
+        } else {
+          showFaults = false;
         }
-        var d1Jf = liveRow && liveRow.r1_jump_faults != null ? liveRow.r1_jump_faults : null;
-        var d1Tf = liveRow && liveRow.r1_time_faults != null ? liveRow.r1_time_faults : null;
-        var jf = (udpJf != null) ? udpJf : d1Jf;
-        var tf = (udpTf != null) ? udpTf : d1Tf;
-        var hasJf = jf != null;
-        var hasTf = tf != null;
-        var totalVal = (hasJf || hasTf) ? ((jf || 0) + (tf || 0)) : faultsVal;
-        // Show whenever we have UDP fault data (rider on course) OR
-        // we're finished/final. Stays hidden only when there's no
-        // identity data at all.
-        var hasAnyFaultData = (udpJf != null) || (udpTf != null);
-        var showFaults = (isFinished || !!snapshot.is_final) || hasAnyFaultData;
         m4Faults.classList.toggle('is-in', !!showFaults);
-        if (showFaults) {
-          if ($('m4JF')) {
-            $('m4JF').textContent = hasJf ? String(jf) : '0';
-            $('m4JF').classList.toggle('clear', hasJf ? jf === 0 : true);
+        if ($('m4JF')) {
+          if (hasJf) {
+            $('m4JF').textContent = String(jf);
+            $('m4JF').classList.toggle('clear', jf === 0);
+            $('m4JF').parentElement.style.display = '';
+          } else {
+            $('m4JF').parentElement.style.display = 'none';
           }
-          if ($('m4TF')) {
-            $('m4TF').textContent = hasTf ? String(tf) : '0';
-            $('m4TF').classList.toggle('clear', hasTf ? tf === 0 : true);
-          }
-          var showTotal = (isFinished || !!snapshot.is_final);
-          if ($('m4TotalWrap')) $('m4TotalWrap').style.display = showTotal ? '' : 'none';
-          if (showTotal && $('m4Total') && totalVal != null) $('m4Total').textContent = String(totalVal);
         }
+        if ($('m4TF')) {
+          if (hasTf) {
+            $('m4TF').textContent = String(tf);
+            $('m4TF').classList.toggle('clear', tf === 0);
+            $('m4TF').parentElement.style.display = '';
+          } else {
+            $('m4TF').parentElement.style.display = 'none';
+          }
+        }
+        // Total only on finish/final — both UDP fields must be present.
+        var showTotal = (isFinished || !!snapshot.is_final) && hasJf && hasTf;
+        if ($('m4TotalWrap')) $('m4TotalWrap').style.display = showTotal ? '' : 'none';
+        if (showTotal && $('m4Total')) $('m4Total').textContent = String((jf || 0) + (tf || 0));
       }
     }
 
@@ -1750,6 +1832,25 @@
           { lens, hs_isArray: Array.isArray(hs), hs_len: hs && hs.length,
             classMeta: !!currentClassMeta, templates: hasHunterTemplates });
       }
+    }
+
+    // Just-finished banner — reads snapshot.previous_entry directly
+    // (worker-tracked, sticky until the next entry actually scores).
+    // Worker emits .faults / .time / .overall_place from the LATEST
+    // scored round, so jump-off / multi-round entries display
+    // correctly without page-side round detection.
+    var jfBar = $('justFinishedBar');
+    if (jfBar) {
+      var pe = snapshot.previous_entry || null;
+      var jfShow = !!pe && (lens === 'jumper' || lens === 'equitation');
+      if (jfShow) {
+        $('jfNum').textContent = '#' + pe.entry_num;
+        $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
+        $('jfFaults').textContent = pe.faults != null ? String(pe.faults) : '—';
+        $('jfTime').textContent = pe.time != null ? Number(pe.time).toFixed(3) : '—';
+        $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
+      }
+      jfBar.classList.toggle('hidden', !jfShow);
     }
 
     var jsPanel = $('jumperStandingsPanel');
