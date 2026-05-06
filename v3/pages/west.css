@@ -498,6 +498,12 @@ footer a{color:var(--blue);}
 .hero-action.judges-toggle{font-family:var(--font-mono);}
 .hero-action.judges-toggle.is-active{background:var(--red);color:#fff;border-color:var(--red);}
 .hero-action.judges-toggle.is-active:hover{background:#c62020;border-color:#c62020;color:#fff;}
+/* Watch-live action — promoted treatment (Bill 2026-05-06).
+   Bigger padding, solid green fill, white text, pulsing dot, larger
+   font. Stands out as the primary call-to-action in the hero side col. */
+.hero-action.is-live{background:var(--green);color:#fff;border-color:var(--green);padding:10px 18px;font-size:13px;font-weight:700;letter-spacing:.10em;box-shadow:0 2px 8px rgba(46,125,50,.25);}
+.hero-action.is-live:hover{background:#1e6b25;border-color:#1e6b25;color:#fff;box-shadow:0 3px 12px rgba(46,125,50,.35);}
+.hero-action.is-live .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 0 0 rgba(255,255,255,.7);animation:idx-pulse 1.6s infinite;}
 
 /* Split-decision pill — multi-judge hunter classes where judges
    disagreed on the placed top-N. Reads as a flag, not a button. */

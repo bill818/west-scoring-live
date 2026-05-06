@@ -122,7 +122,7 @@ function renderHero(show, ring, cls) {
     : !!ring.class_live;
   if (thisClassLive) {
     const liveUrl = `live.html?slug=${encodeURIComponent(show.slug)}&ring_num=${ring.ring_num}`;
-    sideParts.push(`<a class="hero-action" href="${liveUrl}">▶ Watch Live</a>`);
+    sideParts.push(`<a class="hero-action is-live" href="${liveUrl}"><span class="dot"></span>Watch Live</a>`);
   }
   if (cls.class_type === 'J' || cls.class_type === 'T') {
     const statsUrl = `stats.html?slug=${encodeURIComponent(show.slug)}&ring=${ring.ring_num}&class=${encodeURIComponent(cls.class_id)}`;
