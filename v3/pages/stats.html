@@ -58,12 +58,14 @@
 </footer>
 
 <!-- Same module set as class.html — needed for hero rendering parity
-     (classDescription, timeAllowedSummary, roundLabel). -->
+     (classDescription, timeAllowedSummary, roundLabel). Plus the
+     shared live-strip module for the commentator's at-a-glance bar. -->
 <script src="../js/west-api.js"></script>
 <script src="../js/west-status.js"></script>
 <script src="../js/west-format.js"></script>
 <script src="../js/west-rules.js"></script>
 <script src="../js/west-display.js"></script>
+<script src="../js/west-live-strip.js"></script>
 
 <script>
 const escapeHtml = WEST.format.escapeHtml;
@@ -451,167 +453,16 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) pollStats();
 });
 
-// ── Live strip — commentator's view of every live ring on the show.
-// One WebSocket per ring (parallels live.html's transport). Snapshots
-// arrive ~4Hz (engine batches every 250ms); a local 10Hz interpolator
-// ticks the on-course clock between snapshots so commentators see a
-// smooth count-up like the public live page does.
-//
-// Initial discovery via /v3/listRings (one shot). Each ring's snapshot
-// carries is_live + focus_preview — strip hides the chip when not
-// live, shows it when live. No re-discovery needed: configured rings
-// don't appear/disappear within a session.
+// Live strip mounted from the shared WEST.liveStrip module.
+// ringFilter scopes the strip to JUST the ring this stats page is
+// viewing (option A — commentators are ring-scoped). Drop the
+// ringFilter (or pass null) to show every live ring on the show.
+WEST.liveStrip.mount({
+  container: document.getElementById('liveStrip'),
+  slug: getQueryParam('slug'),
+  ringFilter: parseInt(getQueryParam('ring') || '', 10) || null,
+});
 
-// Per-ring runtime state for the strip. Keyed by ring_num.
-//   ws         — the WebSocket connection
-//   snapshot   — last snapshot received
-//   clockBase  — { value, baseAt, isCountdown } captured each snapshot
-//                so the 10Hz interpolator can synthesize ticks between
-const stripRings = {};
-
-// UDP fault / rank tags come with prefixes like "JUMP 4" / "TIME 2" /
-// "RANK: 1". Extract the leading integer the same way live.html does.
-function extractNum(val) {
-  if (val == null) return null;
-  const m = String(val).match(/(\d+(?:\.\d+)?)/);
-  return m ? parseFloat(m[1]) : null;
-}
-
-function fmtFaults(fp) {
-  if (!fp) return null;
-  const jf = extractNum(fp.jump_faults);
-  const tf = extractNum(fp.time_faults);
-  if (jf == null && tf == null) return null;
-  const tot = (jf || 0) + (tf || 0);
-  return tot === 0 ? '0F' : (tot + 'F');
-}
-
-function chipHtml(slug, ringNum, ringName, snapshot) {
-  const liveUrl = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${ringNum}`;
-  const ringLabel = escapeHtml(ringName || `Ring ${ringNum}`);
-  const fp = (snapshot && snapshot.focus_preview) || {};
-
-  // Class line — id + name. fp.class_id falls back to live_class_ids[0]
-  // when the focus_preview hasn't carried a class_id yet.
-  const classIds = (snapshot && Array.isArray(snapshot.live_class_ids)) ? snapshot.live_class_ids : [];
-  const classId = fp.class_id || classIds[0] || null;
-  const classLabel = classId ? `Class ${escapeHtml(String(classId))}` : 'Live';
-  const className = fp.class_name ? ` — ${escapeHtml(fp.class_name)}` : '';
-
-  // On-course line — entry info + stats. If no entry on course
-  // (between rounds, intro hasn't fired yet), the line is hidden.
-  const idBits = [];
-  if (fp.entry_num) idBits.push(`<span class="ls-entry">#${escapeHtml(fp.entry_num)}</span>`);
-  if (fp.horse)     idBits.push(`<span class="ls-horse">${escapeHtml(fp.horse)}</span>`);
-  if (fp.rider)     idBits.push(`<span class="ls-rider">${escapeHtml(fp.rider)}</span>`);
-  const stats = [];
-  const cd = (fp.countdown || '').replace(/^-/, '');
-  if (cd && cd !== '0' && cd !== '00') {
-    stats.push(`<span class="ls-stat ls-cd" data-clock="cd">CD ${escapeHtml(cd)}</span>`);
-  } else if (fp.clock) {
-    stats.push(`<span class="ls-stat ls-clock" data-clock="up">${escapeHtml(fp.clock)}s</span>`);
-  }
-  if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">${escapeHtml(fp.rank)}</span>`);
-  const faults = fmtFaults(fp);
-  if (faults && faults !== '0F') stats.push(`<span class="ls-stat ls-faults">${escapeHtml(faults)}</span>`);
-
-  const onCourseLine = idBits.length ? `
-    <div class="ls-row ls-row-oc">
-      <span class="ls-oc-lbl">On Course</span>
-      <span class="ls-id">${idBits.join(' ')}</span>
-      ${stats.length ? `<span class="ls-stats">${stats.join(' ')}</span>` : ''}
-    </div>` : '';
-
-  return `<a class="live-strip-chip" data-ring="${ringNum}" href="${liveUrl}">
-    <div class="ls-row ls-row-hdr">
-      <span class="ls-dot"></span>
-      <span class="ls-ring">${ringLabel}</span>
-    </div>
-    <div class="ls-row ls-row-cls">
-      <span class="ls-cls">${classLabel}</span><span class="ls-cname">${className}</span>
-    </div>
-    ${onCourseLine}
-  </a>`;
-}
-
-function rerenderStrip() {
-  const root = document.getElementById('liveStrip');
-  if (!root) return;
-  const slug = getQueryParam('slug');
-  // Bill 2026-05-06 (option A): the strip on stats.html only shows
-  // live activity for the SAME ring the user is viewing stats for.
-  // Other rings on the show stay quiet — commentators are ring-scoped,
-  // and the live class on this ring (even if it's not the URL class)
-  // is the relevant "what's happening right now" context.
-  const myRing = parseInt(getQueryParam('ring') || '', 10);
-  const liveRings = Object.values(stripRings)
-    .filter(r => r.snapshot && r.snapshot.is_live)
-    .filter(r => !Number.isFinite(myRing) || r.ring_num === myRing)
-    .sort((a, b) => a.ring_num - b.ring_num);
-  if (!liveRings.length) {
-    root.hidden = true;
-    root.innerHTML = '';
-    return;
-  }
-  root.hidden = false;
-  root.innerHTML = liveRings.map(r => chipHtml(slug, r.ring_num, r.ring_name, r.snapshot)).join('');
-}
-
-// No local clock interpolation — Bill 2026-05-06: "cant we just take
-// what the ws is giving us we ran into this problem before with trying
-// to extrapolate the times". Authority-based model (matches the v1.11
-// heartbeat-as-authority decision): the WS snapshot is the truth, the
-// chip paints exactly what arrived. Display cadence = engine batch
-// cadence (~250ms when active scoring fires; otherwise the value just
-// stays static, which is what Ryegate is showing too).
-
-function openRingWS(slug, ringNum, ringName) {
-  const ringState = stripRings[ringNum] = stripRings[ringNum] || { ring_num: ringNum, ring_name: ringName };
-  ringState.ring_name = ringName;
-  // Use wss:// based on document protocol; fall back gracefully.
-  const wsUrl = (WEST.api.BASE.replace(/^http/, 'ws')) +
-    `/v3/live?slug=${encodeURIComponent(slug)}&ring_num=${ringNum}`;
-  let ws;
-  try { ws = new WebSocket(wsUrl); }
-  catch (e) { return; }
-  ringState.ws = ws;
-  ws.addEventListener('message', (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch (e) { return; }
-    if (msg.type !== 'snapshot' || !msg.data) return;
-    ringState.snapshot = msg.data;
-    rerenderStrip();
-  });
-  ws.addEventListener('close', () => {
-    // Reconnect with backoff. 3-second delay is enough that we don't
-    // hammer the worker if the DO is restarting; commentators can
-    // tolerate a brief gap.
-    setTimeout(() => {
-      if (stripRings[ringNum] && stripRings[ringNum].ws === ws) {
-        openRingWS(slug, ringNum, ringName);
-      }
-    }, 3000);
-  });
-  ws.addEventListener('error', () => { /* close handler triggers reconnect */ });
-}
-
-async function initLiveStrip() {
-  const slug = getQueryParam('slug');
-  if (!slug) return;
-  try {
-    // Use the public bulk-status endpoint (no auth) for ring discovery.
-    // /v3/listRings would require X-West-Key. Same data either way:
-    // ring_num + ring_name. Snapshot data on each ring is ignored here —
-    // WebSocket will deliver fresh snapshots immediately on connect.
-    const data = await fetchJson(`/v3/getShowLiveStatus?slug=${encodeURIComponent(slug)}`);
-    const rings = (data && data.rings) || [];
-    rings.forEach(r => openRingWS(slug, r.ring_num, r.ring_name));
-  } catch (e) {
-    // Quiet fail — strip stays empty. Stats page still works.
-  }
-}
-
-initLiveStrip();
 load();
 </script>
 
