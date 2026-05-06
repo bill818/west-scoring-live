@@ -1648,6 +1648,10 @@ export class RingStateDO {
           slot.hasChanA = true;
         }
       }
+      // Track classes that just transitioned out of FINAL — used after
+      // the loop to mirror finalized_at = NULL into D1 so class.html's
+      // ribbons drop on un-finalize (Bill 2026-05-06).
+      const newlyUnfinalIds = [];
       for (const cid of Object.keys(unfinalCandidate)) {
         const slot = unfinalCandidate[cid];
         const cls = this.byClass[cid];
@@ -1657,6 +1661,7 @@ export class RingStateDO {
           cls.is_final = false;
           cls.finalized_at = null;
           cls._unfinalAt = null;
+          newlyUnfinalIds.push(cid);
           if (this._focusedClassId(body) === cid) body.is_final = false;
           continue;
         }
@@ -1670,8 +1675,34 @@ export class RingStateDO {
             cls.is_final = false;
             cls.finalized_at = null;
             cls._unfinalAt = null;
+            newlyUnfinalIds.push(cid);
             if (this._focusedClassId(body) === cid) body.is_final = false;
           }
+        }
+      }
+
+      // Mirror the un-finalize back to D1 so class.html drops ribbons
+      // when an operator reopens a class. Same fire-and-forget pattern
+      // as the FINAL D1 write below. Excludes any class id that's
+      // ALSO being re-finalized in the same batch (finalizedThisBatch
+      // wins per F-always-wins rule).
+      if (newlyUnfinalIds.length && body.slug && body.ring_num != null) {
+        const ringNumIntU = Number(body.ring_num);
+        const stmtU = this.env.WEST_DB_V3.prepare(
+          "UPDATE classes SET finalized_at = NULL " +
+          "WHERE class_id = ? AND ring_id = (" +
+          "  SELECT r.id FROM rings r " +
+          "  JOIN shows s ON s.id = r.show_id " +
+          "  WHERE s.slug = ? AND r.ring_num = ?" +
+          ") AND finalized_at IS NOT NULL"
+        );
+        const dedupedU = Array.from(new Set(newlyUnfinalIds))
+          .filter(cid => !finalizedThisBatch.has(cid));
+        if (dedupedU.length) {
+          const opsU = dedupedU.map(cid => stmtU.bind(cid, body.slug, ringNumIntU));
+          this.env.WEST_DB_V3.batch(opsU).catch(err => {
+            console.log(`[RingStateDO/event] D1 un-finalize write failed: ${err.message}`);
+          });
         }
       }
 
