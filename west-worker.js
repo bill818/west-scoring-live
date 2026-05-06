@@ -1039,13 +1039,16 @@ export class RingStateDO {
   // (operator at lunch, weather hold) and could resume — eviction is
   // purely about keeping the live panel stack tidy.
   _buildSnapshot(body) {
-    // Class lifecycle on the live page (Bill 2026-05-05):
+    // Class lifecycle on the live page:
     //   • Non-final classes evict 20 min after last_seen_at (idle)
-    //   • Final classes hold "full" panel for 10 min from finalized_at
-    //   • Then collapse to a bar (10-30 min after finalized_at)
-    //   • Then drop entirely (>30 min after finalized_at)
+    //   • Final classes hold "full" panel for 60 SECONDS from finalized_at
+    //     (Bill 2026-05-06: was 10 min; tightened so any finalized class
+    //     — focused or in the multi-class stack — collapses to the slim
+    //     Recent Results bar / "View Final Results" CTA quickly.)
+    //   • Then collapse (60s-30min after finalized_at)
+    //   • Then drop entirely (>30min after finalized_at)
     const NON_FINAL_STALE_MS = 20 * 60 * 1000;
-    const FINAL_FULL_MS      = 10 * 60 * 1000;   // 0-10min: full panel
+    const FINAL_FULL_MS      = 60 * 1000;        // 0-60s: full panel
     const FINAL_DROP_MS      = 30 * 60 * 1000;   // 30min+:  remove
     const now = Date.now();
     // S46 — sweep live-class timeouts BEFORE the lifecycle eviction so
