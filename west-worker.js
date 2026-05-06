@@ -2328,6 +2328,22 @@ export class RingStateDO {
         delete this.byClass[cid];
         if (this.pendingLive[cid]) delete this.pendingLive[cid];
         if (this.forcedFocusClassId === cid) this.forcedFocusClassId = null;
+        // Bill 2026-05-06: Clear live also un-finalizes the class in
+        // D1 — operator's "un-live" gesture should drop ribbons +
+        // prize money from class.html, not just the live banner.
+        // Same fire-and-forget pattern as the FINAL write.
+        if (body.slug && body.ring_num != null) {
+          const ringNumIntC = Number(body.ring_num);
+          this.env.WEST_DB_V3.prepare(
+            "UPDATE classes SET finalized_at = NULL " +
+            "WHERE class_id = ? AND ring_id = (" +
+            "  SELECT r.id FROM rings r JOIN shows s ON s.id = r.show_id " +
+            "  WHERE s.slug = ? AND r.ring_num = ?" +
+            ") AND finalized_at IS NOT NULL"
+          ).bind(cid, body.slug, ringNumIntC).run().catch(err => {
+            console.log(`[RingStateDO/class-action clear] D1 un-finalize write failed: ${err.message}`);
+          });
+        }
       } else if (action === 'finalize') {
         const target = cls || (this.byClass[cid] = { class_id: cid });
         if (!target.is_final) {
