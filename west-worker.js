@@ -6319,6 +6319,12 @@ export default {
           live_class_ids: (snap && Array.isArray(snap.live_class_ids))
             ? snap.live_class_ids : [],
           focused_class_id: snap ? (snap.focused_class_id || null) : null,
+          // S46 — focus_preview gives commentator-screen consumers a
+          // single-call view of who's on course in each live ring
+          // (entry/horse/rider/clock/rank/faults). Stats page strip uses
+          // this to surface real-time on-course context without per-ring
+          // /v3/getRingState round-trips.
+          focus_preview: snap ? (snap.focus_preview || null) : null,
         });
       }
       return json({ ok: true, slug, rings: out });

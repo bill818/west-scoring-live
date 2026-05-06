@@ -38,6 +38,13 @@
   <span class="bc-current">Stats</span>
 </nav>
 
+<!-- Live strip — commentator's at-a-glance view of every live ring on
+     the show. Hidden when nothing is live. Polls /v3/getShowLiveStatus
+     on a short cadence; the focus_preview field carries the on-course
+     entry so commentators see entry/horse/rider live without leaving
+     this page. -->
+<div id="liveStrip" class="live-strip" hidden></div>
+
 <div id="hero" class="show-hero">
   <div class="spinner" style="grid-column: 1 / 4;"></div>
 </div>
@@ -439,9 +446,91 @@ function startPolling() {
 // Re-poll immediately when the user returns to the tab so they don't
 // have to wait up to POLL_MS for fresh data after a long absence.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) pollStats();
+  if (!document.hidden) {
+    pollStats();
+    pollLiveStrip();
+  }
 });
 
+// ── Live strip — commentator's view of every live ring on the show.
+// Polls /v3/getShowLiveStatus every 5s (faster than the stats poll
+// because on-course data changes ~1Hz). Each live ring renders as a
+// chip showing class id + on-course entry/horse/rider + clock/rank/
+// faults pulled from the shared focus_preview projection. Click any
+// chip to jump to that ring's live page. Hidden when nothing's live. */
+const LIVE_STRIP_POLL_MS = 5000;
+let liveStripTimer = null;
+
+function fmtFaults(fp) {
+  if (!fp) return null;
+  const jf = parseFloat(fp.jump_faults), tf = parseFloat(fp.time_faults);
+  const j = Number.isFinite(jf) ? jf : 0;
+  const t = Number.isFinite(tf) ? tf : 0;
+  if (!Number.isFinite(jf) && !Number.isFinite(tf)) return null;
+  const tot = j + t;
+  return tot === 0 ? '0F' : (tot + 'F');
+}
+
+function renderLiveStrip(rings) {
+  const root = document.getElementById('liveStrip');
+  if (!root) return;
+  const liveRings = (rings || []).filter(r => r.is_live);
+  if (!liveRings.length) {
+    root.hidden = true;
+    root.innerHTML = '';
+    return;
+  }
+  const slug = state.show && state.show.slug ? state.show.slug : getQueryParam('slug');
+  const chips = liveRings.map(r => {
+    const liveUrl = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}`;
+    const ringLabel = escapeHtml(r.ring_name || `Ring ${r.ring_num}`);
+    const fp = r.focus_preview || {};
+    const idBits = [];
+    if (fp.entry_num) idBits.push(`<span class="ls-entry">#${escapeHtml(fp.entry_num)}</span>`);
+    if (fp.horse)     idBits.push(`<span class="ls-horse">${escapeHtml(fp.horse)}</span>`);
+    if (fp.rider)     idBits.push(`<span class="ls-rider">${escapeHtml(fp.rider)}</span>`);
+    const stats = [];
+    const cd = (fp.countdown || '').replace(/^-/, '');
+    if (cd && cd !== '0' && cd !== '00') stats.push(`<span class="ls-stat ls-cd">CD ${escapeHtml(cd)}</span>`);
+    else if (fp.clock) stats.push(`<span class="ls-stat ls-clock">${escapeHtml(fp.clock)}s</span>`);
+    if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">Rank ${escapeHtml(fp.rank)}</span>`);
+    const faults = fmtFaults(fp);
+    if (faults && faults !== '0F') stats.push(`<span class="ls-stat ls-faults">${escapeHtml(faults)}</span>`);
+    const classId = (r.live_class_ids && r.live_class_ids[0]) || fp.class_id || null;
+    const classLabel = classId ? `Class ${escapeHtml(String(classId))}` : 'Live';
+    const className = fp.class_name ? `<span class="ls-cname">${escapeHtml(fp.class_name)}</span>` : '';
+    return `<a class="live-strip-chip" href="${liveUrl}">
+      <span class="ls-dot"></span>
+      <span class="ls-ring">${ringLabel}</span>
+      <span class="ls-cls">${classLabel}</span>
+      ${className}
+      ${idBits.length ? `<span class="ls-id">${idBits.join(' ')}</span>` : ''}
+      ${stats.length ? `<span class="ls-stats">${stats.join(' ')}</span>` : ''}
+    </a>`;
+  });
+  root.hidden = false;
+  root.innerHTML = chips.join('');
+}
+
+async function pollLiveStrip() {
+  const slug = getQueryParam('slug');
+  if (!slug) return;
+  try {
+    const data = await fetchJson(`/v3/getShowLiveStatus?slug=${encodeURIComponent(slug)}`);
+    renderLiveStrip(data && data.rings);
+  } catch (e) {
+    // Quiet fail — strip just stays in its previous state. Don't
+    // interrupt the stats page over a transient KV blip.
+  }
+}
+
+function startLiveStripPolling() {
+  if (liveStripTimer) clearInterval(liveStripTimer);
+  pollLiveStrip();
+  liveStripTimer = setInterval(pollLiveStrip, LIVE_STRIP_POLL_MS);
+}
+
+startLiveStripPolling();
 load();
 </script>
 
