@@ -195,9 +195,9 @@ function renderResults() {
   // (shows.results_layout); templates default to 'stacked'.
   const layout = state.show && state.show.results_layout;
   // isFinal drives ribbon SVG rendering on placings 1-12 — Bill 2026-05-06.
-  // Source of truth: classes.status === 'complete' in D1. Worker writes
-  // it on Channel B {29}=F or engine Make Final.
-  const isFinal = cls.status === 'complete';
+  // Source of truth: classes.finalized_at in D1 (migration 032). Worker
+  // writes it on Channel B {29}=F or engine Make Final.
+  const isFinal = !!cls.finalized_at;
   if (cls.class_type === 'H') {
     // By-judge view (multi-judge classes only) regroups the class by
     // judge. Combined view is the default — table with optional per-row
