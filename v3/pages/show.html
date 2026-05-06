@@ -334,15 +334,25 @@ function renderRings(rings, classes) {
     const ringRecent = recent[r.ring_num] || [];
 
     // Inline class preview when the ring has classes worth surfacing.
+    // Each class row gets a pulsing green dot when it's currently LIVE
+    // per the S46 lock model (r.live_class_ids set by /v3/listRings).
+    // Note: show.html is page-load fresh — no WS — so the dot reflects
+    // state at load time. Reload the page for a refresh.
     let preview = '';
     if (ringRecent.length) {
+      const liveSet = new Set(
+        (r.live_class_ids || []).map(id => String(id))
+      );
       preview = `<div class="ring-preview">
         <div class="ring-preview-title">Recent classes</div>
         <ul class="ring-class-list">`;
       for (const c of ringRecent) {
         const classUrl = `class.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
-        preview += `<li><a class="ring-class" href="${classUrl}">
-          <span class="cls-num">${escapeHtml(c.class_id)}</span>
+        const isLive = liveSet.has(String(c.class_id));
+        const rowCls = isLive ? 'ring-class is-live' : 'ring-class';
+        const dot = isLive ? '<span class="cls-live-dot"></span>' : '';
+        preview += `<li><a class="${rowCls}" href="${classUrl}">
+          <span class="cls-num">${dot}${escapeHtml(c.class_id)}</span>
           <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
         </a></li>`;
       }
