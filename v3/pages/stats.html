@@ -550,66 +550,13 @@ function rerenderStrip() {
   root.innerHTML = liveRings.map(r => chipHtml(slug, r.ring_num, r.ring_name, r.snapshot)).join('');
 }
 
-// Detect "ride is over" state. Display Scores frames (12/14/16) fire
-// after the rider finishes — clock should freeze at the final time
-// instead of continuing to tick via interpolation. Also freeze when
-// the class itself is final.
-function isFinishedState(fp) {
-  if (!fp) return false;
-  if (fp.last_frame === 12 || fp.last_frame === 14 || fp.last_frame === 16) return true;
-  if (fp.is_final) return true;
-  return false;
-}
-
-// Capture clock baseline when a snapshot arrives so the interpolator
-// can synthesize sub-second ticks. Source the clock value from the
-// focus_preview the snapshot already includes (no need to re-parse
-// last_scoring tags). Skipped if the value isn't a clean number.
-// frozen=true when the ride is done — interpolator just paints the
-// fixed value instead of incrementing.
-function updateClockBase(ringState, snapshot) {
-  const fp = (snapshot && snapshot.focus_preview) || {};
-  const finished = isFinishedState(fp);
-  const cdRaw = (fp.countdown || '').replace(/^-/, '').trim();
-  const upRaw = (fp.clock || '').trim();
-  if (cdRaw && cdRaw !== '0' && cdRaw !== '00') {
-    const v = parseFloat(cdRaw);
-    if (Number.isFinite(v)) {
-      ringState.clockBase = { value: v, baseAt: Date.now(), isCountdown: true, frozen: finished };
-      return;
-    }
-  }
-  if (upRaw) {
-    const v = parseFloat(upRaw);
-    if (Number.isFinite(v)) {
-      ringState.clockBase = { value: v, baseAt: Date.now(), isCountdown: false, frozen: finished };
-      return;
-    }
-  }
-  ringState.clockBase = null;
-}
-
-// 10Hz tick — paint the interpolated clock value into each visible chip
-// without rerendering the whole strip. Cheap DOM text-content writes.
-// Frozen base = static display, no incrementing (ride is finished).
-function tickClocks() {
-  const now = Date.now();
-  Object.values(stripRings).forEach(r => {
-    const cb = r.clockBase;
-    if (!cb) return;
-    const elapsed = cb.frozen ? 0 : (now - cb.baseAt) / 1000;
-    const v = cb.isCountdown
-      ? Math.max(0, cb.value - elapsed)
-      : cb.value + elapsed;
-    const el = document.querySelector(`.live-strip-chip[data-ring="${r.ring_num}"] .ls-stat[data-clock]`);
-    if (!el) return;
-    const mode = el.getAttribute('data-clock');
-    el.textContent = mode === 'cd'
-      ? `CD ${Math.ceil(v)}`
-      : `${v.toFixed(1)}s`;
-  });
-}
-setInterval(tickClocks, 100);
+// No local clock interpolation — Bill 2026-05-06: "cant we just take
+// what the ws is giving us we ran into this problem before with trying
+// to extrapolate the times". Authority-based model (matches the v1.11
+// heartbeat-as-authority decision): the WS snapshot is the truth, the
+// chip paints exactly what arrived. Display cadence = engine batch
+// cadence (~250ms when active scoring fires; otherwise the value just
+// stays static, which is what Ryegate is showing too).
 
 function openRingWS(slug, ringNum, ringName) {
   const ringState = stripRings[ringNum] = stripRings[ringNum] || { ring_num: ringNum, ring_name: ringName };
@@ -626,7 +573,6 @@ function openRingWS(slug, ringNum, ringName) {
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
     if (msg.type !== 'snapshot' || !msg.data) return;
     ringState.snapshot = msg.data;
-    updateClockBase(ringState, msg.data);
     rerenderStrip();
   });
   ws.addEventListener('close', () => {
