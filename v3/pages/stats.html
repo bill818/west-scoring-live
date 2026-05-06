@@ -445,92 +445,182 @@ function startPolling() {
 
 // Re-poll immediately when the user returns to the tab so they don't
 // have to wait up to POLL_MS for fresh data after a long absence.
+// Live strip uses WebSocket so it stays current automatically — no
+// extra wake-up needed.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    pollStats();
-    pollLiveStrip();
-  }
+  if (!document.hidden) pollStats();
 });
 
 // ── Live strip — commentator's view of every live ring on the show.
-// Polls /v3/getShowLiveStatus every 5s (faster than the stats poll
-// because on-course data changes ~1Hz). Each live ring renders as a
-// chip showing class id + on-course entry/horse/rider + clock/rank/
-// faults pulled from the shared focus_preview projection. Click any
-// chip to jump to that ring's live page. Hidden when nothing's live. */
-const LIVE_STRIP_POLL_MS = 5000;
-let liveStripTimer = null;
+// One WebSocket per ring (parallels live.html's transport). Snapshots
+// arrive ~4Hz (engine batches every 250ms); a local 10Hz interpolator
+// ticks the on-course clock between snapshots so commentators see a
+// smooth count-up like the public live page does.
+//
+// Initial discovery via /v3/listRings (one shot). Each ring's snapshot
+// carries is_live + focus_preview — strip hides the chip when not
+// live, shows it when live. No re-discovery needed: configured rings
+// don't appear/disappear within a session.
+
+// Per-ring runtime state for the strip. Keyed by ring_num.
+//   ws         — the WebSocket connection
+//   snapshot   — last snapshot received
+//   clockBase  — { value, baseAt, isCountdown } captured each snapshot
+//                so the 10Hz interpolator can synthesize ticks between
+const stripRings = {};
 
 function fmtFaults(fp) {
   if (!fp) return null;
   const jf = parseFloat(fp.jump_faults), tf = parseFloat(fp.time_faults);
+  if (!Number.isFinite(jf) && !Number.isFinite(tf)) return null;
   const j = Number.isFinite(jf) ? jf : 0;
   const t = Number.isFinite(tf) ? tf : 0;
-  if (!Number.isFinite(jf) && !Number.isFinite(tf)) return null;
   const tot = j + t;
   return tot === 0 ? '0F' : (tot + 'F');
 }
 
-function renderLiveStrip(rings) {
+function chipHtml(slug, ringNum, ringName, snapshot) {
+  const liveUrl = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${ringNum}`;
+  const ringLabel = escapeHtml(ringName || `Ring ${ringNum}`);
+  const fp = (snapshot && snapshot.focus_preview) || {};
+  const idBits = [];
+  if (fp.entry_num) idBits.push(`<span class="ls-entry">#${escapeHtml(fp.entry_num)}</span>`);
+  if (fp.horse)     idBits.push(`<span class="ls-horse">${escapeHtml(fp.horse)}</span>`);
+  if (fp.rider)     idBits.push(`<span class="ls-rider">${escapeHtml(fp.rider)}</span>`);
+  const stats = [];
+  const cd = (fp.countdown || '').replace(/^-/, '');
+  if (cd && cd !== '0' && cd !== '00') {
+    stats.push(`<span class="ls-stat ls-cd" data-clock="cd">CD ${escapeHtml(cd)}</span>`);
+  } else if (fp.clock) {
+    stats.push(`<span class="ls-stat ls-clock" data-clock="up">${escapeHtml(fp.clock)}s</span>`);
+  }
+  if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">Rank ${escapeHtml(fp.rank)}</span>`);
+  const faults = fmtFaults(fp);
+  if (faults && faults !== '0F') stats.push(`<span class="ls-stat ls-faults">${escapeHtml(faults)}</span>`);
+  const classIds = (snapshot && Array.isArray(snapshot.live_class_ids)) ? snapshot.live_class_ids : [];
+  const classId = classIds[0] || fp.class_id || null;
+  const classLabel = classId ? `Class ${escapeHtml(String(classId))}` : 'Live';
+  const className = fp.class_name ? `<span class="ls-cname">${escapeHtml(fp.class_name)}</span>` : '';
+  return `<a class="live-strip-chip" data-ring="${ringNum}" href="${liveUrl}">
+    <span class="ls-dot"></span>
+    <span class="ls-ring">${ringLabel}</span>
+    <span class="ls-cls">${classLabel}</span>
+    ${className}
+    ${idBits.length ? `<span class="ls-id">${idBits.join(' ')}</span>` : ''}
+    ${stats.length ? `<span class="ls-stats">${stats.join(' ')}</span>` : ''}
+  </a>`;
+}
+
+function rerenderStrip() {
   const root = document.getElementById('liveStrip');
   if (!root) return;
-  const liveRings = (rings || []).filter(r => r.is_live);
+  const slug = getQueryParam('slug');
+  const liveRings = Object.values(stripRings)
+    .filter(r => r.snapshot && r.snapshot.is_live)
+    .sort((a, b) => a.ring_num - b.ring_num);
   if (!liveRings.length) {
     root.hidden = true;
     root.innerHTML = '';
     return;
   }
-  const slug = state.show && state.show.slug ? state.show.slug : getQueryParam('slug');
-  const chips = liveRings.map(r => {
-    const liveUrl = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}`;
-    const ringLabel = escapeHtml(r.ring_name || `Ring ${r.ring_num}`);
-    const fp = r.focus_preview || {};
-    const idBits = [];
-    if (fp.entry_num) idBits.push(`<span class="ls-entry">#${escapeHtml(fp.entry_num)}</span>`);
-    if (fp.horse)     idBits.push(`<span class="ls-horse">${escapeHtml(fp.horse)}</span>`);
-    if (fp.rider)     idBits.push(`<span class="ls-rider">${escapeHtml(fp.rider)}</span>`);
-    const stats = [];
-    const cd = (fp.countdown || '').replace(/^-/, '');
-    if (cd && cd !== '0' && cd !== '00') stats.push(`<span class="ls-stat ls-cd">CD ${escapeHtml(cd)}</span>`);
-    else if (fp.clock) stats.push(`<span class="ls-stat ls-clock">${escapeHtml(fp.clock)}s</span>`);
-    if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">Rank ${escapeHtml(fp.rank)}</span>`);
-    const faults = fmtFaults(fp);
-    if (faults && faults !== '0F') stats.push(`<span class="ls-stat ls-faults">${escapeHtml(faults)}</span>`);
-    const classId = (r.live_class_ids && r.live_class_ids[0]) || fp.class_id || null;
-    const classLabel = classId ? `Class ${escapeHtml(String(classId))}` : 'Live';
-    const className = fp.class_name ? `<span class="ls-cname">${escapeHtml(fp.class_name)}</span>` : '';
-    return `<a class="live-strip-chip" href="${liveUrl}">
-      <span class="ls-dot"></span>
-      <span class="ls-ring">${ringLabel}</span>
-      <span class="ls-cls">${classLabel}</span>
-      ${className}
-      ${idBits.length ? `<span class="ls-id">${idBits.join(' ')}</span>` : ''}
-      ${stats.length ? `<span class="ls-stats">${stats.join(' ')}</span>` : ''}
-    </a>`;
-  });
   root.hidden = false;
-  root.innerHTML = chips.join('');
+  root.innerHTML = liveRings.map(r => chipHtml(slug, r.ring_num, r.ring_name, r.snapshot)).join('');
 }
 
-async function pollLiveStrip() {
+// Capture clock baseline when a snapshot arrives so the interpolator
+// can synthesize sub-second ticks. Source the clock value from the
+// focus_preview the snapshot already includes (no need to re-parse
+// last_scoring tags). Skipped if the value isn't a clean number.
+function updateClockBase(ringState, snapshot) {
+  const fp = (snapshot && snapshot.focus_preview) || {};
+  const cdRaw = (fp.countdown || '').replace(/^-/, '').trim();
+  const upRaw = (fp.clock || '').trim();
+  if (cdRaw && cdRaw !== '0' && cdRaw !== '00') {
+    const v = parseFloat(cdRaw);
+    if (Number.isFinite(v)) {
+      ringState.clockBase = { value: v, baseAt: Date.now(), isCountdown: true };
+      return;
+    }
+  }
+  if (upRaw) {
+    const v = parseFloat(upRaw);
+    if (Number.isFinite(v)) {
+      ringState.clockBase = { value: v, baseAt: Date.now(), isCountdown: false };
+      return;
+    }
+  }
+  ringState.clockBase = null;
+}
+
+// 10Hz tick — paint the interpolated clock value into each visible chip
+// without rerendering the whole strip. Cheap DOM text-content writes.
+function tickClocks() {
+  const now = Date.now();
+  Object.values(stripRings).forEach(r => {
+    const cb = r.clockBase;
+    if (!cb) return;
+    const elapsed = (now - cb.baseAt) / 1000;
+    const v = cb.isCountdown
+      ? Math.max(0, cb.value - elapsed)
+      : cb.value + elapsed;
+    const el = document.querySelector(`.live-strip-chip[data-ring="${r.ring_num}"] .ls-stat[data-clock]`);
+    if (!el) return;
+    const mode = el.getAttribute('data-clock');
+    el.textContent = mode === 'cd'
+      ? `CD ${Math.ceil(v)}`
+      : `${v.toFixed(1)}s`;
+  });
+}
+setInterval(tickClocks, 100);
+
+function openRingWS(slug, ringNum, ringName) {
+  const ringState = stripRings[ringNum] = stripRings[ringNum] || { ring_num: ringNum, ring_name: ringName };
+  ringState.ring_name = ringName;
+  // Use wss:// based on document protocol; fall back gracefully.
+  const wsUrl = (WEST.api.BASE.replace(/^http/, 'ws')) +
+    `/v3/live?slug=${encodeURIComponent(slug)}&ring_num=${ringNum}`;
+  let ws;
+  try { ws = new WebSocket(wsUrl); }
+  catch (e) { return; }
+  ringState.ws = ws;
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type !== 'snapshot' || !msg.data) return;
+    ringState.snapshot = msg.data;
+    updateClockBase(ringState, msg.data);
+    rerenderStrip();
+  });
+  ws.addEventListener('close', () => {
+    // Reconnect with backoff. 3-second delay is enough that we don't
+    // hammer the worker if the DO is restarting; commentators can
+    // tolerate a brief gap.
+    setTimeout(() => {
+      if (stripRings[ringNum] && stripRings[ringNum].ws === ws) {
+        openRingWS(slug, ringNum, ringName);
+      }
+    }, 3000);
+  });
+  ws.addEventListener('error', () => { /* close handler triggers reconnect */ });
+}
+
+async function initLiveStrip() {
   const slug = getQueryParam('slug');
   if (!slug) return;
   try {
+    // Use the public bulk-status endpoint (no auth) for ring discovery.
+    // /v3/listRings would require X-West-Key. Same data either way:
+    // ring_num + ring_name. Snapshot data on each ring is ignored here —
+    // WebSocket will deliver fresh snapshots immediately on connect.
     const data = await fetchJson(`/v3/getShowLiveStatus?slug=${encodeURIComponent(slug)}`);
-    renderLiveStrip(data && data.rings);
+    const rings = (data && data.rings) || [];
+    rings.forEach(r => openRingWS(slug, r.ring_num, r.ring_name));
   } catch (e) {
-    // Quiet fail — strip just stays in its previous state. Don't
-    // interrupt the stats page over a transient KV blip.
+    // Quiet fail — strip stays empty. Stats page still works.
   }
 }
 
-function startLiveStripPolling() {
-  if (liveStripTimer) clearInterval(liveStripTimer);
-  pollLiveStrip();
-  liveStripTimer = setInterval(pollLiveStrip, LIVE_STRIP_POLL_MS);
-}
-
-startLiveStripPolling();
+initLiveStrip();
 load();
 </script>
 
