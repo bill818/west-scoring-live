@@ -867,6 +867,7 @@
      emits. Lets live.html standings render identically to class.html
      so the rendering layer is a single source of truth. -->
 <link rel="stylesheet" href="west.css">
+<script src="../js/west-api.js"></script><!-- WEST.api.BASE + fetchJson -->
 <script src="../js/west-format.js"></script>
 <script src="../js/west-status.js"></script>
 <script src="../js/west-rules.js"></script>
@@ -1119,8 +1120,10 @@
   // 2026-05-02). JS contract unchanged from earlier chunks: WS push
   // primary with polling fallback, render(snapshot) is the transport-
   // agnostic contract.
-  var BASE    = 'https://west-worker.bill-acb.workers.dev';
-  var WS_BASE = 'wss://west-worker.bill-acb.workers.dev';
+  // BASE / WS_BASE pulled from WEST.api so worker URL changes land in
+  // one place (west-api.js). Bill 2026-05-06 cleanup — was hardcoded.
+  var BASE    = WEST.api.BASE;
+  var WS_BASE = BASE.replace(/^http/, 'ws');
   var POLL_MS = 1000;
   var WS_RECONNECT_MS = 5000;
   var WS_INITIAL_TIMEOUT_MS = 2000;
@@ -1146,15 +1149,12 @@
   // friendly show name once /v3/getShow returns. Slug is the fallback
   // until the fetch completes (or if it fails). Skipped in mock mode
   // since the slug there is the literal mock identifier.
-  // /v3/getShow requires the X-West-Key auth header (same as every
-  // other public page that calls it via west-api.js's fetchJson).
+  // Uses WEST.api.fetchJson — same auth + URL convention as every
+  // other v3 page (auth key change rotates in one place).
   if (!MOCK_MODE) {
-    fetch(BASE + '/v3/getShow?slug=' + encodeURIComponent(slug), {
-      headers: { 'X-West-Key': 'west-scoring-2026' },
-    })
-      .then(function (r) { return r.ok ? r.json() : null; })
+    WEST.api.fetchJson('/v3/getShow?slug=' + encodeURIComponent(slug))
       .then(function (data) {
-        if (data && data.ok && data.show && data.show.name) {
+        if (data && data.show && data.show.name) {
           document.getElementById('ringSlug').textContent = data.show.name;
           document.title = data.show.name + ' — Ring ' + ringNum + ' Live';
         }
