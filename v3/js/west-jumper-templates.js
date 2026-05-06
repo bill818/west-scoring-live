@@ -172,7 +172,24 @@
     if (cls.is_final && place >= 1 && place <= 12
         && window.WEST && window.WEST.flat && window.WEST.flat.ribbonSvg) {
       var ribbon = window.WEST.flat.ribbonSvg(place);
-      if (ribbon) return '<span class="place-ribbon">' + ribbon + '</span>';
+      if (ribbon) {
+        // Bill 2026-05-06: prize money under the ribbon, FINAL only.
+        // cls.prize_money is an array of dollar amounts per place
+        // (1st = index 0). Renders only when there's an amount > 0.
+        var prize = '';
+        if (Array.isArray(cls.prize_money)
+            && place >= 1
+            && place <= cls.prize_money.length) {
+          var amt = Number(cls.prize_money[place - 1]);
+          if (Number.isFinite(amt) && amt > 0) {
+            prize = '<span class="place-prize">$' + amt.toLocaleString() + '</span>';
+          }
+        }
+        return '<span class="place-ribbon-wrap">'
+          + '<span class="place-ribbon">' + ribbon + '</span>'
+          + prize
+          + '</span>';
+      }
     }
     return '<span class="place-num">' + place + '</span>';
   }
@@ -363,11 +380,15 @@
   WEST.jumperTemplates.renderTable = function (cls, entries, options) {
     options = options || {};
     var layout = options.layout || 'stacked';
-    // opts.isFinal flows through to renderPlaceCell via the cls object —
-    // simpler than threading another param through every nested template
-    // and row helper. Caller (class.html) sets it from class.status.
-    if (options.isFinal && !cls.is_final) {
-      cls = Object.assign({}, cls, { is_final: true });
+    // opts.isFinal + opts.prizeMoney flow through to renderPlaceCell
+    // via the cls object — simpler than threading params through every
+    // nested template/row helper. Caller (class.html) sets isFinal from
+    // class.finalized_at and prizeMoney from class.prize_money JSON.
+    if ((options.isFinal && !cls.is_final) || (options.prizeMoney && !cls.prize_money)) {
+      cls = Object.assign({}, cls, {
+        is_final: cls.is_final || !!options.isFinal,
+        prize_money: cls.prize_money || options.prizeMoney || null,
+      });
     }
     var tplId = WEST.jumperTemplates.detect(cls);
     var multiRound = (tplId === '2R' || tplId === '3R' || tplId === 'TEAM');

@@ -430,10 +430,13 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table .place-marker{display:inline-block;font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fef3f3;border:1px solid var(--red);border-radius:3px;padding:1px 4px;line-height:1.1;vertical-align:middle;margin-left:4px;}
 .results-table .place-marker-solo{font-size:11px;padding:3px 7px;letter-spacing:.08em;margin-left:0;}
 /* Final-class ribbon SVG in the place column. Same 32x32 ribbon used
-   by hunter flat results — rendered when class.status === 'complete'.
-   Centered in the cell; column auto-widens slightly to fit. */
+   by hunter flat results — rendered when class.finalized_at is set.
+   Wrapped in .place-ribbon-wrap so the prize amount can stack under
+   the ribbon when classes.prize_money is populated (Bill 2026-05-06). */
+.results-table .place-ribbon-wrap{display:inline-flex;flex-direction:column;align-items:center;gap:2px;line-height:1;}
 .results-table .place-ribbon{display:inline-flex;align-items:center;justify-content:center;line-height:0;}
 .results-table .place-ribbon svg{width:30px;height:30px;display:block;}
+.results-table .place-prize{font-family:var(--font-mono);font-size:10px;font-weight:600;color:var(--green);font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap;}
 .results-table .entry-flag{font-size:18px;line-height:1;margin-left:6px;vertical-align:-2px;}
 /* Stacked layout — rounds collapse into one column, latest round on top.
    round-label is the small "Round 1 / Jump Off / Phase 2" prefix. */

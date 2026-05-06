@@ -198,6 +198,17 @@ function renderResults() {
   // Source of truth: classes.finalized_at in D1 (migration 032). Worker
   // writes it on Channel B {29}=F or engine Make Final.
   const isFinal = !!cls.finalized_at;
+  // Prize money (Bill 2026-05-06): JSON-encoded array of dollar amounts
+  // per place from classes.prize_money (migration 033, populated on
+  // /v3/postCls from the .cls @money row). Renders under each ribbon
+  // when the class is FINAL — same gate as the ribbons themselves.
+  let prizeMoney = null;
+  if (cls.prize_money) {
+    try {
+      const parsed = JSON.parse(cls.prize_money);
+      if (Array.isArray(parsed)) prizeMoney = parsed;
+    } catch (e) { /* malformed JSON — degrade silently */ }
+  }
   if (cls.class_type === 'H') {
     // By-judge view (multi-judge classes only) regroups the class by
     // judge. Combined view is the default — table with optional per-row
@@ -210,12 +221,13 @@ function renderResults() {
       layout,
       judgeGrid: state.judgeGrid,
       isFinal,
+      prizeMoney,
     });
     wireJudgeDropdowns();
     return;
   }
   if (cls.class_type === 'J' || cls.class_type === 'T') {
-    root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries, { layout, isFinal });
+    root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries, { layout, isFinal, prizeMoney });
   } else {
     root.innerHTML = '<div class="placeholder">Class type not yet supported on the public results page.</div>';
   }

@@ -710,6 +710,38 @@ function parseClsEntriesV3(text, lensKnown) {
   return { entries, status: `parsed: ${entries.length} entries`, trophy };
 }
 
+// Parse the @money row from a .cls file's body — returns an array
+// of dollar amounts per finishing place (1st, 2nd, 3rd, ...). Persisted
+// to classes.prize_money on every /v3/postCls write so class.html can
+// render the prize amount beneath each ribbon when the class is FINAL
+// (Bill 2026-05-06). Null when no @money row is present.
+// Defensive JSON.parse for the prize_money TEXT column. Returns null
+// if the row was written with malformed JSON or somehow not an array.
+function safeParsePrizeMoney(json) {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (e) { return null; }
+}
+
+function parseClsMoneyV3(bytes) {
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: false }).decode(bytes); }
+  catch (e) { return null; }
+  const moneyLine = text.split(/\r?\n/).find(l => l.startsWith('@money'));
+  if (!moneyLine) return null;
+  const parts = moneyLine.split(',').slice(1).map(s => parseFloat((s || '').trim()));
+  // Trim trailing zeros so we don't carry a long tail of empty places
+  // (Ryegate sometimes pads the row with zeros to a fixed length).
+  let lastNonZero = -1;
+  for (let i = 0; i < parts.length; i++) {
+    if (Number.isFinite(parts[i]) && parts[i] > 0) lastNonZero = i;
+  }
+  if (lastNonZero < 0) return null;
+  return parts.slice(0, lastNonZero + 1).map(n => Number.isFinite(n) ? n : 0);
+}
+
 function parseClsHeaderV3(bytes) {
   // bytes = ArrayBuffer. Returns {class_type, class_name, scoring_method?,
   //  class_mode?, parse_status, parse_notes}.
@@ -4714,6 +4746,17 @@ export default {
           } catch (e) {
             console.log(`[v3/postCls] trophy update failed: ${e.message}`);
           }
+          // Prize money (Bill 2026-05-06): @money row → JSON array of
+          // amounts per place. class.html reads this to render prize
+          // amounts under the ribbon SVGs on FINAL classes.
+          try {
+            const money = parseClsMoneyV3(bytes);
+            await env.WEST_DB_V3.prepare(
+              'UPDATE classes SET prize_money = ? WHERE id = ?'
+            ).bind(money ? JSON.stringify(money) : null, classDbId).run();
+          } catch (e) {
+            console.log(`[v3/postCls] prize_money update failed: ${e.message}`);
+          }
           // Delete stale entries (removed by operator since last parse)
           if (lensKnown) {
             if (currentNums.length > 0) {
@@ -6082,16 +6125,21 @@ export default {
             if (!obj) { skipped++; continue; }
             const bytes = await obj.arrayBuffer();
             const parsed = parseClsHeaderV3(bytes);
+            // Also re-parse @money so prize_money populates for classes
+            // already in D1 from before migration 033 landed.
+            const money = parseClsMoneyV3(bytes);
             await env.WEST_DB_V3.prepare(`
               UPDATE classes SET
                 r1_time_allowed = ?,
                 r2_time_allowed = ?,
-                r3_time_allowed = ?
+                r3_time_allowed = ?,
+                prize_money = ?
               WHERE id = ?
             `).bind(
               parsed.r1_time_allowed ?? null,
               parsed.r2_time_allowed ?? null,
               parsed.r3_time_allowed ?? null,
+              money ? JSON.stringify(money) : null,
               row.id
             ).run();
             updated++;
@@ -6203,7 +6251,7 @@ export default {
                  c.scoring_type, c.is_equitation, c.is_championship,
                  c.num_rounds, c.num_judges, c.derby_type,
                  c.show_flags, c.r1_time_allowed, c.r2_time_allowed,
-                 c.r3_time_allowed
+                 c.r3_time_allowed, c.prize_money
           FROM rings r
           JOIN shows s ON s.id = r.show_id
           LEFT JOIN classes c
@@ -6320,6 +6368,9 @@ export default {
           r1_time_allowed: row.r1_time_allowed != null ? row.r1_time_allowed : null,
           r2_time_allowed: row.r2_time_allowed != null ? row.r2_time_allowed : null,
           r3_time_allowed: row.r3_time_allowed != null ? row.r3_time_allowed : null,
+          // Prize money — JSON-encoded in D1 (text column); parse here
+          // so consumers get a clean array of dollar amounts per place.
+          prize_money: row.prize_money ? safeParsePrizeMoney(row.prize_money) : null,
         } : null,
         // Phase 3b Chunk 13/14 — D1-fed standings for live.html, lens-
         // dependent. hunter_scores populated when class_kind=hunter;
