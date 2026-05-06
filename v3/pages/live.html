@@ -465,6 +465,51 @@
   }
   .live-stat-value.clear { color: var(--green); }
 
+  /* ─── M4 LOWER-THIRD (jumper-first, lab-confirmed 2026-05-05) ──────
+     Replaces the legacy two-cell live-box for jumper classes.
+     Class chip + identity center + right column (rank → clock →
+     faults). Phase classes (is-cd, is-final) drive the choreography. */
+  .m4-bar { background: #fff; border-bottom: 2px solid var(--red); display: flex; align-items: stretch; min-height: 64px; box-shadow: 0 1px 2px rgba(0,0,0,.04); overflow: hidden; max-width: 1200px; margin: 0 auto; }
+  .m4-bar[hidden] { display: none !important; }
+  .m4-chip { background: var(--navy); color: #fff; padding: 0 14px; display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 64px; transition: background .35s ease; }
+  .m4-chip.is-final { background: var(--red); }
+  .m4-chip .lbl { font-family: var(--font-mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; margin-bottom: 2px; font-weight: 600; }
+  .m4-chip .num { font-family: var(--font-display); font-weight: 800; font-size: 20px; line-height: 1; }
+  .m4-id { padding: 10px 18px; flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .m4-id .meta { font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+  .m4-id .meta .phase { font-weight: 700; transition: color .3s ease; }
+  .m4-id .meta .phase.intro { color: var(--text-muted); }
+  .m4-id .meta .phase.cd    { color: var(--red); }
+  .m4-id .meta .phase.oc    { color: var(--green); }
+  .m4-id .meta .phase.fin   { color: var(--green); font-weight: 800; letter-spacing: .16em; }
+  .m4-id .name { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); letter-spacing: -.005em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m4-id .name .num   { color: var(--red); font-weight: 700; font-size: 12px; margin-right: 8px; font-family: var(--font-mono); vertical-align: 2px; }
+  .m4-id .name .rider { color: var(--text-muted); font-weight: 500; font-size: 13px; margin-left: 8px; font-family: var(--font-body); }
+  .m4-right { display: flex; flex-direction: column; min-width: 150px; border-left: 1px solid var(--border); transition: background .35s ease; }
+  .m4-right.is-cd    { background: rgba(184,32,37,.05); }
+  .m4-right.is-final { background: rgba(46,125,50,.06); }
+  .m4-rank { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 18px; font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); max-height: 0; opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; transition: max-height .45s cubic-bezier(.2,.85,.3,1), opacity .3s ease, padding .45s cubic-bezier(.2,.85,.3,1); border-bottom: 1px solid transparent; }
+  .m4-rank.is-in { max-height: 32px; opacity: 1; padding: 6px 18px; border-bottom-color: var(--border); }
+  .m4-rank .v { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); line-height: 1; letter-spacing: 0; text-transform: none; }
+  .m4-clock { flex: 1; padding: 8px 18px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; }
+  .m4-clock .lbl { font-family: var(--font-mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; transition: color .3s ease; }
+  .m4-right.is-cd    .m4-clock .lbl { color: var(--red); font-weight: 700; }
+  .m4-right.is-final .m4-clock .lbl { color: var(--green); font-weight: 700; }
+  /* Override the global .oc-clock rule (42px) — clock module writes
+     class="oc-clock <phase>" on clockBig, which would otherwise win
+     over my .m4-clock .v styling. Specificity bumped via #clockBig. */
+  .m4-clock #clockBig,
+  .m4-clock .v { font-family: var(--font-display); font-weight: 800; font-size: 24px; color: var(--navy); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; transition: color .3s ease; }
+  .m4-right.is-cd    .m4-clock .v { color: var(--red); animation: m4CdPulse 1s ease-in-out infinite; }
+  .m4-right.is-final .m4-clock .v { color: var(--green); }
+  @keyframes m4CdPulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+  .m4-faults { display: flex; gap: 14px; align-items: baseline; justify-content: flex-end; padding: 0 18px; border-top: 1px solid transparent; font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); max-height: 0; opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; transition: max-height .5s cubic-bezier(.2,.85,.3,1), opacity .35s ease, padding .5s cubic-bezier(.2,.85,.3,1), border-top-color .3s ease; }
+  .m4-faults.is-in { max-height: 60px; opacity: 1; padding: 8px 18px; border-top-color: var(--border); }
+  .m4-faults .stat { display: flex; align-items: baseline; gap: 5px; }
+  .m4-faults .stat .v { font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--navy); line-height: 1; letter-spacing: 0; text-transform: none; transition: color .3s ease; }
+  .m4-faults .stat .v.clear { color: var(--green); }
+  .m4-faults .stat.total .v { font-size: 18px; }
+
   /* Flat-class mode — replaces the live-box grid when a hunter class
      is in flat-class state (multiple entries in the ring at once,
      accumulated from frame 11 rotations). The whole live-box body
@@ -803,66 +848,71 @@
        course AND no flat-mode content to show, so it doesn't hang
        blank between entries. -->
   <div class="live-box-wrap-wide" id="liveBoxWrap">
-    <div class="live-box">
-      <div class="live-box-banner">
-        <span id="liveBoxBannerText">In the ring</span>
-        <span class="for">for · Class <strong id="liveBoxFor">…</strong></span>
+    <!-- M4 LOWER-THIRD (jumper-first) — class chip + identity + right
+         column (rank → clock → faults). Phase classes drive the
+         choreography (is-cd, is-final). idEntry/idHorse/idRider IDs
+         preserved so existing render() identity-card code populates.
+         clockBig + clockPhase preserved so the clock module keeps
+         writing into the right cell. Hunter rendering is currently
+         degraded — flagged for a separate redesign (Bill 2026-05-05). -->
+    <div class="m4-bar" id="m4Bar" hidden>
+      <div class="m4-chip" id="m4Chip">
+        <div class="lbl">Cls</div>
+        <div class="num" id="m4ChipNum">—</div>
       </div>
-      <!-- Single-rider mode (jumper, single-entry hunter): identity left,
-           status/clock/faults/rank right. Hidden when the focused class
-           is in flat-class mode (hunter rotation across multiple entries). -->
-      <div class="live-box-grid" id="liveBoxGrid">
-        <!-- Identity cell -->
-        <div class="live-box-cell">
-          <div class="live-box-cell-label">Entry</div>
-          <div class="oc-no-rider" id="ocNoRider">No rider on course</div>
-          <div id="ocIdentity" style="display:none;">
-            <div class="live-entry-num">#<strong id="idEntry">—</strong></div>
-            <div class="live-horse" id="idHorse">—</div>
-            <div class="live-rider"><span id="idRider">—</span></div>
-          </div>
-        </div>
-        <!-- Right cell — slot for lens-specific content. Jumper gets
-             clock + faults + rank; hunter gets the score card; flat
-             takes over the whole live-box (this cell hides). Driven
-             by shared modules (per the centralize-render directive)
-             via render(). The clock module's element IDs (clockBig,
-             clockPhase, etc.) are wrapped in a jumper-only inner
-             <div> so they stay in DOM for jumper render but don't
-             leak into hunter mode. -->
-        <div class="live-box-cell" id="liveBoxRight">
-          <div id="liveBoxJumperContent" hidden>
-            <div class="live-status-line">
-              <span class="round" id="ocRoundLabel" style="display:none;"></span>
-              <span class="sep" id="ocRoundSep" style="display:none;">·</span>
-              <span class="phase" id="clockPhase">—</span>
-              <span class="sep" id="ocTaSep" style="display:none;">·</span>
-              <span class="ta" id="ocTaLabel" style="display:none;"></span>
-            </div>
-            <div class="oc-clock idle" id="clockBig">—</div>
-            <div class="live-stat">
-              <div class="live-stat-label">Faults</div>
-              <div class="live-stat-value" id="liveFaults">—</div>
-            </div>
-            <div class="live-stat">
-              <div class="live-stat-label">Rank</div>
-              <div class="live-stat-value" id="liveRank">—</div>
-            </div>
-          </div>
-          <div id="liveBoxHunterContent" hidden></div>
+      <div class="m4-id">
+        <!-- clockPhase ID is on the meta phase indicator so the clock
+             module (which writes phaseLabel here) drives our colored
+             phase text. The clock-area label uses a different ID. -->
+        <div class="meta"><span class="phase" id="clockPhase">—</span></div>
+        <div class="name">
+          <span class="num">#<span id="idEntry">—</span></span><span id="idHorse">—</span><span class="rider"> / <span id="idRider">—</span></span>
         </div>
       </div>
-      <!-- Flat-class mode: a list of entries currently in the ring,
-           replacing the identity + clock cells. Visible only when the
-           focused class has flat_entries.length > 1 (hunter rotation
-           across multiple entries on course at the same time). -->
-      <div class="live-box-flat" id="liveBoxFlat" style="display:none;">
-        <div class="live-box-flat-count">
-          <span class="num" id="liveFlatCount">—</span>
-          <span id="liveFlatCountLabel">entries in the ring</span>
+      <div class="m4-right" id="m4Right">
+        <div class="m4-rank" id="m4Rank">
+          <span>Rank</span><span class="v" id="m4RankVal">—</span>
         </div>
-        <ul class="flat-list" id="liveFlatList"></ul>
+        <div class="m4-clock">
+          <div class="lbl" id="m4ClockLbl">—</div>
+          <div class="v" id="clockBig">—</div>
+        </div>
+        <div class="m4-faults" id="m4Faults">
+          <div class="stat"><span>JF</span><span class="v" id="m4JF">—</span></div>
+          <div class="stat"><span>TF</span><span class="v" id="m4TF">—</span></div>
+          <div class="stat total" id="m4TotalWrap" style="display:none;"><span>Tot</span><span class="v" id="m4Total">—</span></div>
+        </div>
       </div>
+    </div>
+
+    <!-- Flat-class mode (hunter rotation / pinned ribbons) — renders
+         when renderFlatClass() decides. Independent of the m4 bar. -->
+    <div class="live-box-flat" id="liveBoxFlat" style="display:none;">
+      <div class="live-box-flat-count">
+        <span class="num" id="liveFlatCount">—</span>
+        <span id="liveFlatCountLabel">entries in the ring</span>
+      </div>
+      <ul class="flat-list" id="liveFlatList"></ul>
+    </div>
+
+    <!-- Legacy element stubs — kept so existing render() references
+         don't crash. None of these are visible (display:none forced
+         via inline style + !important to defeat any CSS specificity). -->
+    <div style="display:none !important;" aria-hidden="true">
+      <div id="ocNoRider"></div>
+      <div id="ocIdentity"></div>
+      <span id="liveBoxBannerText"></span>
+      <span id="liveBoxFor"></span>
+      <div id="liveBoxGrid"></div>
+      <div id="liveBoxRight"></div>
+      <div id="liveBoxJumperContent"></div>
+      <div id="liveBoxHunterContent"></div>
+      <span id="ocRoundLabel"></span>
+      <span id="ocRoundSep"></span>
+      <span id="ocTaSep"></span>
+      <span id="ocTaLabel"></span>
+      <div id="liveFaults"></div>
+      <div id="liveRank"></div>
     </div>
   </div>
 
@@ -1380,19 +1430,27 @@
     var liveRow = (oncEntry && Array.isArray(liveScores))
       ? liveScores.find(function (r) { return String(r.entry_num) === String(oncEntry); })
       : null;
+    var faultsVal = null, rankVal = null;
     if (liveRow) {
-      var faultsVal = liveRow.r1_faults != null ? liveRow.r1_faults
-                    : liveRow.total_score != null ? liveRow.total_score
-                    : null;
-      faultsEl.textContent = faultsVal != null ? String(faultsVal) : '—';
-      faultsEl.classList.toggle('clear', faultsVal === 0);
-      rankEl.textContent = liveRow.overall_place != null
-        ? String(liveRow.overall_place) : '—';
-    } else {
-      faultsEl.textContent = '—';
-      faultsEl.classList.remove('clear');
-      rankEl.textContent = '—';
+      faultsVal = liveRow.r1_faults != null ? liveRow.r1_faults
+                : liveRow.total_score != null ? liveRow.total_score
+                : null;
+      rankVal = liveRow.overall_place != null ? liveRow.overall_place : null;
     }
+    // Hide the whole live-stat block when there's no value to show.
+    // No more dash placeholders hanging there during mid-round when
+    // the rider hasn't finished yet (Bill 2026-05-05).
+    var faultsBlock = faultsEl && faultsEl.parentElement;
+    var rankBlock   = rankEl   && rankEl.parentElement;
+    if (faultsBlock) faultsBlock.hidden = (faultsVal == null);
+    if (rankBlock)   rankBlock.hidden   = (rankVal == null);
+    if (faultsVal != null) {
+      faultsEl.textContent = String(faultsVal);
+      faultsEl.classList.toggle('clear', faultsVal === 0);
+    } else {
+      faultsEl.classList.remove('clear');
+    }
+    if (rankVal != null) rankEl.textContent = String(rankVal);
 
     // Identity card — fed by snapshot.last_identity (most recent A
     // frame in {1,11,14}, carried forward across batches within the
@@ -1476,49 +1534,120 @@
        ((snapshot.flat_entries_seen || []).length > 0));
     var liveBoxWrapEl = $('liveBoxWrap');
 
-    // Live-box right cell — page is a dumb wiring file (per centralize
-    // rule). Three lens-driven containers in markup; render modules
-    // decide what fills them. liveBoxRight wraps both lens containers
-    // so the whole right cell hides cleanly when neither lens applies
-    // (flat mode, no class, etc).
-    var rightCell = $('liveBoxRight');
-    var jumperC = $('liveBoxJumperContent');
-    var hunterC = $('liveBoxHunterContent');
-    if (renderIsFlat) {
-      // Flat layout owns the whole live-box — hide both right-cell
-      // children. renderFlatClass hides liveBoxGrid entirely on top.
-      if (jumperC) jumperC.hidden = true;
-      if (hunterC) hunterC.hidden = true;
-      if (rightCell) rightCell.hidden = true;
-    } else if (lens === 'hunter') {
-      var scoreCardRes = (window.WEST && window.WEST.hunterTemplates && window.WEST.hunterTemplates.renderScoreCard)
-        ? window.WEST.hunterTemplates.renderScoreCard(currentClassMeta, snapshot.hunter_scores, snapshot)
-        : { html: '', hasScore: false };
-      if (jumperC) jumperC.hidden = true;
-      if (hunterC) {
-        hunterC.innerHTML = scoreCardRes.html;
-        hunterC.hidden = !scoreCardRes.hasScore;
-      }
-      if (rightCell) rightCell.hidden = !scoreCardRes.hasScore;
+    // ── M4 LOWER-THIRD bar — jumper-first wiring ──────────────────────
+    // Class chip + identity + right column (rank / clock / faults).
+    // Identity (idEntry/idHorse/idRider) is populated by the existing
+    // identity-card code above. clockBig + clockPhase are written by
+    // the clock module. We drive: chip num, m4Right phase classes,
+    // m4Chip is-final, m4Rank visibility, m4Faults visibility +
+    // values.
+    var m4Bar   = $('m4Bar');
+    var m4Right = $('m4Right');
+    var m4Chip  = $('m4Chip');
+    var m4Rank  = $('m4Rank');
+    var m4RankVal = $('m4RankVal');
+    var m4Faults  = $('m4Faults');
+    var m4ClockLbl = $('m4ClockLbl');
+    var phaseEl    = $('clockPhase');
+    var phaseTxt   = phaseEl ? (phaseEl.textContent || '').toLowerCase() : '';
+    // Phase classifications from the clock module's text output:
+    var isCountdown = /countdown|starts/.test(phaseTxt);
+    var isFinished  = /finish/.test(phaseTxt);
+
+    if (renderIsFlat || lens === 'hunter') {
+      // Hunter classes use the flat panel / score card paths (no M4
+      // for now per Bill — hunter rendering is a separate redesign).
+      if (m4Bar) m4Bar.hidden = true;
     } else {
-      // Jumper / equitation / unknown — show the clock-bearing
-      // jumper content. The clock module + its callbacks already
-      // populate clockBig / clockPhase / liveFaults / liveRank.
-      if (jumperC) jumperC.hidden = false;
-      if (hunterC) { hunterC.innerHTML = ''; hunterC.hidden = true; }
-      if (rightCell) rightCell.hidden = false;
+      // Show the M4 bar when there's identity activity.
+      if (m4Bar) m4Bar.hidden = !hasIdentity;
+      // Class chip
+      if ($('m4ChipNum')) {
+        $('m4ChipNum').textContent = (snapshot.focused_class_id ||
+          classIdFromFocus || '—');
+      }
+      if (m4Chip) m4Chip.classList.toggle('is-final', !!snapshot.is_final);
+      // Right-column phase styling
+      if (m4Right) {
+        m4Right.classList.toggle('is-cd',    isCountdown && !isFinished);
+        m4Right.classList.toggle('is-final', isFinished || !!snapshot.is_final);
+      }
+      // Clock area label — "Time" by default, "Countdown" on countdown,
+      // "Final" on finish.
+      if (m4ClockLbl) {
+        m4ClockLbl.textContent = isFinished ? 'Final'
+          : isCountdown ? 'Countdown'
+          : 'Time';
+      }
+      // Rank — prefer real-time UDP {8}="RANK N" over D1 overall_place
+      // so it appears live during on-course rather than waiting for the
+      // .cls write. Slides in above the clock as soon as Ryegate
+      // streams a rank.
+      if (m4Rank) {
+        var udpRank = null;
+        var ls2 = snapshot.last_scoring;
+        if (ls2 && ls2.channel === 'A' && ls2.frame === 1 && ls2.tags) {
+          var rt = String(ls2.tags['8'] || '').replace(/[\r\n]/g, '');
+          var mR = rt.match(/(\d+)/);
+          if (mR) udpRank = parseInt(mR[1], 10);
+        }
+        var rankShown = (udpRank != null) ? udpRank : rankVal;
+        var showRank = rankShown != null;
+        m4Rank.classList.toggle('is-in', showRank);
+        if (showRank && m4RankVal) m4RankVal.textContent = String(rankShown);
+      }
+      // Faults — REAL-TIME from UDP fr=1 tags (Bill 2026-05-05).
+      // Ryegate streams running faults every ~1Hz during on-course:
+      //   {14}="JUMP N"   → jump faults
+      //   {15}="TIME N"   → time faults
+      //   {8}="RANK N"    → rank (already parsed for m4Rank below)
+      // Prefer UDP values (live) over D1 values (post-round). At finish,
+      // both should agree; D1 fills any gaps if UDP went silent.
+      if (m4Faults) {
+        var udpJf = null, udpTf = null;
+        var ls = snapshot.last_scoring;
+        if (ls && ls.channel === 'A' && ls.frame === 1 && ls.tags) {
+          var jt = String(ls.tags['14'] || '').replace(/[\r\n]/g, '');
+          var tt = String(ls.tags['15'] || '').replace(/[\r\n]/g, '');
+          var mJ = jt.match(/(\d+)/);
+          var mT = tt.match(/(\d+)/);
+          if (mJ) udpJf = parseInt(mJ[1], 10);
+          if (mT) udpTf = parseInt(mT[1], 10);
+        }
+        var d1Jf = liveRow && liveRow.r1_jump_faults != null ? liveRow.r1_jump_faults : null;
+        var d1Tf = liveRow && liveRow.r1_time_faults != null ? liveRow.r1_time_faults : null;
+        var jf = (udpJf != null) ? udpJf : d1Jf;
+        var tf = (udpTf != null) ? udpTf : d1Tf;
+        var hasJf = jf != null;
+        var hasTf = tf != null;
+        var totalVal = (hasJf || hasTf) ? ((jf || 0) + (tf || 0)) : faultsVal;
+        // Show whenever we have UDP fault data (rider on course) OR
+        // we're finished/final. Stays hidden only when there's no
+        // identity data at all.
+        var hasAnyFaultData = (udpJf != null) || (udpTf != null);
+        var showFaults = (isFinished || !!snapshot.is_final) || hasAnyFaultData;
+        m4Faults.classList.toggle('is-in', !!showFaults);
+        if (showFaults) {
+          if ($('m4JF')) {
+            $('m4JF').textContent = hasJf ? String(jf) : '0';
+            $('m4JF').classList.toggle('clear', hasJf ? jf === 0 : true);
+          }
+          if ($('m4TF')) {
+            $('m4TF').textContent = hasTf ? String(tf) : '0';
+            $('m4TF').classList.toggle('clear', hasTf ? tf === 0 : true);
+          }
+          var showTotal = (isFinished || !!snapshot.is_final);
+          if ($('m4TotalWrap')) $('m4TotalWrap').style.display = showTotal ? '' : 'none';
+          if (showTotal && $('m4Total') && totalVal != null) $('m4Total').textContent = String(totalVal);
+        }
+      }
     }
 
     // Live-box visibility — collapse the whole pinned card when it
-    // would render blank. Show iff there's a rider on course OR flat
-    // content OR score card OR jumper-clock activity (lens=jumper
-    // and not in idle phase). This keeps the page from showing an
-    // empty card between entries.
+    // would render blank. Show iff there's a rider on course (identity)
+    // OR flat content visible.
     if (liveBoxWrapEl) {
-      var hasScoreCard = !renderIsFlat && lens === 'hunter' &&
-        rightCell && rightCell.hidden === false;
-      var hasJumperContent = !renderIsFlat && lens !== 'hunter' && hasIdentity;
-      var liveBoxShow = hasIdentity || hasFlatContent || hasScoreCard || hasJumperContent;
+      var liveBoxShow = hasIdentity || hasFlatContent;
       liveBoxWrapEl.hidden = !liveBoxShow;
     }
 

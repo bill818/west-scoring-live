@@ -902,12 +902,28 @@ export class RingStateDO {
   }
 
   // Helper — pick the focused class id from the most relevant frames.
-  // Channel A scoring trumps Channel B focus; class_meta is the last fallback.
+  // Channel A scoring trumps Channel B focus; class_meta is the last
+  // fallback. Channel B with {29}="F" is a finalize-click only, NOT a
+  // focus signal — skip it so finalizing class B while working class A
+  // doesn't briefly pull focus to B (Bill 2026-05-05).
   _focusedClassId(body) {
-    return (body.last_scoring && body.last_scoring.class_id)
-        || (body.last_focus   && body.last_focus.class_id)
-        || (body.class_meta   && body.class_meta.class_id)
-        || null;
+    if (body.last_scoring && body.last_scoring.class_id) {
+      return body.last_scoring.class_id;
+    }
+    if (body.last_focus && body.last_focus.class_id) {
+      const tag29 = ((body.last_focus.tags || {})['29'] || '')
+        .replace(/\r/g, '').trim().toUpperCase();
+      if (tag29 !== 'F') return body.last_focus.class_id;
+    }
+    if (body.class_meta && body.class_meta.class_id) {
+      return body.class_meta.class_id;
+    }
+    // No fresh focus signal in this batch — keep the prior focused
+    // class so a finalize-only batch doesn't blank focused_class_id.
+    if (this.snapshot && this.snapshot.focused_class_id) {
+      return this.snapshot.focused_class_id;
+    }
+    return null;
   }
 
   // Helper — build the public snapshot view from the in-memory state.
@@ -954,14 +970,15 @@ export class RingStateDO {
       String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
     const focusedId = this._focusedClassId(body);
     // Surface the persisted is_final / finalized_at for the focused
-    // class at the top level — preserves stickiness across batches
-    // where the operator's focus packets stop carrying {29}="F".
+    // class at the top level. Sourced PURELY from byClass state so
+    // a finalize-click for a non-focused class doesn't inflate the
+    // focused class's pill (the per-event Channel-B-with-F loop sets
+    // is_final on the right class regardless of focus).
     const focusedEntry = focusedId ? this.byClass[focusedId] : null;
-    const persistedFinal = focusedEntry && focusedEntry.is_final === true;
     return {
       ...body,
       focused_class_id: focusedId,
-      is_final: !!(body.is_final || persistedFinal),
+      is_final: !!(focusedEntry && focusedEntry.is_final === true),
       finalized_at: focusedEntry ? (focusedEntry.finalized_at || null) : null,
       classes,
     };
@@ -974,13 +991,9 @@ export class RingStateDO {
     const classId = this._focusedClassId(body);
     if (!classId) return;
     const prior = this.byClass[classId] || {};
-    // is_final transitions one-way per class until explicitly cleared:
-    // once the operator marks FINAL, we keep it true even if subsequent
-    // focus packets arrive without {29}="F" (Ryegate sometimes sends
-    // bare focus pings during the same class). Operator can flip it
-    // back via re-opening the class settings; that path is TBD.
-    const newFinal = body.is_final === true;
-    const finalStuck = prior.is_final === true || newFinal;
+    // is_final / finalized_at are NOT touched here — they're owned by
+    // the per-event Channel-B-with-F loop in POST /event so finalizing
+    // class B doesn't inadvertently mark focused class A as final.
     this.byClass[classId] = {
       class_id: classId,
       class_kind: body.class_kind || prior.class_kind || null,
@@ -991,8 +1004,8 @@ export class RingStateDO {
       last_scoring:  body.last_scoring  || prior.last_scoring  || null,
       last_focus:    body.last_focus    || prior.last_focus    || null,
       last_identity: body.last_identity || prior.last_identity || null,
-      is_final:      finalStuck,
-      finalized_at:  finalStuck ? (prior.finalized_at || (newFinal ? body.received_at : null)) : null,
+      is_final:      prior.is_final     || false,
+      finalized_at:  prior.finalized_at || null,
       last_seen_at:  body.received_at   || new Date().toISOString(),
     };
   }
@@ -1055,6 +1068,31 @@ export class RingStateDO {
         const carriedClassId = this.snapshot.last_identity.class_id || null;
         if (!newFocusClassId || newFocusClassId === carriedClassId) {
           body.last_identity = this.snapshot.last_identity;
+        }
+      }
+
+      // FINAL signal: per-class, decoupled from focus. Channel B with
+      // {29}="F" finalizes whatever class the packet is FOR — not the
+      // currently-focused class. Lets operator finalize class B while
+      // working class A without disturbing A's focus or open state.
+      // Bill 2026-05-05: "test the channel b string and just have it
+      // finalize whatever class it has that F was attached to."
+      // Sticky once set; cleared only by the un-finalize rule below.
+      for (const e of (body.events || [])) {
+        if (!e || e.channel !== 'B' || !e.class_id) continue;
+        const tag29 = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase();
+        if (tag29 !== 'F') continue;
+        const cid = String(e.class_id);
+        let cls = this.byClass[cid];
+        if (!cls) {
+          // Class not yet in byClass — create a stub so the FINAL flag
+          // sticks. _updateByClass / future events will fill in the
+          // rest of the metadata.
+          cls = this.byClass[cid] = { class_id: cid };
+        }
+        if (!cls.is_final) {
+          cls.is_final = true;
+          cls.finalized_at = e.at || new Date().toISOString();
         }
       }
 
