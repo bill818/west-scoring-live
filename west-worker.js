@@ -889,6 +889,49 @@ function isAuthed(request, env) {
 // construction (lazy); when Chunk 7 lands, a WS client connecting to a
 // cold DO will trigger the warm-up read.
 
+// Status code map (Bill 2026-05-06: worker-side decoding so pages
+// stay dumb). Mirrors v3/js/west-status.js — kept inline here so the
+// worker doesn't need a build step to share modules. ELIM family
+// collapses the EL label per Bill's "EL" simplification (display
+// shows "EL" for any of EL/RF/HF/OC/RO/DQ; full carries the verbose
+// reason for tooltips). PARTIAL = retired / withdrew (rider chose
+// to stop). DNS = entered but never rode.
+const STATUS_CODES = {
+  E:   { label: 'EL',  full: 'Eliminated',     category: 'ELIM'    },
+  EL:  { label: 'EL',  full: 'Eliminated',     category: 'ELIM'    },
+  RF:  { label: 'EL',  full: 'Rider Fall',     category: 'ELIM'    },
+  HF:  { label: 'EL',  full: 'Horse Fall',     category: 'ELIM'    },
+  OC:  { label: 'EL',  full: 'Off Course',     category: 'ELIM'    },
+  RO:  { label: 'EL',  full: 'Refused Out',    category: 'ELIM'    },
+  DQ:  { label: 'EL',  full: 'Disqualified',   category: 'ELIM'    },
+  RT:  { label: 'RT',  full: 'Retired',        category: 'PARTIAL' },
+  WD:  { label: 'WD',  full: 'Withdrew',       category: 'PARTIAL' },
+  DNS: { label: 'DNS', full: 'Did Not Start',  category: 'DNS'     },
+  NS:  { label: 'DNS', full: 'No Show',        category: 'DNS'     },
+};
+
+// Find the on-course entry's most recent ROUND status and decode it.
+// Looks at the highest-numbered round that has data (status or faults
+// or score) — that's the round the operator was running when the
+// status was set. Returns null if no terminating status is set
+// (rider hasn't been eliminated/withdrawn/etc).
+function _decodeOnCourseStatus(row, classKind) {
+  if (!row) return null;
+  // Pick the round with the most recent data — start from R3 down.
+  // Hunter status field name is r{N}_h_status; jumper is r{N}_status.
+  const statusKey = classKind === 'hunter' ? 'h_status' : 'status';
+  for (let n = 3; n >= 1; n--) {
+    const code = row['r' + n + '_' + statusKey];
+    if (!code) continue;
+    const norm = String(code).trim().toUpperCase();
+    const meta = STATUS_CODES[norm];
+    if (meta) return { code: norm, label: meta.label, category: meta.category, full: meta.full };
+    // Unknown code — surface raw so the page can at least show it.
+    return { code: norm, label: norm, category: null, full: norm };
+  }
+  return null;
+}
+
 // S46 LIVE thresholds (Bill 2026-05-06 spec).
 //   LIVE_PAIR_WINDOW_MS — max delta between B+{29}=X and matching intro
 //     frame for class X to count as the explicit "horse in ring" trigger.
@@ -1099,13 +1142,27 @@ export class RingStateDO {
     const iTags = (ident && ident.tags) || {};
     const sTags = (scoring && scoring.tags) || {};
     const grab = (t, k) => ((t && t[k]) || '').replace(/\r/g, '').trim() || null;
+    const onCourseEntryNum = grab(iTags, '1') || grab(sTags, '1');
+    // Bill 2026-05-06: lift the on-course entry's status code (E/RF/HF/
+    // RT/WD/etc) to focus_preview so the live page M4 + commentator
+    // strip can show "ELIM" / "WD" / "RT" badges without re-deriving
+    // status rules client-side. UDP fr=1 doesn't carry status — pulled
+    // from the entry's row in jumper_scores / hunter_scores (D1-fed).
+    let statusInfo = null;
+    if (onCourseEntryNum) {
+      const scoresArr = (focusedEntry.class_kind === 'hunter')
+        ? (focusedEntry.hunter_scores || [])
+        : (focusedEntry.jumper_scores || []);
+      const row = scoresArr.find(r => String(r.entry_num) === String(onCourseEntryNum));
+      if (row) statusInfo = _decodeOnCourseStatus(row, focusedEntry.class_kind);
+    }
     return {
       class_id: focusedEntry.class_id || null,
       class_name: (focusedEntry.class_meta && focusedEntry.class_meta.class_name) || null,
       class_kind: focusedEntry.class_kind || null,
       is_live: !!focusedEntry.is_live,
       is_final: !!focusedEntry.is_final,
-      entry_num: grab(iTags, '1') || grab(sTags, '1'),
+      entry_num: onCourseEntryNum,
       horse: grab(iTags, '2'),
       rider: grab(iTags, '3') || grab(iTags, '7'),
       rank: grab(sTags, '8'),
@@ -1116,6 +1173,16 @@ export class RingStateDO {
       target_time: grab(sTags, '18'),
       countdown: grab(sTags, '23'),
       last_frame: scoring && Number.isFinite(scoring.frame) ? scoring.frame : null,
+      // status_code = raw 2-letter code (E/RF/HF/OC/RO/DQ/RT/WD/...)
+      // status_label = display label ("EL" collapses RF/HF/OC/RO/DQ/E)
+      // status_category = 'ELIM' | 'PARTIAL' | 'DNS' | null
+      // status_full = human-readable ("Eliminated", "Withdrew", etc)
+      // null when on-course entry has no terminating status — page
+      // shows clock/faults as normal.
+      status_code:     statusInfo ? statusInfo.code     : null,
+      status_label:    statusInfo ? statusInfo.label    : null,
+      status_category: statusInfo ? statusInfo.category : null,
+      status_full:     statusInfo ? statusInfo.full     : null,
       previous_entry: focusedEntry.previous_entry || null,
     };
   }

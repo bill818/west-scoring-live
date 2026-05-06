@@ -513,6 +513,16 @@
   .m4-faults .stat .v.clear { color: var(--green); }
   .m4-faults .stat.total .v { font-size: 18px; }
 
+  /* Status badge — replaces clock/rank/faults when on-course rider gets
+     eliminated/withdrawn/retired. Worker resolves status_label, page
+     just paints. ELIM = red bg, PARTIAL = amber bg. */
+  .m4-status-badge { display: inline-flex; align-items: center; justify-content: center; padding: 6px 14px; border-radius: 4px; font-family: var(--font-display); font-weight: 800; font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: #fff; line-height: 1; }
+  .m4-right.is-elim    .m4-status-badge { background: var(--red); }
+  .m4-right.is-partial .m4-status-badge { background: #d4a51e; }
+  .m4-right.is-status:not(.is-elim):not(.is-partial) .m4-status-badge { background: var(--text-muted); }
+  .m4-right.is-status .m4-clock { padding: 0 18px; }
+  .m4-status-full { font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 6px 18px; text-align: right; }
+
   /* Final-collapsed CTA — replaces standings 60s after FINAL fires.
      Spectators get a clear "class is over, go see results" handoff
      instead of a static standings table that won't change. */
@@ -1784,11 +1794,44 @@
           classIdFromFocus || '—');
       }
       if (m4Chip) m4Chip.classList.toggle('is-final', !!snapshot.is_final);
-      // Right-column phase styling
+      // Status code (EL/WD/RT/etc) — worker resolves on focus_preview.
+      // When set, the on-course rider has been eliminated/withdrawn/
+      // retired. Replace clock+faults+rank with a big status badge so
+      // commentators and spectators see it at a glance. (Bill 2026-05-06)
+      var fpStatus = (snapshot.focus_preview && snapshot.focus_preview.status_label) ? snapshot.focus_preview : null;
       if (m4Right) {
         m4Right.classList.remove('is-hunter');
-        m4Right.classList.toggle('is-cd',    isCountdown && !isFinished);
+        m4Right.classList.toggle('is-cd',    isCountdown && !isFinished && !fpStatus);
         m4Right.classList.toggle('is-final', isFinished || !!snapshot.is_final);
+        m4Right.classList.toggle('is-status', !!fpStatus);
+        if (fpStatus) {
+          m4Right.classList.toggle('is-elim',    fpStatus.status_category === 'ELIM');
+          m4Right.classList.toggle('is-partial', fpStatus.status_category === 'PARTIAL');
+        } else {
+          m4Right.classList.remove('is-elim', 'is-partial');
+        }
+      }
+      // When status is set, replace the right column with a single
+      // badge — clock/rank/faults are no longer meaningful (rider is
+      // done by elimination/withdrawal/retirement).
+      if (fpStatus) {
+        if (m4Rank) {
+          m4Rank.classList.remove('is-in', 'is-ta');
+        }
+        var clockBigStatus = $('clockBig');
+        if (clockBigStatus) {
+          clockBigStatus.innerHTML = '<div class="m4-status-badge" title="'
+            + (fpStatus.status_full || fpStatus.status_label) + '">'
+            + fpStatus.status_label + '</div>';
+        }
+        if (m4Faults) {
+          m4Faults.classList.remove('is-in');
+          m4Faults.innerHTML = fpStatus.status_full
+            ? '<div class="m4-status-full">' + fpStatus.status_full + '</div>'
+            : '';
+          if (fpStatus.status_full) m4Faults.classList.add('is-in');
+        }
+        return; // skip the normal rank/clock/faults render path
       }
       // (Clock label removed — phase is already conveyed by the clock
       // color + countdown pulse + background tint.)
