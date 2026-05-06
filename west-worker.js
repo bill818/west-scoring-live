@@ -1653,6 +1653,36 @@ export class RingStateDO {
         cls._unfinalAt = null;
       }
 
+      // Persist status='complete' to D1 for any class that just went
+      // FINAL. class.html / public results pages read class.status to
+      // decide whether to render ribbon SVGs (1st-12th place markers)
+      // on the placings — the ribbons are reserved for finalized
+      // classes per Bill 2026-05-06. Fire-and-forget so the /event
+      // hot path stays fast; D1 write failures are logged but never
+      // surface to the engine.
+      const newlyFinalIds = [];
+      for (const e of (body.events || [])) {
+        if (!e || e.channel !== 'B' || !e.class_id) continue;
+        const tag29 = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase();
+        if (tag29 === 'F') newlyFinalIds.push(String(e.class_id));
+      }
+      if (newlyFinalIds.length && body.slug && body.ring_num != null) {
+        const ringNumInt = Number(body.ring_num);
+        const stmt = this.env.WEST_DB_V3.prepare(
+          "UPDATE classes SET status = 'complete', updated_at = datetime('now') " +
+          "WHERE class_id = ? AND ring_id = (" +
+          "  SELECT r.id FROM rings r " +
+          "  JOIN shows s ON s.id = r.show_id " +
+          "  WHERE s.slug = ? AND r.ring_num = ?" +
+          ") AND status != 'complete'"
+        );
+        const dedupedIds = Array.from(new Set(newlyFinalIds));
+        const ops = dedupedIds.map(cid => stmt.bind(cid, body.slug, ringNumInt));
+        this.env.WEST_DB_V3.batch(ops).catch(err => {
+          console.log(`[RingStateDO/event] D1 FINAL status write failed: ${err.message}`);
+        });
+      }
+
       // fr=0 × 3 consecutive → operator-intent CLEAR. Single fr=0 fires
       // on auto-timeout (scoreboard going dim), so we don't treat one
       // as a class reset. Three in a row is a deliberate hold-down /
@@ -2125,6 +2155,20 @@ export class RingStateDO {
         }
         target.previous_entry = null;
         if (this.pendingLive[cid]) delete this.pendingLive[cid];
+        // Mirror status='complete' to D1 so class.html shows ribbons.
+        // Same fire-and-forget pattern as the /event FINAL handler.
+        if (body.slug && body.ring_num != null) {
+          const ringNumIntF = Number(body.ring_num);
+          this.env.WEST_DB_V3.prepare(
+            "UPDATE classes SET status = 'complete', updated_at = datetime('now') " +
+            "WHERE class_id = ? AND ring_id = (" +
+            "  SELECT r.id FROM rings r JOIN shows s ON s.id = r.show_id " +
+            "  WHERE s.slug = ? AND r.ring_num = ?" +
+            ") AND status != 'complete'"
+          ).bind(cid, body.slug, ringNumIntF).run().catch(err => {
+            console.log(`[RingStateDO/class-action finalize] D1 status write failed: ${err.message}`);
+          });
+        }
       } else if (action === 'focus') {
         this.forcedFocusClassId = cid;
       } else if (action === 'flush_all') {

@@ -152,6 +152,12 @@
   // 1, Res implies 2 — number is redundant). Single source via
   // WEST.format.championshipMarker so hunter and other surfaces share
   // the rule.
+  //
+  // Bill 2026-05-06: when the class is FINAL (cls.is_final, set by
+  // renderTable from opts.isFinal which class.html derives from
+  // class.status==='complete'), places 1-12 render the WEST.flat.ribbonSvg
+  // (same ribbon graphics used by hunter flat results). Places > 12 or
+  // championship-marker rows keep the existing rendering.
   function renderPlaceCell(entry, cls) {
     var place = WEST.rules.jumperPlaceFor(
       entry.overall_place,
@@ -162,6 +168,11 @@
     var marker = WEST.format.championshipMarker(place, cls.is_championship === 1);
     if (marker) {
       return '<span class="place-marker place-marker-solo">' + marker + '</span>';
+    }
+    if (cls.is_final && place >= 1 && place <= 12
+        && window.WEST && window.WEST.flat && window.WEST.flat.ribbonSvg) {
+      var ribbon = window.WEST.flat.ribbonSvg(place);
+      if (ribbon) return '<span class="place-ribbon">' + ribbon + '</span>';
     }
     return '<span class="place-num">' + place + '</span>';
   }
@@ -352,6 +363,12 @@
   WEST.jumperTemplates.renderTable = function (cls, entries, options) {
     options = options || {};
     var layout = options.layout || 'stacked';
+    // opts.isFinal flows through to renderPlaceCell via the cls object —
+    // simpler than threading another param through every nested template
+    // and row helper. Caller (class.html) sets it from class.status.
+    if (options.isFinal && !cls.is_final) {
+      cls = Object.assign({}, cls, { is_final: true });
+    }
     var tplId = WEST.jumperTemplates.detect(cls);
     var multiRound = (tplId === '2R' || tplId === '3R' || tplId === 'TEAM');
     // Filter DNS-like entries (no place + no round data + no status) —

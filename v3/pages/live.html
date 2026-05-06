@@ -513,6 +513,16 @@
   .m4-faults .stat .v.clear { color: var(--green); }
   .m4-faults .stat.total .v { font-size: 18px; }
 
+  /* Final-collapsed CTA — replaces standings 60s after FINAL fires.
+     Spectators get a clear "class is over, go see results" handoff
+     instead of a static standings table that won't change. */
+  .final-collapsed { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 18px; background: rgba(46,125,50,.06); border: 1px solid rgba(46,125,50,.20); border-radius: 6px; margin: 16px 0; }
+  .final-collapsed.hidden { display: none; }
+  .final-collapsed .fc-msg { font-family: var(--font-display); font-size: 18px; color: var(--navy); display: flex; align-items: center; gap: 10px; }
+  .final-collapsed .fc-pill { display: inline-block; background: var(--green); color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 3px 9px; border-radius: 3px; }
+  .final-collapsed .fc-cta { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; background: var(--green); color: #fff; border: 1px solid var(--green); border-radius: 6px; font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; text-decoration: none; box-shadow: 0 2px 10px rgba(46,125,50,.25); transition: background .15s ease, box-shadow .15s ease; }
+  .final-collapsed .fc-cta:hover { background: #1e6b25; border-color: #1e6b25; box-shadow: 0 3px 14px rgba(46,125,50,.35); text-decoration: none; }
+
   /* Hunter lower-third (S46 — Bill 2026-05-06): rank / overall + round /
      per-judge cells. Reuses the m4-rank / m4-clock / m4-faults slots so
      animation classes (is-in / is-final) keep working. */
@@ -1033,6 +1043,14 @@
       </div>
       <div id="jumperStandingsBox"></div>
     </div>
+    <!-- Final-collapsed CTA — replaces standings + just-finished banner
+         when the focused class is FINAL. Spectators get a clean "this
+         class is over, here are the results" handoff to class.html
+         instead of a static standings table that won't change. -->
+    <div class="final-collapsed hidden" id="finalCollapsed">
+      <div class="fc-msg"><span class="fc-pill">FINAL</span> This class is complete.</div>
+      <a class="fc-cta" id="finalCollapsedLink" href="#">View Final Results →</a>
+    </div>
   </div>
 
   <!-- Other open class panels (S45 multi-class). renderOtherClassPanels()
@@ -1416,7 +1434,11 @@
     container.innerHTML = html;
   }
 
+  // Cached snapshot so timers (e.g. the 60s FINAL collapse) can re-invoke
+  // render() without needing the WS handler to re-deliver a snapshot.
+  var _lastSnapshot = null;
   function render(snapshot) {
+    if (snapshot) _lastSnapshot = snapshot;
     if (window.WEST && window.WEST.clock) {
       if (snapshot && window.WEST.clock.setMode) {
         window.WEST.clock.setMode(snapshot.live_running_tenth === false ? 'whole' : 'tenth');
@@ -1864,9 +1886,62 @@
     // Live-box visibility — collapse the whole pinned card when it
     // would render blank. Show iff there's a rider on course (identity)
     // OR flat content visible.
+    // Bill 2026-05-06: ALSO hide on FINAL — the rider has already left
+    // the ring once the operator hits FINAL, so the M4 lower-third
+    // shouldn't linger on screen showing their data.
     if (liveBoxWrapEl) {
-      var liveBoxShow = hasIdentity || hasFlatContent;
+      var liveBoxShow = (hasIdentity || hasFlatContent) && !snapshot.is_final;
       liveBoxWrapEl.hidden = !liveBoxShow;
+    }
+
+    // Final state handling (Bill 2026-05-06, two-stage):
+    //   • Immediately on FINAL: hide the M4 live box (rider has left
+    //     the ring — their data shouldn't linger on screen).
+    //   • +60 seconds after FINAL: collapse the standings + just-
+    //     finished and surface the "View Final Results" link to
+    //     class.html. Spectators get the standings for a beat (so they
+    //     can scan final placings live), then the page hands off to
+    //     the static results page.
+    //
+    // The 60s collapse needs a timer because no other event naturally
+    // re-renders at that mark — _finalCollapseTimer is cleared and
+    // re-armed each render so it fires once per finalized class.
+    var FINAL_COLLAPSE_DELAY_MS = 60 * 1000;
+    var finalCollapsedEl = $('finalCollapsed');
+    var finalCollapsedLink = $('finalCollapsedLink');
+    var isFinalNow = !!(snapshot.is_final && snapshot.focused_class_id);
+    var finalizedAtMs = isFinalNow ? (Date.parse(snapshot.finalized_at) || 0) : 0;
+    var msSinceFinal = finalizedAtMs ? (Date.now() - finalizedAtMs) : 0;
+    var inFinalCollapse = isFinalNow && finalizedAtMs && msSinceFinal >= FINAL_COLLAPSE_DELAY_MS;
+
+    if (inFinalCollapse) {
+      var fcUrl = 'class.html?slug=' + encodeURIComponent(snapshot.slug || '')
+        + '&ring=' + encodeURIComponent(snapshot.ring_num != null ? String(snapshot.ring_num) : '')
+        + '&class=' + encodeURIComponent(snapshot.focused_class_id);
+      if (finalCollapsedLink) finalCollapsedLink.href = fcUrl;
+      if (finalCollapsedEl) finalCollapsedEl.classList.remove('hidden');
+      var jfBarFinal = $('justFinishedBar');
+      if (jfBarFinal) jfBarFinal.classList.add('hidden');
+    } else if (finalCollapsedEl) {
+      finalCollapsedEl.classList.add('hidden');
+    }
+
+    // Arm a timer to flip into collapse at the 60s mark if we're FINAL
+    // but not yet collapsed. Clears any pending timer first so re-renders
+    // don't stack timers. Outside-of-window FINALs (snapshot delivered
+    // late) skip the wait — render() runs again on the next snapshot
+    // and inFinalCollapse will be true.
+    if (window._finalCollapseTimer) {
+      clearTimeout(window._finalCollapseTimer);
+      window._finalCollapseTimer = null;
+    }
+    if (isFinalNow && !inFinalCollapse && finalizedAtMs) {
+      var remaining = FINAL_COLLAPSE_DELAY_MS - msSinceFinal;
+      if (remaining > 0 && remaining <= FINAL_COLLAPSE_DELAY_MS + 5000) {
+        window._finalCollapseTimer = setTimeout(function () {
+          if (typeof render === 'function' && _lastSnapshot) render(_lastSnapshot);
+        }, remaining + 100);
+      }
     }
 
     var hsPanel = $('hunterStandingsPanel');
@@ -1874,7 +1949,7 @@
     var hsBox   = $('hunterStandingsBox');
     var hs = snapshot.hunter_scores;
     var hasHunterTemplates = !!(window.WEST && window.WEST.hunterTemplates && window.WEST.hunterTemplates.renderTable);
-    if (lens === 'hunter' && !renderIsFlat && Array.isArray(hs) && hs.length > 0
+    if (!inFinalCollapse && lens === 'hunter' && !renderIsFlat && Array.isArray(hs) && hs.length > 0
         && currentClassMeta && hasHunterTemplates) {
       hsPanel.classList.remove('hidden');
       var placedH = hs.filter(function(e) {
@@ -1978,7 +2053,7 @@
     var jfBar = $('justFinishedBar');
     if (jfBar) {
       var pe = snapshot.previous_entry || null;
-      var jfShow = !!pe && (lens === 'jumper' || lens === 'equitation');
+      var jfShow = !inFinalCollapse && !!pe && (lens === 'jumper' || lens === 'equitation');
       if (jfShow) {
         $('jfNum').textContent = '#' + pe.entry_num;
         $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
@@ -1995,7 +2070,7 @@
     var js = snapshot.jumper_scores;
     var isJumperLens = (lens === 'jumper' || lens === 'equitation');
     var hasJumperTemplates = !!(window.WEST && window.WEST.jumperTemplates && window.WEST.jumperTemplates.renderTable);
-    if (isJumperLens && !renderIsFlat && Array.isArray(js) && js.length > 0
+    if (!inFinalCollapse && isJumperLens && !renderIsFlat && Array.isArray(js) && js.length > 0
         && currentClassMeta && hasJumperTemplates) {
       jsPanel.classList.remove('hidden');
       var placedJ = js.filter(function(e) {

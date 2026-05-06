@@ -56,6 +56,7 @@
 <script src="../js/west-status.js"></script>
 <script src="../js/west-format.js"></script>
 <script src="../js/west-rules.js"></script>
+<script src="../js/west-flat.js"></script><!-- ribbonSvg used on FINAL classes (1st-12th place markers) -->
 <script src="../js/west-jumper-templates.js"></script>
 <script src="../js/west-hunter-templates.js"></script>
 
@@ -193,6 +194,10 @@ function renderResults() {
   // everything. Layout flows from the show's admin setting
   // (shows.results_layout); templates default to 'stacked'.
   const layout = state.show && state.show.results_layout;
+  // isFinal drives ribbon SVG rendering on placings 1-12 — Bill 2026-05-06.
+  // Source of truth: classes.status === 'complete' in D1. Worker writes
+  // it on Channel B {29}=F or engine Make Final.
+  const isFinal = cls.status === 'complete';
   if (cls.class_type === 'H') {
     // By-judge view (multi-judge classes only) regroups the class by
     // judge. Combined view is the default — table with optional per-row
@@ -204,12 +209,13 @@ function renderResults() {
     root.innerHTML = WEST.hunterTemplates.renderTable(cls, entries, {
       layout,
       judgeGrid: state.judgeGrid,
+      isFinal,
     });
     wireJudgeDropdowns();
     return;
   }
   if (cls.class_type === 'J' || cls.class_type === 'T') {
-    root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries, { layout });
+    root.innerHTML = WEST.jumperTemplates.renderTable(cls, entries, { layout, isFinal });
   } else {
     root.innerHTML = '<div class="placeholder">Class type not yet supported on the public results page.</div>';
   }
