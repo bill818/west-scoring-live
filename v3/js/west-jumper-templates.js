@@ -384,10 +384,21 @@
     // via the cls object — simpler than threading params through every
     // nested template/row helper. Caller (class.html) sets isFinal from
     // class.finalized_at and prizeMoney from class.prize_money JSON.
-    if ((options.isFinal && !cls.is_final) || (options.prizeMoney && !cls.prize_money)) {
+    //
+    // CRITICAL: cls.prize_money from /v3/listClasses is a JSON STRING.
+    // We must override with the parsed ARRAY (options.prizeMoney) so
+    // Array.isArray(cls.prize_money) succeeds in renderPlaceCell.
+    if (options.isFinal || options.prizeMoney || (cls.prize_money && typeof cls.prize_money === 'string')) {
+      var parsedMoney = options.prizeMoney || null;
+      if (!parsedMoney && typeof cls.prize_money === 'string') {
+        try { var p = JSON.parse(cls.prize_money); if (Array.isArray(p)) parsedMoney = p; }
+        catch (e) { /* malformed — degrade silently */ }
+      } else if (!parsedMoney && Array.isArray(cls.prize_money)) {
+        parsedMoney = cls.prize_money;
+      }
       cls = Object.assign({}, cls, {
         is_final: cls.is_final || !!options.isFinal,
-        prize_money: cls.prize_money || options.prizeMoney || null,
+        prize_money: parsedMoney,
       });
     }
     var tplId = WEST.jumperTemplates.detect(cls);
