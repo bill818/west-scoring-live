@@ -972,7 +972,7 @@ footer a{color:var(--blue);}
 .live-strip-chip .ls-stat.ls-clock{color:var(--green);}
 .live-strip-chip .ls-stat.ls-cd{color:var(--red);animation:m4CdPulse 1s ease-in-out infinite;}
 .live-strip-chip .ls-stat.ls-rank{color:var(--navy);font-weight:700;}
-.live-strip-chip .ls-stat.ls-faults{color:var(--gold,#d4a51e);}
+.live-strip-chip .ls-stat.ls-faults{color:var(--red);}
 @media (max-width:700px){
   .live-strip{padding:0 14px;}
   .live-strip-chip{flex-basis:100%;}

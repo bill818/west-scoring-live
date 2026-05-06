@@ -511,7 +511,7 @@ function chipHtml(slug, ringNum, ringName, snapshot) {
   } else if (fp.clock) {
     stats.push(`<span class="ls-stat ls-clock" data-clock="up">${escapeHtml(fp.clock)}s</span>`);
   }
-  if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">Rank ${escapeHtml(fp.rank)}</span>`);
+  if (fp.rank)       stats.push(`<span class="ls-stat ls-rank">${escapeHtml(fp.rank)}</span>`);
   const faults = fmtFaults(fp);
   if (faults && faults !== '0F') stats.push(`<span class="ls-stat ls-faults">${escapeHtml(faults)}</span>`);
 
