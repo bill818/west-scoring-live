@@ -4778,6 +4778,41 @@ export default {
           } catch (e) {
             console.log(`[v3/postCls] prize_money update failed: ${e.message}`);
           }
+          // Tsked catch-up (Bill 2026-05-06): if this class was first
+          // POSTed AFTER the operator's last tsked POST, its scheduled_date
+          // never got set (worker UPDATEs only, never INSERTs from tsked).
+          // Read the stored tsked.csv from R2 and apply this class's row
+          // if present. Gated on scheduled_date IS NULL so a manual
+          // re-tsked elsewhere can't get clobbered by stale R2 data.
+          try {
+            const tskedObj = await env.WEST_R2_CLS.get(`${slug}/tsked.csv`);
+            if (tskedObj) {
+              const tskedBytes = await tskedObj.arrayBuffer();
+              const tskedText = new TextDecoder('utf-8', { fatal: false }).decode(tskedBytes);
+              const tskedLines = tskedText.split(/\r?\n/);
+              for (let li = 1; li < tskedLines.length; li++) {
+                const tline = tskedLines[li];
+                if (!tline.trim()) continue;
+                const tcols = parseCsvLineV3(tline);
+                const tcid = (tcols[0] || '').trim();
+                if (tcid !== classId) continue;
+                const tdate = (tcols[2] || '').trim();
+                const tflag = (tcols[3] || '').trim() || null;
+                let tisoDate = null;
+                const tm = tdate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                if (tm) tisoDate = `${tm[3]}-${tm[1].padStart(2, '0')}-${tm[2].padStart(2, '0')}`;
+                if (tisoDate) {
+                  await env.WEST_DB_V3.prepare(
+                    `UPDATE classes SET scheduled_date = ?, schedule_flag = ?
+                     WHERE id = ? AND scheduled_date IS NULL`
+                  ).bind(tisoDate, tflag, classDbId).run();
+                }
+                break;
+              }
+            }
+          } catch (e) {
+            console.log(`[v3/postCls] tsked catch-up failed: ${e.message}`);
+          }
           // Delete stale entries (removed by operator since last parse)
           if (lensKnown) {
             if (currentNums.length > 0) {
