@@ -888,6 +888,25 @@ function isAuthed(request, env) {
 // polling clients are unaffected. We don't proactively re-read KV on
 // construction (lazy); when Chunk 7 lands, a WS client connecting to a
 // cold DO will trigger the warm-up read.
+
+// S46 LIVE thresholds (Bill 2026-05-06 spec).
+//   LIVE_PAIR_WINDOW_MS — max delta between B+{29}=X and matching intro
+//     frame for class X to count as the explicit "horse in ring" trigger.
+//   LIVE_PAIR_STALE_MS  — how long a half-pair (B-only or intro-only) is
+//     held in this.pendingLive before being discarded.
+//   RING_LIVE_TIMEOUT_MS — a class without any UDP for this long flips
+//     un-live with reason='timeout'. Survives ribbon ceremonies and
+//     coursewalks; Bill: "30 min time out" matches the existing
+//     stagnant-class drop window in _buildSnapshot.
+const LIVE_PAIR_WINDOW_MS  = 1000;
+const LIVE_PAIR_STALE_MS   = 5000;
+const RING_LIVE_TIMEOUT_MS = 30 * 60 * 1000;
+// Bill 2026-05-06: brief blackout after a manual Flush so the trailing
+// .cls write that fires when a class closes (engine watching the file
+// system) doesn't immediately re-light a class via the cls_lock path.
+// Doesn't affect the explicit B+intro live trigger — operator's
+// deliberate "make this live" action always works.
+const FLUSH_COOLDOWN_MS = 15 * 1000;
 export class RingStateDO {
   constructor(state, env) {
     this.state = state;
@@ -899,27 +918,61 @@ export class RingStateDO {
     // tracks only the FOCUSED class for backwards compat; the multi-class
     // panel stack on live.html reads .classes (sorted by recency).
     this.byClass = {};
+    // S46 LIVE-trigger state (Bill 2026-05-06).
+    // pendingLive: rolling per-class pair detector. A B+{29}=X click and a
+    // matching intro frame (jumper fr=1 / hunter fr=11) for class X within
+    // 1000ms = the explicit "horse is now in the ring" signal. Both halves
+    // can land in the same batch or across batches; we hold pending halves
+    // for up to LIVE_PAIR_STALE_MS so a B in one batch + intro in the
+    // next still fire. In-memory only — DO eviction loses pending pairs;
+    // operator just re-clicks and the next intro re-fires the trigger.
+    this.pendingLive = {};
+    // ringOpenSegment: the in-flight ring_live_segment row. NULL when ring
+    // is un-live. { d1_id, started_at, classes_seen: [classId, ...] }.
+    // Persisted into the snapshot so warmUp() can restore it after DO
+    // eviction; an open D1 row is the secondary source of truth (recovery
+    // also reads D1 if the snapshot doesn't carry it).
+    this.ringOpenSegment = null;
+    // Manual focus override (Bill 2026-05-06 — engine right-click "Make
+    // Focus"). When set, _focusedClassId returns this in preference to
+    // the natural Channel B / Channel A sources. Cleared automatically
+    // when a Channel B focus event arrives for a DIFFERENT class so the
+    // operator's next Ryegate click takes back over normally. Persisted
+    // into the snapshot so warmUp restores it after DO eviction.
+    this.forcedFocusClassId = null;
   }
 
-  // Helper — pick the focused class id from the most relevant frames.
-  // Channel A scoring trumps Channel B focus; class_meta is the last
-  // fallback. Channel B with {29}="F" is a finalize-click only, NOT a
-  // focus signal — skip it so finalizing class B while working class A
-  // doesn't briefly pull focus to B (Bill 2026-05-05).
+  // Helper — pick the focused class id.
+  //
+  // PRIORITY (Bill 2026-05-06): Channel B (operator's focus click on
+  // Ryegate's port 31000) wins over Channel A scoring activity. The
+  // operator's intent is more authoritative than whatever's currently
+  // streaming scores — covers the "yank entry to a different class
+  // without normal flow" case where Channel A might still be firing
+  // for the old class.
+  //
+  // Channel B with {29}="F" is a finalize-click only — skip it so
+  // finalizing class B while focused on class A doesn't pull focus.
+  //
+  // Order: last_focus (no F) > last_scoring > class_meta > prior sticky.
   _focusedClassId(body) {
-    if (body.last_scoring && body.last_scoring.class_id) {
-      return body.last_scoring.class_id;
+    // Manual override wins over any natural source. Stays sticky until
+    // the operator's NEXT Channel B click on a DIFFERENT class clears
+    // it (handled in /event handler).
+    if (this.forcedFocusClassId && this.byClass[this.forcedFocusClassId]) {
+      return this.forcedFocusClassId;
     }
     if (body.last_focus && body.last_focus.class_id) {
       const tag29 = ((body.last_focus.tags || {})['29'] || '')
         .replace(/\r/g, '').trim().toUpperCase();
       if (tag29 !== 'F') return body.last_focus.class_id;
     }
+    if (body.last_scoring && body.last_scoring.class_id) {
+      return body.last_scoring.class_id;
+    }
     if (body.class_meta && body.class_meta.class_id) {
       return body.class_meta.class_id;
     }
-    // No fresh focus signal in this batch — keep the prior focused
-    // class so a finalize-only batch doesn't blank focused_class_id.
     if (this.snapshot && this.snapshot.focused_class_id) {
       return this.snapshot.focused_class_id;
     }
@@ -952,6 +1005,10 @@ export class RingStateDO {
     const FINAL_FULL_MS      = 10 * 60 * 1000;   // 0-10min: full panel
     const FINAL_DROP_MS      = 30 * 60 * 1000;   // 30min+:  remove
     const now = Date.now();
+    // S46 — sweep live-class timeouts BEFORE the lifecycle eviction so
+    // a class that drops via NON_FINAL_STALE still records its un-live
+    // transition. Reason='timeout', went_unlive_at = actual last UDP.
+    this._sweepLiveTimeouts();
     for (const id of Object.keys(this.byClass)) {
       const c = this.byClass[id];
       const seenAt = Date.parse(c.last_seen_at || '');
@@ -966,8 +1023,18 @@ export class RingStateDO {
         c.lifecycle_state = 'full';
       }
     }
-    const classes = Object.values(this.byClass).sort((a, b) =>
-      String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
+    // Bill 2026-05-06: a class only earns a panel on the public live
+    // page once the LIVE trigger pair has fired (B+intro within 1s) at
+    // least once for it. Bare Channel B clicks (or any other lone UDP
+    // touch) populate byClass internally for tracking, but they do NOT
+    // surface on live.html. Filter:
+    //   • is_live  — currently live (pair fired and not yet un-lived)
+    //   • live_since — was live at some point (entry survived un-live)
+    //   • is_final — explicitly finalized (operator marked complete)
+    const classes = Object.values(this.byClass)
+      .filter(c => c && (c.is_live || c.live_since != null || c.is_final))
+      .sort((a, b) =>
+        String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
     const focusedId = this._focusedClassId(body);
     // Surface the persisted is_final / finalized_at for the focused
     // class at the top level. Sourced PURELY from byClass state so
@@ -975,6 +1042,19 @@ export class RingStateDO {
     // focused class's pill (the per-event Channel-B-with-F loop sets
     // is_final on the right class regardless of focus).
     const focusedEntry = focusedId ? this.byClass[focusedId] : null;
+    // S46 — ring-wide is_live = ANY class on this ring is_live.
+    // live_since = earliest live_since across the live classes (ring's
+    // current segment start). live_class_ids = the actual list, so
+    // public consumers (and the engine UI) can render per-class pills.
+    const liveClassIds = [];
+    let earliestLiveSince = null;
+    for (const c of classes) {
+      if (c && c.is_live) {
+        liveClassIds.push(c.class_id);
+        const ls = Number(c.live_since) || 0;
+        if (ls && (!earliestLiveSince || ls < earliestLiveSince)) earliestLiveSince = ls;
+      }
+    }
     return {
       ...body,
       focused_class_id: focusedId,
@@ -984,7 +1064,59 @@ export class RingStateDO {
       // Consumers (live page "Just Finished" banner, future scoreboard
       // views, etc.) read this directly without client-side detection.
       previous_entry: focusedEntry ? (focusedEntry.previous_entry || null) : null,
+      // S46 — ring-wide live state. is_live=true means at least one
+      // class on this ring is currently live (operator clicked B+{29}
+      // and an intro frame fired within 1s). live_since is the start
+      // of the current ring segment. live_class_ids enumerates which
+      // classes are live so the engine UI + public pages can show pills.
+      is_live: liveClassIds.length > 0,
+      live_since: earliestLiveSince,
+      live_class_ids: liveClassIds,
+      // ring_open_segment is persisted into KV so warmUp() can restore
+      // it after DO eviction without going to D1 first. Spectator pages
+      // don't need it — it's an internal state-passing field.
+      ring_open_segment: this.ringOpenSegment,
+      // Manual focus override — same persistence rationale.
+      forced_focus_class_id: this.forcedFocusClassId,
       classes,
+      // S46 — small peek for the engine UI mirroring what the public
+      // live box is showing right now. Pulled from the focused class's
+      // last_identity (entry/horse/rider) + last_scoring (rank/faults/
+      // clock). Engine renders this as a read-only "what public sees"
+      // card. Null when nothing's focused.
+      focus_preview: this._buildFocusPreview(focusedEntry),
+    };
+  }
+
+  // S46 — build the engine's focus preview from the focused class's
+  // most recent identity + scoring frames. Tags are pulled raw so the
+  // engine can show what the operator is actually seeing on the public
+  // live box without re-deriving phase rules. (Bill 2026-05-06.)
+  _buildFocusPreview(focusedEntry) {
+    if (!focusedEntry) return null;
+    const ident = focusedEntry.last_identity || null;
+    const scoring = focusedEntry.last_scoring || null;
+    const iTags = (ident && ident.tags) || {};
+    const sTags = (scoring && scoring.tags) || {};
+    const grab = (t, k) => ((t && t[k]) || '').replace(/\r/g, '').trim() || null;
+    return {
+      class_id: focusedEntry.class_id || null,
+      class_name: (focusedEntry.class_meta && focusedEntry.class_meta.class_name) || null,
+      class_kind: focusedEntry.class_kind || null,
+      is_live: !!focusedEntry.is_live,
+      is_final: !!focusedEntry.is_final,
+      entry_num: grab(iTags, '1') || grab(sTags, '1'),
+      horse: grab(iTags, '2'),
+      rider: grab(iTags, '3') || grab(iTags, '7'),
+      rank: grab(sTags, '8'),
+      label_or_ta: grab(sTags, '13'),
+      jump_faults: grab(sTags, '14'),
+      time_faults: grab(sTags, '15'),
+      clock: grab(sTags, '17'),
+      target_time: grab(sTags, '18'),
+      countdown: grab(sTags, '23'),
+      last_frame: scoring && Number.isFinite(scoring.frame) ? scoring.frame : null,
+      previous_entry: focusedEntry.previous_entry || null,
     };
   }
 
@@ -1063,7 +1195,11 @@ export class RingStateDO {
       ? String((newId.tags['1'] || '')).replace(/\r/g, '').trim()
       : '';
     let previousEntry = prior.previous_entry || null;
-    if (newOnCourseEntry) {
+    // Skip repopulate when class is FINAL — Bill 2026-05-06: the FINAL
+    // handler upstream nulls previous_entry, but without this gate the
+    // still-present last_identity + scoring row immediately rebuild it
+    // on the very next batch.
+    if (newOnCourseEntry && !prior.is_final) {
       const scores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
                     : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
                     : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
@@ -1088,6 +1224,16 @@ export class RingStateDO {
       last_identity: body.last_identity || prior.last_identity || null,
       is_final:      prior.is_final     || false,
       finalized_at:  prior.finalized_at || null,
+      // S46 — preserve live-state fields across batches. _processLiveTriggers
+      // runs BEFORE _updateByClass and writes is_live/live_since to byClass;
+      // without these explicit carries the spread-overwrite below would
+      // wipe them on the very next batch (engine "Not live" bug 2026-05-06).
+      is_live:             prior.is_live === true,
+      live_since:          prior.live_since || null,
+      live_trigger:        prior.live_trigger || null,
+      last_live_event_at:  prior.last_live_event_at || null,
+      went_unlive_at:      prior.went_unlive_at || null,
+      unlive_reason:       prior.unlive_reason || null,
       previous_entry: previousEntry,
       last_seen_at:  body.received_at   || new Date().toISOString(),
     };
@@ -1109,9 +1255,232 @@ export class RingStateDO {
             if (c && c.class_id) this.byClass[c.class_id] = c;
           }
         }
+        // Restore in-flight ring segment so we don't open a duplicate row
+        // when the next event arrives. If the snapshot has it, trust it.
+        if (this.snapshot.ring_open_segment) {
+          this.ringOpenSegment = this.snapshot.ring_open_segment;
+        }
+        if (this.snapshot.forced_focus_class_id) {
+          this.forcedFocusClassId = this.snapshot.forced_focus_class_id;
+        }
       }
     } catch (e) {
       console.log(`[RingStateDO/warmUp] KV read failed: ${e.message}`);
+    }
+    // D1 fallback for ring_open_segment: if KV didn't have it but D1 has
+    // an open row for this ring, restore it. Then forensic-close if the
+    // last_event_at is older than RING_LIVE_TIMEOUT_MS — operator walked
+    // away before DO evicted, and the ring is no longer live.
+    if (!this.ringOpenSegment && slug && ringNum != null) {
+      try {
+        const row = await this.env.WEST_DB_V3.prepare(
+          'SELECT id, started_at, last_event_at FROM ring_live_segment ' +
+          'WHERE show_slug = ? AND ring_num = ? AND ended_at IS NULL ' +
+          'ORDER BY id DESC LIMIT 1'
+        ).bind(slug, Number(ringNum)).first();
+        if (row && row.id) {
+          const lastAt = Number(row.last_event_at) || 0;
+          const stale = (Date.now() - lastAt) > RING_LIVE_TIMEOUT_MS;
+          if (stale) {
+            await this.env.WEST_DB_V3.prepare(
+              'UPDATE ring_live_segment SET ended_at = ?, ended_reason = ? WHERE id = ?'
+            ).bind(lastAt, 'recovery_close', row.id).run();
+          } else {
+            this.ringOpenSegment = {
+              d1_id: row.id,
+              started_at: Number(row.started_at) || 0,
+              classes_seen: [],
+            };
+          }
+        }
+      } catch (e) {
+        console.log(`[RingStateDO/warmUp] D1 segment recovery failed: ${e.message}`);
+      }
+    }
+  }
+
+  // S46 LIVE detection — scan this batch's events for the B+intro pair.
+  // Channel B with {29}=<class_id> (no F) is the operator focus click;
+  // matching intro frame is fr=1 (jumper) or fr=11 (hunter). When both
+  // exist for the same class within LIVE_PAIR_WINDOW_MS, the class
+  // transitions to is_live=true. Cross-batch tolerant via this.pendingLive.
+  // Always called BEFORE FINAL processing in the batch — but we re-check
+  // is_final after to handle the rare same-batch B+intro→FINAL race.
+  _processLiveTriggers(body) {
+    const events = body.events || [];
+    if (!events.length) return;
+    const now = Date.now();
+    // Sweep stale pending halves first (older than the window + grace).
+    for (const cid of Object.keys(this.pendingLive)) {
+      const p = this.pendingLive[cid];
+      const focusOld = !p.focusAt || (now - p.focusAt) > LIVE_PAIR_STALE_MS;
+      const introOld = !p.introAt || (now - p.introAt) > LIVE_PAIR_STALE_MS;
+      if (focusOld && introOld) delete this.pendingLive[cid];
+    }
+    // Collect halves from this batch.
+    for (const e of events) {
+      if (!e || !e.class_id) continue;
+      const cid = String(e.class_id);
+      const evAt = Date.parse(e.at) || now;
+      if (e.channel === 'B') {
+        const tag29 = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase();
+        if (tag29 === 'F') continue; // FINAL click — handled elsewhere
+        this.pendingLive[cid] = this.pendingLive[cid] || {};
+        this.pendingLive[cid].focusAt = evAt;
+      } else if (e.channel === 'A' && (e.frame === 1 || e.frame === 11)) {
+        this.pendingLive[cid] = this.pendingLive[cid] || {};
+        this.pendingLive[cid].introAt = evAt;
+        this.pendingLive[cid].introFrame = e.frame;
+      }
+    }
+    // Evaluate each pending pair.
+    for (const cid of Object.keys(this.pendingLive)) {
+      const p = this.pendingLive[cid];
+      if (!p.focusAt || !p.introAt) continue;
+      const delta = Math.abs(p.focusAt - p.introAt);
+      if (delta > LIVE_PAIR_WINDOW_MS) continue;
+      // Pair fires. Trigger transition.
+      const triggerAt = Math.max(p.focusAt, p.introAt);
+      const cls = this.byClass[cid] || (this.byClass[cid] = { class_id: cid });
+      cls.last_live_event_at = triggerAt;
+      if (!cls.is_live) {
+        cls.is_live = true;
+        cls.live_since = triggerAt;
+        cls.live_trigger = 'intro+focus';
+        cls.went_unlive_at = null;
+        cls.unlive_reason = null;
+      }
+      delete this.pendingLive[cid];
+    }
+  }
+
+  // Bump last_live_event_at for any live class that has events in this
+  // batch. Keeps the timeout from firing during long classes (each event
+  // is a heartbeat). Called after _processLiveTriggers so a fresh-live
+  // class also gets its heartbeat bumped from this same batch.
+  _bumpLiveHeartbeats(body) {
+    const events = body.events || [];
+    if (!events.length) return;
+    const now = Date.now();
+    const seen = new Set();
+    for (const e of events) {
+      if (!e || !e.class_id) continue;
+      const cid = String(e.class_id);
+      if (seen.has(cid)) continue;
+      seen.add(cid);
+      const cls = this.byClass[cid];
+      if (!cls || !cls.is_live) continue;
+      const evAt = Date.parse(e.at) || now;
+      cls.last_live_event_at = Math.max(cls.last_live_event_at || 0, evAt);
+    }
+  }
+
+  // Timeout sweep — run during _buildSnapshot. Any is_live class whose
+  // last_live_event_at is older than RING_LIVE_TIMEOUT_MS flips un-live
+  // with reason='timeout' and went_unlive_at = the actual last UDP we
+  // got (NOT now — Bill's accuracy rule for the manager report).
+  _sweepLiveTimeouts() {
+    const now = Date.now();
+    for (const id of Object.keys(this.byClass)) {
+      const cls = this.byClass[id];
+      if (!cls || !cls.is_live) continue;
+      const last = Number(cls.last_live_event_at) || 0;
+      if (last && (now - last) > RING_LIVE_TIMEOUT_MS) {
+        cls.is_live = false;
+        cls.went_unlive_at = last;
+        cls.unlive_reason = 'timeout';
+      }
+    }
+  }
+
+  // Compute ring-wide live state from byClass and reconcile with the
+  // in-flight ring_live_segment in D1. Called after every event/scores
+  // update. Opens a new segment when ring transitions un-live → live;
+  // closes the open segment when ring transitions live → un-live;
+  // updates classes_run + last_event_at while a segment stays open.
+  // manualUnliveHint = explicit { at, reason } passed by /class-action
+  // when the un-live source isn't on a byClass entry (e.g. Clear/flush
+  // deletes the entry first). Wins over scanned values if provided.
+  async _reconcileRingSegment(slug, ringNum, manualUnliveHint) {
+    if (!slug || ringNum == null) return;
+    const liveClasses = [];
+    let latestUnliveAt = 0;
+    let latestUnliveReason = null;
+    for (const id of Object.keys(this.byClass)) {
+      const c = this.byClass[id];
+      if (!c) continue;
+      if (c.is_live) {
+        liveClasses.push(c);
+      } else if (c.went_unlive_at && c.went_unlive_at > latestUnliveAt) {
+        latestUnliveAt = c.went_unlive_at;
+        latestUnliveReason = c.unlive_reason || 'timeout';
+      }
+    }
+    const anyLive = liveClasses.length > 0;
+    const ringNumInt = Number(ringNum);
+
+    // OPEN — ring just went live (no segment in flight).
+    if (anyLive && !this.ringOpenSegment) {
+      const startedAt = Math.min(...liveClasses.map(c => Number(c.live_since) || Date.now()));
+      const seenIds = liveClasses.map(c => String(c.class_id));
+      try {
+        const res = await this.env.WEST_DB_V3.prepare(
+          'INSERT INTO ring_live_segment (show_slug, ring_num, started_at, last_event_at, classes_run) ' +
+          'VALUES (?, ?, ?, ?, ?)'
+        ).bind(slug, ringNumInt, startedAt, startedAt, seenIds.length).run();
+        const insertId = res && res.meta && res.meta.last_row_id;
+        this.ringOpenSegment = {
+          d1_id: insertId || null,
+          started_at: startedAt,
+          classes_seen: seenIds,
+        };
+      } catch (e) {
+        console.log(`[RingStateDO] segment OPEN failed for ${slug}/${ringNumInt}: ${e.message}`);
+      }
+      return;
+    }
+
+    // STAY OPEN — bump heartbeat + record any newly-live classes.
+    if (anyLive && this.ringOpenSegment) {
+      const seenSet = new Set(this.ringOpenSegment.classes_seen || []);
+      let added = false;
+      for (const c of liveClasses) {
+        const cid = String(c.class_id);
+        if (!seenSet.has(cid)) { seenSet.add(cid); added = true; }
+      }
+      const seenArr = Array.from(seenSet);
+      const heartbeat = Math.max(...liveClasses.map(c => Number(c.last_live_event_at) || 0));
+      this.ringOpenSegment.classes_seen = seenArr;
+      try {
+        if (added) {
+          await this.env.WEST_DB_V3.prepare(
+            'UPDATE ring_live_segment SET last_event_at = ?, classes_run = ? WHERE id = ?'
+          ).bind(heartbeat || Date.now(), seenArr.length, this.ringOpenSegment.d1_id).run();
+        } else {
+          await this.env.WEST_DB_V3.prepare(
+            'UPDATE ring_live_segment SET last_event_at = ? WHERE id = ?'
+          ).bind(heartbeat || Date.now(), this.ringOpenSegment.d1_id).run();
+        }
+      } catch (e) {
+        console.log(`[RingStateDO] segment HEARTBEAT failed for ${slug}/${ringNumInt}: ${e.message}`);
+      }
+      return;
+    }
+
+    // CLOSE — ring just went un-live.
+    if (!anyLive && this.ringOpenSegment) {
+      const hintAt = manualUnliveHint && manualUnliveHint.at;
+      const hintReason = manualUnliveHint && manualUnliveHint.reason;
+      const endedAt = hintAt || latestUnliveAt || Date.now();
+      const reason = hintReason || latestUnliveReason || 'timeout';
+      try {
+        await this.env.WEST_DB_V3.prepare(
+          'UPDATE ring_live_segment SET ended_at = ?, ended_reason = ?, last_event_at = ? WHERE id = ?'
+        ).bind(endedAt, reason, endedAt, this.ringOpenSegment.d1_id).run();
+      } catch (e) {
+        console.log(`[RingStateDO] segment CLOSE failed for ${slug}/${ringNumInt}: ${e.message}`);
+      }
+      this.ringOpenSegment = null;
     }
   }
 
@@ -1134,10 +1503,22 @@ export class RingStateDO {
       // an on-course frame in the prior batch. Same for last_focus.
       // Without this, switching between batches would visually wipe the
       // panels. (S43 Chunk 12.)
-      if (!body.last_scoring && this.snapshot && this.snapshot.last_scoring) {
+      //
+      // Bill 2026-05-06: bound the carry-forward to CARRY_STALE_MS so a
+      // stale last_focus from earlier in the day doesn't pin the wrong
+      // class as "focused" forever and prevent the lifecycle from
+      // evicting it. Matches the non-final idle window — anything that
+      // would have aged out of byClass also ages out of the carry sources.
+      const CARRY_STALE_MS = 20 * 60 * 1000;
+      const isFresh = function (ev) {
+        if (!ev || !ev.at) return false;
+        const t = Date.parse(ev.at) || 0;
+        return t > 0 && (Date.now() - t) < CARRY_STALE_MS;
+      };
+      if (!body.last_scoring && this.snapshot && isFresh(this.snapshot.last_scoring)) {
         body.last_scoring = this.snapshot.last_scoring;
       }
-      if (!body.last_focus && this.snapshot && this.snapshot.last_focus) {
+      if (!body.last_focus && this.snapshot && isFresh(this.snapshot.last_focus)) {
         body.last_focus = this.snapshot.last_focus;
       }
       // Carry-forward last_identity ONLY when the focused class hasn't
@@ -1154,48 +1535,39 @@ export class RingStateDO {
         }
       }
 
-      // FINAL signal: per-class, decoupled from focus. Channel B with
-      // {29}="F" finalizes whatever class the packet is FOR — not the
-      // currently-focused class. Lets operator finalize class B while
-      // working class A without disturbing A's focus or open state.
-      // Bill 2026-05-05: "test the channel b string and just have it
-      // finalize whatever class it has that F was attached to."
-      // Sticky once set; cleared only by the un-finalize rule below.
+      // Identify classes that received {29}=F in THIS batch — they're
+      // exempt from the un-finalize loop below. F is the operator's
+      // explicit FINAL command and ALWAYS wins (Bill 2026-05-06: "a
+      // class should ALWAYS go final if that 31000 port has the F
+      // command"). Pre-scanning lets the un-finalize loop run first and
+      // skip these classes entirely.
+      const finalizedThisBatch = new Set();
       for (const e of (body.events || [])) {
         if (!e || e.channel !== 'B' || !e.class_id) continue;
         const tag29 = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase();
-        if (tag29 !== 'F') continue;
-        const cid = String(e.class_id);
-        let cls = this.byClass[cid];
-        if (!cls) {
-          // Class not yet in byClass — create a stub so the FINAL flag
-          // sticks. _updateByClass / future events will fill in the
-          // rest of the metadata.
-          cls = this.byClass[cid] = { class_id: cid };
-        }
-        if (!cls.is_final) {
-          cls.is_final = true;
-          cls.finalized_at = e.at || new Date().toISOString();
-        }
+        if (tag29 === 'F') finalizedThisBatch.add(String(e.class_id));
       }
 
-      // Un-finalize rule (Bill 2026-05-05): a class that's been marked
-      // FINAL transitions back to OPEN if Channel B fires WITHOUT
-      // {29}="F" AND a Channel A scoring/intro frame fires for the
-      // same class. Ryegate fires Channel B on each on-course click;
-      // pairing with a scoring frame distinguishes a deliberate
-      // on-course action from a stale focus ping.
+      // Un-finalize rule (Bill 2026-05-05; tightened 2026-05-06): a
+      // FINAL'd class transitions back to OPEN only on a deliberate
+      // re-open pair — Channel B without {29}=F AND an INTRO frame
+      // (fr=1 jumper / fr=11 hunter) for the same class. Mirrors the
+      // live-trigger pair so routine Channel A traffic (ribbons,
+      // standings, idle frames) can't accidentally undo a FINAL.
       //
-      // Order-agnostic: the same batch can have A-then-B or B-then-A
-      // (engine timestamps within 1ms of each other). Two-pass scan:
-      // first collect both signals per class, then apply un-final.
+      // Order-agnostic: same batch can have A-then-B or B-then-A.
       // Cross-batch tolerant: stash _unfinalAt in byClass so a B in
-      // one batch + A in the next still fires within ~1 second.
-      const UNFINAL_WINDOW_MS = 1500;
+      // one batch + intro in the next still fires within the window.
+      // Runs BEFORE the FINAL loop so a same-batch F can't be undone.
+      // Window matches the LIVE-trigger pair window — un-finalize uses
+      // identical criteria to a fresh "go live" event (Bill 2026-05-06:
+      // "same as it was if it was new").
+      const UNFINAL_WINDOW_MS = LIVE_PAIR_WINDOW_MS;
       const unfinalCandidate = {}; // classId -> { hasUnfinalB, hasChanA, latestAt }
       for (const e of (body.events || [])) {
         if (!e || !e.class_id) continue;
         const cid = String(e.class_id);
+        if (finalizedThisBatch.has(cid)) continue; // F always wins
         const cls = this.byClass[cid];
         if (!cls || !cls.is_final) continue;
         const evAt = Date.parse(e.at) || Date.now();
@@ -1205,7 +1577,7 @@ export class RingStateDO {
         if (e.channel === 'B') {
           const hasF = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase() === 'F';
           if (!hasF) slot.hasUnfinalB = true;
-        } else if (e.channel === 'A' && Number.isFinite(e.frame) && e.frame > 0) {
+        } else if (e.channel === 'A' && (e.frame === 1 || e.frame === 11)) {
           slot.hasChanA = true;
         }
       }
@@ -1234,6 +1606,51 @@ export class RingStateDO {
             if (this._focusedClassId(body) === cid) body.is_final = false;
           }
         }
+      }
+
+      // FINAL signal: per-class, decoupled from focus. Channel B with
+      // {29}="F" finalizes whatever class the packet is FOR — not the
+      // currently-focused class. Lets operator finalize class B while
+      // working class A without disturbing A's focus or open state.
+      // Bill 2026-05-05: "test the channel b string and just have it
+      // finalize whatever class it has that F was attached to."
+      // Always wins — runs AFTER un-finalize so {29}=F in the same
+      // batch can't be un-done by parallel B/intro events.
+      for (const e of (body.events || [])) {
+        if (!e || e.channel !== 'B' || !e.class_id) continue;
+        const tag29 = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase();
+        if (tag29 !== 'F') continue;
+        const cid = String(e.class_id);
+        let cls = this.byClass[cid];
+        if (!cls) {
+          // Class not yet in byClass — create a stub so the FINAL flag
+          // sticks. _updateByClass / future events will fill in the
+          // rest of the metadata.
+          cls = this.byClass[cid] = { class_id: cid };
+        }
+        if (!cls.is_final) {
+          cls.is_final = true;
+          cls.finalized_at = e.at || new Date().toISOString();
+        }
+        // S46 — FINAL also flips is_live=false. went_unlive_at = the
+        // FINAL event's actual time (not now). Operator's explicit
+        // "this class is done" closes the live state immediately;
+        // any pending B+intro pair for this class is also cleared.
+        if (cls.is_live) {
+          cls.is_live = false;
+          cls.went_unlive_at = Date.parse(e.at) || Date.now();
+          cls.unlive_reason = 'final';
+        }
+        if (this.pendingLive[cid]) delete this.pendingLive[cid];
+        // Bill 2026-05-06: clear "Just Finished" sticky entry on FINAL.
+        // Once the class is marked complete, the most-recently-scored
+        // entry is no longer the relevant overlay — the standings carry
+        // the story. Banner consumers (focused class + per-class panels)
+        // read previous_entry directly, so nulling it removes both.
+        cls.previous_entry = null;
+        // Belt-and-suspenders: clear any cross-batch _unfinalAt latch
+        // that might have been waiting for an intro frame to fire.
+        cls._unfinalAt = null;
       }
 
       // fr=0 × 3 consecutive → operator-intent CLEAR. Single fr=0 fires
@@ -1414,11 +1831,40 @@ export class RingStateDO {
         body.standby_list      = standbyList;
       }
 
+      // Manual focus auto-release (Bill 2026-05-06): if the operator
+      // forced focus to class X via the engine right-click menu, the
+      // next natural Channel B click on a DIFFERENT class takes back
+      // over. Skip Channel B with {29}=F (finalize-only — doesn't move
+      // focus naturally either). Same-class B clicks are no-ops.
+      if (this.forcedFocusClassId) {
+        for (const e of (body.events || [])) {
+          if (!e || e.channel !== 'B' || !e.class_id) continue;
+          const tag29 = ((e.tags && e.tags['29']) || '').replace(/\r/g, '').trim().toUpperCase();
+          if (tag29 === 'F') continue;
+          if (String(e.class_id) !== String(this.forcedFocusClassId)) {
+            this.forcedFocusClassId = null;
+            break;
+          }
+        }
+      }
+
+      // S46 LIVE detection — runs after FINAL/unfinal so a same-batch
+      // FINAL takes precedence over any B+intro pair for that class.
+      // _bumpLiveHeartbeats follows so a fresh-live class also gets its
+      // last_live_event_at bumped from this batch's events.
+      this._processLiveTriggers(body);
+      this._bumpLiveHeartbeats(body);
+
       // Update the per-class store (S45 multi-class), then build the public
       // snapshot view that includes the .classes panel stack on top of all
       // existing top-level fields.
       this._updateByClass(body);
       this.snapshot = this._buildSnapshot(body);
+      // S46 — reconcile ring segment AFTER snapshot build (which runs the
+      // timeout sweep). Opens a new D1 row when ring transitions un-live
+      // → live, closes it when ring transitions live → un-live, bumps
+      // heartbeat in between.
+      await this._reconcileRingSegment(body.slug, body.ring_num);
       // Mirror to KV — /v3/getRingState reads from here, and Chunk 8's
       // polling fallback needs it when a WS handshake fails. We persist the
       // full augmented snapshot (including .classes) so polling clients
@@ -1442,7 +1888,28 @@ export class RingStateDO {
       for (const ws of this.state.getWebSockets()) {
         try { ws.send(wsMessage); } catch (e) { /* runtime cleans dead */ }
       }
-      return new Response(JSON.stringify({ ok: true, broadcast_to: this.state.getWebSockets().length }), {
+      // Engine reads is_live + live_class_ids from this response on every
+      // batch — feeds the engine's operator-facing live-class panel
+      // without needing a separate poll endpoint. classes_summary is the
+      // minimal projection the engine right-click menu needs (id, lifecycle
+      // state, class name) — full byClass payload would be wasteful.
+      const classesSummary = (this.snapshot.classes || []).map(c => ({
+        class_id: c.class_id,
+        class_name: (c.class_meta && c.class_meta.class_name) || null,
+        is_live: !!c.is_live,
+        is_final: !!c.is_final,
+      }));
+      return new Response(JSON.stringify({
+        ok: true,
+        broadcast_to: this.state.getWebSockets().length,
+        is_live: this.snapshot.is_live,
+        live_since: this.snapshot.live_since,
+        live_class_ids: this.snapshot.live_class_ids,
+        focused_class_id: this.snapshot.focused_class_id,
+        forced_focus_class_id: this.snapshot.forced_focus_class_id,
+        classes_summary: classesSummary,
+        focus_preview: this.snapshot.focus_preview || null,
+      }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -1465,6 +1932,36 @@ export class RingStateDO {
       if (!this.snapshot) {
         return new Response(JSON.stringify({ ok: true, applied: false, reason: 'no snapshot' }));
       }
+      // .cls write = lock signal (Bill 2026-05-06). A .cls update is
+      // Ryegate's confirmation that real scoring happened for this class —
+      // strong enough to promote a tentative class to fully-live without
+      // waiting for the operator's B+intro pair. Mirrors the live-trigger
+      // behavior: creates byClass stub if needed, sets is_live + live_since,
+      // writes a 'cls_lock' trigger label so the manager report can tell
+      // the difference. Skipped when:
+      //   • class is already final (don't relight a finalized class on a re-save)
+      //   • class is already live (no-op)
+      //   • a manual Flush fired within FLUSH_COOLDOWN_MS — the trailing
+      //     .cls write that follows class-close shouldn't undo the flush
+      const cidFromBody = body.class_id != null ? String(body.class_id) : '';
+      const inFlushCooldown = this.flushedAt
+        && (Date.now() - this.flushedAt) < FLUSH_COOLDOWN_MS;
+      if (cidFromBody && !inFlushCooldown) {
+        let target = this.byClass[cidFromBody];
+        if (!target) {
+          target = this.byClass[cidFromBody] = { class_id: cidFromBody };
+        }
+        if (!target.is_live && !target.is_final) {
+          const now = Date.now();
+          target.is_live = true;
+          target.live_since = now;
+          target.last_live_event_at = now;
+          target.live_trigger = 'cls_lock';
+          target.went_unlive_at = null;
+          target.unlive_reason = null;
+        }
+      }
+
       // Multi-class store update (S45) — apply to whichever class the
       // body targets, regardless of which class is currently focused.
       // Other-class score updates are valuable for the panel stack on
@@ -1483,10 +1980,12 @@ export class RingStateDO {
         }
         // Re-evaluate previous_entry via the shared helper so multi-round
         // entries (R1 → JO) re-promote with their latest round's data.
+        // Skip when class is FINAL — same gate as _updateByClass; without
+        // it a .cls re-write after FINAL would resurrect the banner.
         const onCourseId = targetEntry.last_identity && targetEntry.last_identity.tags
           ? String(targetEntry.last_identity.tags['1'] || '').replace(/\r/g, '').trim()
           : '';
-        if (onCourseId) {
+        if (onCourseId && !targetEntry.is_final) {
           const scoresForPrev = targetIsHunter
             ? (targetEntry.hunter_scores || [])
             : (targetEntry.jumper_scores || []);
@@ -1525,6 +2024,10 @@ export class RingStateDO {
       // updated byClass entry (last_seen_at order is unchanged; only
       // the standings within the matching entry shift).
       this.snapshot = this._buildSnapshot(this.snapshot);
+      // Reconcile the ring segment AFTER snapshot rebuild — the cls_lock
+      // promotion above might have flipped this class's is_live, so the
+      // open D1 segment needs to track it (or open a new one).
+      await this._reconcileRingSegment(body.slug, body.ring_num);
       // Persist to KV so polling fallback also sees the fresh scores.
       try {
         await this.env.WEST_LIVE.put(
@@ -1542,6 +2045,147 @@ export class RingStateDO {
         try { ws.send(wsMessage); broadcasts++; } catch (e) {}
       }
       return new Response(JSON.stringify({ ok: true, applied: true, focusMatched, broadcasts }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // POST /class-action — manual operator action from the engine
+    // right-click menu (Bill 2026-05-06). Body:
+    //   { slug, ring_num, class_id, action }
+    // action ∈ { 'clear' | 'finalize' | 'focus' }
+    //   clear:    is_live=false (manual_clear), wipes previous_entry
+    //   finalize: is_live=false (final), is_final=true, wipes previous_entry
+    //   focus:    sets forcedFocusClassId — overrides natural focus until
+    //             a Channel B click on a different class arrives
+    // After mutation: rebuilds snapshot, mirrors KV, broadcasts WS,
+    // reconciles ring_live_segment so the D1 row closes/stays open
+    // appropriately. Returns the new live snapshot fields the engine
+    // panel needs to repaint immediately.
+    if (request.method === 'POST' && url.pathname === '/class-action') {
+      let body;
+      try { body = await request.json(); }
+      catch (e) { return new Response('Invalid JSON', { status: 400 }); }
+      await this.warmUp(body.slug, body.ring_num);
+      const action = String(body.action || '').toLowerCase();
+      const cid = body.class_id != null ? String(body.class_id) : '';
+      if (action !== 'clear' && action !== 'finalize' && action !== 'focus' && action !== 'flush_all') {
+        return new Response('Invalid action', { status: 400 });
+      }
+      // class_id required for per-class actions; ignored for flush_all.
+      if (action !== 'flush_all' && !cid) {
+        return new Response('Missing class_id', { status: 400 });
+      }
+      const cls = cid ? this.byClass[cid] : null;
+      if (action !== 'flush_all' && action !== 'finalize' && !cls) {
+        // Allow finalize to create a stub (mirror Channel B {29}=F path);
+        // clear/focus on an unknown class is a no-op error.
+        return new Response(JSON.stringify({ ok: false, error: 'class not in ring state' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const now = Date.now();
+      if (action === 'clear') {
+        // Bill 2026-05-06: Clear live should drop the class from the
+        // live page entirely, not just dim the LIVE banner. Capture
+        // the un-live reason for the segment close, then evict the
+        // byClass entry — the class disappears from snapshot.classes,
+        // engine's live pane, and live.html's panel stack on the next
+        // broadcast. Future UDP for this class id rebuilds the entry
+        // from scratch.
+        if (cls.is_live) {
+          cls.is_live = false;
+          cls.went_unlive_at = now;
+          cls.unlive_reason = 'manual_clear';
+        }
+        delete this.byClass[cid];
+        if (this.pendingLive[cid]) delete this.pendingLive[cid];
+        if (this.forcedFocusClassId === cid) this.forcedFocusClassId = null;
+      } else if (action === 'finalize') {
+        const target = cls || (this.byClass[cid] = { class_id: cid });
+        if (!target.is_final) {
+          target.is_final = true;
+          target.finalized_at = new Date().toISOString();
+        }
+        if (target.is_live) {
+          target.is_live = false;
+          target.went_unlive_at = now;
+          target.unlive_reason = 'final';
+        }
+        target.previous_entry = null;
+        if (this.pendingLive[cid]) delete this.pendingLive[cid];
+      } else if (action === 'focus') {
+        this.forcedFocusClassId = cid;
+      } else if (action === 'flush_all') {
+        // Nuke every class off the ring (Bill 2026-05-06 — engine "Flush
+        // live" button). EVERY byClass entry is evicted, including
+        // finalized classes still in their collapsed-FINAL lifecycle.
+        // Operator wants a clean slate; finer control is available via
+        // right-click → Clear live on individual classes. Pending pairs
+        // and forced focus also cleared so nothing re-lights immediately.
+        // flushedAt suppresses cls_lock relight for FLUSH_COOLDOWN_MS so
+        // the trailing .cls write at class close doesn't undo the flush.
+        this.byClass = {};
+        this.pendingLive = {};
+        this.forcedFocusClassId = null;
+        this.flushedAt = now;
+        // Wipe the top-level snapshot pointers too. Without this, the
+        // sticky last_focus / last_scoring / focused_class_id from
+        // before the flush would carry forward and re-promote the old
+        // class on the next batch (the engine pane would still show
+        // 1001 as focused even though every byClass entry is gone).
+        if (this.snapshot) {
+          this.snapshot.last_focus = null;
+          this.snapshot.last_scoring = null;
+          this.snapshot.last_identity = null;
+          this.snapshot.focused_class_id = null;
+          this.snapshot.focus_preview = null;
+          this.snapshot.previous_entry = null;
+        }
+      }
+      // Rebuild snapshot from current state — pass the prior body so the
+      // top-level fields don't blank.
+      this.snapshot = this._buildSnapshot(this.snapshot || {});
+      this.snapshot.received_at = new Date().toISOString();
+      // Reconcile segment: clear/finalize/flush on the last live class
+      // closes the open D1 row. Pass the manual hint so the closed
+      // ended_at reflects when the operator actually clicked, not a
+      // stale went_unlive_at from another byClass entry (or the wall
+      // clock when reconcile happens to run).
+      const manualHint = (action === 'clear' || action === 'flush_all')
+        ? { at: now, reason: 'manual_clear' }
+        : (action === 'finalize' ? { at: now, reason: 'final' } : null);
+      await this._reconcileRingSegment(body.slug, body.ring_num, manualHint);
+      try {
+        await this.env.WEST_LIVE.put(
+          `ring-state:${body.slug}:${body.ring_num}`,
+          JSON.stringify(this.snapshot),
+          { expirationTtl: 600 }
+        );
+      } catch (e) {
+        console.log(`[RingStateDO/class-action] KV put failed: ${e.message}`);
+      }
+      const wsMessage = JSON.stringify({ type: 'snapshot', data: this.snapshot });
+      for (const ws of this.state.getWebSockets()) {
+        try { ws.send(wsMessage); } catch (e) {}
+      }
+      const classesSummary = (this.snapshot.classes || []).map(c => ({
+        class_id: c.class_id,
+        class_name: (c.class_meta && c.class_meta.class_name) || null,
+        is_live: !!c.is_live,
+        is_final: !!c.is_final,
+      }));
+      return new Response(JSON.stringify({
+        ok: true,
+        action,
+        class_id: cid,
+        is_live: this.snapshot.is_live,
+        live_since: this.snapshot.live_since,
+        live_class_ids: this.snapshot.live_class_ids,
+        focused_class_id: this.snapshot.focused_class_id,
+        forced_focus_class_id: this.snapshot.forced_focus_class_id,
+        classes_summary: classesSummary,
+        focus_preview: this.snapshot.focus_preview || null,
+      }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -3109,11 +3753,11 @@ export default {
     if (method === 'GET' && path === '/v3/engineLatest') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const ENGINE_LATEST = {
-              version: '3.0.1',
-              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.0.1.asar',
-              sha256:  '375de86c03526b9c8c14f0ace8a87f519bbbcdb76a3e709e3b4ccbf79f64b763',
-              releasedAt: '2026-05-02T23:55:38.780Z',
-              releaseNotes: '',
+              version: '3.1.5',
+              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.1.5.asar',
+              sha256:  'be2fd2532ba22d57544f81392b54d7ec120cb3f65079b886372124d75ae9461f',
+              releasedAt: '2026-05-06T20:14:45.686Z',
+              releaseNotes: 'Flush live now wipes EVERY class off the live page (including finalized) with a 15-second cooldown to absorb trailing .cls writes from class-close. Worker-side fixes: Channel B {29}=F always wins (no more race-condition un-finalize), un-finalize requires same B+intro pair as live trigger, stale focus carries forward only within 20 minutes, hunter score box now shows the actually-displayed round (not just the highest scored), per-judge breakdown follows the displayed round.',
             };
       return json({ manifest: ENGINE_LATEST });
     }
@@ -3184,13 +3828,21 @@ export default {
         const snaps = await Promise.all(snapKeys.map(k =>
           env.WEST_LIVE.get(k.key).then(raw => ({ ring_id: k.ring_id, raw })).catch(() => ({ ring_id: k.ring_id, raw: null }))
         ));
+        // S46 — prefer the explicit is_live flag (B+intro trigger,
+        // FINAL/30min un-live) over the legacy 2-min "scoring frame
+        // received" heuristic. Falls back when an old snapshot didn't
+        // carry is_live yet so the index/show pages keep working.
         const liveByRing = {};
         for (const { ring_id, raw } of snaps) {
           if (!raw) continue;
           try {
             const snap = JSON.parse(raw);
-            const ts = snap && snap.last_scoring && snap.last_scoring.at;
-            if (ts && ts > liveCutoff) liveByRing[ring_id] = true;
+            if (typeof snap.is_live === 'boolean') {
+              if (snap.is_live) liveByRing[ring_id] = true;
+            } else {
+              const ts = snap && snap.last_scoring && snap.last_scoring.at;
+              if (ts && ts > liveCutoff) liveByRing[ring_id] = true;
+            }
           } catch (e) { /* malformed snapshot, treat as not live */ }
         }
 
@@ -3638,9 +4290,12 @@ export default {
           'SELECT id, ring_num, name, sort_order, created_at, updated_at FROM rings WHERE show_id = ? ORDER BY sort_order, ring_num'
         ).bind(show.id).all();
         const rings = results || [];
-        // class_live = a scoring frame landed in the last 2 minutes (mirrors
-        // the live-detection in /v3/listShowsWithRings). Used by show.html
-        // and class.html to gate the public "Watch Live" button.
+        // class_live: prefer the explicit S46 is_live flag (B+intro
+        // trigger, with FINAL/30min-timeout un-live) when the snapshot
+        // carries it; fall back to the legacy 2-min "scoring frame
+        // received" heuristic when an old worker build wrote the
+        // snapshot without is_live. Same fallback semantics for
+        // /v3/listShowsWithRings consumers.
         const LIVE_WINDOW_MS = 2 * 60 * 1000;
         const liveCutoff = Date.now() - LIVE_WINDOW_MS;
         for (const r of rings) {
@@ -3650,14 +4305,24 @@ export default {
           r.last_cls = clsRaw ? JSON.parse(clsRaw) : null;
           const stateRaw = await env.WEST_LIVE.get(`ring-state:${slug}:${r.ring_num}`);
           let class_live = false;
+          let live_class_ids = [];
+          let live_since = null;
           if (stateRaw) {
             try {
               const snap = JSON.parse(stateRaw);
-              const ts = snap && snap.last_scoring && snap.last_scoring.at;
-              if (ts && ts > liveCutoff) class_live = true;
+              if (typeof snap.is_live === 'boolean') {
+                class_live = snap.is_live;
+                live_class_ids = Array.isArray(snap.live_class_ids) ? snap.live_class_ids : [];
+                live_since = snap.live_since || null;
+              } else {
+                const ts = snap && snap.last_scoring && snap.last_scoring.at;
+                if (ts && ts > liveCutoff) class_live = true;
+              }
             } catch (e) { /* malformed snapshot, treat as not live */ }
           }
           r.class_live = class_live;
+          r.live_class_ids = live_class_ids;
+          r.live_since = live_since;
         }
         return json({ ok: true, rings });
       } catch (e) { return err('DB error: ' + e.message); }
@@ -5454,6 +6119,10 @@ export default {
       // writing KV directly. DO is now the authoritative state holder; it
       // handles the KV mirror so this stays a one-writer model. Chunk 7
       // will extend the DO to broadcast over WebSocket on each event.
+      // S46: read the DO response body so we can echo is_live /
+      // live_since / live_class_ids back to the engine — the engine's
+      // "Live on website" panel reads these on every batch.
+      let liveEcho = null;
       try {
         const id = env.RING_STATE.idFromName(`${slug}:${ringNumInt}`);
         const stub = env.RING_STATE.get(id);
@@ -5464,6 +6133,9 @@ export default {
         });
         if (!doResp.ok) {
           console.log(`[v3/postUdpEvent] DO write status ${doResp.status} for ${slug}/${ringNumInt}`);
+        } else {
+          try { liveEcho = await doResp.json(); }
+          catch (e) { /* non-JSON DO response — ignore */ }
         }
       } catch (e) {
         console.log(`[v3/postUdpEvent] DO route failed for ${slug}/${ringNumInt}: ${e.message}`);
@@ -5505,7 +6177,15 @@ export default {
         }
       }
 
+      // Spread the DO's response first so any field it returns flows
+      // through automatically — the route's fields below override any
+      // collisions (notably `ok`). Avoids the cherry-pick trap where
+      // adding a new DO field requires also updating this list (which
+      // bit us twice on S46 — Bill 2026-05-06: "just fix thats whare
+      // we're here for"). When the DO call failed, liveEcho is null
+      // and the spread is a no-op.
       return json({
+        ...(liveEcho || {}),
         ok: true,
         received_at,
         batch_id: batchId,
@@ -5564,6 +6244,186 @@ export default {
         return err('KV error: ' + e.message);
       }
       return json({ ok: true, snapshot });
+    }
+
+    // ── POST /v3/setClassLiveState ───────────────────────────────────────────
+    // Manual operator action from the engine right-click menu (Bill
+    // 2026-05-06). Auth-required — engine-only mutation. Routes to the
+    // ring's DO /class-action handler. action ∈ { clear | finalize | focus }.
+    if (method === 'POST' && path === '/v3/setClassLiveState') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const slug = body.slug;
+      const ringNumInt = parseInt(body.ring_num, 10);
+      const classId = body.class_id != null ? String(body.class_id) : '';
+      const action = String(body.action || '').toLowerCase();
+      if (!slug) return err('Missing slug');
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      if (action !== 'clear' && action !== 'finalize' && action !== 'focus' && action !== 'flush_all') {
+        return err('action must be clear|finalize|focus|flush_all');
+      }
+      if (action !== 'flush_all' && !classId) return err('Missing class_id');
+      try {
+        const id = env.RING_STATE.idFromName(`${slug}:${ringNumInt}`);
+        const stub = env.RING_STATE.get(id);
+        const doResp = await stub.fetch('https://do/class-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, ring_num: ringNumInt, class_id: classId, action }),
+        });
+        const data = await doResp.json().catch(() => null);
+        if (!doResp.ok) return err((data && data.error) || `DO ${doResp.status}`, doResp.status);
+        return json(data || { ok: true });
+      } catch (e) {
+        return err('DO route failed: ' + e.message, 500);
+      }
+    }
+
+    // ── GET /v3/getShowLiveStatus ────────────────────────────────────────────
+    // Bulk live-state read for a show's rings. Used by classes.html /
+    // class.html / show.html to render "Live" pills/banners without
+    // round-tripping the page through the DO. Returns one entry per
+    // configured ring with its is_live + live_class_ids from the KV
+    // mirror. Public — no auth.
+    if (method === 'GET' && path === '/v3/getShowLiveStatus') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      let rings = [];
+      try {
+        const showRow = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!showRow) return err('Show not found', 404);
+        const ringRows = await env.WEST_DB_V3.prepare(
+          'SELECT ring_num, name FROM rings WHERE show_id = ? ORDER BY sort_order, ring_num'
+        ).bind(showRow.id).all();
+        rings = ringRows.results || [];
+      } catch (e) {
+        return err('DB error: ' + e.message);
+      }
+      const out = [];
+      for (const r of rings) {
+        let snap = null;
+        try {
+          const raw = await env.WEST_LIVE.get(`ring-state:${slug}:${r.ring_num}`);
+          if (raw) snap = JSON.parse(raw);
+        } catch (e) { /* tolerate per-ring KV error */ }
+        out.push({
+          ring_num: r.ring_num,
+          ring_name: r.name || null,
+          is_live: !!(snap && snap.is_live),
+          live_since: snap && snap.live_since ? snap.live_since : null,
+          live_class_ids: (snap && Array.isArray(snap.live_class_ids))
+            ? snap.live_class_ids : [],
+          focused_class_id: snap ? (snap.focused_class_id || null) : null,
+        });
+      }
+      return json({ ok: true, slug, rings: out });
+    }
+
+    // ── GET /v3/ringActivityReport ───────────────────────────────────────────
+    // Manager report — sums ring active time per day from the
+    // ring_live_segment table. Each row in the table is a CONTINUOUS live
+    // span (one or more classes), so summing (ended_at - started_at) is
+    // accurate without interval-merging.
+    //
+    // Query params:
+    //   slug    — required, show slug
+    //   from    — optional ISO date (YYYY-MM-DD), inclusive lower bound
+    //   to      — optional ISO date (YYYY-MM-DD), inclusive upper bound
+    //   ring    — optional ring_num to filter to one ring
+    //
+    // Returns: { ok, slug, segments: [...], totals: [{ ring, day, segments,
+    //            active_minutes, classes_run }] }
+    // segments[] includes the raw rows for drill-down. Open segments
+    // (ended_at IS NULL — currently in progress) are EXCLUDED from totals
+    // but listed in segments[] with active_so_far_minutes for transparency.
+    if (method === 'GET' && path === '/v3/ringActivityReport') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug');
+      const fromDate = url.searchParams.get('from');
+      const toDate   = url.searchParams.get('to');
+      const ringStr  = url.searchParams.get('ring');
+      const ringFilter = ringStr ? parseInt(ringStr, 10) : null;
+      if (ringStr && !Number.isFinite(ringFilter)) return err('Invalid ring');
+      const where = ['show_slug = ?'];
+      const binds = [slug];
+      if (fromDate) {
+        const ms = Date.parse(fromDate + 'T00:00:00Z');
+        if (!Number.isFinite(ms)) return err('Invalid from date');
+        where.push('started_at >= ?');
+        binds.push(ms);
+      }
+      if (toDate) {
+        const ms = Date.parse(toDate + 'T23:59:59Z');
+        if (!Number.isFinite(ms)) return err('Invalid to date');
+        where.push('started_at <= ?');
+        binds.push(ms);
+      }
+      if (ringFilter !== null) {
+        where.push('ring_num = ?');
+        binds.push(ringFilter);
+      }
+      let segments = [];
+      try {
+        const res = await env.WEST_DB_V3.prepare(
+          `SELECT id, ring_num, started_at, ended_at, ended_reason,
+                  classes_run, last_event_at
+           FROM ring_live_segment
+           WHERE ${where.join(' AND ')}
+           ORDER BY started_at ASC`
+        ).bind(...binds).all();
+        segments = res.results || [];
+      } catch (e) {
+        return err('DB error: ' + e.message);
+      }
+      // Roll up daily totals per ring. Day key uses UTC date — show
+      // timezone could be applied later if reports surface midnight-edge
+      // segments. Open segments not counted toward totals.
+      const totalsMap = new Map();
+      const enriched = segments.map(s => {
+        const closed = s.ended_at != null;
+        const durMin = closed
+          ? Math.max(0, Math.round((s.ended_at - s.started_at) / 60000))
+          : null;
+        const liveMin = !closed
+          ? Math.max(0, Math.round((Date.now() - s.started_at) / 60000))
+          : null;
+        if (closed) {
+          const dayKey = new Date(s.started_at).toISOString().slice(0, 10);
+          const totalsKey = `${s.ring_num}|${dayKey}`;
+          let bucket = totalsMap.get(totalsKey);
+          if (!bucket) {
+            bucket = { ring_num: s.ring_num, day: dayKey, segments: 0,
+                       active_minutes: 0, classes_run: 0 };
+            totalsMap.set(totalsKey, bucket);
+          }
+          bucket.segments += 1;
+          bucket.active_minutes += durMin || 0;
+          bucket.classes_run += s.classes_run || 0;
+        }
+        return {
+          id: s.id,
+          ring_num: s.ring_num,
+          started_at: s.started_at,
+          ended_at: s.ended_at,
+          ended_reason: s.ended_reason,
+          classes_run: s.classes_run,
+          last_event_at: s.last_event_at,
+          duration_minutes: durMin,
+          active_so_far_minutes: liveMin,
+          is_open: !closed,
+        };
+      });
+      const totals = Array.from(totalsMap.values()).sort((a, b) => {
+        if (a.day !== b.day) return a.day.localeCompare(b.day);
+        return a.ring_num - b.ring_num;
+      });
+      return json({ ok: true, slug, segments: enriched, totals });
     }
 
     // ── POST /v3/updateRing ──────────────────────────────────────────────────

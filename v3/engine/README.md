@@ -1,4 +1,6 @@
-# WEST v3 Engine — Phase 1
+# WEST v3 Engine
+
+> **Requires Ryegate 2.4.4.2.**
 
 Heartbeat-only build. Proves the engine ↔ worker pipe. No UDP, no .cls
 watching, no parsing — just identity + "I'm alive" every 10 seconds.

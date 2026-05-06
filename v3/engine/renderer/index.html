@@ -123,6 +123,30 @@
       </div>
     </section>
 
+    <section class="pane live-pane">
+      <h2 class="pane-title">
+        Live on website
+        <span class="pane-title-hint">what the public sees · operator-click + intro frame within 1s = live</span>
+        <button class="btn-flush-live" id="btnFlushLive" type="button"
+                title="Wipe every class off the live page (live and finalized). 15-second cooldown after, so trailing .cls writes don't re-light anything.">
+          Flush live
+        </button>
+      </h2>
+      <div class="live-body" id="liveBody">
+        <div class="live-empty">Worker hasn't reported yet.</div>
+      </div>
+    </section>
+
+    <section class="pane focus-preview-pane">
+      <h2 class="pane-title">
+        On the air
+        <span class="pane-title-hint">focused class — what's on the public live box right now</span>
+      </h2>
+      <div class="focus-preview-body" id="focusPreviewBody">
+        <div class="focus-preview-empty">No focused class yet.</div>
+      </div>
+    </section>
+
     <section class="pane status-pane">
       <h2 class="pane-title">Status</h2>
       <div class="status-grid">
@@ -310,6 +334,12 @@
 
         <fieldset class="settings-group">
           <legend>Folders</legend>
+          <div class="settings-row settings-row-banner">
+            <span class="settings-banner-icon">ⓘ</span>
+            <span class="settings-banner-text">
+              <strong>Requires Ryegate 2.4.4.2.</strong>
+            </span>
+          </div>
           <div class="settings-row">
             <label for="setClsDir">.cls folder</label>
             <input type="text" id="setClsDir" placeholder="C:\Ryegate\Jumper\Classes">

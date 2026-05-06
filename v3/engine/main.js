@@ -42,7 +42,7 @@ const { spawn } = require('child_process');
 
 const sbFunnel = require('./scoreboard-funnel');
 
-const ENGINE_VERSION = '3.0.1';
+const ENGINE_VERSION = '3.1.5';
 const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
 const HEARTBEAT_INTERVAL_MS = 10_000;          // active cadence
@@ -120,6 +120,21 @@ let udpBatchPostFailCount = 0;     // # of failed POSTs
 let udpBatchEventsInserted = 0;    // sum of events_inserted reported by worker
 let udpLastPostAt = 0;
 let udpLastPostError = null;
+
+// S46 — worker-reported LIVE state for this ring (Bill 2026-05-06).
+// Carried back on every /v3/postUdpEvent response so the engine can
+// surface "what the public is currently seeing" in the Status tab.
+// is_live is the ring-wide flag; live_class_ids enumerates which classes
+// are currently considered live (operator clicked B+{29} and an intro
+// frame fired within 1s). Cleared when not present in the response so
+// stale state doesn't linger.
+let liveStateIsLive = false;
+let liveStateLiveSince = null;
+let liveStateClassIds = [];
+let liveStateFocusedClassId = null;
+let liveStateForcedFocusClassId = null;
+let liveStateClassesSummary = []; // [{ class_id, class_name, is_live, is_final }]
+let liveStateFocusPreview = null; // small peek at what the public live box is showing
 
 // Port auto-detection — read Ryegate's config.dat col[1] like v2 funnel does.
 // detectedInputPort is recomputed on config load; the renderer shows it
@@ -571,6 +586,16 @@ function buildStateSnapshot() {
     udpBatchFlushCount, udpBatchEventCount, udpLastBatchAt, udpLastBatchSize,
     udpBatchPostOkCount, udpBatchPostFailCount, udpBatchEventsInserted,
     udpLastPostAt, udpLastPostError,
+    // S46 — what the public website is seeing for this ring right now.
+    liveState: {
+      isLive:              liveStateIsLive,
+      liveSince:           liveStateLiveSince,
+      classIds:            liveStateClassIds,
+      focusedClassId:      liveStateFocusedClassId,
+      forcedFocusClassId:  liveStateForcedFocusClassId,
+      classes:             liveStateClassesSummary,
+      focusPreview:        liveStateFocusPreview,
+    },
     currentFocus,
     rsserverConnected, passthrough: isPassthroughEnabled(), liveScoringPaused,
     watchdog: {
@@ -1087,6 +1112,18 @@ async function flushUdpEventBatch() {
     udpBatchEventsInserted += (data.events_inserted || 0);
     udpLastPostAt = Date.now();
     udpLastPostError = null;
+    // Capture S46 live-state echo from the worker. Older worker builds
+    // won't send these fields — leave the locals untouched in that case
+    // (UI just won't show the panel).
+    if (typeof data.is_live === 'boolean') {
+      liveStateIsLive = data.is_live;
+      liveStateLiveSince = data.live_since || null;
+      liveStateClassIds = Array.isArray(data.live_class_ids) ? data.live_class_ids : [];
+      liveStateFocusedClassId = data.focused_class_id || null;
+      liveStateForcedFocusClassId = data.forced_focus_class_id || null;
+      liveStateClassesSummary = Array.isArray(data.classes_summary) ? data.classes_summary : [];
+      liveStateFocusPreview = data.focus_preview || null;
+    }
   } catch (e) {
     udpBatchPostFailCount++;
     udpLastPostAt = Date.now();
@@ -1597,6 +1634,51 @@ function setupIpc() {
     if (key === 'autoStart') applyAutoStartFromConfig();
     pushState();
     return { ok: true };
+  });
+
+  // S46 — manual class-action from the engine right-click menu.
+  // action ∈ { clear | finalize | focus }. Worker auth via X-West-Key.
+  // On success, the worker echoes the new live-state fields; we capture
+  // them so the panel reflects the change immediately rather than waiting
+  // for the next /v3/postUdpEvent batch.
+  ipcMain.handle('set-class-live-state', async (_evt, { class_id, action }) => {
+    if (!configReady() || !workerWritesAllowed()) {
+      return { ok: false, error: 'engine paused or no show selected' };
+    }
+    if (!['clear', 'finalize', 'focus', 'flush_all'].includes(action)) {
+      return { ok: false, error: 'action must be clear|finalize|focus|flush_all' };
+    }
+    if (action !== 'flush_all' && !class_id) return { ok: false, error: 'missing class_id' };
+    try {
+      const { res, data } = await workerFetch('/v3/setClassLiveState', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-West-Key': config.authKey },
+        body: JSON.stringify({
+          slug: config.showSlug,
+          ring_num: config.ringNum,
+          class_id, action,
+        }),
+      });
+      if (!res.ok || !data || !data.ok) {
+        return { ok: false, error: (data && data.error) || `HTTP ${res.status}` };
+      }
+      if (typeof data.is_live === 'boolean') {
+        liveStateIsLive = data.is_live;
+        liveStateLiveSince = data.live_since || null;
+        liveStateClassIds = Array.isArray(data.live_class_ids) ? data.live_class_ids : [];
+        liveStateFocusedClassId = data.focused_class_id || null;
+        liveStateForcedFocusClassId = data.forced_focus_class_id || null;
+        liveStateClassesSummary = Array.isArray(data.classes_summary) ? data.classes_summary : [];
+      }
+      const label = action === 'flush_all' ? 'all classes' : `class ${class_id}`;
+      log(`[CLASS-ACTION] ${action} on ${label}`);
+      recordEvent('class-action', `${action} → ${label}`);
+      pushState();
+      return { ok: true };
+    } catch (e) {
+      log(`[CLASS-ACTION FAIL] ${action} on ${class_id}: ${e.message}`);
+      return { ok: false, error: e.message };
+    }
   });
 
   ipcMain.on('open-log', () => shell.openPath(path.dirname(LOG_PATH)));

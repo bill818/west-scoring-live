@@ -26,6 +26,58 @@
   // Local cache of last state for stat formatting "Xs ago"-style fields.
   let lastState = null;
 
+  // S46 — class-action context menu (Bill 2026-05-06). Renders a small
+  // floating menu near the cursor when the operator right-clicks a class
+  // in the Live pane. Three actions: Clear live, Make Final, Make Focus.
+  // Click outside / Escape closes it. Only one menu open at a time.
+  let openMenuEl = null;
+  function closeClassActionMenu() {
+    if (openMenuEl && openMenuEl.parentNode) openMenuEl.parentNode.removeChild(openMenuEl);
+    openMenuEl = null;
+    document.removeEventListener('click', closeClassActionMenu, true);
+    document.removeEventListener('contextmenu', closeClassActionMenu, true);
+    document.removeEventListener('keydown', onMenuKeydown, true);
+  }
+  function onMenuKeydown(e) {
+    if (e.key === 'Escape') closeClassActionMenu();
+  }
+  function openClassActionMenu(x, y, classId, anchorEl) {
+    closeClassActionMenu();
+    if (!classId) return;
+    const menu = document.createElement('div');
+    menu.className = 'class-action-menu';
+    menu.innerHTML = `
+      <div class="cam-header">Class <strong>${classId}</strong></div>
+      <button type="button" data-action="clear">Clear live</button>
+      <button type="button" data-action="finalize">Make Final</button>
+      <button type="button" data-action="focus">Make Focus</button>`;
+    document.body.appendChild(menu);
+    // Position — clamp to viewport so it never gets clipped.
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    const px = Math.min(x, window.innerWidth  - w - 6);
+    const py = Math.min(y, window.innerHeight - h - 6);
+    menu.style.left = px + 'px';
+    menu.style.top  = py + 'px';
+    menu.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const action = btn.getAttribute('data-action');
+        closeClassActionMenu();
+        const r = await window.westEngine.setClassLiveState(classId, action);
+        if (!r || !r.ok) {
+          alert(`Class action failed: ${(r && r.error) || 'unknown error'}`);
+        }
+      });
+    });
+    openMenuEl = menu;
+    // Defer so the contextmenu event that opened us doesn't immediately close.
+    setTimeout(() => {
+      document.addEventListener('click', closeClassActionMenu, true);
+      document.addEventListener('contextmenu', closeClassActionMenu, true);
+      document.addEventListener('keydown', onMenuKeydown, true);
+    }, 0);
+  }
+
   function fmtAgo(ts) {
     if (!ts) return '—';
     const s = Math.floor((Date.now() - ts) / 1000);
@@ -256,6 +308,126 @@
     } else {
       focusBody.classList.remove('has-focus');
       focusBody.innerHTML = '<div class="focus-empty">No focus signal received yet.</div>';
+    }
+
+    // S46 — Live-on-website pane (Bill 2026-05-06). Mirrors the worker's
+    // ring-wide is_live flag + lists every open class with state badges
+    // (LIVE / FOCUS / FINAL). Right-click any class number for the
+    // manual override menu (Clear live / Make Final / Make Focus).
+    const liveBody = $('#liveBody');
+    const ls = state.liveState || {};
+    const classes = Array.isArray(ls.classes) ? ls.classes : [];
+    if (state.config && state.lastUdpAt) {
+      const sinceText = ls.liveSince ? fmtAgo(ls.liveSince) : null;
+      const headerCls = ls.isLive ? 'is-live' : 'not-live';
+      const headerTxt = ls.isLive ? 'LIVE' : 'Not live';
+      const sinceHtml = ls.isLive && sinceText
+        ? `<span class="live-since">since ${escapeHtml(sinceText)}</span>`
+        : '';
+      let classesHtml;
+      if (classes.length) {
+        classesHtml = classes.map(c => {
+          const tags = [];
+          if (c.is_live)  tags.push('<span class="live-tag t-live">LIVE</span>');
+          if (String(c.class_id) === String(ls.focusedClassId)) tags.push('<span class="live-tag t-focus">FOCUS</span>');
+          if (String(c.class_id) === String(ls.forcedFocusClassId)) tags.push('<span class="live-tag t-forced">PINNED</span>');
+          if (c.is_final) tags.push('<span class="live-tag t-final">FINAL</span>');
+          const itemClasses = ['live-class-item'];
+          if (c.is_live)  itemClasses.push('is-live');
+          if (c.is_final) itemClasses.push('is-final');
+          if (String(c.class_id) === String(ls.focusedClassId)) itemClasses.push('is-focus');
+          const name = c.class_name ? `<span class="live-class-name">${escapeHtml(c.class_name)}</span>` : '';
+          return `<button class="${itemClasses.join(' ')}" data-class-id="${escapeHtml(String(c.class_id))}" type="button" title="Right-click for actions">
+            <span class="live-class-num">${escapeHtml(String(c.class_id))}</span>
+            ${name}
+            <span class="live-class-tags">${tags.join('')}</span>
+          </button>`;
+        }).join('');
+      } else {
+        classesHtml = '<span class="live-class-empty">No classes seen yet.</span>';
+      }
+      liveBody.classList.remove('is-live', 'not-live');
+      liveBody.classList.add(headerCls);
+      liveBody.innerHTML = `
+        <div class="live-row">
+          <span class="live-status-dot"></span>
+          <span class="live-status-text">${headerTxt}</span>
+          ${sinceHtml}
+        </div>
+        <div class="live-classes-row">
+          <span class="live-classes-label">Classes</span>
+          <span class="live-classes-list">${classesHtml}</span>
+        </div>
+        <div class="live-hint-row">Right-click a class for Clear live · Make Final · Make Focus.</div>`;
+      // Wire right-click context menu on each class item.
+      liveBody.querySelectorAll('.live-class-item').forEach(btn => {
+        btn.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault();
+          const cid = btn.getAttribute('data-class-id');
+          openClassActionMenu(ev.clientX, ev.clientY, cid, btn);
+        });
+      });
+    } else {
+      liveBody.classList.remove('is-live', 'not-live');
+      liveBody.innerHTML = '<div class="live-empty">Worker hasn\'t reported yet.</div>';
+    }
+
+    // S46 — On-the-air preview pane (Bill 2026-05-06). Mirrors what the
+    // public live box is showing for the FOCUSED class. Pulled raw from
+    // the snapshot's last_identity + last_scoring tags so the operator
+    // can verify the public view without opening the live page.
+    const fpBody = $('#focusPreviewBody');
+    const fp = ls.focusPreview;
+    if (fp && fp.class_id) {
+      const headerBits = [`<span class="fp-class-num">${escapeHtml(String(fp.class_id))}</span>`];
+      if (fp.class_name) headerBits.push(`<span class="fp-class-name">${escapeHtml(fp.class_name)}</span>`);
+      const stateTags = [];
+      if (fp.is_live)  stateTags.push('<span class="live-tag t-live">LIVE</span>');
+      if (fp.is_final) stateTags.push('<span class="live-tag t-final">FINAL</span>');
+      const idLine = (fp.entry_num || fp.horse || fp.rider) ? `
+          <div class="fp-id-row">
+            ${fp.entry_num ? `<span class="fp-entry">#${escapeHtml(fp.entry_num)}</span>` : ''}
+            ${fp.horse    ? `<span class="fp-horse">${escapeHtml(fp.horse)}</span>` : ''}
+            ${fp.rider    ? `<span class="fp-rider">${escapeHtml(fp.rider)}</span>` : ''}
+          </div>` : '';
+      // Status line — mirror the live box: countdown OR clock, plus rank
+      // and faults when present. Concise, single line.
+      const stat = [];
+      const cd = (fp.countdown || '').replace(/^-/, '');
+      if (cd && cd !== '0' && cd !== '00') stat.push(`<span class="fp-stat fp-cd">CD ${escapeHtml(cd)}</span>`);
+      else if (fp.clock) stat.push(`<span class="fp-stat fp-clock">${escapeHtml(fp.clock)}s</span>`);
+      if (fp.rank)        stat.push(`<span class="fp-stat fp-rank">Rank ${escapeHtml(fp.rank)}</span>`);
+      if (fp.label_or_ta && !fp.rank) stat.push(`<span class="fp-stat fp-ta">${escapeHtml(fp.label_or_ta)}</span>`);
+      const jf = parseFloat(fp.jump_faults), tf = parseFloat(fp.time_faults);
+      const totFaults = (Number.isFinite(jf) ? jf : 0) + (Number.isFinite(tf) ? tf : 0);
+      if ((Number.isFinite(jf) || Number.isFinite(tf)) && totFaults > 0) {
+        stat.push(`<span class="fp-stat fp-faults">${totFaults} F</span>`);
+      }
+      if (fp.target_time) stat.push(`<span class="fp-stat fp-tt">TA ${escapeHtml(fp.target_time)}s</span>`);
+      const statLine = stat.length
+        ? `<div class="fp-stat-row">${stat.join('')}</div>`
+        : '<div class="fp-stat-row fp-stat-empty">No active scoring frame.</div>';
+      // Just-finished overlay if present (mirrors the website's banner).
+      const pe = fp.previous_entry;
+      const jfLine = pe && pe.entry_num ? `
+          <div class="fp-prev-row">
+            <span class="fp-prev-label">Just finished</span>
+            <span>#${escapeHtml(String(pe.entry_num))}</span>
+            ${pe.horse_name ? `<span>${escapeHtml(pe.horse_name)}</span>` : ''}
+            ${pe.faults != null ? `<span>${escapeHtml(String(pe.faults))}F</span>` : ''}
+            ${pe.time != null ? `<span>${escapeHtml(String(pe.time))}s</span>` : ''}
+            ${pe.overall_place != null ? `<span>· ${escapeHtml(String(pe.overall_place))}</span>` : ''}
+          </div>` : '';
+      fpBody.innerHTML = `
+        <div class="fp-header-row">
+          <div class="fp-header-left">${headerBits.join(' ')}</div>
+          <div class="fp-header-right">${stateTags.join('')}</div>
+        </div>
+        ${idLine}
+        ${statLine}
+        ${jfLine}`;
+    } else {
+      fpBody.innerHTML = '<div class="focus-preview-empty">No focused class yet.</div>';
     }
 
     // Status grid
@@ -557,6 +729,20 @@
   });
 
   // ── Manual control buttons ─────────────────────────────────────────────
+  $('#btnFlushLive').addEventListener('click', async () => {
+    const btn = $('#btnFlushLive');
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Flushing…';
+    try {
+      const res = await window.westEngine.flushLiveAll();
+      btn.textContent = res && res.ok ? '✓ Flushed' : '✗ ' + ((res && res.error) || 'failed');
+    } catch (e) {
+      btn.textContent = '✗ ' + e.message;
+    }
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  });
+
   $('#btnRepostCls').addEventListener('click', async () => {
     const btn = $('#btnRepostCls');
     btn.disabled = true;

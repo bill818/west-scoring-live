@@ -513,6 +513,32 @@
   .m4-faults .stat .v.clear { color: var(--green); }
   .m4-faults .stat.total .v { font-size: 18px; }
 
+  /* Hunter lower-third (S46 — Bill 2026-05-06): rank / overall + round /
+     per-judge cells. Reuses the m4-rank / m4-clock / m4-faults slots so
+     animation classes (is-in / is-final) keep working. */
+  .m4-right.is-hunter .m4-clock { padding-top: 4px; padding-bottom: 4px; }
+  .m4-hunter-overall { display: flex; flex-direction: column; align-items: flex-end; line-height: 1; }
+  .m4-hunter-overall .lbl { font-family: var(--font-mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+  .m4-hunter-overall .v { font-family: var(--font-display); font-weight: 800; font-size: 24px; color: var(--navy); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .m4-hunter-rounds { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .m4-hunter-rounds .lt-round { display: inline-flex; align-items: baseline; gap: 4px; }
+  .m4-hunter-rounds .lt-round .lbl { font-family: var(--font-mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+  .m4-hunter-rounds .lt-round .v { font-family: var(--font-display); font-weight: 700; font-size: 13px; color: var(--text-body); font-variant-numeric: tabular-nums; }
+  .m4-right.is-hunter.is-final .m4-hunter-overall .v { color: var(--green); }
+
+  .m4-hunter-judges { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: flex-end; width: 100%; }
+  .m4-hunter-judges .lt-judge { display: inline-flex; align-items: baseline; gap: 4px; }
+  .m4-hunter-judges .lt-jl { font-family: var(--font-mono); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); }
+  .m4-hunter-judges .lt-jv { font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--navy); font-variant-numeric: tabular-nums; line-height: 1; }
+  .m4-hunter-judges .lt-jv.empty { color: var(--text-muted); font-weight: 400; }
+  .m4-hunter-judges .lt-jb { font-family: var(--font-mono); font-size: 9px; color: var(--green); font-weight: 700; margin-left: 1px; }
+
+  /* Page-wide idle placeholder — when no active classes anywhere. */
+  .page-idle { max-width: 1200px; margin: 32px auto; padding: 36px 24px; text-align: center; background: #fff; border: 1px dashed var(--border); border-radius: 8px; }
+  .page-idle.hidden { display: none; }
+  .page-idle-msg { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text-muted); letter-spacing: -.005em; }
+  .page-idle-sub { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-faint); margin-top: 8px; }
+
   /* JUST FINISHED banner — two stacked rows: identity / stats. */
   .just-finished { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--border); border-left: 3px solid var(--green); margin-top: 6px; max-width: 1200px; margin-left: auto; margin-right: auto; }
   .just-finished.hidden { display: none; }
@@ -937,9 +963,17 @@
     </div>
   </div>
 
+  <!-- Idle placeholder — shown when the worker's lifecycle has evicted
+       every class (snapshot.classes empty). Page-wide "nothing here
+       right now" surface; replaces every class panel and banner. -->
+  <div class="page-idle hidden" id="pageIdle">
+    <div class="page-idle-msg">All quiet at the ring.</div>
+    <div class="page-idle-sub">Next class on its way — check back in a bit.</div>
+  </div>
+
   <!-- Single class panel for now. Multi-class would loop a template here
        once the worker DO carries multiple concurrent classes per ring. -->
-  <div class="class-panel is-focused">
+  <div class="class-panel is-focused" id="focusedClassPanel">
     <div class="class-panel-header">
       <div class="class-panel-num" id="classBarNum">…</div>
       <div style="flex:1; min-width:0;">
@@ -1593,6 +1627,37 @@
       (((snapshot.flat_results || []).length > 0) ||
        ((snapshot.flat_entries_seen || []).length > 0));
     var liveBoxWrapEl = $('liveBoxWrap');
+    // Page-wide idle gate (Bill 2026-05-06): when the worker's lifecycle
+    // has evicted every class (snapshot.classes empty), kill the live-
+    // box / banners / recent-results so a hours-stale page doesn't sit
+    // showing yesterday's last entry. Idle placeholder takes over.
+    //
+    // Tentative-class exception (UX option A): if the M4 has identity
+    // (a focused class is firing UDP) but no LOCKED class exists yet,
+    // suppress the idle placeholder so the M4 bar can show the rider.
+    // The rest of the page (class panels, standings) stays empty until
+    // the class earns its lock (B+intro pair OR .cls write).
+    var hasActiveClasses = !!(snapshot.classes && snapshot.classes.length > 0);
+    var hasTentativeFocus = !hasActiveClasses && hasIdentity;
+    var pageHasContent = hasActiveClasses || hasTentativeFocus;
+    if (!pageHasContent) {
+      hasIdentity = false;
+      hasFlatContent = false;
+    }
+    // Page-wide idle placeholder + class-panel suppression.
+    // Idle hides whenever the page has ANY content (locked class OR
+    // tentative focus with identity). Focused panel + just-finished
+    // banner stay tied to LOCKED classes only — those need standings
+    // data to make sense.
+    var pageIdleEl = $('pageIdle');
+    var focusedPanelEl = $('focusedClassPanel');
+    if (pageIdleEl) pageIdleEl.classList.toggle('hidden', pageHasContent);
+    if (focusedPanelEl) focusedPanelEl.style.display = hasActiveClasses ? '' : 'none';
+    if (!hasActiveClasses) {
+      // Also kill the just-finished banner since it's tied to focused class.
+      var jfBarEl = $('justFinishedBar');
+      if (jfBarEl) jfBarEl.classList.add('hidden');
+    }
 
     // ── M4 LOWER-THIRD bar — jumper-first wiring ──────────────────────
     // Class chip + identity + right column (rank / clock / faults).
@@ -1614,10 +1679,60 @@
     var isCountdown = /countdown|starts/.test(phaseTxt);
     var isFinished  = /finish/.test(phaseTxt);
 
-    if (renderIsFlat || lens === 'hunter') {
-      // Hunter classes use the flat panel / score card paths (no M4
-      // for now per Bill — hunter rendering is a separate redesign).
+    if (renderIsFlat) {
+      // Flat hunter / EQ flat: render via the dedicated flat panel; M4
+      // doesn't apply (no single-on-course identity).
       if (m4Bar) m4Bar.hidden = true;
+    } else if (lens === 'hunter') {
+      // Hunter M4 (Bill 2026-05-06 layout): rank / overall + round /
+      // per-judge cells. Centralized in WEST.hunterTemplates.renderLowerThird
+      // so every display surface shares the same formatting.
+      if (m4Bar) m4Bar.hidden = !hasIdentity;
+      if ($('m4ChipNum')) {
+        $('m4ChipNum').textContent = (snapshot.focused_class_id ||
+          classIdFromFocus || '—');
+      }
+      if (m4Chip) m4Chip.classList.toggle('is-final', !!snapshot.is_final);
+      if (m4Right) {
+        m4Right.classList.remove('is-cd');
+        m4Right.classList.toggle('is-final', !!snapshot.is_final);
+        m4Right.classList.toggle('is-hunter', true);
+      }
+      var hLT = (window.WEST && window.WEST.hunterTemplates && window.WEST.hunterTemplates.renderLowerThird)
+        ? window.WEST.hunterTemplates.renderLowerThird(currentClassMeta, snapshot.hunter_scores || [], snapshot)
+        : { hasContent: false };
+      var topLblElH = $('m4TopLbl');
+      if (m4Rank) {
+        if (hLT.hasContent && hLT.rank != null) {
+          if (topLblElH) topLblElH.textContent = 'Rank';
+          if (m4RankVal) m4RankVal.textContent = hLT.rank;
+          m4Rank.classList.add('is-in');
+          m4Rank.classList.remove('is-ta');
+        } else {
+          m4Rank.classList.remove('is-in');
+        }
+      }
+      // Overall + per-round chips → middleHtml from the template (so all
+      // populated rounds show, not just the latest). clockBig is safe to
+      // overwrite — clock module skips hunter ticks.
+      var clockBigH = $('clockBig');
+      if (clockBigH) {
+        if (hLT.hasContent && hLT.middleHtml) {
+          clockBigH.innerHTML = hLT.middleHtml;
+        } else {
+          clockBigH.textContent = '—';
+        }
+      }
+      // Judges line in the bottom slot — already wrapped in template.
+      if (m4Faults) {
+        if (hLT.hasContent && hLT.judgesHtml) {
+          m4Faults.innerHTML = hLT.judgesHtml;
+          m4Faults.classList.add('is-in');
+        } else {
+          m4Faults.innerHTML = '';
+          m4Faults.classList.remove('is-in');
+        }
+      }
     } else {
       // Show the M4 bar when there's identity activity.
       if (m4Bar) m4Bar.hidden = !hasIdentity;
@@ -1629,6 +1744,7 @@
       if (m4Chip) m4Chip.classList.toggle('is-final', !!snapshot.is_final);
       // Right-column phase styling
       if (m4Right) {
+        m4Right.classList.remove('is-hunter');
         m4Right.classList.toggle('is-cd',    isCountdown && !isFinished);
         m4Right.classList.toggle('is-final', isFinished || !!snapshot.is_final);
       }

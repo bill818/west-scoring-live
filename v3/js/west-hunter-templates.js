@@ -901,6 +901,262 @@
     return { html: html, hasScore: true };
   };
 
+  // M4 lower-third right-column content for HUNTERS (Bill 2026-05-06).
+  // Mirrors the jumper layout (Rank / Clock / Faults) but with the data
+  // hunters actually have: rank / overall + round score / per-judge cells.
+  // Single-round hides the round line; single-judge hides the judges
+  // line; derbies always carry granular base+hi-opt+handy.
+  //
+  // Returns { hasContent, rank, overall, roundLabel, roundValue, judgesHtml }.
+  // Caller injects each piece into the existing m4 slots so CSS animations
+  // and is-final / is-cd tints continue to apply.
+  WEST.hunterTemplates.renderLowerThird = function (meta, hunterScores, snapshot) {
+    var empty = { hasContent: false };
+    if (!snapshot || !meta || !Array.isArray(hunterScores)) return empty;
+    // Frame gate (Bill 2026-05-06): mirror the jumper rule that intro
+    // frames clear the score area. Only show score data when the latest
+    // Channel A frame is a Display Scores trigger (fr=12 / fr=14 / fr=16).
+    // fr=11 (entry rotation / intro) leaves the right column empty so
+    // the previous entry's stats don't bleed into the new rider's intro.
+    var ls = snapshot.last_scoring;
+    if (!ls || ls.channel !== 'A') return empty;
+    if (ls.frame !== 12 && ls.frame !== 14 && ls.frame !== 16) return empty;
+    // Find the on-course entry. last_identity is the canonical "who's
+    // on the air" tag carrier; fall back to last_scoring's {1} if the
+    // identity carry-forward isn't populated yet.
+    var iTags = (snapshot.last_identity && snapshot.last_identity.tags) || {};
+    var sTags = (ls.tags) || {};
+    var entryTag = String((iTags['1'] || sTags['1'] || '')).replace(/\r/g, '').trim();
+    if (!entryTag) return empty;
+    var entryRow = null;
+    for (var i = 0; i < hunterScores.length; i++) {
+      if (String(hunterScores[i].entry_num) === entryTag) { entryRow = hunterScores[i]; break; }
+    }
+    if (!entryRow) return empty;
+
+    var nJudges = Math.max(1, Number(meta.num_judges) || 1);
+    var numRounds = Math.max(1, Math.min(3, Number(meta.num_rounds) || 1));
+    var isDerby = WEST.format && WEST.format.derbyComponentsApply
+      ? WEST.format.derbyComponentsApply(meta)
+      : (meta.class_mode === 2);
+
+    // Current round = highest scored round, capped at the class's
+    // configured num_rounds (don't pick up stale R3 data on a 2-round
+    // class — Bill 2026-05-06).
+    var currentRound = 0;
+    for (var n = numRounds; n >= 1; n--) {
+      if (entryRow['r' + n + '_score_total'] != null) { currentRound = n; break; }
+    }
+    if (!currentRound) return empty;
+
+    var place = (WEST.rules && WEST.rules.hunterPlaceFor)
+      ? WEST.rules.hunterPlaceFor(entryRow.current_place,
+          meta.scoring_type, entryRow.r1_score_total, entryRow.r1_h_status)
+      : entryRow.current_place;
+
+    // Display mode detection (Bill 2026-05-06): the operator's most
+    // recent Display Scores click drives the BIG label/value.
+    //
+    // For fr=12 (non-derby Display Scores), tag {14} carries "T: 79.00"
+    // — the value the operator just sent to the scoreboard. We match
+    // that against combined_total / r1 / r2 / r3 to know which round
+    // (or overall) was actually displayed. Handles RE-DISPLAY of an
+    // earlier round correctly — without this, the heuristic would
+    // always pick the highest-scored round even when the operator
+    // intentionally re-pinned R1.
+    //
+    // For fr=16 (derby) and fr=14 (ribbons), UDP cycles through
+    // multiple display pages so tag values aren't a stable signal.
+    // Fall back to: highest-scored round, with Overall mode when
+    // combined_total + every configured round are populated.
+    var allRoundsScored = numRounds > 1;
+    if (allRoundsScored) {
+      for (var ar = 1; ar <= numRounds; ar++) {
+        if (entryRow['r' + ar + '_score_total'] == null) { allRoundsScored = false; break; }
+      }
+    }
+    var displayedRound = null;
+    var displayedIsOverall = false;
+
+    // PRIMARY detector — combined_total subset matching (Bill 2026-05-06).
+    // The .cls writes combined_total = SUM of every round that's been
+    // RELEASED (operator hit Display Scores). Rounds that judges scored
+    // but operator hasn't displayed yet aren't in combined. So:
+    //   • combined matches sum(all rounds) → all released → Overall mode
+    //   • combined matches sum of subset → those are the released rounds;
+    //     show the highest-numbered released one
+    //   • combined matches one round alone → only that round released
+    //
+    // Stable across fr=16 cycling because it doesn't depend on UDP at all.
+    // Handles re-display of an earlier round correctly because the
+    // combined value reflects what's actually released, not what the
+    // scoreboard happens to be flashing right now.
+    var combined = entryRow.combined_total != null ? Number(entryRow.combined_total) : null;
+    if (numRounds > 1 && combined != null && isFinite(combined)) {
+      var EPS_C = 0.5;
+      var bestSubset = null;
+      // Enumerate every non-empty subset of {1..numRounds}. With max 3
+      // rounds this is up to 7 subsets — trivial. Pick the largest
+      // subset whose sum matches combined; ties broken by highest
+      // round number (latest release wins).
+      for (var bm = 1; bm < (1 << numRounds); bm++) {
+        var subRounds = [];
+        var subSum = 0;
+        var bad = false;
+        for (var rb = 0; rb < numRounds; rb++) {
+          if (bm & (1 << rb)) {
+            var rv = Number(entryRow['r' + (rb + 1) + '_score_total']);
+            if (!isFinite(rv)) { bad = true; break; }
+            subRounds.push(rb + 1);
+            subSum += rv;
+          }
+        }
+        if (bad) continue;
+        if (Math.abs(subSum - combined) >= EPS_C) continue;
+        if (!bestSubset
+            || subRounds.length > bestSubset.rounds.length
+            || (subRounds.length === bestSubset.rounds.length
+                && subRounds[subRounds.length - 1] > bestSubset.rounds[bestSubset.rounds.length - 1])) {
+          bestSubset = { rounds: subRounds, sum: subSum };
+        }
+      }
+      if (bestSubset) {
+        if (bestSubset.rounds.length === numRounds) {
+          displayedIsOverall = true;
+          displayedRound = numRounds;
+        } else {
+          displayedRound = bestSubset.rounds[bestSubset.rounds.length - 1];
+          displayedIsOverall = false;
+        }
+      }
+    }
+
+    // SECONDARY detector — UDP {14} on fr=12/16 (Display Scores triggers).
+    // Only kicks in when the subset method couldn't decide (typically:
+    // single-round classes, or combined_total still null). For fr=16
+    // (derby) UDP cycles, so this is unreliable; we use it as a last
+    // resort before falling back to "highest scored."
+    if (displayedRound == null && (ls.frame === 12 || ls.frame === 16) && ls.tags) {
+      var t14 = String(ls.tags['14'] || '').replace(/[\r\n]/g, '').trim();
+      var ovMatch = t14.match(/^O[VR]?\s*:\s*([\d.]+)/i);
+      var tMatch  = t14.match(/^T\w*\s*:?\s*([\d.]+)/i);
+      var anyNum  = t14.match(/([\d.]+)/);
+      var ds = null, hintOverall = false;
+      if (ovMatch)      { ds = parseFloat(ovMatch[1]); hintOverall = true; }
+      else if (tMatch)  { ds = parseFloat(tMatch[1]); }
+      else if (anyNum)  { ds = parseFloat(anyNum[1]); }
+      if (isFinite(ds)) {
+        var EPS_U = 0.5;
+        if (hintOverall && combined != null && Math.abs(combined - ds) < EPS_U) {
+          displayedIsOverall = true;
+          displayedRound = numRounds;
+        }
+        if (displayedRound == null) {
+          for (var dr = 1; dr <= numRounds; dr++) {
+            var drv = Number(entryRow['r' + dr + '_score_total']);
+            if (isFinite(drv) && Math.abs(drv - ds) < EPS_U) {
+              displayedRound = dr;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // FALLBACK — highest scored round only. Never auto-promote to Overall
+    // here; Overall must be explicitly detected (subset match or "OV:" in
+    // UDP). Keeps the bar honest when we can't read the operator's intent.
+    if (displayedRound == null) {
+      displayedRound = currentRound;
+      displayedIsOverall = false;
+    }
+
+    // Debug breadcrumb — can be deleted once detection's proven on real
+    // shows. Logs what was detected and the underlying scores so a
+    // mismatch is diagnosable from the browser console.
+    try {
+      if (window && window.console) {
+        window.console.debug('[hunter-lt] fr=' + (ls && ls.frame)
+          + ' detected=' + JSON.stringify({ round: displayedRound, overall: displayedIsOverall })
+          + ' rounds=' + JSON.stringify({
+              r1: entryRow.r1_score_total, r2: entryRow.r2_score_total,
+              r3: entryRow.r3_score_total, c: entryRow.combined_total
+            }));
+      }
+    } catch (e) {}
+
+    var bigLabel, bigValue;
+    var chipParts = [];
+    if (displayedIsOverall) {
+      bigLabel = 'Overall';
+      bigValue = Number(entryRow.combined_total).toFixed(1);
+      for (var rn = 1; rn <= numRounds; rn++) {
+        var rv = Number(entryRow['r' + rn + '_score_total']);
+        if (isFinite(rv)) {
+          chipParts.push('<span class="lt-round"><span class="lbl">R' + rn + '</span><span class="v">' + rv.toFixed(1) + '</span></span>');
+        }
+      }
+    } else {
+      bigLabel = numRounds > 1 ? ('R' + displayedRound) : 'Score';
+      bigValue = Number(entryRow['r' + displayedRound + '_score_total']).toFixed(1);
+      // Chips: every OTHER scored round (not the one being shown big).
+      // Prefer chronological order — R1 first, then R2, etc.
+      for (var pr = 1; pr <= numRounds; pr++) {
+        if (pr === displayedRound) continue;
+        var prv = Number(entryRow['r' + pr + '_score_total']);
+        if (isFinite(prv)) {
+          chipParts.push('<span class="lt-round"><span class="lbl">R' + pr + '</span><span class="v">' + prv.toFixed(1) + '</span></span>');
+        }
+      }
+    }
+
+    var middleHtml = '<div class="m4-hunter-overall"><span class="lbl">' + bigLabel + '</span><span class="v">' + bigValue + '</span></div>';
+    if (chipParts.length) {
+      middleHtml += '<div class="m4-hunter-rounds">' + chipParts.join('') + '</div>';
+    }
+
+    // Judges line — only when class has > 1 judge configured AND we have
+    // judge data. Shows the per-judge breakdown for the SAME round the
+    // big number is showing (so a re-display of R1 shows R1 judges, not
+    // R2's). Each cell shows base + (derby) hiopt + handy as small bonus
+    // chips. Single-judge classes hide entirely.
+    var judgesHtml = '';
+    if (nJudges > 1 && Array.isArray(entryRow.judges) && entryRow.judges.length) {
+      var cells = [];
+      for (var ji = 0; ji < nJudges; ji++) {
+        var match = null;
+        for (var k = 0; k < entryRow.judges.length; k++) {
+          var j = entryRow.judges[k];
+          if (Number(j.round) === displayedRound && Number(j.idx) === ji) { match = j; break; }
+        }
+        var inner;
+        if (!match || match.base == null) {
+          inner = '<span class="lt-jv empty">—</span>';
+        } else {
+          var bonusHtml = '';
+          if (isDerby) {
+            if (match.hiopt != null && match.hiopt > 0) {
+              bonusHtml += '<span class="lt-jb">+' + Number(match.hiopt).toFixed(0) + '</span>';
+            }
+            if (match.handy != null && match.handy > 0) {
+              bonusHtml += '<span class="lt-jb">+' + Number(match.handy).toFixed(0) + '</span>';
+            }
+          }
+          inner = '<span class="lt-jv">' + Number(match.base).toFixed(1) + '</span>' + bonusHtml;
+        }
+        cells.push('<span class="lt-judge"><span class="lt-jl">J' + (ji + 1) + '</span>' + inner + '</span>');
+      }
+      judgesHtml = '<div class="m4-hunter-judges">' + cells.join('') + '</div>';
+    }
+
+    return {
+      hasContent: true,
+      rank: place != null ? String(place) : null,
+      middleHtml: middleHtml,
+      judgesHtml: judgesHtml,
+    };
+  };
+
   // CommonJS export for tests / future Node consumers.
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = WEST.hunterTemplates;

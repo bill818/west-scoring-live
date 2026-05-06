@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld('westEngine', {
   //   { ch, fr }       — forget a whole frame (and any tags inside it)
   //   { ch, fr, tag }  — forget a single tag
   forgetDiscovered: (key)         => ipcRenderer.invoke('forget-discovered', key),
+  // S46 — manual class lifecycle action from right-click menu.
+  // action ∈ { 'clear' | 'finalize' | 'focus' }
+  setClassLiveState: (class_id, action) =>
+    ipcRenderer.invoke('set-class-live-state', { class_id, action }),
+  // S46 — flush is_live across all classes on this ring (one button).
+  flushLiveAll: () => ipcRenderer.invoke('set-class-live-state', { class_id: null, action: 'flush_all' }),
   openLog:        ()              => ipcRenderer.send('open-log'),
   openAdmin:      ()              => ipcRenderer.send('open-admin'),
   minimizeToTray: ()              => ipcRenderer.send('minimize-to-tray'),

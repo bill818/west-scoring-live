@@ -104,13 +104,23 @@ function renderHero(show, ring, cls) {
   const methodStr = WEST.format.classDescription(cls);
   const taStr     = WEST.format.timeAllowedSummary(cls);
 
-  // Side: Live button (only when this ring has a recent scoring frame —
-  // gated by ring.class_live, populated by /v3/listRings) / Stats button
-  // (jumper) / Judges toggle (multi-judge hunter) / Split-decision pill
-  // (when judges disagreed). Same .hero-action and .split-pill rules from
+  // Side: Live button + Stats button (jumper) + Judges toggle (multi-
+  // judge hunter) + Split-decision pill (when judges disagreed).
+  //
+  // Live gating (S46 — Bill 2026-05-06): show "Watch Live" only when
+  // THIS class is currently considered live on the ring (i.e. it's in
+  // ring.live_class_ids — the operator clicked B+{29} for this class
+  // and an intro frame fired within 1s). Falls back to the legacy
+  // ring.class_live flag for older snapshots that didn't carry the
+  // live_class_ids list, so the button still surfaces during the
+  // transition window. Same .hero-action and .split-pill rules from
   // west.css, just lifted into the hero side col.
   const sideParts = [];
-  if (ring.class_live) {
+  const liveIds = Array.isArray(ring.live_class_ids) ? ring.live_class_ids : null;
+  const thisClassLive = liveIds
+    ? liveIds.some(id => String(id) === String(cls.class_id))
+    : !!ring.class_live;
+  if (thisClassLive) {
     const liveUrl = `live.html?slug=${encodeURIComponent(show.slug)}&ring_num=${ring.ring_num}`;
     sideParts.push(`<a class="hero-action" href="${liveUrl}">▶ Watch Live</a>`);
   }
