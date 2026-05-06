@@ -1117,11 +1117,15 @@
   // friendly show name once /v3/getShow returns. Slug is the fallback
   // until the fetch completes (or if it fails). Skipped in mock mode
   // since the slug there is the literal mock identifier.
+  // /v3/getShow requires the X-West-Key auth header (same as every
+  // other public page that calls it via west-api.js's fetchJson).
   if (!MOCK_MODE) {
-    fetch(BASE + '/v3/getShow?slug=' + encodeURIComponent(slug))
+    fetch(BASE + '/v3/getShow?slug=' + encodeURIComponent(slug), {
+      headers: { 'X-West-Key': 'west-scoring-2026' },
+    })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        if (data && data.show && data.show.name) {
+        if (data && data.ok && data.show && data.show.name) {
           document.getElementById('ringSlug').textContent = data.show.name;
           document.title = data.show.name + ' — Ring ' + ringNum + ' Live';
         }
