@@ -69,6 +69,9 @@ const state = {
   classes: [],
   viewMode: 'scheduled',
   sortDir: 'asc',
+  // Set of class ids currently LIVE on this ring (per the S46 lock
+  // model). Updated by the live WS subscription opened in load().
+  liveClassIds: new Set(),
 };
 
 const getQueryParam = WEST.api.queryParam;
@@ -122,9 +125,15 @@ function classRow(c, dimAsUnscheduled) {
   const meta = [];
   meta.push(`${c.entry_count || 0} ${c.entry_count === 1 ? 'entry' : 'entries'}`);
   if (c.schedule_flag) meta.push(escapeHtml(c.schedule_flag));
-  const rowCls = dimAsUnscheduled ? 'cls-row is-unscheduled' : 'cls-row';
-  return `<a class="${rowCls}" href="${url}">
-    <div class="cls-num">${escapeHtml(c.class_id)}</div>
+  // Live dot — pulses green when this class is currently live per the
+  // S46 lock model. liveClassIds is updated by the WS subscription.
+  const isLive = state.liveClassIds.has(String(c.class_id));
+  const rowClasses = ['cls-row'];
+  if (dimAsUnscheduled) rowClasses.push('is-unscheduled');
+  if (isLive)           rowClasses.push('is-live');
+  const liveDot = isLive ? '<span class="cls-live-dot" aria-label="Live"></span>' : '';
+  return `<a class="${rowClasses.join(' ')}" href="${url}" data-class-id="${escapeHtml(String(c.class_id))}">
+    <div class="cls-num">${liveDot}${escapeHtml(c.class_id)}</div>
     <div class="cls-body">
       <div class="cls-name">${escapeHtml(c.class_name || '—')}</div>
       <div class="cls-meta">${meta.join('<span style="opacity:.4">·</span>')}</div>
@@ -262,9 +271,43 @@ async function load() {
     state.classes = classesRes.classes || [];
     renderHero();
     renderClasses();
+    openLiveWS();
   } catch (e) {
     ringHeroError(`Couldn't load ring`, escapeHtml(e.message));
   }
+}
+
+// Subscribe to this ring's live snapshot so the class list can show a
+// pulsing green dot on whichever class(es) are currently live (S46
+// lock model). Single WS, auto-reconnect on drop. Re-renders the class
+// list only when the live set actually changes — avoids paint thrash.
+function openLiveWS() {
+  const wsUrl = (WEST.api.BASE.replace(/^http/, 'ws')) +
+    `/v3/live?slug=${encodeURIComponent(state.slug)}&ring_num=${state.ringNum}`;
+  let ws;
+  try { ws = new WebSocket(wsUrl); }
+  catch (e) { return; }
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type !== 'snapshot' || !msg.data) return;
+    const nextIds = new Set(
+      (msg.data.live_class_ids || []).map(id => String(id))
+    );
+    // Diff vs current — only re-render when the set actually changed.
+    let changed = nextIds.size !== state.liveClassIds.size;
+    if (!changed) {
+      for (const id of nextIds) { if (!state.liveClassIds.has(id)) { changed = true; break; } }
+    }
+    if (changed) {
+      state.liveClassIds = nextIds;
+      renderClasses();
+    }
+  });
+  ws.addEventListener('close', () => {
+    setTimeout(openLiveWS, 3000);
+  });
+  ws.addEventListener('error', () => { /* close handler reconnects */ });
 }
 
 wireSortBar();
