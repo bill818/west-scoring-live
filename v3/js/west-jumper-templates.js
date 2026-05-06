@@ -170,8 +170,8 @@
       return '<span class="place-marker place-marker-solo">' + marker + '</span>';
     }
     if (cls.is_final && place >= 1 && place <= 12
-        && window.WEST && window.WEST.flat && window.WEST.flat.ribbonSvg) {
-      var ribbon = window.WEST.flat.ribbonSvg(place);
+        && window.WEST && window.WEST.ribbons && window.WEST.ribbons.svg) {
+      var ribbon = window.WEST.ribbons.svg(place);
       if (ribbon) {
         // Bill 2026-05-06: prize money under the ribbon, FINAL only.
         // cls.prize_money is an array of dollar amounts per place

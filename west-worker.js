@@ -1508,6 +1508,11 @@ export class RingStateDO {
         cls.is_live = false;
         cls.went_unlive_at = last;
         cls.unlive_reason = 'timeout';
+        // Bill 2026-05-06: timeout also clears the Just Finished
+        // overlay — same rule as FINAL. A 30-min UDP-silent class
+        // shouldn't keep the previous_entry banner pinned for
+        // spectators looking at the live page.
+        cls.previous_entry = null;
       }
     }
   }

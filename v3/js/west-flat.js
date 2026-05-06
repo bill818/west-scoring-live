@@ -108,49 +108,13 @@
     });
   }
 
-  // Ribbon SVG — port of v2's WEST.ribbon.svg (display-config.js:160).
-  // Hunter-show ribbon colors: 1=blue, 2=red, 3=yellow, 4=white/grey,
-  // 5=pink, 6=green, 7=purple, 8=brown, 9=grey, 10=light blue, 11=fuchsia,
-  // 12=lime green. Square 32×32 SVG with rosette petals + center number.
-  // Returns empty string for unknown / out-of-range places.
-  const RIBBON_COLORS = {
-    1:  { o: '#0a3d8f', i: '#3a7bd5', f: '#e8f0fb', t: '#0a3d8f' },
-    2:  { o: '#8b0000', i: '#cc2222', f: '#fbe8e8', t: '#8b0000' },
-    3:  { o: '#9a7800', i: '#d4a800', f: '#fdf6d8', t: '#7a5e00' },
-    4:  { o: '#888',    i: '#bbb',    f: '#f4f4f4', t: '#555'    },
-    5:  { o: '#ad1457', i: '#e91e8c', f: '#fde8f3', t: '#ad1457' },
-    6:  { o: '#1a6b2a', i: '#2ea043', f: '#e8f5eb', t: '#1a6b2a' },
-    7:  { o: '#4a2d8e', i: '#7c52cc', f: '#f0ebfb', t: '#4a2d8e' },
-    8:  { o: '#5c3317', i: '#8b5e3c', f: '#f5ede6', t: '#5c3317' },
-    9:  { o: '#666',    i: '#999',    f: '#f0f0f0', t: '#444'    },
-    10: { o: '#1565a8', i: '#5ba3e0', f: '#e3f2fd', t: '#1565a8' },
-    11: { o: '#b0006a', i: '#e8409a', f: '#fce4f2', t: '#8b0052' },
-    12: { o: '#3d7a00', i: '#7ec800', f: '#f0fce0', t: '#2d5c00' },
-  };
-
+  // Ribbon SVG — delegates to the shared WEST.ribbons module (lifted
+  // out so jumper + hunter results pages can use it without importing
+  // this whole hunter-flat module). Re-exported on WEST.flat.ribbonSvg
+  // for backward compat — old call sites work unchanged.
   function ribbonSvg(placeNum) {
-    const n = parseInt(placeNum, 10);
-    if (!isFinite(n) || n < 1) return '';
-    const c = RIBBON_COLORS[n];
-    if (!c) return '';
-    let petals = '';
-    for (let i = 0; i < 12; i++) {
-      const a = i * 30, r = 12, cx = 16, cy = 16;
-      const rad = a * Math.PI / 180;
-      const x = (cx + r * Math.sin(rad)).toFixed(1);
-      const y = (cy - r * Math.cos(rad)).toFixed(1);
-      petals += '<ellipse cx="' + x + '" cy="' + y +
-        '" rx="4.5" ry="2.6" fill="' + c.o +
-        '" transform="rotate(' + a + ',' + x + ',' + y + ')"/>';
-    }
-    const circles = '<circle cx="16" cy="16" r="10" fill="' + c.i +
-      '"/><circle cx="16" cy="16" r="8" fill="' + c.f + '"/>';
-    const fs = n >= 10 ? '10' : '12';
-    return '<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">'
-      + petals + circles
-      + '<text x="16" y="16" text-anchor="middle" dominant-baseline="central"'
-      + ' font-family="serif" font-weight="bold" font-size="' + fs + '" fill="' + c.t + '">'
-      + n + '</text></svg>';
+    if (WEST.ribbons && WEST.ribbons.svg) return WEST.ribbons.svg(placeNum);
+    return '';
   }
 
   // Render the pinned-ribbons list. Sorts by place_num ASC (1st on top);

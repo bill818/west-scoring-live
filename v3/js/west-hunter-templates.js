@@ -90,6 +90,13 @@
   // logic. On championship classes, the Ch/Res chip REPLACES the place
   // number on places 1/2 (Ch implies 1, Res implies 2 — number is
   // redundant). All other places render as the bare place number.
+  //
+  // Bill 2026-05-06: when class is FINAL (cls.is_final from
+  // class.finalized_at) AND the class declared a ribbon count via
+  // its .cls header (cls.ribbon_count = H[8]), render WEST.ribbons.svg
+  // for places 1..ribbon_count. Places beyond ribbon_count keep the
+  // bare number (no ribbon awarded for them). Prize money under the
+  // ribbon when cls.prize_money carries an amount > 0 for that place.
   function renderPlaceCell(entry, cls) {
     var place = WEST.rules.hunterPlaceFor(
       entry.current_place,
@@ -101,6 +108,26 @@
     var marker = WEST.format.championshipMarker(place, cls.is_championship === 1);
     if (marker) {
       return '<span class="place-marker place-marker-solo">' + marker + '</span>';
+    }
+    var ribbonCap = Number(cls.ribbon_count) || 0;
+    if (cls.is_final && ribbonCap > 0 && place >= 1 && place <= ribbonCap
+        && window.WEST && window.WEST.ribbons && window.WEST.ribbons.svg) {
+      var ribbon = window.WEST.ribbons.svg(place);
+      if (ribbon) {
+        var prize = '';
+        if (Array.isArray(cls.prize_money)
+            && place >= 1
+            && place <= cls.prize_money.length) {
+          var amt = Number(cls.prize_money[place - 1]);
+          if (Number.isFinite(amt) && amt > 0) {
+            prize = '<span class="place-prize">$' + amt.toLocaleString() + '</span>';
+          }
+        }
+        return '<span class="place-ribbon-wrap">'
+          + '<span class="place-ribbon">' + ribbon + '</span>'
+          + prize
+          + '</span>';
+      }
     }
     return '<span class="place-num">' + place + '</span>';
   }
@@ -257,6 +284,23 @@
   WEST.hunterTemplates.renderTable = function (cls, entries, options) {
     options = options || {};
     var layout = options.layout || 'stacked';
+    // opts.isFinal + opts.prizeMoney flow through to renderPlaceCell
+    // via the cls object — same pattern as jumperTemplates.renderTable.
+    // cls.prize_money from /v3/listClasses is a JSON STRING; parse to
+    // an array so Array.isArray(cls.prize_money) succeeds downstream.
+    if (options.isFinal || options.prizeMoney || (cls.prize_money && typeof cls.prize_money === 'string')) {
+      var parsedMoney = options.prizeMoney || null;
+      if (!parsedMoney && typeof cls.prize_money === 'string') {
+        try { var p = JSON.parse(cls.prize_money); if (Array.isArray(p)) parsedMoney = p; }
+        catch (e) { /* malformed — degrade silently */ }
+      } else if (!parsedMoney && Array.isArray(cls.prize_money)) {
+        parsedMoney = cls.prize_money;
+      }
+      cls = Object.assign({}, cls, {
+        is_final: cls.is_final || !!options.isFinal,
+        prize_money: parsedMoney,
+      });
+    }
     var tplId = WEST.hunterTemplates.detect(cls);
     var tpl = WEST.hunterTemplates.templates[tplId];
     // Filter DNS-like entries (no place + no round data + no status) —
@@ -1071,19 +1115,6 @@
       displayedIsOverall = false;
     }
 
-    // Debug breadcrumb — can be deleted once detection's proven on real
-    // shows. Logs what was detected and the underlying scores so a
-    // mismatch is diagnosable from the browser console.
-    try {
-      if (window && window.console) {
-        window.console.debug('[hunter-lt] fr=' + (ls && ls.frame)
-          + ' detected=' + JSON.stringify({ round: displayedRound, overall: displayedIsOverall })
-          + ' rounds=' + JSON.stringify({
-              r1: entryRow.r1_score_total, r2: entryRow.r2_score_total,
-              r3: entryRow.r3_score_total, c: entryRow.combined_total
-            }));
-      }
-    } catch (e) {}
 
     var bigLabel, bigValue;
     var chipParts = [];
