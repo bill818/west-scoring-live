@@ -6627,6 +6627,133 @@ export default {
       }
     }
 
+    // ── POST /v3/flushRing ───────────────────────────────────────────────────
+    // Wipe ALL data for a (slug, ring_num) pair: classes, entries, scoring
+    // tables, R2 .cls archives, KV state, and the DO's in-memory byClass.
+    // Show row + ring row are PRESERVED — only the data inside the ring is
+    // cleared. After this, the next /v3/postCls from the engine will rebuild
+    // class rows fresh.
+    //
+    // Use case: operator points the engine at a venue with leftover .cls
+    // files from a prior week. Engine uploads them all, mixing test/old
+    // data with current. Operator stops the engine, hits Flush ring in
+    // admin, restarts the engine.
+    //
+    // Auth-gated. Caller MUST stop the engine first — if /v3/postCls fires
+    // while this runs, you'll get a partial flush (engine recreates rows
+    // mid-delete). The endpoint doesn't enforce that; it's an operator
+    // discipline thing flagged in the admin button's confirm dialog.
+    if (method === 'POST' && path === '/v3/flushRing') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const slug = body.slug;
+      const ringNumInt = parseInt(body.ring_num, 10);
+      if (!slug) return err('Missing slug');
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      // Resolve ring + show ids up front so we can scope every delete by id
+      // (faster than slug+ring_num joins on every statement).
+      let showId, ringId;
+      try {
+        const row = await env.WEST_DB_V3.prepare(`
+          SELECT r.id AS ring_id, s.id AS show_id
+          FROM rings r JOIN shows s ON s.id = r.show_id
+          WHERE s.slug = ? AND r.ring_num = ?
+        `).bind(slug, ringNumInt).first();
+        if (!row) return err('Unknown show/ring pair', 404);
+        showId = row.show_id;
+        ringId = row.ring_id;
+      } catch (e) { return err('DB error: ' + e.message); }
+
+      const summary = {
+        entries_deleted: 0,
+        classes_deleted: 0,
+        udp_events_deleted: 0,
+        ring_segments_deleted: 0,
+        r2_objects_deleted: 0,
+        kv_keys_deleted: 0,
+        do_flushed: false,
+      };
+
+      // Delete order matters — child rows before parents to satisfy FKs.
+      // class_jumper_stats has a FK to entries(id) via fastest_4fault columns,
+      // so it must go BEFORE entries even though it lives at class scope.
+      try {
+        const entryFilter = '(SELECT e.id FROM entries e JOIN classes c ON c.id = e.class_id WHERE c.ring_id = ?)';
+        await env.WEST_DB_V3.prepare(`DELETE FROM entry_jumper_summary WHERE entry_id IN ${entryFilter}`).bind(ringId).run();
+        await env.WEST_DB_V3.prepare(`DELETE FROM entry_jumper_rounds  WHERE entry_id IN ${entryFilter}`).bind(ringId).run();
+        await env.WEST_DB_V3.prepare(`DELETE FROM entry_hunter_summary WHERE entry_id IN ${entryFilter}`).bind(ringId).run();
+        await env.WEST_DB_V3.prepare(`DELETE FROM entry_hunter_rounds  WHERE entry_id IN ${entryFilter}`).bind(ringId).run();
+        await env.WEST_DB_V3.prepare(`DELETE FROM entry_hunter_judge_scores WHERE entry_id IN ${entryFilter}`).bind(ringId).run();
+        await env.WEST_DB_V3.prepare(`DELETE FROM entry_hunter_judge_cards  WHERE entry_id IN ${entryFilter}`).bind(ringId).run();
+        await env.WEST_DB_V3.prepare(`DELETE FROM class_jumper_stats WHERE class_id IN (SELECT id FROM classes WHERE ring_id = ?)`).bind(ringId).run();
+        const entriesRes = await env.WEST_DB_V3.prepare(`DELETE FROM entries WHERE class_id IN (SELECT id FROM classes WHERE ring_id = ?)`).bind(ringId).run();
+        summary.entries_deleted = (entriesRes.meta && entriesRes.meta.changes) || 0;
+        const classesRes = await env.WEST_DB_V3.prepare(`DELETE FROM classes WHERE ring_id = ?`).bind(ringId).run();
+        summary.classes_deleted = (classesRes.meta && classesRes.meta.changes) || 0;
+        const udpRes = await env.WEST_DB_V3.prepare(`DELETE FROM udp_events WHERE show_id = ? AND ring_num = ?`).bind(showId, ringNumInt).run();
+        summary.udp_events_deleted = (udpRes.meta && udpRes.meta.changes) || 0;
+        const segRes = await env.WEST_DB_V3.prepare(`DELETE FROM ring_live_segment WHERE show_slug = ? AND ring_num = ?`).bind(slug, ringNumInt).run();
+        summary.ring_segments_deleted = (segRes.meta && segRes.meta.changes) || 0;
+      } catch (e) {
+        return err('D1 flush failed: ' + e.message + ' — partial state, retry', 500);
+      }
+
+      // R2: list and delete all .cls archives under the ring's prefix.
+      // Cursor through pages so a ring with >1000 classes still cleans fully.
+      try {
+        const prefix = `${slug}/${ringNumInt}/`;
+        let cursor;
+        do {
+          const listed = await env.WEST_R2_CLS.list({ prefix, cursor });
+          const keys = (listed.objects || []).map(o => o.key);
+          if (keys.length) {
+            await env.WEST_R2_CLS.delete(keys);
+            summary.r2_objects_deleted += keys.length;
+          }
+          cursor = listed.truncated ? listed.cursor : null;
+        } while (cursor);
+      } catch (e) {
+        console.log(`[v3/flushRing] R2 cleanup failed for ${slug}/${ringNumInt}: ${e.message}`);
+        // Non-fatal — D1 is the source of truth, R2 orphans are reclaimable.
+      }
+
+      // KV: nuke the ring-state snapshot and last-cls pointer. Engine
+      // heartbeat (engine:slug:ring) intentionally left alone — it'll
+      // refresh on next engine batch, and clearing it would break the
+      // index page's "ring is live" pulse for any operators watching.
+      try {
+        await env.WEST_LIVE.delete(`ring-state:${slug}:${ringNumInt}`);
+        summary.kv_keys_deleted++;
+      } catch (e) { console.log(`[v3/flushRing] KV ring-state delete: ${e.message}`); }
+      try {
+        await env.WEST_LIVE.delete(`cls-last:${slug}:${ringNumInt}`);
+        summary.kv_keys_deleted++;
+      } catch (e) { console.log(`[v3/flushRing] KV cls-last delete: ${e.message}`); }
+
+      // DO: route flush_all through the existing /class-action handler so
+      // the in-memory byClass + segment trackers reset cleanly. The
+      // 15-second cls_lock cooldown set by flush_all is a feature here —
+      // if the engine restarts immediately and Ryegate writes a trailing
+      // .cls (no real new scoring), it won't relight a class.
+      try {
+        const id = env.RING_STATE.idFromName(`${slug}:${ringNumInt}`);
+        const stub = env.RING_STATE.get(id);
+        const doResp = await stub.fetch('https://do/class-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, ring_num: ringNumInt, action: 'flush_all' }),
+        });
+        summary.do_flushed = doResp.ok;
+      } catch (e) {
+        console.log(`[v3/flushRing] DO flush failed: ${e.message}`);
+      }
+
+      console.log(`[v3/flushRing] ${slug}/${ringNumInt} — ${JSON.stringify(summary)}`);
+      return json({ ok: true, slug, ring_num: ringNumInt, summary });
+    }
+
     // ── GET /v3/getShowLiveStatus ────────────────────────────────────────────
     // Bulk live-state read for a show's rings. Used by classes.html /
     // class.html / show.html to render "Live" pills/banners without

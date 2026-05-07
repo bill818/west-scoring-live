@@ -683,6 +683,48 @@ function renderClasses() {
   });
 }
 
+// Flush ring — wipe ALL data for a (slug, ring_num) pair. Two-stage
+// confirm because this is unrecoverable: prompt() forces the operator to
+// type the ring number, blocking accidental click-throughs on a "🗑 Flush"
+// next to "Edit". The dialog text spells out exactly what dies (D1 rows,
+// R2 archives, KV state) and reminds the operator to stop the engine
+// first — the worker can't enforce that, and a running engine will race
+// the deletes.
+async function flushRing(slug, ringNum) {
+  const ring = state.rings.find(r => r.ring_num === ringNum);
+  const ringLabel = ring && ring.name ? `${ringNum} (${ring.name})` : String(ringNum);
+  const typed = prompt(
+    `FLUSH RING ${ringLabel} — wipe ALL data?\n\n` +
+    `This permanently deletes:\n` +
+    `  • All classes on this ring\n` +
+    `  • All entries + scores + judge cards\n` +
+    `  • All .cls archives in R2\n` +
+    `  • The live snapshot in KV\n` +
+    `  • The in-memory live state on the worker\n\n` +
+    `Show + ring config are preserved. Restart the engine after to repopulate.\n\n` +
+    `STOP THE ENGINE FIRST. If it's still running, it will re-upload during the flush and you'll get a partial wipe.\n\n` +
+    `To confirm, type the ring number: ${ringNum}`
+  );
+  if (typed == null) return;
+  if (String(typed).trim() !== String(ringNum)) {
+    toast('Ring number did not match — flush cancelled', 'error');
+    return;
+  }
+  try {
+    const res = await api('POST', '/v3/flushRing', { slug, ring_num: ringNum });
+    const s = res.summary || {};
+    toast(
+      `Ring ${ringNum} flushed: ${s.classes_deleted || 0} classes, ` +
+      `${s.entries_deleted || 0} entries, ${s.r2_objects_deleted || 0} R2 files`,
+      'success'
+    );
+    await loadRings(state.selectedSlug);
+    if (typeof loadClasses === 'function') await loadClasses(state.selectedSlug);
+  } catch (e) {
+    toast('Flush failed: ' + e.message, 'error');
+  }
+}
+
 async function hardDeleteCls(slug, ring, classId) {
   const confirmed = confirm(
     `Permanently delete class ${classId}?\n\n` +
@@ -868,14 +910,22 @@ function renderRings() {
     return;
   }
   empty.style.display = 'none';
-  // Wire Edit buttons on ring rows via event delegation (overwrites any
-  // previous delegated handler so we don't stack listeners on re-render)
+  // Wire Edit + Flush buttons on ring rows via event delegation (overwrites
+  // any previous delegated handler so we don't stack listeners on re-render).
   ul.onclick = (ev) => {
-    const btn = ev.target.closest('.btn-ring-edit[data-ring-num]');
-    if (!btn) return;
-    const rn = parseInt(btn.dataset.ringNum, 10);
-    const ring = state.rings.find(r => r.ring_num === rn);
-    if (ring) openRingDialog('edit', ring);
+    const editBtn = ev.target.closest('.btn-ring-edit[data-ring-num]');
+    if (editBtn) {
+      const rn = parseInt(editBtn.dataset.ringNum, 10);
+      const ring = state.rings.find(r => r.ring_num === rn);
+      if (ring) openRingDialog('edit', ring);
+      return;
+    }
+    const flushBtn = ev.target.closest('.btn-ring-flush[data-ring-num]');
+    if (flushBtn) {
+      const rn = parseInt(flushBtn.dataset.ringNum, 10);
+      flushRing(state.selectedSlug, rn);
+      return;
+    }
   };
   const now = Date.now();
   for (const r of filtered) {
@@ -928,7 +978,8 @@ function renderRings() {
       </div>
       <div class="ring-engine">${engineHtml}</div>
       <a class="btn-secondary" href="${liveUrl}" target="_blank" rel="noopener" title="Open the spectator live page in a new tab">▶ Live</a>
-      <button class="btn-secondary btn-ring-edit" data-ring-num="${r.ring_num}" title="Edit ring">Edit</button>`;
+      <button class="btn-secondary btn-ring-edit" data-ring-num="${r.ring_num}" title="Edit ring">Edit</button>
+      <button class="btn-danger btn-ring-flush" data-ring-num="${r.ring_num}" title="Wipe all classes, entries, .cls archives, and live state for this ring. Show + ring config preserved. Stop the engine first.">🗑 Flush</button>`;
     ul.appendChild(li);
   }
 }
