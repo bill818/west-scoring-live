@@ -18,3 +18,4 @@
 - [Use centralized templates for standings](feedback_use_centralized_templates.md) — always call WEST.jumperTemplates / WEST.hunterTemplates for standings; recent-round-first stacking + method-aware labels live there
 - [Class final/complete only on explicit signal](feedback_class_final_only_on_signal.md) — only the 3× Ctrl+A CLASS_COMPLETE on port 31000 marks a class final; idle-eviction is UI hygiene only, never status
 - [Engine flat-class wiring (NEXT SESSION TOP PRIORITY)](project_engine_hunter_flat_class.md) — hunter flat_entries / ribbon results frontend + contract done; engine UDP-event-to-snapshot plumbing is the missing piece
+- [Engine mtime gating TODO](project_engine_mtime_gating.md) — Saratoga 2026-05-07: stale .cls files from prior week leaked into new show. Flush ring button shipped; engine-side mtime filter still to build
