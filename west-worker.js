@@ -2231,7 +2231,23 @@ export class RingStateDO {
         }
       }
 
-      const lensKind = this.snapshot.class_kind;
+      // Lens derivation. Normally /v3/postUdpEvent stamps snapshot.class_kind
+      // from the classes-table row's (class_type, scoring_method). On a
+      // brand-new class the operator opens, UDP fires before the .cls is
+      // posted, so D1 carries class_type='U' and scoring_method=null →
+      // class_kind comes back null. /v3/postCls then parses the .cls and
+      // promotes the row to J/T/H, but the snapshot's class_kind is still
+      // null when this /scores-update fires. Bailing here on a null lens
+      // means the first horse's standings never broadcast — the page only
+      // catches up when the next UDP event refreshes the lens (the operator
+      // saw "second horse going on course was the trigger"). The body is
+      // authoritative — its scores arrays come from the just-parsed D1 row,
+      // so if hunter_scores/jumper_scores is present we know the lens.
+      let lensKind = this.snapshot.class_kind;
+      if (lensKind !== 'hunter' && lensKind !== 'jumper' && lensKind !== 'equitation') {
+        if (Array.isArray(body.hunter_scores)) lensKind = 'hunter';
+        else if (Array.isArray(body.jumper_scores)) lensKind = 'jumper';
+      }
       const isHunter = lensKind === 'hunter';
       const isJumper = lensKind === 'jumper' || lensKind === 'equitation';
       if (!isHunter && !isJumper) {
@@ -2244,6 +2260,12 @@ export class RingStateDO {
         (this.snapshot.last && this.snapshot.last.class_id) || null;
       const focusMatched = focusedClassId === body.class_id;
       if (focusMatched) {
+        // Catch up class_kind on the focused snapshot so later consumers
+        // (live page lens checks, next /scores-update) don't see the stale
+        // null carried over from the pre-parse UDP batch.
+        if (this.snapshot.class_kind == null) {
+          this.snapshot.class_kind = lensKind;
+        }
         // Top-level (focused class's) scores update — backwards-compat path.
         if (isHunter && body.hunter_scores !== undefined) {
           this.snapshot.hunter_scores = body.hunter_scores;
