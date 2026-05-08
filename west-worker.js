@@ -1673,35 +1673,22 @@ export class RingStateDO {
     // handler upstream nulls previous_entry, but without this gate the
     // still-present last_identity + scoring row immediately rebuild it
     // on the very next batch.
-    if (!prior.is_final) {
-      // Bill 2026-05-08: case (a) [same rider, row updated] is now
-      // handled exclusively in /scores-update. UDP events fire BEFORE
-      // /v3/postCls writes fresh row data to D1, so promoting here
-      // would render stale "single round" state for ~500ms before the
-      // full release lands. Banner now waits for /scores-update which
-      // runs after the row is fresh — single visible update per
-      // operator press.
-      //
-      // Case (b) [transition: rider changed] still fires here. The
-      // outgoing rider's row is already fresh from their previous
-      // /v3/postCls, so this is safe. Catches the rider change
-      // immediately rather than waiting for their first scoring event.
-      if (priorOnCourseEntry && newOnCourseEntry
-          && priorOnCourseEntry !== newOnCourseEntry) {
-        const classKindForBuild = body.class_kind || prior.class_kind;
-        const classMetaForBuild = body.class_meta || prior.class_meta;
-        const currentScores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
-                             : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
-                             : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
-                             : prior.hunter_scores) || [];
-        const oncRow = currentScores.find(r => String(r.entry_num) === String(priorOnCourseEntry));
-        const candidate = this._buildPrevEntry(oncRow, classKindForBuild, classMetaForBuild);
-        if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
-          candidate.finished_at = body.received_at || new Date().toISOString();
-          previousEntry = candidate;
-        }
-      }
-    }
+    // Bill 2026-05-08: pe is now promoted EXCLUSIVELY by /scores-update.
+    // _updateByClass fires from /v3/postUdpEvent which runs BEFORE
+    // /v3/postCls has written fresh row data — any promote here used
+    // stale prior.hunter_scores and produced a visible flash of
+    // single-round state before /scores-update refined it. Removed
+    // both case (a) [same rider] and case (b) [transition].
+    //
+    // Trade-off: brief gap between rider transition and the next
+    // /scores-update (where pe stays on the prior promoted entry).
+    // The gap is bounded by .cls write latency (~few hundred ms).
+    // Single visible update per operator press wins over a snappier-
+    // but-flashy transition.
+    //
+    // priorOnCourseEntry / newOnCourseEntry kept declared above for
+    // diagnostic visibility; intentionally unused here.
+    void priorOnCourseEntry; void newOnCourseEntry;
 
     this.byClass[classId] = {
       class_id: classId,
@@ -2624,31 +2611,55 @@ export class RingStateDO {
             targetEntry.jumper_scores = body.jumper_scores;
           }
         }
-        // Promote on-course rider to previous_entry (case 'a') when
-        // their row has fresh scoring data. Bill 2026-05-08: this is
-        // now the SOLE promote site for the same-rider case — UDP-event
-        // path (_updateByClass) only handles transitions. /scores-update
-        // fires AFTER /v3/postCls writes the row, so candidate is built
-        // from fresh data and the banner gets one clean update per
-        // operator press (no flash-then-correct).
+        // Promote previous_entry — sole promote site for hunter/jumper
+        // pe across both same-rider-on-course updates and rider
+        // transitions. /scores-update fires AFTER /v3/postCls writes
+        // the row, so we always have fresh data here. Bill 2026-05-08.
         //
-        // Compares candidate row against the row we had BEFORE this
-        // /scores-update applied body.hunter_scores/jumper_scores. If
-        // the row hasn't actually changed (re-broadcast of the same
-        // .cls), no promote — _samePrevEntry against the existing pe
-        // also dedupes multi-round refreshes.
-        const onCourseId = targetEntry.last_identity && targetEntry.last_identity.tags
-          ? String(targetEntry.last_identity.tags['1'] || '').replace(/\r/g, '').trim()
-          : '';
-        if (onCourseId && !targetEntry.is_final) {
-          const scoresForPrev = targetIsHunter
+        // Detection strategy: find the entry whose row data CHANGED
+        // since the last broadcast. That's the rider who just finished
+        // (or just got a new score released). Don't rely on
+        // last_identity — by the time /scores-update fires, last_identity
+        // may have already flipped to the next on-course rider.
+        if (!targetEntry.is_final) {
+          const sigOf = (r) => r ? [
+            r.r1_score_total, r.r2_score_total, r.r3_score_total,
+            r.combined_total,
+            r.r1_total_faults, r.r1_total_time,
+            r.r2_total_faults, r.r2_total_time,
+            r.r3_total_faults, r.r3_total_time,
+            r.r1_h_status, r.r2_h_status, r.r3_h_status,
+            r.r1_status, r.r2_status, r.r3_status,
+            r.current_place, r.overall_place,
+            (r.judges || []).map(j => j.round + ':' + j.idx + ':' + j.base + ':' + (j.hiopt || 0) + ':' + (j.handy || 0)).join('|'),
+          ].join('~') : '';
+          const priorScores = targetIsHunter
+            ? ((existing && existing.hunter_scores) || [])
+            : ((existing && existing.jumper_scores) || []);
+          const newScores = targetIsHunter
             ? (targetEntry.hunter_scores || [])
             : (targetEntry.jumper_scores || []);
-          const oncRow = scoresForPrev.find(r => String(r.entry_num) === String(onCourseId));
-          const candidate = this._buildPrevEntry(oncRow, targetLens, targetEntry.class_meta);
-          if (candidate && !this._samePrevEntry(targetEntry.previous_entry, candidate)) {
-            candidate.finished_at = new Date().toISOString();
-            targetEntry.previous_entry = candidate;
+          const priorSigs = new Map(priorScores.map(r => [String(r.entry_num), sigOf(r)]));
+          // Pick the entry whose signature changed AND now has scoring data.
+          let updatedRow = null;
+          for (const r of newScores) {
+            const newSig = sigOf(r);
+            const oldSig = priorSigs.get(String(r.entry_num)) || '';
+            if (newSig !== oldSig && newSig) {
+              // Prefer entries with actual scoring data (skip null-only changes).
+              const hasData = r.r1_score_total != null || r.r2_score_total != null
+                            || r.r3_score_total != null || r.combined_total != null
+                            || r.r1_total_faults != null || r.r1_total_time != null
+                            || r.r1_h_status || r.r1_status;
+              if (hasData) { updatedRow = r; break; }
+            }
+          }
+          if (updatedRow) {
+            const candidate = this._buildPrevEntry(updatedRow, targetLens, targetEntry.class_meta);
+            if (candidate && !this._samePrevEntry(targetEntry.previous_entry, candidate)) {
+              candidate.finished_at = new Date().toISOString();
+              targetEntry.previous_entry = candidate;
+            }
           }
         }
       }
