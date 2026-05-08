@@ -1494,11 +1494,11 @@ export class RingStateDO {
       }
       if (rounds.length >= 2) {
         bannerSlots = rounds.map(rr => ({ label: rr.label, value: fmtScore(rr.score) }));
-        bannerSlots.push({ label: 'Overall', value: fmtScore(row.combined_total) });
+        bannerSlots.push({ label: 'Overall', value: fmtScore(row.combined_total), emphasize: true });
         bannerSlots = bannerSlots.concat(judgeSlots);
         bannerSlots.push({ label: 'Rank', value: rankFor() });
       } else if (rounds.length === 1) {
-        bannerSlots = [{ label: 'Score', value: fmtScore(rounds[0].score) }];
+        bannerSlots = [{ label: 'Score', value: fmtScore(rounds[0].score), emphasize: true }];
         bannerSlots = bannerSlots.concat(judgeSlots);
         bannerSlots.push({ label: 'Rank', value: rankFor() });
       }

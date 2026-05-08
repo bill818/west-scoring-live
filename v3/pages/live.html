@@ -580,6 +580,7 @@
   .just-finished .jf-stat { font-family: var(--font-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); display: inline-flex; align-items: baseline; gap: 4px; flex-shrink: 0; }
   .just-finished .jf-stat-lbl { color: var(--text-muted); }
   .just-finished .jf-stat span:not(.jf-stat-lbl) { font-family: var(--font-display); font-weight: 700; font-size: 12px; color: var(--navy); letter-spacing: 0; text-transform: none; }
+  .just-finished .jf-stat.is-emphasis span:not(.jf-stat-lbl) { font-size: 16px; }
 
   /* Flat-class mode — replaces the live-box grid when a hunter class
      is in flat-class state (multiple entries in the ring at once,
@@ -1448,7 +1449,8 @@
       if (ep && epSlots.length > 0) {
         var nameTxt = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
         var jfStatsHtml = epSlots.map(function (s) {
-          return '<span class="jf-stat"><span class="jf-stat-lbl">'
+          var emph = s.emphasize || s.label === 'Overall' || s.label === 'Score';
+          return '<span class="jf-stat' + (emph ? ' is-emphasis' : '') + '"><span class="jf-stat-lbl">'
             + esc(s.label) + '</span> <span>' + esc(s.value) + '</span></span>';
         }).join('');
         jfHtml = '<div class="just-finished">'
@@ -1505,19 +1507,19 @@
     }
     if (Array.isArray(pe.rounds) && pe.rounds.length >= 2) {
       var slots = pe.rounds.map(function (r) { return { label: r.label, value: fmt(r.score) }; });
-      slots.push({ label: 'Overall', value: fmt(pe.combined_total) });
+      slots.push({ label: 'Overall', value: fmt(pe.combined_total), emphasize: true });
       slots.push({ label: 'Rank',    value: rank });
       return slots;
     }
     if (Array.isArray(pe.rounds) && pe.rounds.length === 1) {
       return [
-        { label: 'Score', value: fmt(pe.rounds[0].score) },
+        { label: 'Score', value: fmt(pe.rounds[0].score), emphasize: true },
         { label: 'Rank',  value: rank },
       ];
     }
     if (pe.displayed_score != null || pe.combined_total != null) {
       return [
-        { label: 'Score', value: fmt(pe.displayed_score != null ? pe.displayed_score : pe.combined_total) },
+        { label: 'Score', value: fmt(pe.displayed_score != null ? pe.displayed_score : pe.combined_total), emphasize: true },
         { label: 'Rank',  value: rank },
       ];
     }
@@ -2237,7 +2239,10 @@
             }); };
         if (jfStatsRow) {
           jfStatsRow.innerHTML = slots.map(function (s) {
-            return '<span class="jf-stat"><span class="jf-stat-lbl">'
+            // Emphasize the score-summary slot (worker flag OR label
+            // fallback for pe records that pre-date the flag).
+            var emph = s.emphasize || s.label === 'Overall' || s.label === 'Score';
+            return '<span class="jf-stat' + (emph ? ' is-emphasis' : '') + '"><span class="jf-stat-lbl">'
               + jfEsc(s.label) + '</span> <span>' + jfEsc(s.value) + '</span></span>';
           }).join('');
         }
