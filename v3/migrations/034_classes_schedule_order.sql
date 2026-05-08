@@ -1,0 +1,21 @@
+-- Migration 034: classes.schedule_order — 1-indexed position of the
+-- class in the operator's tsked.csv schedule. Drives the public ring
+-- page's class display order so it matches ryegate.live (the source
+-- of truth for run order).
+--
+-- Without this column the public /v3/listClasses query was sorting by
+-- scheduled_date then class_id alphabetically, giving 325 / 330 / 335
+-- / 340 / ... / 925 / 930 / 935 / 940. The actual tsked order
+-- interleaves heights: 325 / 925 / 930 / 330 / 335 / 935 / 340 / 940
+-- — that's the run order Ryegate publishes to the public.
+--
+-- /v3/postTsked writes idx+1 (1-indexed file position) for each row.
+-- /v3/postCls catch-up scans the stored R2 tsked.csv and writes the
+-- matching position when a class first registers after the last
+-- tsked POST. NULL = class isn't scheduled (only in admin's
+-- "Unscheduled" bucket); ORDER BY puts those last via "schedule_order
+-- IS NULL" pre-sort.
+--
+-- Bill 2026-05-07.
+
+ALTER TABLE classes ADD COLUMN schedule_order INTEGER;

@@ -4868,11 +4868,19 @@ export default {
               const tskedBytes = await tskedObj.arrayBuffer();
               const tskedText = new TextDecoder('utf-8', { fatal: false }).decode(tskedBytes);
               const tskedLines = tskedText.split(/\r?\n/);
+              // Walk the file twice — first pass to compute the 1-indexed
+              // position among VALID rows so schedule_order matches what
+              // /v3/postTsked would have written. Second pass finds our
+              // class and applies if present. Bill 2026-05-07.
+              let tskedPos = 0;
+              let matchedPos = null, matchedDate = null, matchedFlag = null;
               for (let li = 1; li < tskedLines.length; li++) {
                 const tline = tskedLines[li];
                 if (!tline.trim()) continue;
                 const tcols = parseCsvLineV3(tline);
                 const tcid = (tcols[0] || '').trim();
+                if (!tcid) continue;
+                tskedPos++;
                 if (tcid !== classId) continue;
                 const tdate = (tcols[2] || '').trim();
                 const tflag = (tcols[3] || '').trim() || null;
@@ -4880,12 +4888,17 @@ export default {
                 const tm = tdate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
                 if (tm) tisoDate = `${tm[3]}-${tm[1].padStart(2, '0')}-${tm[2].padStart(2, '0')}`;
                 if (tisoDate) {
-                  await env.WEST_DB_V3.prepare(
-                    `UPDATE classes SET scheduled_date = ?, schedule_flag = ?
-                     WHERE id = ? AND scheduled_date IS NULL`
-                  ).bind(tisoDate, tflag, classDbId).run();
+                  matchedPos = tskedPos;
+                  matchedDate = tisoDate;
+                  matchedFlag = tflag;
                 }
                 break;
+              }
+              if (matchedPos != null) {
+                await env.WEST_DB_V3.prepare(
+                  `UPDATE classes SET scheduled_date = ?, schedule_flag = ?, schedule_order = ?
+                   WHERE id = ? AND scheduled_date IS NULL`
+                ).bind(matchedDate, matchedFlag, matchedPos, classDbId).run();
               }
             }
           } catch (e) {
@@ -5204,17 +5217,27 @@ export default {
             'SELECT id FROM rings WHERE show_id = ? AND ring_num = ?'
           ).bind(show.id, ringNum).first();
           if (!ring) return err('Ring not found', 404);
+          // Bill 2026-05-07: order by tsked schedule_order (the
+          // operator's interleaved run order — 325, 925, 930, 330,
+          // ...) inside each scheduled_date. Falls back to class_id
+          // for any class without a schedule_order (catch-up cases /
+          // unscheduled classes / pre-tsked-fix data). Numeric coerce
+          // on class_id keeps "9" before "10" in fallback ordering.
           query = `SELECT c.*, ? AS ring_num,
                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
                    FROM classes c WHERE c.ring_id = ?
-                   ORDER BY c.scheduled_date IS NULL, c.scheduled_date, c.class_id`;
+                   ORDER BY c.scheduled_date IS NULL, c.scheduled_date,
+                            c.schedule_order IS NULL, c.schedule_order,
+                            CAST(c.class_id AS INTEGER), c.class_id`;
           params = [ringNum, ring.id];
         } else {
           query = `SELECT c.*, r.ring_num,
                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
                    FROM classes c JOIN rings r ON r.id = c.ring_id
                    WHERE c.show_id = ?
-                   ORDER BY r.ring_num, c.scheduled_date IS NULL, c.scheduled_date, c.class_id`;
+                   ORDER BY r.ring_num, c.scheduled_date IS NULL, c.scheduled_date,
+                            c.schedule_order IS NULL, c.schedule_order,
+                            CAST(c.class_id AS INTEGER), c.class_id`;
           params = [show.id];
         }
         const { results } = await env.WEST_DB_V3.prepare(query).bind(...params).all();
@@ -5423,12 +5446,18 @@ export default {
         console.log(`[v3/postTsked] clear-stale failed for ${slug}: ${e.message}`);
       }
       // Update classes (UPDATE-only, never INSERT — .cls POST is the
-      // authority for class existence)
-      for (const r of rows) {
+      // authority for class existence). schedule_order = 1-indexed
+      // position in the tsked file. Bill 2026-05-07: this is what
+      // ryegate.live uses to drive class display order; without it
+      // the public ring page sorts by class_id alphabetically (325,
+      // 330, 335, ...) instead of the operator's interleaved schedule
+      // (325, 925, 930, 330, ...).
+      for (let idx = 0; idx < rows.length; idx++) {
+        const r = rows[idx];
         try {
           const res = await env.WEST_DB_V3.prepare(
-            `UPDATE classes SET scheduled_date = ?, schedule_flag = ? WHERE show_id = ? AND class_id = ?`
-          ).bind(r.isoDate, r.flag, showId, r.classId).run();
+            `UPDATE classes SET scheduled_date = ?, schedule_flag = ?, schedule_order = ? WHERE show_id = ? AND class_id = ?`
+          ).bind(r.isoDate, r.flag, idx + 1, showId, r.classId).run();
           if (res.meta && res.meta.changes > 0) updated++;
           else skipped++;
         } catch (e) {
@@ -5443,6 +5472,65 @@ export default {
         { expirationTtl: 86400 }
       );
       return json({ ok: true, received_at, rows_total: rows.length, updated, skipped, cleared, invalid });
+    }
+
+    // ── POST /v3/reprocessTsked?slug=X ───────────────────────────────────────
+    // Backfill helper. Re-runs the existing /v3/postTsked write logic
+    // against the tsked.csv currently stored in R2 for this show. Use
+    // when a column was added (migration 034 schedule_order) and the
+    // existing classes need their order populated without asking the
+    // operator to re-post tsked from Ryegate.
+    //
+    // Auth-gated. Idempotent — re-running with no R2 changes just
+    // re-writes the same values.
+    if (method === 'POST' && path === '/v3/reprocessTsked') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      if (!slug) return err('Missing slug query param');
+      let showId;
+      try {
+        const show = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?'
+        ).bind(slug).first();
+        if (!show) return err('Unknown show slug', 404);
+        showId = show.id;
+      } catch (e) { return err('DB error: ' + e.message); }
+      let text;
+      try {
+        const obj = await env.WEST_R2_CLS.get(`${slug}/tsked.csv`);
+        if (!obj) return err('No tsked.csv in R2 for this show', 404);
+        const buf = await obj.arrayBuffer();
+        text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      } catch (e) { return err('R2 read failed: ' + e.message); }
+      const lines = text.split(/\r?\n/);
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const cols = parseCsvLineV3(line);
+        const classId = (cols[0] || '').trim();
+        if (!classId) continue;
+        const dateStr = (cols[2] || '').trim();
+        let isoDate = null;
+        const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (m) isoDate = `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+        const flag = (cols[3] || '').trim() || null;
+        rows.push({ classId, isoDate, flag });
+      }
+      let updated = 0;
+      for (let idx = 0; idx < rows.length; idx++) {
+        const r = rows[idx];
+        try {
+          const res = await env.WEST_DB_V3.prepare(
+            `UPDATE classes SET scheduled_date = ?, schedule_flag = ?, schedule_order = ? WHERE show_id = ? AND class_id = ?`
+          ).bind(r.isoDate, r.flag, idx + 1, showId, r.classId).run();
+          if (res.meta && res.meta.changes > 0) updated++;
+        } catch (e) {
+          console.log(`[v3/reprocessTsked] update failed for ${slug}/${r.classId}: ${e.message}`);
+        }
+      }
+      return json({ ok: true, slug, rows_total: rows.length, updated });
     }
 
     // ── GET /v3/listEntries?class_id=N ───────────────────────────────────────
