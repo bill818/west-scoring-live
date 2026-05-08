@@ -913,17 +913,26 @@ footer a{color:var(--blue);}
   .chip-num{font-size:24px;}
   .chip-lbl{font-size:9px;letter-spacing:.08em;margin-top:4px;}
   .chip-sub{font-size:10px;margin-top:1px;}
-  .standings-hdr,.standing-row{gap:6px;padding:6px 10px;}
-  .standings-hdr{font-size:8px;letter-spacing:.1em;}
-  .col-place,.s-place{width:42px;font-size:11px;}
-  .s-place.s-place-jo{font-size:8px;letter-spacing:.08em;padding:2px 4px;}
-  .col-faults,.s-faults{width:44px;font-size:12px;}
+  /* Standings on mobile: drop Gap entirely (least critical info — the
+     numeric time is right next to it for context), tighten the four
+     remaining columns. Bill 2026-05-07: previous attempt kept Gap
+     visible but the resulting horse/rider column was so narrow that
+     horse names wrapped one word per line ("HJ HERCULES" → "H J
+     HERCULES" stacked). Header had the same problem with "HORSE /
+     RIDER" wrapping to 3 lines because of the .14em letter-spacing.
+     Header letter-spacing also reduced + horse-name word-break set
+     normal so the column doesn't break individual words. */
+  .col-gap,.s-gap{display:none;}
+  .standings-hdr,.standing-row{gap:8px;padding:8px 10px;}
+  .standings-hdr{font-size:9px;letter-spacing:.06em;}
+  .col-place,.s-place{width:32px;font-size:11px;}
+  .s-place.s-place-jo{font-size:8px;letter-spacing:.06em;padding:2px 4px;}
+  .col-faults,.s-faults{width:40px;font-size:12px;}
   .s-faults.elim{font-size:9px;}
-  .col-time,.s-time{width:56px;font-size:11px;}
-  .col-gap,.s-gap{width:64px;font-size:10px;}
-  .s-gap.leader{font-size:8px;}
-  .s-horse{font-size:12px;line-height:1.2;}
-  .s-rider{font-size:10px;line-height:1.2;}
+  .col-time,.s-time{width:60px;font-size:11px;}
+  .s-entry{min-width:0;flex:1 1 auto;}
+  .s-horse{font-size:13px;line-height:1.25;word-break:normal;overflow-wrap:break-word;}
+  .s-rider{font-size:10px;line-height:1.25;}
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
