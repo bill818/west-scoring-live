@@ -942,6 +942,34 @@ const STATUS_CODES = {
   NS:  { label: 'DNS', full: 'No Show',        category: 'DNS'     },
 };
 
+// Pick the scores array to write onto byClass[focusedClassId]. Body
+// scores belong to lensClassId (last UDP event's class), which can
+// differ from the focused class. Routing rule:
+//   • When lens class matches focused, adopt body (with empty-array
+//     guard — a mid-sweep [] doesn't clobber populated prior).
+//   • When lens != focused, body's scores belong to a different
+//     class entirely; keep prior unchanged.
+//   • When body has no class_meta hint at all (legacy / hunter-only
+//     batches), fall through to body if defined, else prior.
+// Bill 2026-05-08.
+function pickScores(bodyScores, priorScores, bodyClassMeta, focusedClassId) {
+  const lensClassId = bodyClassMeta && bodyClassMeta.class_id;
+  const lensIsFocused = lensClassId != null
+    && String(lensClassId) === String(focusedClassId);
+  const priorIsPopulated = Array.isArray(priorScores) && priorScores.length > 0;
+  // Empty-overwrite guard — keep populated prior when incoming is empty.
+  const bodyIsEmpty = Array.isArray(bodyScores) && bodyScores.length === 0;
+  if (bodyIsEmpty && priorIsPopulated) return priorScores;
+  // Lens-class routing — only adopt body scores when they're for the
+  // focused class. When body has no lens hint we can't tell, so
+  // adopt body (preserves legacy behavior) unless empty + prior is
+  // populated (handled above).
+  if (lensClassId != null && !lensIsFocused) {
+    return priorScores != null ? priorScores : null;
+  }
+  return bodyScores !== undefined ? bodyScores : (priorScores || null);
+}
+
 // Pick the hunter "displayed round" for a scoring row — i.e. which
 // round (or Overall) the operator most recently RELEASED via Display
 // Scores. Mirror of the subset-matching logic in
@@ -1488,8 +1516,21 @@ export class RingStateDO {
       class_meta: (body.class_meta && String(body.class_meta.class_id) === String(classId))
         ? body.class_meta
         : (prior.class_meta || null),
-      jumper_scores: body.jumper_scores !== undefined ? body.jumper_scores : (prior.jumper_scores || null),
-      hunter_scores: body.hunter_scores !== undefined ? body.hunter_scores : (prior.hunter_scores || null),
+      // Bill 2026-05-08: scores are routed by LENS CLASS — body.
+      // jumper_scores / hunter_scores belong to whatever class the
+      // last UDP event was for (lensClassId in /v3/postUdpEvent),
+      // NOT necessarily the focused class. Same trap class_meta hit
+      // (fixed earlier). Only adopt body scores when the lens class
+      // matches the focused class. Otherwise keep prior — the
+      // focused class's actual scores live there from its own
+      // /v3/postCls + /scores-update path. body.class_meta.class_id
+      // carries the lens class as a proxy.
+      //
+      // PLUS empty-overwrite guard: even when lens IS focused, a
+      // mid-sweep pullJumperScoresV3 can return [] transiently. Keep
+      // populated prior over an incoming empty.
+      jumper_scores: pickScores(body.jumper_scores, prior.jumper_scores, body.class_meta, classId),
+      hunter_scores: pickScores(body.hunter_scores, prior.hunter_scores, body.class_meta, classId),
       hunter_seen:   body.hunter_seen   !== undefined ? body.hunter_seen   : (prior.hunter_seen   || null),
       last_scoring:  body.last_scoring  || prior.last_scoring  || null,
       last_focus:    body.last_focus    || prior.last_focus    || null,
