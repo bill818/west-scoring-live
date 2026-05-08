@@ -1501,33 +1501,58 @@ export class RingStateDO {
     const prior = this.byClass[classId] || {};
 
     // Previous-entry tracking (Bill 2026-05-06): the most recently
-    // SCORED entry per class. Trigger is the current on-course entry's
-    // scoring data CHANGING (jumper_scores/hunter_scores row updated).
-    // Detection is via _buildPrevEntry + _samePrevEntry so the same
-    // entry running multiple rounds (e.g., R1 then jump-off) gets
-    // promoted again with the LATEST round's data. Worker-owned;
-    // pages just read snapshot.previous_entry.
+    // SCORED entry per class. Promotion happens in two shapes:
+    //
+    //   (a) Same rider still on course, their scoring row updated:
+    //       promote them — covers initial finish + multi-round (R1 →
+    //       JO) cases.
+    //   (b) On-course rider CHANGED (priorOnCourseEntry → new rider):
+    //       promote the OUTGOING rider's row. The incoming rider is
+    //       NOT a candidate even if their row has prior-round data.
+    //
+    // Bill 2026-05-08: previously the code always evaluated
+    // _buildPrevEntry on the CURRENT on-course entry's row. When a new
+    // rider came on course with R1 already scored from earlier in the
+    // class, they got promoted as previous_entry — banner switched to
+    // show whoever just walked into the ring instead of the rider who
+    // just finished. Worker-owned; pages just read previous_entry.
     const newId = body.last_identity || prior.last_identity || null;
     const newOnCourseEntry = newId && newId.tags
       ? String((newId.tags['1'] || '')).replace(/\r/g, '').trim()
+      : '';
+    const priorOnCourseEntry = prior.last_identity && prior.last_identity.tags
+      ? String((prior.last_identity.tags['1'] || '')).replace(/\r/g, '').trim()
       : '';
     let previousEntry = prior.previous_entry || null;
     // Skip repopulate when class is FINAL — Bill 2026-05-06: the FINAL
     // handler upstream nulls previous_entry, but without this gate the
     // still-present last_identity + scoring row immediately rebuild it
     // on the very next batch.
-    if (newOnCourseEntry && !prior.is_final) {
-      const scores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
-                    : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
-                    : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
-                    : prior.hunter_scores) || [];
-      const oncRow = scores.find(r => String(r.entry_num) === String(newOnCourseEntry));
-      const candidate = this._buildPrevEntry(oncRow,
-        body.class_kind || prior.class_kind,
-        body.class_meta || prior.class_meta);
-      if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
-        candidate.finished_at = body.received_at || new Date().toISOString();
-        previousEntry = candidate;
+    if (!prior.is_final) {
+      let promoteTarget = null;
+      if (priorOnCourseEntry && priorOnCourseEntry === newOnCourseEntry) {
+        // (a) Same rider; their row may have new scoring data.
+        promoteTarget = newOnCourseEntry;
+      } else if (priorOnCourseEntry && newOnCourseEntry
+                 && priorOnCourseEntry !== newOnCourseEntry) {
+        // (b) Transition; promote the OUTGOING rider, never the new one.
+        promoteTarget = priorOnCourseEntry;
+      }
+      // Cold start (priorOnCourseEntry empty): wait one batch — next
+      // arrival will land in case (a).
+      if (promoteTarget) {
+        const scores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
+                      : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
+                      : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
+                      : prior.hunter_scores) || [];
+        const oncRow = scores.find(r => String(r.entry_num) === String(promoteTarget));
+        const candidate = this._buildPrevEntry(oncRow,
+          body.class_kind || prior.class_kind,
+          body.class_meta || prior.class_meta);
+        if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
+          candidate.finished_at = body.received_at || new Date().toISOString();
+          previousEntry = candidate;
+        }
       }
     }
 
@@ -2456,6 +2481,14 @@ export class RingStateDO {
         // entries (R1 → JO) re-promote with their latest round's data.
         // Skip when class is FINAL — same gate as _updateByClass; without
         // it a .cls re-write after FINAL would resurrect the banner.
+        //
+        // Bill 2026-05-08: only refine previous_entry when the candidate
+        // is the SAME entry that's already in previous_entry (multi-round
+        // refresh). Don't promote a different entry from /scores-update —
+        // promotion of a new entry happens in _updateByClass at the
+        // on-course-rider transition, not here. Without this guard, a
+        // /scores-update fire while a NEW on-course rider already has
+        // R1 data in their row would falsely promote them.
         const onCourseId = targetEntry.last_identity && targetEntry.last_identity.tags
           ? String(targetEntry.last_identity.tags['1'] || '').replace(/\r/g, '').trim()
           : '';
@@ -2465,7 +2498,10 @@ export class RingStateDO {
             : (targetEntry.jumper_scores || []);
           const oncRow = scoresForPrev.find(r => String(r.entry_num) === String(onCourseId));
           const candidate = this._buildPrevEntry(oncRow, targetLens, targetEntry.class_meta);
-          if (candidate && !this._samePrevEntry(targetEntry.previous_entry, candidate)) {
+          const priorPrev = targetEntry.previous_entry;
+          const isSameEntry = priorPrev && candidate
+            && String(priorPrev.entry_num) === String(candidate.entry_num);
+          if (candidate && isSameEntry && !this._samePrevEntry(priorPrev, candidate)) {
             candidate.finished_at = new Date().toISOString();
             targetEntry.previous_entry = candidate;
           }
