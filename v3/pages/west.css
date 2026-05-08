@@ -416,6 +416,22 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
   .results-table thead .entry-horse-rider .hd-breeding{display:none;}
   .results-table .entry-pedigree{display:none;}
 }
+/* Bill 2026-05-08: live.html standings on mobile. The .results-table
+   was rendering with desktop-sized padding inside the focused/per-
+   class panels on a 375px viewport — round-column header was clipping
+   ("ROU..."), and tight padding made each row read busy. Tighten
+   padding + drop owner/breeding lines on the smaller viewport so the
+   standings fit without horizontal pressure. */
+@media(max-width:600px){
+  .class-panel .results-table thead th{padding:6px 8px;font-size:8px;letter-spacing:.1em;}
+  .class-panel .results-table tbody td{padding:8px;font-size:12px;}
+  .class-panel .results-table .entry-place,
+  .class-panel .results-table .entry-num{width:36px;}
+  .class-panel .results-table .entry-owner{display:none;}
+  .class-panel .results-table .entry-meta{display:none;}
+  .class-panel .results-table .round-time{font-size:12px;margin-left:4px;}
+  .class-panel .results-table .round-faults{font-size:10px;}
+}
 /* Round templates: horse + rider share a single line. Wrapper sets
    the block context; horse/rider/separator are inline siblings. */
 .results-table .entry-horse-line{line-height:1.25;}

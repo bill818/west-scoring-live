@@ -567,7 +567,11 @@
   .just-finished .jf-row.jf-stats { gap: 28px; padding-left: 6px; }
   .just-finished .jf-lbl { font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--green); font-weight: 700; flex-shrink: 0; }
   .just-finished .jf-num { font-family: var(--font-mono); font-size: 11px; color: var(--red); font-weight: 700; flex-shrink: 0; }
-  .just-finished .jf-name { font-family: var(--font-display); font-weight: 700; font-size: 13px; color: var(--navy); letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  /* Bill 2026-05-08: jf-name was nowrap+ellipsis, clipping long
+     "HORSE / RIDER" pairs on narrow viewports ("EMILIA CANNIZ..."
+     mid-word). Switched to wrap with overflow-wrap so it stays on
+     one line when there's room and breaks cleanly on small screens. */
+  .just-finished .jf-name { font-family: var(--font-display); font-weight: 700; font-size: 13px; color: var(--navy); letter-spacing: -.005em; line-height: 1.2; min-width: 0; flex: 1; overflow-wrap: break-word; word-break: normal; }
   .just-finished .jf-stat { font-family: var(--font-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); display: inline-flex; align-items: baseline; gap: 4px; flex-shrink: 0; }
   .just-finished .jf-stat-lbl { color: var(--text-muted); }
   .just-finished .jf-stat span:not(.jf-stat-lbl) { font-family: var(--font-display); font-weight: 700; font-size: 12px; color: var(--navy); letter-spacing: 0; text-transform: none; }
@@ -1413,9 +1417,24 @@
       var ep = entry.previous_entry;
       var isJumperLensP = lens === 'jumper' || lens === 'equitation';
       if (ep && isJumperLensP) {
-        var faultsTxt = ep.faults != null ? String(ep.faults) : '—';
-        var timeTxt   = ep.time   != null ? Number(ep.time).toFixed(3) : '—';
-        var rankTxt   = ep.overall_place != null ? String(ep.overall_place) : '—';
+        // Bill 2026-05-08: mirror the focused-panel banner — when the
+        // prior rider was eliminated/fell/retired/withdrew, swap the
+        // F slot for the status code and the Time slot for the verbose
+        // reason. Without this, the per-class panel showed raw faults
+        // + time + rank for an EL'd rider (e.g. "F 4 / Time 22.537 /
+        // Rank 2") instead of "EL / Eliminated / —". Same logic as
+        // the focused panel's just-finished banner. status_full /
+        // status_label come from worker._buildPrevEntry.
+        var faultsTxt, timeTxt, rankTxt;
+        if (ep.status_label) {
+          faultsTxt = ep.status_label;
+          timeTxt   = ep.status_full || ep.status_label;
+          rankTxt   = ep.overall_place != null ? String(ep.overall_place) : '—';
+        } else {
+          faultsTxt = ep.faults != null ? String(ep.faults) : '—';
+          timeTxt   = ep.time   != null ? Number(ep.time).toFixed(3) : '—';
+          rankTxt   = ep.overall_place != null ? String(ep.overall_place) : '—';
+        }
         var nameTxt   = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
         jfHtml = '<div class="just-finished">'
           + '<div class="jf-row jf-id">'
