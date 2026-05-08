@@ -957,14 +957,18 @@
   WEST.hunterTemplates.renderLowerThird = function (meta, hunterScores, snapshot) {
     var empty = { hasContent: false };
     if (!snapshot || !meta || !Array.isArray(hunterScores)) return empty;
-    // Frame gate (Bill 2026-05-06): mirror the jumper rule that intro
-    // frames clear the score area. Only show score data when the latest
-    // Channel A frame is a Display Scores trigger (fr=12 / fr=14 / fr=16).
-    // fr=11 (entry rotation / intro) leaves the right column empty so
-    // the previous entry's stats don't bleed into the new rider's intro.
+    // Frame gate (Bill 2026-05-06, refined 2026-05-08): blank ONLY on
+    // intro (fr=11) — that's the "new rider walking in, don't bleed
+    // the previous entry's stats" case. Display Scores triggers
+    // (fr=12 / 14 / 16) and idle frames (fr=0 clear, fr=1 on-course
+    // tick) all keep showing the row's released scores. Pre-fix the
+    // gate also blanked on fr=0, so the moment Ryegate sent a clear
+    // between rides the score slot went empty even though the
+    // previous rider's released scores were still the right thing
+    // to show.
     var ls = snapshot.last_scoring;
     if (!ls || ls.channel !== 'A') return empty;
-    if (ls.frame !== 12 && ls.frame !== 14 && ls.frame !== 16) return empty;
+    if (ls.frame === 11) return empty;
     // Find the on-course entry. last_identity is the canonical "who's
     // on the air" tag carrier; fall back to last_scoring's {1} if the
     // identity carry-forward isn't populated yet.
