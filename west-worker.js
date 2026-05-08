@@ -1378,18 +1378,19 @@ export class RingStateDO {
         || e.r1_h_status || e.r1_status;
       if (!hasScore) remaining += 1;
     }
-    // progress = the number string ("13 of 40"); progress_label is the
-    // caption to display above it. Pages render a two-line stack:
+    // Progress counts UP — entries that have GONE so far, of total.
+    // Pages render a two-line stack:
     //
-    //   REMAINING
-    //   13 of 40
+    //   27 of 40
+    //   GONE
     //
     // Both null when FINAL or empty roster — pill alone tells the story.
+    const gone = total - remaining;
     const progress = isFinal || total === 0
       ? null
-      : remaining + ' of ' + total;
-    const progress_label = progress ? 'Remaining' : null;
-    return { state, label, progress, progress_label, total, remaining };
+      : gone + ' of ' + total;
+    const progress_label = progress ? 'Gone' : null;
+    return { state, label, progress, progress_label, total, remaining, gone };
   }
 
   _buildFocusPreview(focusedEntry) {
