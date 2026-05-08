@@ -487,6 +487,11 @@
   .m4-id .horse-line { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); letter-spacing: -.005em; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .m4-id .rider-line { font-family: var(--font-body); font-weight: 500; font-size: 13px; color: var(--text-muted); line-height: 1.2; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .m4-right { display: flex; flex-direction: column; min-width: 150px; border-left: 1px solid var(--border); transition: background .35s ease; }
+  /* Bill 2026-05-08: collapse the score box entirely (no left border,
+     no min-width) when there's no content to show — pre-fix the empty
+     150px column read as a thin sliver between the rider strip and
+     the panel edge during intro / pre-score phases. */
+  .m4-right.is-empty { display: none; }
   .m4-right.is-cd    { background: rgba(184,32,37,.05); }
   .m4-right.is-final { background: rgba(46,125,50,.06); }
   .m4-rank { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 18px; font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); max-height: 0; opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; transition: max-height .45s cubic-bezier(.2,.85,.3,1), opacity .3s ease, padding .45s cubic-bezier(.2,.85,.3,1); border-bottom: 1px solid transparent; }
@@ -1845,6 +1850,12 @@
           m4Faults.classList.remove('is-in');
         }
       }
+      // Bill 2026-05-08: collapse the score box entirely when there's
+      // nothing to show. Pre-fix the empty 150px column read as a
+      // thin sliver between the rider strip and the panel edge during
+      // intro / pre-score phases. Hunter only — jumper has the
+      // running clock which is always relevant on-course.
+      if (m4Right) m4Right.classList.toggle('is-empty', !hLT.hasContent);
     } else {
       // Show the M4 bar when there's identity activity.
       if (m4Bar) m4Bar.hidden = !hasIdentity;
