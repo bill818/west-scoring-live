@@ -12,10 +12,15 @@
 - [Jumper stats pipeline](reference_jumper_stats_pipeline.md) — class_jumper_stats + computeJumperStats + /v3/listJumperStats + stats.html. Server-rendered standings; cherry-pickable
 - [ETag-aware polling pattern](reference_etag_polling_pattern.md) — jsonWithEtag + WEST.api.fetchJsonEtag; smart-poll bridge until WebSocket subscriptions land in Phase 7-8
 - [Engine TTB countdown + finish delta ideas](project_engine_time_to_beat_countdown.md) — two paired live-display swaps: (1) ±5 countdown vs TTB during on-course; (2) finish-time delta vs leader when both clear (idea only, future engine + live work)
-- [Design rollout — black + G fonts](project_design_rollout.md) — confirmed direction: Big Shoulders + Inter + JetBrains Mono on the black palette from index-lab-black; site-wide swap via west.css
+- [Design rollout — Gotham via Adobe Fonts](project_design_rollout.md) — Gotham (display) + Inter (body) + Source Code Pro (mono) on the black palette; --font-numeric defined for future scoreboard wire-up
+- [Adobe Fonts kit dcn7wbu](project_adobe_fonts_kit.md) — what's in the kit, how to add weights, no domain allowlist needed
 - [west.css central stylesheet](reference_west_css.md) — v3/pages/west.css is the single shared stylesheet for all v3 pages; make global design changes there
 - [Ring display page (planned)](project_ring_display_page.md) — dedicated large-screen kiosk surface separate from live.html; live.html targets responsive web only, kiosk is its own page
 - [Use centralized templates for standings](feedback_use_centralized_templates.md) — always call WEST.jumperTemplates / WEST.hunterTemplates for standings; recent-round-first stacking + method-aware labels live there
 - [Class final/complete only on explicit signal](feedback_class_final_only_on_signal.md) — only the 3× Ctrl+A CLASS_COMPLETE on port 31000 marks a class final; idle-eviction is UI hygiene only, never status
 - [Engine flat-class wiring (NEXT SESSION TOP PRIORITY)](project_engine_hunter_flat_class.md) — hunter flat_entries / ribbon results frontend + contract done; engine UDP-event-to-snapshot plumbing is the missing piece
 - [Engine mtime gating TODO](project_engine_mtime_gating.md) — Saratoga 2026-05-07: stale .cls files from prior week leaked into new show. Flush ring button shipped; engine-side mtime filter still to build
+- [/v3/flushRing endpoint + admin button](reference_flush_ring_endpoint.md) — auth-gated wipe of D1+R2+KV+DO for a (slug, ring_num) pair; show + ring config preserved
+- [schedule_order pipeline](reference_schedule_order_pipeline.md) — tsked drives class display order; /v3/postTsked + /v3/postCls catch-up populate; /v3/reprocessTsked is the backfill recipe
+- [Pair-gated focused_class_id](feedback_focus_pair_gating.md) — focus only commits on B+intro pair (not bare Channel B click); idle-ring also flushes top-level identity carry-forward
+- [Status-aware previous_entry](feedback_status_aware_prev_entry.md) — _buildPrevEntry detects EL/RF/RT/WD as a round signal AND surfaces status_code/label/full so the just-finished banner renders eliminations

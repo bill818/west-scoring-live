@@ -1,0 +1,325 @@
+SESSION-NOTES-47 — Aiken/Saratoga in-show fixes + Gotham type swap + tsked order + mobile/stats polish
+Date: 2026-05-07
+Branch: main
+Status: clean tree on 4195581. Worker deployed at e3521c5c. Pages preview live at preview.westscoring.pages.dev.
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+In-show day. Bill operating two rings live (Aiken Charity Show II + Saratoga
+Spring II) with Engine v3.1.5. Session was driven by real-world bugs surfacing
+on the public live page + a parallel design swap from Big Shoulders to Gotham
+via his Creative Cloud Adobe Fonts subscription. Fifteen merged commits to
+main, all deployed.
+
+Anchored bug fixes:
+  • First-horse standings race (Aiken)
+  • Stale .cls test data leaking into Saratoga (engine pointed at a computer
+    with a prior week's files in the watch folder)
+  • Chip/name desync on the focused class panel
+  • RIDER FALL ghost on later riders (status leak)
+  • Just-finished banner not updating for eliminated riders
+  • Idle ring kept showing last rider hours after timeout
+
+Plus shipped: site-wide font swap to Gotham, /v3/flushRing operator recovery
+tool, classes.schedule_order pipeline (matches Ryegate's tsked display
+order), stats page mobile responsive, Scratched chip gates on FINAL, M4
+live-box identity stacks 3 lines.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — by area
+═══════════════════════════════════════════════════════════════════════════
+
+WORKER (west-worker.js)
+
+  ── /scores-update lens fallback (e5dd58b) ──────────────────────────────
+  Race fix: when /v3/postCls promotes a class from class_type='U' (initial
+  unparsed state) to 'J/T/H', /scores-update was firing with snapshot.class_kind
+  still null (stamped by /v3/postUdpEvent on the LAST UDP batch, before the
+  .cls parse). The "no scoring lens" guard bailed without broadcasting → the
+  first horse's standings never reached the page. Live page only caught up
+  on the next UDP event (the second horse coming on course).
+
+  Fix: derive lens from body.jumper_scores / body.hunter_scores when
+  snapshot.class_kind is null. Also catch up snapshot.class_kind so
+  subsequent reads stop seeing the stale null.
+
+  ── /v3/flushRing endpoint (f49495c) ────────────────────────────────────
+  Auth-gated POST { slug, ring_num }. Wipes for that ring:
+    • D1: classes, entries, all entry_jumper_*/entry_hunter_*,
+      class_jumper_stats, udp_events (filtered show_id+ring_num),
+      ring_live_segment
+    • R2: every object under ${slug}/${ring_num}/ (paginated)
+    • KV: ring-state + cls-last (engine heartbeat preserved)
+    • DO: routes through /class-action action=flush_all to nuke
+      in-memory byClass + 15s cls_lock cooldown
+  Show row + ring row preserved. Engine restart re-populates.
+  Worker logs deletion summary.
+
+  ── _focusedClassId pair-gating (5a9c9cd) ───────────────────────────────
+  Per Bill: "the 31000 and the intro as a pair because this explicitly says
+  this is the class we're on and this entry is going... it's very explicit."
+  _focusedClassId now prefers the most-recently-locked is_live class (the
+  one whose B+intro pair has fired). Falls back to eager Channel B / A only
+  when no class has paired yet. Keeps the public panel from flapping when
+  the operator browses classes by clicking around on Ryegate.
+
+  ── _buildSnapshot idle-ring flush (9529692) ────────────────────────────
+  When ringHasLiveClass is false (every class on the ring timed out / is
+  FINAL / was cleared), null out the top-level last_identity / last_scoring
+  / last_focus / class_meta / focused_class_id / focus_preview. Without
+  this the M4 live box kept showing the last rider's name + horse + clock
+  for hours after the ring went silent.
+
+  ── _buildPrevEntry status detection (7709740) ──────────────────────────
+  Now accepts r{N}_status as a round-attribution signal (was previously
+  only checking total_faults / total_time / score_total). An eliminated
+  rider has none of those — only the status field. _buildPrevEntry signature
+  bumped to (row, classKind) so it knows whether to read r{N}_status (jumper)
+  or r{N}_h_status (hunter). Returns status_code/label/category/full
+  alongside existing fields. _samePrevEntry compares status_code so a
+  clean→EL flip on the same entry/round still triggers the update.
+
+  ── /v3/postTsked schedule_order write (4514766) ────────────────────────
+  Migration 034 added classes.schedule_order INTEGER. Now /v3/postTsked
+  writes idx+1 (1-indexed file position) for each tsked row. The public
+  /v3/listClasses ORDER BY uses it (with class_id numeric fallback for
+  unscheduled classes), so the public ring page matches Ryegate's display
+  order — the operator's interleaved run sequence (325 / 925 / 930 / 330
+  / 335 / 935...) instead of numeric sort.
+
+  /v3/postCls catch-up also writes schedule_order — when a class first
+  registers AFTER the operator's last tsked POST, the catch-up scans stored
+  R2 tsked.csv tracking 1-indexed valid-row count.
+
+  ── /v3/reprocessTsked endpoint (4514766) ───────────────────────────────
+  Auth-gated backfill helper. POSTs slug as query param; reads tsked.csv
+  from R2; re-runs the postTsked write logic. Used this session to backfill
+  saratogaspring-wk2 (12 classes) and aiken-charity-2 (16 classes) without
+  asking the operator to re-post tsked from Ryegate. Permanent admin tool.
+
+D1
+
+  ── Migration 034 — classes.schedule_order INTEGER ──────────────────────
+  Added live this session via wrangler d1 execute (MCP). Both active shows
+  backfilled (28 rows total). Verified Saratoga ring 1 order matches user's
+  ryegate.live screenshot exactly.
+
+PUBLIC PAGES
+
+  ── live.html chip/name desync fix (9dc4e7f) ────────────────────────────
+  Focused class panel header chip + name now both source from the worker's
+  focused-class projection (snapshot.focused_class_id + snapshot.class_meta).
+  Old code sourced number from last_scoring (Channel A) and name from
+  last_focus.tags[28] (Channel B), causing "old number / new name" mismatch
+  during focus shifts. New code requires class_id match between the chip's
+  source and the name's source — refuses to show a wrong name (renders "—"
+  if no source matches).
+
+  ── live.html M4 3-line identity (4195581) ──────────────────────────────
+  M4 lower-third on-course identity stacks 3 rows: #entry-num / horse /
+  rider. Was: 2 rows (#entry inline with horse, rider underneath). Long
+  horse + rider names had been ellipsis-clipped on the previous layout.
+
+  ── live.html EL/RF banner render (7709740) ─────────────────────────────
+  Just-finished banner shows the status_label ("EL"/"RT"/"WD") in the F
+  slot and status_full ("Rider Fall" / "Retired" / etc) in the Time slot
+  when previous_entry.status_label is set. Falls back to F/Time/Rank for
+  clean rides.
+
+  ── stats.html Scratched chip gates on FINAL (99c39e3) ──────────────────
+  if (stats.scratched > 0 && cls.finalized_at) chips.push(...). The compute
+  counts entries with no round data — accurate ONLY after class FINAL.
+  Mid-class "no round data" includes riders who haven't gone yet, which
+  inflated the count and read as wrong to spectators.
+
+  ── stats.html "Round Rank" → "Rank" header (3349159) ───────────────────
+  Header text shortened to fit narrow viewports; round name is already
+  labeled at the top of each round section.
+
+ADMIN
+
+  ── admin.html "🗑 Flush" ring button (f49495c) ─────────────────────────
+  Per ring row in the ring-list. Type-to-confirm dialog (must type the
+  ring number) — prevents misclicks next to "Edit". Toast shows deletion
+  counts on success. Spells out "stop the engine first" since the worker
+  can't enforce it (running engine recreates rows mid-delete).
+
+DESIGN — type swap to Gotham (202e57f, 210ce7d)
+
+  ── Adobe Fonts kit dcn7wbu loaded site-wide ────────────────────────────
+  Bill's Creative Cloud sub. west.css @imports the kit alongside Google
+  Fonts (Inter still served from Google for regular weights — Adobe ships
+  only Inter Black). Token swap:
+    --font-display: 'gotham-black' → was 'Big Shoulders Display'
+    --font-mono:    'source-code-pro-black' → was 'JetBrains Mono'
+    --font-body:    'Inter' (unchanged source, still Google Fonts)
+    --font-numeric: 'acumin-pro-condensed-black' (NEW token, not yet wired
+      into the scoreboard clock/time/faults selectors)
+
+  Each previous family stays in the fallback chain so a kit outage
+  degrades to the prior design instead of system serif.
+
+  ── WEST wordmark + show titles narrowed ────────────────────────────────
+  .logo-west, .app-header .brand-name, .show-title use 'gotham-xnarrow-book'
+  weight 700 (the bold cut within that family identifier). Default Gotham
+  Black felt fat at brand-mark size; X-Narrow keeps the geometric Gotham
+  character with tighter horizontal proportions. Letter-spacing on
+  .logo-west bumped to .02em so narrower glyphs don't run into each other.
+
+  Adobe Fonts no longer requires a domain allowlist — confirmed via
+  helpx.adobe.com docs. Old Typekit guidance from blog posts is stale.
+
+CSS POLISH
+
+  ── shows-index ring-name overlap (9c029c8) ─────────────────────────────
+  .ring-block grid was 80px / 1fr — sized for the condensed Big Shoulders
+  ring labels. Gotham is wider per character, so "DENNIS D DAMMERMAN GRAND
+  PRIX RING" / "LONGLEAF GP ARENA" spilled letters into the class column.
+  Widened to minmax(140px, 180px) and let .ring-label wrap with flex-wrap
+  + overflow-wrap:break-word. Badge anchors at flex-start so it sits at
+  the top of multi-line names.
+
+  ── show-row hover underline bleed (9c029c8) ────────────────────────────
+  Global a:hover{text-decoration:underline} was leaking onto every text
+  descendant of the .show-row anchor. .show-row:hover now explicitly
+  sets text-decoration:none.
+
+  ── day-group header readable (bb8da54) ─────────────────────────────────
+  .day-label bumped 10px / muted → 13px / navy / weight 700 with more
+  vertical padding. Was reading like a footer caption when its job is
+  "everything below me is Thursday's classes."
+
+  ── stats mobile pass 1 + 2 (2bd4e2a, 3349159) ──────────────────────────
+  At <=600px viewport:
+    • Stat chips reflow 3-per-row instead of 2: chip min-flex 140px → 100px,
+      chip-num font 32px → 24px
+    • Standings table column widths tightened, then Gap column hidden
+      entirely (least critical info, freed width for entry column)
+    • Header letter-spacing dropped .14em → .06em + font-size 8px → 9px
+      so "Horse / Rider" stays inline (was wrapping to 3 lines)
+    • .s-horse word-break:normal + overflow-wrap:break-word so multi-word
+      horse names wrap at word boundaries (not letters — pre-fix
+      "HJ HERCULES" was stacking as "H" / "J" / "HERCULES")
+    • .s-entry explicit min-width:0 + flex:1 1 auto so it actually expands
+
+═══════════════════════════════════════════════════════════════════════════
+NOTABLE BUGS HUNTED
+═══════════════════════════════════════════════════════════════════════════
+
+1. First-horse standings invisible on freshly-opened class
+   D1 timeline: class registered with class_type='U' before .cls arrived
+   → /v3/postUdpEvent stamped snapshot.class_kind=null → /v3/postCls parsed
+   .cls (promoting to 'T') → /scores-update guarded on snapshot.class_kind
+   and bailed → no broadcast. Page caught up only on next UDP. Fix derives
+   lens from body's scores arrays.
+
+2. Saratoga partial flush (operator + Claude both at fault)
+   Engine was actively uploading while we tried a manual D1 wipe via MCP.
+   Class 930 got recreated mid-flush with 5 entries from old test data.
+   Hard lesson: operator must stop the engine first OR use the soon-to-ship
+   /v3/flushRing button (which still requires engine stopped — the worker
+   can't enforce the freeze; we just made recovery one click).
+
+3. Chip says 711, name says "5-7 Year Old Young Jumper II,2b *YJC"
+   Focused panel header chip from Channel A's last_scoring.class_id, name
+   from Channel B's last_focus.tags[28]. When operator switches focus on
+   Ryegate, Channel B fires immediately with the new class id+name, but
+   Channel A doesn't fire until the next scoring event. Panel sat at "old
+   number / new name" until the next scoring frame. Two-layer fix: page
+   sources both fields from snapshot.focused_class_id + snapshot.class_meta
+   (defensive); worker only commits focused_class_id when the B+intro pair
+   has fired (preventive — eliminates the eager Channel B-only flap).
+
+4. RIDER FALL latched on subsequent riders
+   USER REPORT only — couldn't reproduce on clean state and the snapshot
+   self-corrected within minutes. Suspect: lingering RF on Florence
+   Jansen's r1_status (real fall earlier in the day) was bleeding through
+   focus_preview because previous_entry got stale data with mismatched
+   place/status. Filed as "watch item, retest after a clean flush" rather
+   than chase further — tracked by a comment in west-worker.js for next
+   time.
+
+5. Just-finished banner blank when on-course rider was eliminated
+   _buildPrevEntry only attributed a round when total_faults / total_time
+   / score_total had data. Eliminated riders have ONLY r{N}_status='RF'/
+   'EL'/'RT'/'WD' with everything else null. Detection missed them, returned
+   null, banner stayed on the prior clean rider. Fix: status is now a valid
+   round-attribution signal AND surfaces status_code/label/full on the
+   returned record.
+
+6. M4 live box stayed populated hours after ring went silent
+   ringHasLiveClass=false (all classes timed out / FINAL'd) didn't clear
+   the top-level last_identity / last_scoring / last_focus that carry
+   through {...body} in _buildSnapshot. Fix: explicit null-out when no
+   live class on ring; per-class previous_entry was already cleared on
+   timeout.
+
+7. Public ring page sorted classes alphabetically, not by tsked order
+   Ryegate's tsked-driven order interleaves heights (325 / 925 / 930 / 330
+   ...). Our /v3/listClasses ORDER BY only used scheduled_date + class_id,
+   producing 325 / 330 / 335 / 340 ... / 925 / 930 / 935 / 940. Migration
+   034 added classes.schedule_order; postTsked + postCls catch-up populate
+   it; ORDER BY uses it; /v3/reprocessTsked backfills.
+
+8. Scratched count inflated mid-class
+   computeJumperStats counts entries with no round data — but mid-class
+   that includes "haven't gone yet" riders. Stats page now hides the
+   Scratched chip until cls.finalized_at is set.
+
+═══════════════════════════════════════════════════════════════════════════
+NEW MEMORIES (this session)
+═══════════════════════════════════════════════════════════════════════════
+
+Updated:
+  - project_design_rollout.md   — replaced Big Shoulders content with Gotham
+  - MEMORY.md                   — new index entries (5 added, 1 updated)
+
+Added:
+  - project_adobe_fonts_kit.md         — kit ID dcn7wbu, families, no-allowlist note
+  - project_engine_mtime_gating.md     — TODO marker (added earlier this session)
+  - reference_flush_ring_endpoint.md   — /v3/flushRing wipe recipe
+  - reference_schedule_order_pipeline.md — tsked order + /v3/reprocessTsked backfill
+  - feedback_focus_pair_gating.md      — focused_class_id requires the pair
+  - feedback_status_aware_prev_entry.md — prev-entry surfaces EL/RF/RT/WD
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S OPEN
+═══════════════════════════════════════════════════════════════════════════
+
+- --font-numeric token defined but not yet wired into scoreboard
+  selectors (clock, faults, time, rank). Next step when ready: swap
+  --font-mono → --font-numeric on the specific scoreboard CSS rules
+  in live.html (clockBig 42px and the M4 right-column labels). Leave
+  small mono labels (debug strip, batch IDs) on --font-mono.
+- Engine-side mtime gating (project_engine_mtime_gating.md) — the real
+  prevention for the stale-.cls problem. Recovery (/v3/flushRing button)
+  is shipped; mtime gate at engine watcher init still TODO.
+- RIDER FALL ghost — watch item; retest after a clean flush.
+- Manager report endpoint /v3/ringActivityReport (S46) still has no
+  admin UI calling it.
+- Engine flat-class wiring (project_engine_hunter_flat_class.md) still
+  parked; no progress this session.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF NOTES FOR NEXT CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Worker version at session end: e3521c5c. Pages preview at
+  preview.westscoring.pages.dev (commit 4195581).
+- Adobe Fonts kit ID dcn7wbu — the ONLY embed link in west.css. Don't
+  add a second Adobe link tag per page; west.css is the one place.
+- D1 migration 034 already applied to prod. Don't re-run.
+- /v3/reprocessTsked is the backfill recipe whenever a tsked-derived
+  column gets added — same pattern as /v3/reparseClassHeaders for class
+  headers. See reference_schedule_order_pipeline.md.
+- The pair-gated focus is a subtle behavior change. Read
+  feedback_focus_pair_gating.md before touching _focusedClassId or
+  trying to "improve" the eager fallbacks.
+- _buildPrevEntry now requires classKind as a parameter — both call
+  sites updated. New call sites must pass it.
+- Any new "previously inline now stacked" UI moments: prefer the
+  3-line stacked layout pattern from the M4 identity (entry / horse /
+  rider as separate rows) for narrow contexts. Ellipsis-clipping was
+  the recurring failure mode in the inline version.
