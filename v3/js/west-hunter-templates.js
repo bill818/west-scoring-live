@@ -935,7 +935,7 @@
             if (j.hiopt != null && j.hiopt > 0) bonus += ' <span class="bonus">+' + Number(j.hiopt).toFixed(0) + '</span>';
             if (j.handy != null && j.handy > 0) bonus += ' <span class="bonus">+' + Number(j.handy).toFixed(0) + '</span>';
           }
-          cells.push('<span class="hunter-judge-cell"><span class="base">' + (WEST.format.hunterScore(j.base) || '—') + '</span>' + bonus + '</span>');
+          cells.push('<span class="hunter-judge-cell"><span class="base">' + (fmt(j.base) || '—') + '</span>' + bonus + '</span>');
         }
         grid += '<div class="hunter-judge-row" style="' + rowStyle + '">' + cells.join('') + '</div>';
       });
@@ -1186,7 +1186,7 @@
               bonusHtml += '<span class="lt-jb">+' + Number(match.handy).toFixed(0) + '</span>';
             }
           }
-          inner = '<span class="lt-jv">' + (WEST.format.hunterScore(match.base) || '—') + '</span>' + bonusHtml;
+          inner = '<span class="lt-jv">' + (fmtHS(match.base) || '—') + '</span>' + bonusHtml;
         }
         cells.push('<span class="lt-judge"><span class="lt-jl">J' + (ji + 1) + '</span>' + inner + '</span>');
       }
