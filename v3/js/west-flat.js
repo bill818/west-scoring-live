@@ -85,7 +85,25 @@
   // - cadenceTracker is the inferred fallback for U-class hunters
   //   where class metadata isn't resolved but rotation is happening
   function shouldRender(classMeta, snapshot, cadenceTracker) {
+    // Definitive flat: class_mode=1 (operator-set in the .cls header).
     if (isFlatMode(classMeta)) return true;
+    // Bill 2026-05-08: definitive NOT-flat — a parsed hunter class
+    // with class_mode=0, a scoring_type (1=scored, 2=hi-lo), and
+    // num_rounds > 0 is an over-fences scored class. The standings
+    // table is the primary UX. The rotation/cadence/results heuristics
+    // below were eagerly flipping these classes into flat-render mode
+    // because they share fr=11 / fr=14 UDP protocol with flat classes,
+    // even though class_mode is explicitly 0. Short-circuit here so
+    // a $10k Green Hunter Classic doesn't render as a 4-rider rotation
+    // list when it's actually a 21-entry scored class with judge data.
+    const isParsedScoredOverFences = classMeta
+      && (classMeta.class_mode === 0 || classMeta.class_mode === '0')
+      && (Number(classMeta.num_rounds) || 0) > 0
+      && (classMeta.scoring_type === 1 || classMeta.scoring_type === '1'
+       || classMeta.scoring_type === 2 || classMeta.scoring_type === '2');
+    if (isParsedScoredOverFences) return false;
+    // Heuristic fallback — U-class hunters where metadata hasn't
+    // resolved yet, or rotation is observed before the .cls parses.
     const results = (snapshot && snapshot.flat_results) || [];
     if (results.length > 0) return true;
     const entriesSeen = (snapshot && snapshot.flat_entries_seen) || [];
