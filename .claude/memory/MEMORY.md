@@ -24,3 +24,6 @@
 - [schedule_order pipeline](reference_schedule_order_pipeline.md) — tsked drives class display order; /v3/postTsked + /v3/postCls catch-up populate; /v3/reprocessTsked is the backfill recipe
 - [Pair-gated focused_class_id](feedback_focus_pair_gating.md) — focus only commits on B+intro pair (not bare Channel B click); idle-ring also flushes top-level identity carry-forward
 - [Status-aware previous_entry](feedback_status_aware_prev_entry.md) — _buildPrevEntry detects EL/RF/RT/WD as a round signal AND surfaces status_code/label/full so the just-finished banner renders eliminations
+- [Lens-class score routing](feedback_lens_class_routing.md) — pickScores() routes body scores into byClass[lens], with empty-overwrite guard. Never write body scores to focused_class_id blindly
+- [Hunter displayed-round decoded server-side](feedback_hunter_displayed_round.md) — _decodeHunterDisplayedRound subset-matches combined_total → R1/R2/R3 or Overall; page reads displayed_round_label/displayed_score directly
+- [Manager Report endpoint + admin drawer](reference_manager_report.md) — /v3/ringActivityReport: daily totals, live segments, holds (>=10min), prize money by ring, top horse riders, classes start→finalize

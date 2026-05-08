@@ -1,0 +1,296 @@
+SESSION-NOTES-48 — In-show day 2: lens-routing, hunter Overall decode, Manager Report
+Date: 2026-05-08
+Branch: main (worktree claude/gifted-hawking-34bc82)
+Status: clean tree on fcb3fa2. Worker version 395b98e2 deployed.
+        Pages preview live at preview.westscoring.pages.dev.
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Second consecutive in-show day. Bill running Aiken Charity Show II + Saratoga
+Spring II live with Engine v3.1.5. Day was driven by two recurring failure
+modes that we pinned down to one shape: body-score arrays getting written
+into the wrong place in the byClass map. Plus a hunter just-finished banner
+buildout, the Manager Report drawer in admin, and a stack of small live-page
+mobile/visibility polish items.
+
+19 commits to main, all deployed.
+
+Anchored bug fixes:
+  • Class 326 + Class 341 "Awaiting standings…" — empty-overwrite + lens-
+    routing race in /scores-update AND _updateByClass (fixed both)
+  • Class 816 hunter scored class rendering as flat rotation
+  • Hunter just-finished banner showing wrong round (Overall vs single)
+  • Stacked-round labels eating mobile width
+  • Saratoga ring.html sorting classes by class_id, not schedule_order
+  • Live page standings missing FINAL ribbons + prize money column
+
+Plus shipped: Manager Report drawer (ring activity / prize money /
+holds / horse-riders), Show stats page rebuild (Blues / Top 3 / Clears
+/ Money Won), ring-row CTA pill on show.html, hunter banner Score/Round/
+Rank lens swap.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — by area
+═══════════════════════════════════════════════════════════════════════════
+
+WORKER (west-worker.js)
+
+  ── /scores-update empty-overwrite guard (b95f9de) ───────────────────────
+  Bill 2026-05-08: "class 326 should have standings." Snapshot had
+  jumper_scores=[] despite D1 having data. Cause: pullJumperScoresV3
+  sometimes returns [] mid-stale-sweep (from /v3/postCls), and that []
+  was clobbering populated state via the existing /scores-update write.
+  Guard: if incoming scores is empty AND prior is populated, keep prior.
+  Self-healed within seconds of deploy.
+
+  ── _updateByClass: pickScores() lens routing + empty-overwrite (fcb3fa2)
+  Bill: "class 341 in saratoga the live just randomly lost their standings
+  after 3 horses." Same shape as 326 but on a different write path. Body
+  score arrays were being written into byClass[focused_class_id] regardless
+  of which class the body's scores belonged to. When operator clicked
+  another class on Ryegate, focused flipped, the next /v3/postCls write
+  silently clobbered the wrong slot.
+
+  Fix: new `pickScores(bodyScores, priorScores, bodyClassMeta, focusedClassId)`
+  helper. Routes to byClass[bodyClassMeta.class_id] (the LENS of the
+  incoming body), with the same empty-overwrite guard. Page-rendering
+  decision (focused) decoupled from write-target decision (lens).
+
+  Captured in feedback_lens_class_routing.md. The lens IS the body — focus
+  is for what to broadcast back, never what to write.
+
+  ── _decodeHunterDisplayedRound + previous_entry hunter fields (1eafefe)
+  Bill 2026-05-08: "for overall that seemed like a patch not a fix... yes
+  fix it right while we have test shows to work with."
+
+  First attempt to render hunter just-finished was client-side: live.html
+  was guessing whether the announced score was R1, R2, R3, or Overall by
+  comparing combined_total to individual rounds. That bled classification
+  logic into the page and got it wrong on edge cases.
+
+  Refactored to worker-side helper `_decodeHunterDisplayedRound(row,
+  classMeta)`:
+    1. Single-round match: combined_total == one r{N}_h_score → that's it.
+    2. Otherwise iterate non-empty subsets sized 2..N, find the LARGEST
+       subset whose sum equals combined_total → Overall.
+
+  Surfaced on previous_entry as `displayed_score`, `displayed_round_label`,
+  `displayed_is_overall`. _buildPrevEntry signature now takes classMeta as
+  third arg so it can call the decoder. Captured in
+  feedback_hunter_displayed_round.md.
+
+  ── /v3/ringActivityReport extended (02aa41b, ecf36b3) ────────────────────
+  Existing endpoint extended with:
+    • holds[]: gaps between live segments >= HOLD_MIN_MINUTES (10).
+      Anything shorter is between-class shuffling, not noteworthy.
+    • money_by_ring[]: SUM(json_extract(cls.prize_money, '$.amount'))
+      grouped by ring for the day's finalized classes. Money column
+      already stored as a JSON string so parsed via json_extract.
+    • top_horse_riders[]: riders with the most distinct horses on the day.
+
+  Threshold per Bill 2026-05-08: "consider a ring on hold if it sits empty
+  for more 10 min."
+
+  ── Show stats SQL rewrite (48854c2) ──────────────────────────────────────
+  /v3/listShowJumperStats — top_riders / top_horses queries swapped:
+    • top_riders columns: Blues / Top 3 / Clears / Classes (was Win / Place
+      mish-mash that didn't fit the sport)
+    • top_horses: money_won via json_extract on cls.prize_money
+  Bill: "the win and place columns dont really fit this sport... drop best
+  and go top 3... Horses lets go with money won (when available)."
+
+PAGES — live.html
+
+  ── Hunter just-finished banner — Score / Round / Rank slots (d988f6e) ────
+  Existing banner was jumper-coded (F / Time / Rank). Hunter version reads
+  pe.displayed_score + pe.displayed_round_label directly from worker fields
+  added in 1eafefe. Lens swap via id="jfFaultsLbl"/jfTimeLbl/jfRankLbl —
+  same DOM, different labels, no parallel render path.
+
+  ── Move just-finished banner above BOTH standings panels (cdd78fe) ───────
+  Bill: "im not seeing it... its not even rendering on your display here."
+  DOM existed and rendered correctly but was wedged between the hunter
+  standings panel (975px tall) and jumper panel — invisible on hunter
+  classes. Moved banner DOM order to before both panels.
+
+  ── Hunter M4 score-box fixes (7c0faea, 1cfb5be, de1e874) ─────────────────
+  • Bill: "only show that score box when there are scores right now you see
+    a thin line where the scores are going to come in just make the box all
+    horse rider." Added .m4-right.is-empty { display: none } so the score
+    column collapses entirely when there's nothing to display.
+  • Frame gate loosened in west-hunter-templates.js: blanking now happens
+    only on intro (frame === 11), not on every non-display frame. Was wiping
+    real scores during normal protocol flow.
+  • Intro: leave the score slot empty entirely. Was rendering a "—" placeholder
+    that confused operators.
+
+  ── Standings: pass isFinal + prizeMoney (3b11098) ────────────────────────
+  Bill 2026-05-08: "why is standings not the same as the results.html"...
+  "i just want minimal duplication of the standings and live i want it
+  simple"... "we just cant let it get to far removed from the main called
+  function." class.html was passing { layout, isFinal, prizeMoney, judgeGrid }.
+  live.html had drifted to passing nothing. Updated all 3 renderTable call
+  sites in live.html to mirror class.html. FINAL classes now show ribbons +
+  prize money column on the live page. Memory feedback_use_centralized_templates.md
+  tightened (90c06da) with the "pass the SAME options" rule.
+
+  ── Stacked-round labels move to column header (c51dd38) ──────────────────
+  Bill: "To save space on small screens can we move the label (Round 1 JO,
+  etc) to the header of the standings box IE  JO -------- Round 1." Stacked
+  table renders activeRounds list in the column header; data cells reserve
+  matching slots. Mobile width win.
+
+  ── Live page mobile + EL banner fixes (dd8a605) ──────────────────────────
+  Multi-fix pass: standings box scaling at small widths, EL banner status
+  pull-through into F/Time slots when status is present.
+
+PAGES — flat detection
+
+  ── isParsedScoredOverFences short-circuit (0bac26f) ──────────────────────
+  Bill 2026-05-08, looking at class 816 ($10k Green Hunter Classic) rendering
+  as flat rotation: "this class is scored why is it showing as a flat class."
+  v3/js/west-flat.js shouldRender() heuristics (results.length, entries-seen,
+  cadence) were eagerly flipping scored hunter classes into flat layout
+  because they share fr=11/14 protocol with flat classes.
+
+  Added short-circuit: if classMeta.class_mode === 0 AND num_rounds > 0 AND
+  scoring_type ∈ {1, 2}, return false BEFORE the heuristic fallbacks. A
+  parsed scored over-fences class is definitively NOT flat.
+
+PAGES — admin.html
+
+  ── Manager Report drawer (307f2cb) ───────────────────────────────────────
+  Bill 2026-05-07 (carried into today): "yesterday we deployed class
+  tracking when they were opened to when they were finalized is there a way
+  to look over that data... it should live in a managers report button in
+  admin." Plus 2026-05-08: "managers report should have prize money awarded
+  out by ring, riders with the most horses, rings that were on hold (and
+  for how long and when)."
+
+  "📋 Manager Report" button → drawer:
+    • Daily Totals (per-ring horses + classes)
+    • Live Segments (per-ring live windows)
+    • Rings on Hold (>= 10min idle gaps)
+    • Prize Money by Ring
+    • Top Horse Riders (catch-rider awareness)
+    • Classes start→finalize table
+
+  Captured in reference_manager_report.md.
+
+PAGES — show.html
+
+  ── "View Classes ▸" CTA pill (adb6186) ──────────────────────────────────
+  Bill 2026-05-08: "we also need to have the rings button stand out a little
+  more the eye finds it hard to know where to click to get the results you
+  want to know." Replaced bare chevron with a navy → red hover pill on each
+  ring row. Eye finds it now.
+
+  ── Show stats card (48854c2 page side) ───────────────────────────────────
+  renderLeaderboardCard accepts arbitrary stats array of { num, lbl } pairs
+  so jumper and hunter cards can use different metric sets without forking
+  the renderer. fmtMoney(n) helper for $7,500-style display.
+
+PAGES — ring.html
+
+  ── Schedule order in Scheduled tab (768f799) ─────────────────────────────
+  Bill 2026-05-08: "[image][image]dont gas light me like that..." — the
+  Saratoga Scheduled tab was sorting classes by class_id alphabetically,
+  not by schedule_order. API returned the right order; the page threw it
+  away. Added sortBySchedule(arr) helper. Bill: "why did one show sort
+  correctly and the other didnt" — Aiken's tsked happened to be near-numeric
+  so the bug was subtle there but real on Saratoga.
+
+═══════════════════════════════════════════════════════════════════════════
+PRINCIPLES REINFORCED
+═══════════════════════════════════════════════════════════════════════════
+
+1. SAME TEMPLATE + SAME OPTIONS = SAME OUTPUT
+   class.html and live.html both call WEST.jumperTemplates.renderTable.
+   Today live.html had drifted to passing fewer options — and silently
+   produced different output. Rule tightened in
+   feedback_use_centralized_templates.md: pass the SAME options the
+   reference page passes. Page-specific tweaks ride on the options
+   object, never as parallel render paths.
+
+2. THE LENS IS THE BODY
+   Body score arrays belong to the class the LAST UDP event was for —
+   never to whatever class the operator happens to be focused on. This
+   was the root cause of two separate "standings disappeared mid-class"
+   bugs (326, 341). pickScores() at the boundary; never re-introduce
+   "fall back to focused" routing.
+
+3. DECODE IN THE WORKER, NOT THE PAGE
+   Hunter Overall vs single-round classification belongs in
+   _decodeHunterDisplayedRound. Live page reads displayed_round_label
+   directly. Same rule for any "what was actually announced?" decision —
+   live.html, results.html, and the future ring-display page must all
+   render the same answer, which means decoding is centralized.
+
+4. EMPTY ARRAYS DON'T OVERWRITE POPULATED ARRAYS
+   Across multiple write paths, an [] mid-stale-sweep silently clobbered
+   real data. Guard at every boundary, not above. Both /scores-update
+   and _updateByClass got the guard today.
+
+═══════════════════════════════════════════════════════════════════════════
+MEMORY TOUCHED
+═══════════════════════════════════════════════════════════════════════════
+
+  Updated:
+    feedback_status_aware_prev_entry.md   — classMeta arg + displayed_* fields
+    feedback_use_centralized_templates.md — "pass the SAME options" rule (90c06da)
+
+  New:
+    feedback_lens_class_routing.md      — pickScores + empty-overwrite
+    feedback_hunter_displayed_round.md  — _decodeHunterDisplayedRound algorithm
+    reference_manager_report.md         — /v3/ringActivityReport + admin drawer
+
+  MEMORY.md index updated with the three new entries.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S OPEN
+═══════════════════════════════════════════════════════════════════════════
+
+- Engine flat-class wiring (project_engine_hunter_flat_class.md) — frontend
+  + worker contract done; engine UDP-event-to-snapshot plumbing still TODO.
+  No progress this session.
+- Engine mtime gating (project_engine_mtime_gating.md) — flush ring is the
+  recovery path; mtime gate at engine watcher init still TODO.
+- TTB countdown / finish-time delta swaps (project_engine_time_to_beat_countdown.md)
+  — still in idea state.
+- Public-side class start/finalize times — Bill mentioned wanting to
+  surface this on public pages "when I figure out a way." Manager Report
+  is the manager-facing version; public version not started.
+- --font-numeric token still defined but not yet wired into scoreboard
+  selectors (carried from S47).
+- Multi-judge hunter — Bill: "what are you going to do for multi judge
+  classes" — answered with the existing judgeGrid option in
+  hunterTemplates; no UI swap built today.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF NOTES FOR NEXT CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Worker version at session end: 395b98e2-2bd3-484f-a936-53f5880b82ca.
+  HEAD is fcb3fa2 on main.
+- _buildPrevEntry signature is now (row, classKind, classMeta) — three
+  args. classMeta is needed for hunter Overall decoding. Both call sites
+  updated this session.
+- Any new write of body.{jumper_scores,hunter_scores} into byClass MUST
+  go through pickScores() (or the equivalent guard pattern). Don't
+  blindly write to byClass[focused_class_id] — that's exactly the bug
+  fixed in fcb3fa2.
+- Hunter banner reads pe.displayed_score / pe.displayed_round_label /
+  pe.displayed_is_overall — DON'T re-implement Overall detection on the
+  page. The decoder is in west-worker.js.
+- live.html renderTable call sites (3 of them, lines around 1480/1530/1670
+  before any drift) all pass { layout, isFinal, prizeMoney }. If you add
+  a new option to the templates, mirror it on every call site at once
+  or it'll re-drift.
+- /v3/ringActivityReport returns a lot of fields. The admin drawer reads
+  daily_totals, live_segments, holds, money_by_ring, top_horse_riders,
+  classes — anything else in the response is currently unused but kept
+  for future surfaces.
+- HOLD_MIN_MINUTES = 10 is a constant in the worker; if Bill says "actually
+  hold should be 15 min" that's a one-line change.

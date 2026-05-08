@@ -16,12 +16,17 @@ those — the round they fell in is recorded ONLY via `r{N}_status =
 'EL' / 'RF' / 'RT' / 'WD'`. Detection missed them, returned null,
 and previous_entry stayed on the prior clean rider indefinitely.
 
-**How to apply:** `_buildPrevEntry(row, classKind)` in west-worker.js
-detects a round if any of total_faults / total_time / score_total /
-status (`r{N}_status` for jumper, `r{N}_h_status` for hunter) is
-non-null. Status decoded via `_decodeOnCourseStatus` and surfaced as
-`status_code` / `status_label` / `status_category` / `status_full`
-on the returned record.
+**How to apply:** `_buildPrevEntry(row, classKind, classMeta)` in
+west-worker.js detects a round if any of total_faults / total_time /
+score_total / status (`r{N}_status` for jumper, `r{N}_h_status` for
+hunter) is non-null. Status decoded via `_decodeOnCourseStatus` and
+surfaced as `status_code` / `status_label` / `status_category` /
+`status_full` on the returned record. **classMeta is the third arg
+(added 2026-05-08) so hunter rows can resolve which round was
+*displayed* — see `_decodeHunterDisplayedRound`** for the subset-match
+algorithm. Returned hunter records also carry `displayed_score`,
+`displayed_round_label`, and `displayed_is_overall` so the banner
+doesn't have to recompute Overall vs R1/R2/R3 client-side.
 
 `_samePrevEntry` also compares `status_code` so a clean→EL flip on
 the same entry/round still triggers the update (faults/time/place
