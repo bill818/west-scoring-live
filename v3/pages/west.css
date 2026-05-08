@@ -900,6 +900,30 @@ footer a{color:var(--blue);}
   .show-row .show-name{font-size:18px;}
   .ring-preview{padding-left:14px;}
   .idx-page-title{font-size:28px;}
+  /* Stats page (Bill 2026-05-07): chips were 159px wide so only 2
+     fit per row on a 375px viewport — page felt like a wall of
+     squares. Compact + slightly smaller font lets 3 fit per row.
+     Standings table fixed columns added up to 408px (overflowed
+     375px viewport with horizontal scroll); compress them so the
+     table fits without scrolling. The Gap column ("Leader" / time
+     deltas) gets the most aggressive squeeze since the words are
+     short. */
+  .stat-chips{padding:0 10px;gap:8px;}
+  .stat-chip{flex:1 1 100px;padding:10px 10px;}
+  .chip-num{font-size:24px;}
+  .chip-lbl{font-size:9px;letter-spacing:.08em;margin-top:4px;}
+  .chip-sub{font-size:10px;margin-top:1px;}
+  .standings-hdr,.standing-row{gap:6px;padding:6px 10px;}
+  .standings-hdr{font-size:8px;letter-spacing:.1em;}
+  .col-place,.s-place{width:42px;font-size:11px;}
+  .s-place.s-place-jo{font-size:8px;letter-spacing:.08em;padding:2px 4px;}
+  .col-faults,.s-faults{width:44px;font-size:12px;}
+  .s-faults.elim{font-size:9px;}
+  .col-time,.s-time{width:56px;font-size:11px;}
+  .col-gap,.s-gap{width:64px;font-size:10px;}
+  .s-gap.leader{font-size:8px;}
+  .s-horse{font-size:12px;line-height:1.2;}
+  .s-rider{font-size:10px;line-height:1.2;}
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
