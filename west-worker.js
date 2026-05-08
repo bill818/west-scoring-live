@@ -1019,17 +1019,22 @@ export class RingStateDO {
 
   // Helper — pick the focused class id.
   //
-  // PRIORITY (Bill 2026-05-06): Channel B (operator's focus click on
-  // Ryegate's port 31000) wins over Channel A scoring activity. The
-  // operator's intent is more authoritative than whatever's currently
-  // streaming scores — covers the "yank entry to a different class
-  // without normal flow" case where Channel A might still be firing
-  // for the old class.
+  // PRIORITY (Bill 2026-05-07, refined): the focus trigger is the
+  // B+intro pair within LIVE_PAIR_WINDOW_MS — operator clicks Channel
+  // B AND a fr=1/11 intro frame arrives within ~1s. A bare Channel B
+  // click (operator browsing classes) is NOT enough to commit focus;
+  // the public live page sat at "old number / new name" because the
+  // chip read from one channel and the name from the other. By gating
+  // on the same pair the live trigger uses, we make focus a single
+  // atomic event — chip, name, panel routing all flip together.
+  //
+  // Most-recently-locked-live-class wins. byClass[X].is_live + its
+  // last_live_event_at timestamp track when the pair fired for X;
+  // this picks the latest. Falls back to the eager Channel B / A
+  // chain only when no class has locked yet (cold session).
   //
   // Channel B with {29}="F" is a finalize-click only — skip it so
   // finalizing class B while focused on class A doesn't pull focus.
-  //
-  // Order: last_focus (no F) > last_scoring > class_meta > prior sticky.
   _focusedClassId(body) {
     // Manual override wins over any natural source. Stays sticky until
     // the operator's NEXT Channel B click on a DIFFERENT class clears
@@ -1037,6 +1042,21 @@ export class RingStateDO {
     if (this.forcedFocusClassId && this.byClass[this.forcedFocusClassId]) {
       return this.forcedFocusClassId;
     }
+    // Pair-gated: most recently locked-live class.
+    let lockedId = null;
+    let lockedTs = 0;
+    for (const cid of Object.keys(this.byClass)) {
+      const c = this.byClass[cid];
+      if (!c || !c.is_live) continue;
+      const ts = c.last_live_event_at || c.live_since || 0;
+      if (ts > lockedTs) { lockedTs = ts; lockedId = c.class_id || cid; }
+    }
+    if (lockedId) return lockedId;
+    // Eager fallbacks only when no class has paired yet — first focus
+    // of a fresh session, or all live classes have un-lived (timeout /
+    // FINAL / clear). Channel B without a paired intro is a "browsing"
+    // signal, but we still need SOMETHING for the page to render before
+    // the first pair lands.
     if (body.last_focus && body.last_focus.class_id) {
       const tag29 = ((body.last_focus.tags || {})['29'] || '')
         .replace(/\r/g, '').trim().toUpperCase();
