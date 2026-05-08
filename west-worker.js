@@ -1599,6 +1599,16 @@ export class RingStateDO {
       displayed_score:       displayed ? displayed.score : null,
       displayed_is_overall:  displayed ? !!displayed.isOverall : null,
       rounds: hunterRounds,
+      // Judge data + signature — kept on pe so _samePrevEntry can
+      // detect when judges arrive after the entry was first promoted
+      // (judge rows are populated via /v3/postCls + pullHunterScoresV3,
+      // which can land a moment AFTER the rider transition triggered
+      // the initial promote → without this signature the banner_slots
+      // would stay frozen without the J1/J2 cells).
+      judges:    Array.isArray(row.judges) ? row.judges : null,
+      judges_sig: Array.isArray(row.judges)
+        ? row.judges.map(j => j.round + ':' + j.idx + ':' + j.base + ':' + (j.hiopt || 0) + ':' + (j.handy || 0)).join('|')
+        : '',
       // Banner — pre-computed slot list. Page just iterates this.
       banner_slots: bannerSlots,
     };
@@ -1623,7 +1633,11 @@ export class RingStateDO {
       // change combined_total + displayed_round_label. Compare both
       // so a R2-only → Overall flip on the same entry re-promotes.
       && (a.combined_total || null) === (b.combined_total || null)
-      && (a.displayed_round_label || null) === (b.displayed_round_label || null);
+      && (a.displayed_round_label || null) === (b.displayed_round_label || null)
+      // Judges arrive a tick after the rider transition. Without this
+      // the J1/J2 cells never get added to banner_slots once the
+      // initial empty-judges promote was deduped.
+      && (a.judges_sig || '') === (b.judges_sig || '');
   }
 
   _updateByClass(body) {
