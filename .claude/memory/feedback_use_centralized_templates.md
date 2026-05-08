@@ -18,3 +18,5 @@ When porting standings tables to any page (live, class, ring, stats, future ring
 - If a page needs a layout the templates don't support, add a new `layout` option to the templates rather than forking the rendering
 
 **Reference:** docs comment at `v3/pages/class.html:163-167` ("Single source of truth — the templates module per lens decides everything"), and the same pattern in `live.html` line 657 ("everything needs to call evenly no matter what page its on").
+
+**Pass the SAME options class.html passes** (Bill 2026-05-08 — drift caught this session). class.html calls `renderTable(cls, entries, { layout, isFinal, prizeMoney, judgeGrid })`; live.html had drifted to calling it with NO options. Result: live page never rendered ribbons on FINAL classes and never showed the money column even though it was reading the same template + same data. Same template + same options = same output. Page-specific tweaks belong on the options object (e.g. `judgeView`, `layout`), NOT as custom code paths around the template. If the template can't express what a page needs, add a new option — don't fork.
