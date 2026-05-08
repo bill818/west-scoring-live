@@ -1530,26 +1530,46 @@ export class RingStateDO {
     // on the very next batch.
     if (!prior.is_final) {
       let promoteTarget = null;
+      let mode = null; // 'same' | 'transition'
       if (priorOnCourseEntry && priorOnCourseEntry === newOnCourseEntry) {
         // (a) Same rider; their row may have new scoring data.
         promoteTarget = newOnCourseEntry;
+        mode = 'same';
       } else if (priorOnCourseEntry && newOnCourseEntry
                  && priorOnCourseEntry !== newOnCourseEntry) {
         // (b) Transition; promote the OUTGOING rider, never the new one.
         promoteTarget = priorOnCourseEntry;
+        mode = 'transition';
       }
-      // Cold start (priorOnCourseEntry empty): wait one batch — next
-      // arrival will land in case (a).
+      // Cold start (priorOnCourseEntry empty): wait one batch.
       if (promoteTarget) {
-        const scores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
-                      : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
-                      : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
-                      : prior.hunter_scores) || [];
-        const oncRow = scores.find(r => String(r.entry_num) === String(promoteTarget));
-        const candidate = this._buildPrevEntry(oncRow,
-          body.class_kind || prior.class_kind,
-          body.class_meta || prior.class_meta);
-        if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
+        const classKindForBuild = body.class_kind || prior.class_kind;
+        const classMetaForBuild = body.class_meta || prior.class_meta;
+        const currentScores = (body.jumper_scores && body.jumper_scores.length ? body.jumper_scores
+                             : prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
+                             : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
+                             : prior.hunter_scores) || [];
+        const oncRow = currentScores.find(r => String(r.entry_num) === String(promoteTarget));
+        const candidate = this._buildPrevEntry(oncRow, classKindForBuild, classMetaForBuild);
+        // Bill 2026-05-08 (round 2 bug): in case (a), the rider's row may
+        // already carry stale prior-round data the moment they came on
+        // course (e.g. R1 from round 1 still in their row when they walk
+        // in for R2). Without this guard we'd promote them as "Just
+        // Finished" before they've actually finished anything new this
+        // session. Compare to their row in the PRIOR batch — only
+        // promote when the scoring shape changed.
+        let rowChanged = true;
+        if (mode === 'same') {
+          const priorRowScores = (prior.jumper_scores && prior.jumper_scores.length ? prior.jumper_scores
+                                : prior.hunter_scores && prior.hunter_scores.length ? prior.hunter_scores
+                                : []);
+          const priorRow = priorRowScores.find(r => String(r.entry_num) === String(promoteTarget));
+          if (priorRow) {
+            const priorCandidate = this._buildPrevEntry(priorRow, classKindForBuild, classMetaForBuild);
+            if (this._samePrevEntry(priorCandidate, candidate)) rowChanged = false;
+          }
+        }
+        if (candidate && rowChanged && !this._samePrevEntry(previousEntry, candidate)) {
           candidate.finished_at = body.received_at || new Date().toISOString();
           previousEntry = candidate;
         }
