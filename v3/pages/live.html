@@ -1055,9 +1055,9 @@
         <span class="jf-name" id="jfName">—</span>
       </div>
       <div class="jf-row jf-stats">
-        <span class="jf-stat"><span class="jf-stat-lbl">F</span> <span id="jfFaults">—</span></span>
-        <span class="jf-stat"><span class="jf-stat-lbl">Time</span> <span id="jfTime">—</span></span>
-        <span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span id="jfRank">—</span></span>
+        <span class="jf-stat"><span class="jf-stat-lbl" id="jfFaultsLbl">F</span> <span id="jfFaults">—</span></span>
+        <span class="jf-stat"><span class="jf-stat-lbl" id="jfTimeLbl">Time</span> <span id="jfTime">—</span></span>
+        <span class="jf-stat"><span class="jf-stat-lbl" id="jfRankLbl">Rank</span> <span id="jfRank">—</span></span>
       </div>
     </div>
     <div class="standings-wrap hidden" id="jumperStandingsPanel">
@@ -1425,29 +1425,42 @@
       var pillText = isClassFinal ? 'FINAL' : 'Open';
       // Per-class Just-Finished banner — non-focused classes get the
       // same sticky callout from their own previous_entry (worker
-      // tracks per-class). Only renders for jumper-side classes for
-      // now (hunter has its own redesign coming).
+      // tracks per-class). Bill 2026-05-08: hunter now uses the same
+      // banner with Score / Round / Rank slots instead of F / Time
+      // / Rank. EL/RT/WD status swap shared across lenses.
       var jfHtml = '';
       var ep = entry.previous_entry;
       var isJumperLensP = lens === 'jumper' || lens === 'equitation';
-      if (ep && isJumperLensP) {
-        // Bill 2026-05-08: mirror the focused-panel banner — when the
-        // prior rider was eliminated/fell/retired/withdrew, swap the
-        // F slot for the status code and the Time slot for the verbose
-        // reason. Without this, the per-class panel showed raw faults
-        // + time + rank for an EL'd rider (e.g. "F 4 / Time 22.537 /
-        // Rank 2") instead of "EL / Eliminated / —". Same logic as
-        // the focused panel's just-finished banner. status_full /
-        // status_label come from worker._buildPrevEntry.
-        var faultsTxt, timeTxt, rankTxt;
+      var isHunterLensP = lens === 'hunter';
+      if (ep && (isJumperLensP || isHunterLensP)) {
+        var s1Lbl, s1Val, s2Lbl, s2Val, s3Lbl, s3Val;
         if (ep.status_label) {
-          faultsTxt = ep.status_label;
-          timeTxt   = ep.status_full || ep.status_label;
-          rankTxt   = ep.overall_place != null ? String(ep.overall_place) : '—';
+          s1Lbl = isHunterLensP ? 'Status' : 'F';
+          s1Val = ep.status_label;
+          s2Lbl = isHunterLensP ? 'Reason' : 'Time';
+          s2Val = ep.status_full || ep.status_label;
+          s3Lbl = 'Rank';
+          s3Val = isHunterLensP
+            ? (ep.current_place != null ? String(ep.current_place) : '—')
+            : (ep.overall_place != null ? String(ep.overall_place) : '—');
+        } else if (isHunterLensP) {
+          s1Lbl = 'Score';
+          s1Val = ep.score_total != null
+            ? Number(ep.score_total).toFixed(1)
+            : (ep.combined_total != null ? Number(ep.combined_total).toFixed(1) : '—');
+          s2Lbl = 'Round';
+          s2Val = ep.round != null ? ('R' + ep.round) : '—';
+          s3Lbl = 'Rank';
+          s3Val = ep.current_place != null
+            ? String(ep.current_place)
+            : (ep.overall_place != null ? String(ep.overall_place) : '—');
         } else {
-          faultsTxt = ep.faults != null ? String(ep.faults) : '—';
-          timeTxt   = ep.time   != null ? Number(ep.time).toFixed(3) : '—';
-          rankTxt   = ep.overall_place != null ? String(ep.overall_place) : '—';
+          s1Lbl = 'F';
+          s1Val = ep.faults != null ? String(ep.faults) : '—';
+          s2Lbl = 'Time';
+          s2Val = ep.time != null ? Number(ep.time).toFixed(3) : '—';
+          s3Lbl = 'Rank';
+          s3Val = ep.overall_place != null ? String(ep.overall_place) : '—';
         }
         var nameTxt   = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
         jfHtml = '<div class="just-finished">'
@@ -1457,9 +1470,9 @@
           +   '<span class="jf-name">' + esc(nameTxt) + '</span>'
           + '</div>'
           + '<div class="jf-row jf-stats">'
-          +   '<span class="jf-stat"><span class="jf-stat-lbl">F</span> <span>' + esc(faultsTxt) + '</span></span>'
-          +   '<span class="jf-stat"><span class="jf-stat-lbl">Time</span> <span>' + esc(timeTxt) + '</span></span>'
-          +   '<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>' + esc(rankTxt) + '</span></span>'
+          +   '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s1Lbl) + '</span> <span>' + esc(s1Val) + '</span></span>'
+          +   '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s2Lbl) + '</span> <span>' + esc(s2Val) + '</span></span>'
+          +   '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s3Lbl) + '</span> <span>' + esc(s3Val) + '</span></span>'
           + '</div>'
           + '</div>';
       }
@@ -2172,22 +2185,50 @@
     var jfBar = $('justFinishedBar');
     if (jfBar) {
       var pe = snapshot.previous_entry || null;
-      var jfShow = !inFinalCollapse && !!pe && (lens === 'jumper' || lens === 'equitation');
+      // Bill 2026-05-08: show the just-finished banner for hunter too.
+      // Different stat slots than jumper — Score / Round / Rank instead
+      // of F / Time / Rank. Worker's _buildPrevEntry already returns the
+      // right fields (score_total = latest round's score, current_place
+      // = hunter rank, round = the round number it picked). EL/RT/WD
+      // status swap is shared across lenses.
+      var jfShow = !inFinalCollapse && !!pe && (lens === 'jumper' || lens === 'equitation' || lens === 'hunter');
       if (jfShow) {
         $('jfNum').textContent = '#' + pe.entry_num;
         $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
-        // Bill 2026-05-07: when a rider was eliminated/fell/retired, show
-        // the status code (EL/RT/WD) in the F slot and the verbose reason
-        // in the Time slot. Eliminated riders have no faults/time/rank
-        // — without this swap the banner read "F — Time — Rank —" and
-        // looked like a stuck/empty just-finished card.
+        var isHunterPe = lens === 'hunter';
         if (pe.status_label) {
+          // Eliminated path: status code + full reason. Same regardless
+          // of lens. Rank slot keeps overall_place / current_place.
+          $('jfFaultsLbl').textContent = isHunterPe ? 'Status' : 'F';
           $('jfFaults').textContent = pe.status_label;
+          $('jfTimeLbl').textContent = isHunterPe ? 'Reason' : 'Time';
           $('jfTime').textContent = pe.status_full || pe.status_label;
-          $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
+          $('jfRankLbl').textContent = 'Rank';
+          var elimRank = isHunterPe
+            ? (pe.current_place != null ? String(pe.current_place) : '—')
+            : (pe.overall_place != null ? String(pe.overall_place) : '—');
+          $('jfRank').textContent = elimRank;
+        } else if (isHunterPe) {
+          // Hunter banner: Score (latest released round) / Round
+          // label / Rank. Worker emits round=1/2/3 — map to "R1"/"R2"
+          // /"R3" or "Overall" when combined matches all rounds.
+          $('jfFaultsLbl').textContent = 'Score';
+          $('jfFaults').textContent = pe.score_total != null
+            ? Number(pe.score_total).toFixed(1)
+            : (pe.combined_total != null ? Number(pe.combined_total).toFixed(1) : '—');
+          $('jfTimeLbl').textContent = 'Round';
+          $('jfTime').textContent = pe.round != null ? ('R' + pe.round) : '—';
+          $('jfRankLbl').textContent = 'Rank';
+          $('jfRank').textContent = pe.current_place != null
+            ? String(pe.current_place)
+            : (pe.overall_place != null ? String(pe.overall_place) : '—');
         } else {
+          // Jumper banner: F / Time / Rank (existing behavior).
+          $('jfFaultsLbl').textContent = 'F';
           $('jfFaults').textContent = pe.faults != null ? String(pe.faults) : '—';
+          $('jfTimeLbl').textContent = 'Time';
           $('jfTime').textContent = pe.time != null ? Number(pe.time).toFixed(3) : '—';
+          $('jfRankLbl').textContent = 'Rank';
           $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
         }
       }
