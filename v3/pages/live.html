@@ -482,9 +482,10 @@
   .m4-id .meta .phase.cd    { color: var(--red); }
   .m4-id .meta .phase.oc    { color: var(--green); }
   .m4-id .meta .phase.fin   { color: var(--green); font-weight: 800; letter-spacing: .16em; }
-  .m4-id .name-line { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); letter-spacing: -.005em; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .m4-id .name-line .num { color: var(--red); font-weight: 700; font-size: 12px; margin-right: 10px; font-family: var(--font-mono); vertical-align: 2px; }
-  .m4-id .rider-line { font-family: var(--font-body); font-weight: 500; font-size: 13px; color: var(--text-muted); line-height: 1.2; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m4-id .entry-line { line-height: 1; margin-bottom: 2px; }
+  .m4-id .entry-line .num { color: var(--red); font-weight: 700; font-size: 12px; font-family: var(--font-mono); letter-spacing: .04em; }
+  .m4-id .horse-line { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--navy); letter-spacing: -.005em; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m4-id .rider-line { font-family: var(--font-body); font-weight: 500; font-size: 13px; color: var(--text-muted); line-height: 1.2; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .m4-right { display: flex; flex-direction: column; min-width: 150px; border-left: 1px solid var(--border); transition: background .35s ease; }
   .m4-right.is-cd    { background: rgba(184,32,37,.05); }
   .m4-right.is-final { background: rgba(46,125,50,.06); }
@@ -924,11 +925,13 @@
         <div class="num" id="m4ChipNum">—</div>
       </div>
       <div class="m4-id">
-        <!-- Two-line identity (Bill 2026-05-06): entry+horse top,
-             rider underneath. Uses the vertical space freed by the
-             dropped phase label and stops the rider name from being
-             ellipsis-cut on long names. -->
-        <div class="name-line"><span class="num">#<span id="idEntry">—</span></span><span id="idHorse">—</span></div>
+        <!-- Three-line identity (Bill 2026-05-07): entry number on
+             its own line, then horse, then rider. Long horse + rider
+             names had been getting ellipsis-clipped on the previous
+             two-line layout where #ENTRY was inline with HORSE.
+             Stacking gives each its own row. -->
+        <div class="entry-line"><span class="num">#<span id="idEntry">—</span></span></div>
+        <div class="horse-line"><span id="idHorse">—</span></div>
         <div class="rider-line"><span id="idRider">—</span></div>
       </div>
       <div class="m4-right" id="m4Right">
