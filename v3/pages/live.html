@@ -1826,7 +1826,13 @@
         if (hLT.hasContent && hLT.middleHtml) {
           clockBigH.innerHTML = hLT.middleHtml;
         } else {
-          clockBigH.textContent = '—';
+          // Bill 2026-05-08: leave the score slot empty during the
+          // intro phase (fr=11) instead of showing a "—" placeholder.
+          // The dash read as "no data" but it's really "rider just
+          // walked in, scores haven't been released yet" — the empty
+          // cell is the correct UX. Score cell repopulates the moment
+          // a Display Scores frame fires.
+          clockBigH.textContent = '';
         }
       }
       // Judges line in the bottom slot — already wrapped in template.
