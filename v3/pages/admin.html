@@ -31,6 +31,33 @@
     flex-shrink: 0;
     margin-right: 6px;
   }
+
+  /* Manager Report drawer (Bill 2026-05-08) — table layout for the
+     ring-activity rollups + per-class start/finalize times. */
+  .mr-filters { display: flex; gap: 12px; align-items: flex-end; padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-wrap: wrap; }
+  .mr-filters .form-group { margin-bottom: 0; }
+  .mr-filters input[type="date"], .mr-filters select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-body); font-size: 13px; background: #fff; }
+  .mr-section-hdr { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--navy); font-weight: 700; margin: 0 0 8px; padding-left: 2px; }
+  .mr-totals-wrap, .mr-segs-wrap, .mr-classes-wrap { background: #fff; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .mr-totals-hdr, .mr-segs-hdr, .mr-classes-hdr,
+  .mr-totals-row, .mr-segs-row, .mr-classes-row { display: grid; gap: 10px; padding: 6px 12px; font-family: var(--font-mono); font-size: 12px; align-items: center; }
+  .mr-totals-hdr { grid-template-columns: 110px 60px 80px 80px 80px; background: var(--off-white); border-bottom: 2px solid var(--black); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; }
+  .mr-totals-row { grid-template-columns: 110px 60px 80px 80px 80px; border-bottom: 1px solid var(--border); }
+  .mr-totals-row:last-child { border-bottom: none; }
+  .mr-segs-hdr { grid-template-columns: 50px 110px 70px 70px 60px 100px; background: var(--off-white); border-bottom: 2px solid var(--black); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; }
+  .mr-segs-row { grid-template-columns: 50px 110px 70px 70px 60px 100px; border-bottom: 1px solid var(--border); }
+  .mr-segs-row:last-child { border-bottom: none; }
+  .mr-segs-row.is-open { background: rgba(46,125,50,.08); }
+  .mr-segs-row .reason-final { color: var(--green); font-weight: 600; }
+  .mr-segs-row .reason-timeout { color: var(--amber); }
+  .mr-segs-row .reason-recovery_close, .mr-segs-row .reason-manual_clear, .mr-segs-row .reason-flush { color: var(--text-muted); }
+  .mr-segs-row .reason-open { color: var(--green); font-weight: 700; letter-spacing: .08em; }
+  .mr-classes-hdr { grid-template-columns: 50px 60px 1fr 110px 110px; background: var(--off-white); border-bottom: 2px solid var(--black); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; }
+  .mr-classes-row { grid-template-columns: 50px 60px 1fr 110px 110px; border-bottom: 1px solid var(--border); }
+  .mr-classes-row:last-child { border-bottom: none; }
+  .mr-classes-row .cls-id { color: var(--red); font-weight: 600; }
+  .mr-classes-row .cls-name { font-family: var(--font-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mr-classes-row .ts-pending { color: var(--text-faint); font-style: italic; }
 </style>
 </head>
 <body>
@@ -87,6 +114,7 @@
           <h1 class="show-title" id="showTitle"></h1>
           <div class="show-title-actions">
             <button class="btn-secondary" id="btnEditShow">Edit</button>
+            <button class="btn-secondary" id="btnManagerReport" title="Ring activity report — live segments + classes finalized per day.">📋 Manager Report</button>
             <button class="btn-secondary" id="btnStatsConfig" title="Toggle which stats appear on the public stats page for jumper classes in this show.">📊 Stats Display</button>
             <button class="btn-danger" id="btnDeleteShow" disabled title="Wiring coming in a later phase. Will remove show + all rings + classes + entries + R2 archives, with confirmation.">🗑 Delete</button>
           </div>
@@ -299,6 +327,67 @@
     <span class="drawer-footer-spacer"></span>
     <button class="btn-secondary" data-drawer-close="dlgStatsConfig">Cancel</button>
     <button class="btn-primary" style="width:auto;margin:0;padding:8px 16px;" id="btnStatsConfigSave">Save</button>
+  </div>
+</div>
+
+<!-- MANAGER REPORT DRAWER — ring activity report (Bill 2026-05-08).
+     Reads /v3/ringActivityReport for the selected show. Day-by-day
+     rollup of active minutes + classes finalized + segment count,
+     plus a drill-down list of every live segment (start → end /
+     duration / classes_run / ended_reason). Per-class start →
+     finalize times come from /v3/listClasses (first_seen_at,
+     finalized_at). Public-website surface for these is a future
+     piece — this drawer is the operator's source of truth. -->
+<div class="drawer" id="dlgManagerReport" role="dialog" aria-labelledby="dlgManagerReportTitle">
+  <div class="drawer-header">
+    <h2 id="dlgManagerReportTitle">Manager Report</h2>
+    <button class="drawer-close-btn" data-drawer-close="dlgManagerReport" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="mr-filters">
+      <div class="form-group">
+        <label for="f_mr_from">From</label>
+        <input type="date" id="f_mr_from">
+      </div>
+      <div class="form-group">
+        <label for="f_mr_to">To</label>
+        <input type="date" id="f_mr_to">
+      </div>
+      <div class="form-group">
+        <label for="f_mr_ring">Ring</label>
+        <select id="f_mr_ring"><option value="">All rings</option></select>
+      </div>
+      <button class="btn-secondary" id="btnMrApply" style="margin-top:18px;">Apply</button>
+    </div>
+    <div id="mrEmpty" class="placeholder" style="display:none;">No live segments recorded for this filter.</div>
+    <div id="mrContent">
+      <h3 class="mr-section-hdr">Daily totals</h3>
+      <div class="mr-totals-wrap">
+        <div class="mr-totals-hdr">
+          <span>Day</span><span>Ring</span><span>Active</span><span>Classes</span><span>Segments</span>
+        </div>
+        <div id="mrTotalsList"></div>
+      </div>
+      <h3 class="mr-section-hdr" style="margin-top:24px;">Live segments</h3>
+      <div class="mr-segs-wrap">
+        <div class="mr-segs-hdr">
+          <span>Ring</span><span>Started</span><span>Ended</span><span>Duration</span><span>Classes</span><span>Reason</span>
+        </div>
+        <div id="mrSegsList"></div>
+      </div>
+      <h3 class="mr-section-hdr" style="margin-top:24px;">Classes — start → finalize</h3>
+      <div class="mr-classes-wrap">
+        <div class="mr-classes-hdr">
+          <span>Ring</span><span>#</span><span>Class</span><span>First seen</span><span>Finalized</span>
+        </div>
+        <div id="mrClassesList"></div>
+      </div>
+    </div>
+    <div class="form-error" id="f_mrError"></div>
+  </div>
+  <div class="drawer-footer">
+    <span class="drawer-footer-spacer"></span>
+    <button class="btn-secondary" data-drawer-close="dlgManagerReport">Close</button>
   </div>
 </div>
 
@@ -1222,6 +1311,144 @@ function openStatsConfigDialog() {
 }
 
 document.getElementById('btnStatsConfig').addEventListener('click', openStatsConfigDialog);
+
+// ── MANAGER REPORT (Bill 2026-05-08) ──────────────────────────────────
+// Ring activity report — daily rollups + segment drill-down + per-class
+// start/finalize times. Reads:
+//   GET /v3/ringActivityReport?slug=X[&from=&to=&ring=]   (public)
+//   GET /v3/listRings?slug=X        (auth, for ring picker)
+//   GET /v3/listClasses?slug=X      (auth, for first_seen_at/finalized_at)
+const MR_REASONS = { final: 'FINAL', timeout: 'Timeout', recovery_close: 'Recovery', manual_clear: 'Cleared', flush: 'Flushed' };
+
+function fmtMrDateTime(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+function fmtMrTime(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+function fmtMrDay(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function fmtMrDuration(min) {
+  if (min == null) return '—';
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return `${h}h ${m}m`;
+}
+function fmtMrTsIso(iso) {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+async function openManagerReport() {
+  const slug = state.selectedSlug;
+  if (!slug) return;
+  // Pre-populate ring picker from cached state.rings
+  const ringSel = document.getElementById('f_mr_ring');
+  ringSel.innerHTML = '<option value="">All rings</option>' +
+    (state.rings || []).map(r => `<option value="${r.ring_num}">${escapeHtml(r.name || `Ring ${r.ring_num}`)}</option>`).join('');
+  // Default date range = whole show
+  const show = state.shows.find(s => s.slug === slug);
+  document.getElementById('f_mr_from').value = show?.start_date || '';
+  document.getElementById('f_mr_to').value = show?.end_date || '';
+  document.getElementById('f_mrError').classList.remove('visible');
+  WEST.drawer.open('dlgManagerReport');
+  await loadManagerReport();
+}
+
+async function loadManagerReport() {
+  const slug = state.selectedSlug;
+  if (!slug) return;
+  const from = document.getElementById('f_mr_from').value;
+  const to   = document.getElementById('f_mr_to').value;
+  const ring = document.getElementById('f_mr_ring').value;
+  const params = new URLSearchParams({ slug });
+  if (from) params.set('from', from);
+  if (to)   params.set('to', to);
+  if (ring) params.set('ring', ring);
+  // ringActivityReport is public — no auth header. listClasses needs auth.
+  try {
+    const [reportRes, classesRes] = await Promise.all([
+      fetch(`${BASE}/v3/ringActivityReport?${params.toString()}`).then(r => r.json()),
+      api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}`),
+    ]);
+    if (!reportRes.ok) throw new Error(reportRes.error || 'Report failed');
+    renderManagerReport(reportRes, classesRes.classes || [], { from, to, ring });
+  } catch (e) {
+    document.getElementById('f_mrError').textContent = 'Load failed: ' + e.message;
+    document.getElementById('f_mrError').classList.add('visible');
+  }
+}
+
+function renderManagerReport(report, classes, filters) {
+  const segments = report.segments || [];
+  const totals   = report.totals   || [];
+  const empty    = document.getElementById('mrEmpty');
+  const content  = document.getElementById('mrContent');
+  if (!segments.length && !totals.length) {
+    empty.style.display = 'block';
+    content.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  content.style.display = '';
+
+  // Daily totals
+  const totalsHtml = totals.map(t => `<div class="mr-totals-row">
+    <span>${escapeHtml(fmtMrDay(Date.parse(t.day + 'T12:00:00Z')))}</span>
+    <span>R${escapeHtml(String(t.ring_num))}</span>
+    <span>${escapeHtml(fmtMrDuration(t.active_minutes))}</span>
+    <span>${escapeHtml(String(t.classes_run))}</span>
+    <span>${escapeHtml(String(t.segments))}</span>
+  </div>`).join('') || '<div class="mr-totals-row" style="color:var(--text-muted);">No closed segments in range.</div>';
+  document.getElementById('mrTotalsList').innerHTML = totalsHtml;
+
+  // Segments
+  const segsHtml = segments.map(s => {
+    const open = s.ended_at == null;
+    const dur = open
+      ? Math.max(0, Math.round((Date.now() - s.started_at) / 60000))
+      : Math.max(0, Math.round((s.ended_at - s.started_at) / 60000));
+    const reason = open ? 'open' : (s.ended_reason || '—');
+    const reasonLabel = open ? 'OPEN' : (MR_REASONS[reason] || reason);
+    return `<div class="mr-segs-row${open ? ' is-open' : ''}">
+      <span>R${escapeHtml(String(s.ring_num))}</span>
+      <span>${escapeHtml(fmtMrDateTime(s.started_at))}</span>
+      <span>${escapeHtml(open ? '—' : fmtMrTime(s.ended_at))}</span>
+      <span>${escapeHtml(fmtMrDuration(dur))}</span>
+      <span>${escapeHtml(String(s.classes_run || 0))}</span>
+      <span class="reason-${escapeHtml(reason)}">${escapeHtml(reasonLabel)}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('mrSegsList').innerHTML = segsHtml;
+
+  // Per-class times. Filter by ring if set, sort by first_seen_at.
+  const filteredClasses = classes
+    .filter(c => !filters.ring || String(c.ring_num) === String(filters.ring))
+    .filter(c => c.first_seen_at)  // ignore classes that never registered a .cls
+    .sort((a, b) => String(a.first_seen_at).localeCompare(String(b.first_seen_at)));
+  const classesHtml = filteredClasses.map(c => {
+    const seenMs = fmtMrTsIso(c.first_seen_at);
+    const finMs  = fmtMrTsIso(c.finalized_at);
+    return `<div class="mr-classes-row">
+      <span>R${escapeHtml(String(c.ring_num))}</span>
+      <span class="cls-id">${escapeHtml(c.class_id)}</span>
+      <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
+      <span>${escapeHtml(fmtMrDateTime(seenMs))}</span>
+      <span class="${finMs ? '' : 'ts-pending'}">${escapeHtml(finMs ? fmtMrDateTime(finMs) : 'not final')}</span>
+    </div>`;
+  }).join('') || '<div class="mr-classes-row" style="color:var(--text-muted);">No classes in range.</div>';
+  document.getElementById('mrClassesList').innerHTML = classesHtml;
+}
+
+document.getElementById('btnManagerReport').addEventListener('click', openManagerReport);
+document.getElementById('btnMrApply').addEventListener('click', loadManagerReport);
 
 document.getElementById('btnStatsConfigReset').addEventListener('click', () => {
   for (const key of STATS_CONFIG_KEYS) {
