@@ -1437,78 +1437,18 @@
       var pillStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);"';
       var pillBlinkStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.5);animation:none;"';
       var pillText = isClassFinal ? 'FINAL' : 'Open';
-      // Per-class Just-Finished banner — non-focused classes get the
-      // same sticky callout from their own previous_entry (worker
-      // tracks per-class). Bill 2026-05-08: hunter now uses the same
-      // banner with Score / Round / Rank slots instead of F / Time
-      // / Rank. EL/RT/WD status swap shared across lenses.
+      // Per-class Just-Finished banner — same single source of truth
+      // as the focused panel: worker emits ep.banner_slots, page just
+      // iterates. Bill 2026-05-08.
       var jfHtml = '';
       var ep = entry.previous_entry;
-      var isJumperLensP = lens === 'jumper' || lens === 'equitation';
-      var isHunterLensP = lens === 'hunter';
-      if (ep && (isJumperLensP || isHunterLensP)) {
-        var s1Lbl, s1Val, s2Lbl, s2Val, s3Lbl, s3Val;
-        if (ep.status_label) {
-          s1Lbl = isHunterLensP ? 'Status' : 'F';
-          s1Val = ep.status_label;
-          s2Lbl = isHunterLensP ? 'Reason' : 'Time';
-          s2Val = ep.status_full || ep.status_label;
-          s3Lbl = 'Rank';
-          s3Val = isHunterLensP
-            ? (ep.current_place != null ? String(ep.current_place) : '—')
-            : (ep.overall_place != null ? String(ep.overall_place) : '—');
-        } else if (isHunterLensP) {
-          // Score = worker-derived "what was actually released"
-          // (Overall vs R1/R2/R3 via combined-total subset match).
-          // See feedback note in focused-panel branch above.
-          s1Lbl = 'Score';
-          s1Val = fmtHunterScore(ep.displayed_score) || '—';
-          s2Lbl = 'Round';
-          s2Val = ep.displayed_round_label || '—';
-          s3Lbl = 'Rank';
-          s3Val = ep.current_place != null
-            ? String(ep.current_place)
-            : (ep.overall_place != null ? String(ep.overall_place) : '—');
-        } else {
-          s1Lbl = 'F';
-          s1Val = ep.faults != null ? String(ep.faults) : '—';
-          s2Lbl = 'Time';
-          s2Val = ep.time != null ? Number(ep.time).toFixed(3) : '—';
-          s3Lbl = 'Rank';
-          s3Val = ep.overall_place != null ? String(ep.overall_place) : '—';
-        }
-        var nameTxt   = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
-        // Multi-round hunter override: when class is past round 1
-        // (worker emits ep.rounds with >= 2 released rounds), build
-        // dynamic stat slots: R1, R2, [R3], Overall, Rank. Bill
-        // 2026-05-08. Eliminated path keeps the 3-slot Status/Reason/
-        // Rank layout (status_label gates above).
-        var jfStatsHtml;
-        if (!ep.status_label && isHunterLensP
-            && Array.isArray(ep.rounds) && ep.rounds.length >= 2) {
-          var hStats = ep.rounds.map(function (r) {
-            return '<span class="jf-stat"><span class="jf-stat-lbl">'
-              + esc(r.label) + '</span> <span>'
-              + esc(fmtHunterScore(r.score) || '—') + '</span></span>';
-          });
-          hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Overall</span> <span>'
-            + esc(fmtHunterScore(ep.combined_total) || '—')
-            + '</span></span>');
-          hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>'
-            + esc(s3Val) + '</span></span>');
-          jfStatsHtml = hStats.join('');
-        } else if (!ep.status_label && isHunterLensP) {
-          // Bill 2026-05-08: single-round hunter — drop the redundant
-          // "Round: R1" slot. Score / Rank only.
-          jfStatsHtml =
-              '<span class="jf-stat"><span class="jf-stat-lbl">Score</span> <span>' + esc(s1Val) + '</span></span>'
-            + '<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>' + esc(s3Val) + '</span></span>';
-        } else {
-          jfStatsHtml =
-              '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s1Lbl) + '</span> <span>' + esc(s1Val) + '</span></span>'
-            + '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s2Lbl) + '</span> <span>' + esc(s2Val) + '</span></span>'
-            + '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s3Lbl) + '</span> <span>' + esc(s3Val) + '</span></span>';
-        }
+      var epSlots = ep && Array.isArray(ep.banner_slots) ? ep.banner_slots : [];
+      if (ep && epSlots.length > 0) {
+        var nameTxt = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
+        var jfStatsHtml = epSlots.map(function (s) {
+          return '<span class="jf-stat"><span class="jf-stat-lbl">'
+            + esc(s.label) + '</span> <span>' + esc(s.value) + '</span></span>';
+        }).join('');
         jfHtml = '<div class="just-finished">'
           + '<div class="jf-row jf-id">'
           +   '<span class="jf-lbl">Just finished</span>'
@@ -2219,108 +2159,24 @@
       }
     }
 
-    // Just-finished banner — reads snapshot.previous_entry directly
-    // (worker-tracked, sticky until the next entry actually scores).
-    // Worker emits .faults / .time / .overall_place from the LATEST
-    // scored round, so jump-off / multi-round entries display
-    // correctly without page-side round detection.
+    // Just-finished banner — worker emits pe.banner_slots = [{label,
+    // value}, ...] with all decisions (EL vs hunter vs jumper, single
+    // vs multi-round) baked in. Page just iterates. Bill 2026-05-08:
+    // "this shouldn't have been this hard keep it simple."
     var jfBar = $('justFinishedBar');
     if (jfBar) {
       var pe = snapshot.previous_entry || null;
-      // Bill 2026-05-08: show the just-finished banner for hunter too.
-      // Different stat slots than jumper — Score / Round / Rank instead
-      // of F / Time / Rank. Worker's _buildPrevEntry already returns the
-      // right fields (score_total = latest round's score, current_place
-      // = hunter rank, round = the round number it picked). EL/RT/WD
-      // status swap is shared across lenses.
-      // Bill 2026-05-08: pe self-describes its shape — hunter rows
-      // carry .rounds / .displayed_round_label / .combined_total;
-      // jumper rows carry .faults / .time. Don't gate the banner on
-      // lens — there are render windows where snapshot.class_kind is
-      // null (carry-forward gap, idle frames) and pe is still set.
-      // Without this guard the jumper branch fires for a hunter pe
-      // whose faults/time/place are all null → renders "F — Time —
-      // Rank —" placeholders.
-      var peIsHunter = !!pe && (Array.isArray(pe.rounds) || pe.displayed_round_label != null || pe.combined_total != null);
-      var peIsJumper = !!pe && !peIsHunter && (pe.faults != null || pe.time != null || pe.overall_place != null);
-      var jfShow = !inFinalCollapse && !!pe && (peIsHunter || peIsJumper || !!pe.status_label);
+      var slots = pe && Array.isArray(pe.banner_slots) ? pe.banner_slots : [];
+      var jfShow = !inFinalCollapse && !!pe && slots.length > 0;
       if (jfShow) {
         $('jfNum').textContent = '#' + pe.entry_num;
         $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
-        var isHunterPe = peIsHunter || (lens === 'hunter');
-        // Always rebuild the canonical 3-slot stats row first so the IDs
-        // exist on every code path. The hunter multi-round branch below
-        // can override with a dynamic layout.
-        var jfStatsRow = $('jfFaultsLbl') ? $('jfFaultsLbl').parentNode.parentNode : null;
-        if (!jfStatsRow) {
-          jfStatsRow = jfBar.querySelector('.jf-stats');
-        }
+        var jfStatsRow = jfBar.querySelector('.jf-stats');
         if (jfStatsRow) {
-          jfStatsRow.innerHTML =
-            '<span class="jf-stat"><span class="jf-stat-lbl" id="jfFaultsLbl">F</span> <span id="jfFaults">—</span></span>'
-            + '<span class="jf-stat"><span class="jf-stat-lbl" id="jfTimeLbl">Time</span> <span id="jfTime">—</span></span>'
-            + '<span class="jf-stat"><span class="jf-stat-lbl" id="jfRankLbl">Rank</span> <span id="jfRank">—</span></span>';
-        }
-        if (pe.status_label) {
-          // Eliminated path: status code + full reason. Same regardless
-          // of lens. Rank slot keeps overall_place / current_place.
-          $('jfFaultsLbl').textContent = isHunterPe ? 'Status' : 'F';
-          $('jfFaults').textContent = pe.status_label;
-          $('jfTimeLbl').textContent = isHunterPe ? 'Reason' : 'Time';
-          $('jfTime').textContent = pe.status_full || pe.status_label;
-          $('jfRankLbl').textContent = 'Rank';
-          var elimRank = isHunterPe
-            ? (pe.current_place != null ? String(pe.current_place) : '—')
-            : (pe.overall_place != null ? String(pe.overall_place) : '—');
-          $('jfRank').textContent = elimRank;
-        } else if (isHunterPe) {
-          // Hunter banner: when a multi-round class is past R1 (rounds
-          // length >= 2), show every released round + Overall + Rank.
-          // Single-round classes (or R1-only state) keep the simpler
-          // Score / Round / Rank layout. Bill 2026-05-08: "show all
-          // rounds and overall when in a round N>1." Worker emits
-          // pe.rounds = [{n,label,score}] for hunters.
-          var hRounds = Array.isArray(pe.rounds) ? pe.rounds : [];
-          var rankTxt = pe.current_place != null
-            ? String(pe.current_place)
-            : (pe.overall_place != null ? String(pe.overall_place) : '—');
-          if (hRounds.length >= 2 && jfStatsRow) {
-            // Override the canonical 3-slot layout with R1/R2/[R3]/
-            // Overall/Rank — dynamic count.
-            var stats = hRounds.map(function (r) {
-              return { lbl: r.label, val: fmtHunterScore(r.score) || '—' };
-            });
-            stats.push({
-              lbl: 'Overall',
-              val: fmtHunterScore(pe.combined_total) || '—',
-            });
-            stats.push({ lbl: 'Rank', val: rankTxt });
-            jfStatsRow.innerHTML = stats.map(function (s) {
-              return '<span class="jf-stat"><span class="jf-stat-lbl">'
-                + esc(s.lbl) + '</span> <span>' + esc(s.val) + '</span></span>';
-            }).join('');
-          } else {
-            // Bill 2026-05-08: single-round state — drop the redundant
-            // "Round: R1" slot. Numbering a sole round adds no info.
-            // Render Score / Rank as a 2-slot row.
-            if (jfStatsRow) {
-              jfStatsRow.innerHTML =
-                  '<span class="jf-stat"><span class="jf-stat-lbl">Score</span> <span>'
-                +   esc(fmtHunterScore(pe.displayed_score) || '—')
-                + '</span></span>'
-                + '<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>'
-                +   esc(rankTxt)
-                + '</span></span>';
-            }
-          }
-        } else {
-          // Jumper banner: F / Time / Rank (existing behavior).
-          $('jfFaultsLbl').textContent = 'F';
-          $('jfFaults').textContent = pe.faults != null ? String(pe.faults) : '—';
-          $('jfTimeLbl').textContent = 'Time';
-          $('jfTime').textContent = pe.time != null ? Number(pe.time).toFixed(3) : '—';
-          $('jfRankLbl').textContent = 'Rank';
-          $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
+          jfStatsRow.innerHTML = slots.map(function (s) {
+            return '<span class="jf-stat"><span class="jf-stat-lbl">'
+              + esc(s.label) + '</span> <span>' + esc(s.value) + '</span></span>';
+          }).join('');
         }
       }
       jfBar.classList.toggle('hidden', !jfShow);

@@ -1442,6 +1442,53 @@ export class RingStateDO {
         }
       }
     }
+    // Banner slots — what the just-finished banner should render. Worker
+    // decides shape (EL / multi-round hunter / single-round hunter /
+    // jumper); page just iterates and renders. Single source of truth.
+    // Bill 2026-05-08: "this shouldn't have been this hard keep it simple."
+    const fmtScore = (v) => {
+      if (v == null) return '—';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '—';
+      return parseFloat(n.toFixed(2)).toString();
+    };
+    const rankFor = () => {
+      if (classKind === 'hunter') {
+        return row.current_place != null ? String(row.current_place)
+             : row.overall_place != null ? String(row.overall_place)
+             : '—';
+      }
+      return row.overall_place != null ? String(row.overall_place) : '—';
+    };
+    let bannerSlots = [];
+    if (statusInfo) {
+      bannerSlots = [
+        { label: classKind === 'hunter' ? 'Status' : 'F',     value: statusInfo.label },
+        { label: classKind === 'hunter' ? 'Reason' : 'Time',  value: statusInfo.full || statusInfo.label },
+        { label: 'Rank', value: rankFor() },
+      ];
+    } else if (classKind === 'hunter') {
+      const rounds = hunterRounds || [];
+      if (rounds.length >= 2) {
+        bannerSlots = rounds.map(rr => ({ label: rr.label, value: fmtScore(rr.score) }));
+        bannerSlots.push({ label: 'Overall', value: fmtScore(row.combined_total) });
+        bannerSlots.push({ label: 'Rank',    value: rankFor() });
+      } else if (rounds.length === 1) {
+        bannerSlots = [
+          { label: 'Score', value: fmtScore(rounds[0].score) },
+          { label: 'Rank',  value: rankFor() },
+        ];
+      }
+    } else {
+      // Jumper / equitation
+      const tf = row['r' + r + '_total_faults'];
+      const tt = row['r' + r + '_total_time'];
+      bannerSlots = [
+        { label: 'F',    value: tf != null ? String(tf) : '—' },
+        { label: 'Time', value: tt != null ? Number(tt).toFixed(3) : '—' },
+        { label: 'Rank', value: rankFor() },
+      ];
+    }
     return {
       entry_num: row.entry_num,
       horse_name: row.horse_name || null,
@@ -1463,21 +1510,18 @@ export class RingStateDO {
       combined_total:  row.combined_total  != null ? row.combined_total  : null,
       overall_place:   row.overall_place   != null ? row.overall_place   : null,
       current_place:   row.current_place   != null ? row.current_place   : null,
-      // Status — null when the rider completed cleanly. The banner uses
-      // status_label ("EL"/"RT"/"WD") as a primary cell when set, with
-      // status_full ("Rider Fall"/"Retired"/etc) for the secondary line.
+      // Status (kept for pages that filter on category, etc).
       status_code:     statusInfo ? statusInfo.code     : null,
       status_label:    statusInfo ? statusInfo.label    : null,
       status_category: statusInfo ? statusInfo.category : null,
       status_full:     statusInfo ? statusInfo.full     : null,
-      // Hunter — what the operator actually displayed (Overall vs R1/
-      // R2/R3). Null for jumper/equitation rows.
+      // Hunter — what the operator actually displayed.
       displayed_round_label: displayed ? displayed.label : null,
       displayed_score:       displayed ? displayed.score : null,
       displayed_is_overall:  displayed ? !!displayed.isOverall : null,
-      // All released round scores in order — banner renders R1/R2/R3 +
-      // Overall when length >= 2. Null for jumper/equitation.
       rounds: hunterRounds,
+      // Banner — pre-computed slot list. Page just iterates this.
+      banner_slots: bannerSlots,
     };
   }
 
