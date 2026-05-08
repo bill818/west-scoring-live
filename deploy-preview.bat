@@ -24,6 +24,18 @@ rem normalization, so v3/js gets staged at /js/.
 xcopy /E /I /Y /Q v3\pages _pages_dist          >nul 2>&1
 xcopy /E /I /Y /Q v3\js    _pages_dist\js       >nul 2>&1
 
+rem Cache-bust: rewrite ?v=__BUILD__ in every staged HTML with a unique
+rem token (git short SHA + epoch). Mobile Safari ignores must-revalidate
+rem on JS for hours; rotating the URL forces a fresh fetch each deploy.
+for /f %%i in ('git rev-parse --short HEAD 2^>nul') do set GITSHA=%%i
+if "%GITSHA%"=="" set GITSHA=nogit
+for /f %%i in ('powershell -nop -c "[int][double]::Parse((Get-Date -UFormat %%s))"') do set EPOCH=%%i
+set BUILD_ID=%GITSHA%-%EPOCH%
+echo Build ID: %BUILD_ID%
+for /r _pages_dist %%F in (*.html) do (
+  powershell -nop -c "(Get-Content -Raw '%%F') -replace '__BUILD__', '%BUILD_ID%' | Set-Content -NoNewline '%%F'"
+)
+
 rem Engine asar releases — served at /engine/<version>.asar for the in-app updater
 if exist v3\engine\dist\release-asar\*.asar (
   mkdir _pages_dist\engine 2>nul

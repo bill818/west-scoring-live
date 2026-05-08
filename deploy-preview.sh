@@ -28,6 +28,14 @@ cp -R assets _pages_dist/assets
 cp -R v3/pages/. _pages_dist/
 cp -R v3/js      _pages_dist/js
 
+# Cache-bust: replace ?v=__BUILD__ in every staged HTML with a unique
+# token (git short SHA + epoch). Mobile Safari ignores must-revalidate
+# on JS bundles for hours; rotating the URL forces a fresh fetch on
+# every deploy. Bill 2026-05-08 — phone wasn't picking up new code.
+BUILD_ID="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)-$(date +%s)"
+echo "Build ID: $BUILD_ID"
+find _pages_dist -name '*.html' -print0 | xargs -0 sed -i '' "s/__BUILD__/${BUILD_ID}/g"
+
 # Engine asar releases — served at /engine/<version>.asar for the in-app
 # updater. Built on Windows; won't exist on this Mac. Skip silently if
 # the release directory is empty or missing.
