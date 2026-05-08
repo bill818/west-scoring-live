@@ -27,3 +27,4 @@
 - [Lens-class score routing](feedback_lens_class_routing.md) — pickScores() routes body scores into byClass[lens], with empty-overwrite guard. Never write body scores to focused_class_id blindly
 - [Hunter displayed-round decoded server-side](feedback_hunter_displayed_round.md) — _decodeHunterDisplayedRound subset-matches combined_total → R1/R2/R3 or Overall; page reads displayed_round_label/displayed_score directly
 - [Manager Report endpoint + admin drawer](reference_manager_report.md) — /v3/ringActivityReport: daily totals, live segments, holds (>=10min), prize money by ring, top horse riders, classes start→finalize
+- [Banner round-vs-Overall pacing (revisit)](project_banner_round_vs_overall_pacing.md) — banner currently mirrors operator display sequence (round → Overall a few s later); could short-circuit straight to full breakdown — pinned to revisit
