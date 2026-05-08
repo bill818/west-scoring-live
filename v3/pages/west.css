@@ -87,7 +87,13 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .header-inner{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:56px;}
 .logo-tap{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;}
 .logo-img{height:30px;width:auto;filter:invert(1);}
-.logo-west{font-family:var(--font-display);font-weight:700;font-size:24px;color:#fff;line-height:1;}
+/* Bill 2026-05-07: WEST wordmark + show titles use Gotham X-Narrow
+   instead of the full-width Gotham Black tied to --font-display. The
+   default cut felt "fat" at brand-mark size; X-Narrow keeps the same
+   geometric Gotham character but with tighter horizontal proportions
+   so the wordmark reads more brand-y and less generic. Falls back to
+   the previous Big Shoulders if the Adobe kit isn't loaded. */
+.logo-west{font-family:'gotham-xnarrow-book','Big Shoulders Display',sans-serif;font-weight:700;font-size:24px;color:#fff;line-height:1;letter-spacing:.02em;}
 .logo-sep{font-family:var(--font-mono);font-size:14px;color:var(--red);margin:0 4px;}
 .logo-scoring{font-family:var(--font-mono);font-size:14px;color:var(--red);letter-spacing:.04em;}
 @media(max-width:480px){.logo-west,.logo-sep,.logo-scoring{display:none;}}
@@ -153,7 +159,7 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 
 .show-header{padding:20px;background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);margin-bottom:20px;}
 .show-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px;}
-.show-title{font-family:var(--font-display);font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
+.show-title{font-family:'gotham-xnarrow-book','Big Shoulders Display',sans-serif;font-weight:700;font-size:24px;color:var(--text-body);line-height:1.2;}
 .show-title-actions{display:flex;gap:8px;flex-shrink:0;}
 .show-meta{display:flex;gap:20px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);}
 .show-meta-item span{color:var(--text-body);}
@@ -895,7 +901,7 @@ footer a{color:var(--blue);}
 .app-header .brand{display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .app-header .brand-mark{width:40px;height:40px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .app-header .brand-mark img{width:40px;height:40px;object-fit:contain;}
-.app-header .brand-name{font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:.04em;color:var(--navy);line-height:1;text-decoration:none;}
+.app-header .brand-name{font-family:'gotham-xnarrow-book','Big Shoulders Display',sans-serif;font-weight:700;font-size:22px;letter-spacing:.04em;color:var(--navy);line-height:1;text-decoration:none;}
 .app-header .brand-tag{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-left:4px;}
 .app-header .app-nav{margin-left:auto;display:flex;gap:4px;}
 .app-header .app-nav a{font-family:var(--font-body);font-size:13px;font-weight:500;color:var(--text-body);padding:8px 14px;border-radius:6px;text-decoration:none;}
