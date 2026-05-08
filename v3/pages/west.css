@@ -1031,6 +1031,14 @@ footer a{color:var(--blue);}
 .ring-row-meta{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);}
 .ring-row-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;min-width:90px;}
 .ring-row-chevron{font-size:18px;color:var(--text-faint);}
+/* Bill 2026-05-08: ring-row CTA on show.html. The previous chevron
+   was a faint gray ▸ glyph that didn't read as a button — eyes
+   wandered for the click target. Real navy pill with uppercase mono
+   label gives an obvious "click here for results" affordance. Goes
+   red on row hover so the hover lights up the destination cue. */
+.ring-row-cta{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;background:var(--navy);color:#fff;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;line-height:1;border-radius:4px;transition:background .12s ease;}
+.ring-row-cta .arrow{font-family:var(--font-body);font-size:13px;letter-spacing:0;line-height:1;}
+.ring-row-item .ring-row:hover .ring-row-cta{background:var(--red);}
 .ring-preview-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
 .ring-class-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px;}
 
