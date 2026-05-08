@@ -58,6 +58,23 @@
   .mr-classes-row .cls-id { color: var(--red); font-weight: 600; }
   .mr-classes-row .cls-name { font-family: var(--font-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mr-classes-row .ts-pending { color: var(--text-faint); font-style: italic; }
+  .mr-holds-wrap, .mr-money-wrap, .mr-riders-wrap { background: #fff; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .mr-holds-hdr, .mr-holds-row,
+  .mr-money-hdr, .mr-money-row,
+  .mr-riders-hdr, .mr-riders-row { display: grid; gap: 10px; padding: 6px 12px; font-family: var(--font-mono); font-size: 12px; align-items: center; }
+  .mr-holds-hdr { grid-template-columns: 50px 110px 100px 100px 80px; background: var(--off-white); border-bottom: 2px solid var(--black); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; }
+  .mr-holds-row { grid-template-columns: 50px 110px 100px 100px 80px; border-bottom: 1px solid var(--border); }
+  .mr-holds-row:last-child { border-bottom: none; }
+  .mr-holds-row .dur-long { color: var(--amber); font-weight: 600; }
+  .mr-money-hdr { grid-template-columns: 110px 60px 1fr 110px; background: var(--off-white); border-bottom: 2px solid var(--black); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; }
+  .mr-money-row { grid-template-columns: 110px 60px 1fr 110px; border-bottom: 1px solid var(--border); }
+  .mr-money-row:last-child { border-bottom: none; }
+  .mr-money-row .money { font-weight: 700; color: var(--green); text-align: right; }
+  .mr-riders-hdr { grid-template-columns: 32px 1fr 70px 70px; background: var(--off-white); border-bottom: 2px solid var(--black); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; }
+  .mr-riders-row { grid-template-columns: 32px 1fr 70px 70px; border-bottom: 1px solid var(--border); }
+  .mr-riders-row:last-child { border-bottom: none; }
+  .mr-riders-row .rider-name { font-family: var(--font-body); font-size: 13px; }
+  .mr-riders-row .horse-count { font-weight: 700; color: var(--navy); }
 </style>
 </head>
 <body>
@@ -374,6 +391,27 @@
           <span>Ring</span><span>Started</span><span>Ended</span><span>Duration</span><span>Classes</span><span>Reason</span>
         </div>
         <div id="mrSegsList"></div>
+      </div>
+      <h3 class="mr-section-hdr" style="margin-top:24px;">Rings on hold <span style="font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;font-size:11px;">(idle gaps between live segments, same day)</span></h3>
+      <div class="mr-holds-wrap">
+        <div class="mr-holds-hdr">
+          <span>Ring</span><span>Day</span><span>From</span><span>To</span><span>Duration</span>
+        </div>
+        <div id="mrHoldsList"></div>
+      </div>
+      <h3 class="mr-section-hdr" style="margin-top:24px;">Prize money awarded by ring</h3>
+      <div class="mr-money-wrap">
+        <div class="mr-money-hdr">
+          <span>Day</span><span>Ring</span><span>Money classes</span><span>Awarded</span>
+        </div>
+        <div id="mrMoneyList"></div>
+      </div>
+      <h3 class="mr-section-hdr" style="margin-top:24px;">Riders with the most horses</h3>
+      <div class="mr-riders-wrap">
+        <div class="mr-riders-hdr">
+          <span>#</span><span>Rider</span><span>Horses</span><span>Classes</span>
+        </div>
+        <div id="mrRidersList"></div>
       </div>
       <h3 class="mr-section-hdr" style="margin-top:24px;">Classes — start → finalize</h3>
       <div class="mr-classes-wrap">
@@ -1445,6 +1483,40 @@ function renderManagerReport(report, classes, filters) {
     </div>`;
   }).join('') || '<div class="mr-classes-row" style="color:var(--text-muted);">No classes in range.</div>';
   document.getElementById('mrClassesList').innerHTML = classesHtml;
+
+  // Holds — gaps between consecutive live segments, same ring + day.
+  const holds = report.holds || [];
+  const holdsHtml = holds.map(h => {
+    const longCls = h.duration_minutes >= 30 ? ' dur-long' : '';
+    return `<div class="mr-holds-row">
+      <span>R${escapeHtml(String(h.ring_num))}</span>
+      <span>${escapeHtml(fmtMrDay(Date.parse(h.day + 'T12:00:00Z')))}</span>
+      <span>${escapeHtml(fmtMrTime(h.started_at))}</span>
+      <span>${escapeHtml(fmtMrTime(h.ended_at))}</span>
+      <span class="${longCls.trim()}">${escapeHtml(fmtMrDuration(h.duration_minutes))}</span>
+    </div>`;
+  }).join('') || '<div class="mr-holds-row" style="color:var(--text-muted);">No idle gaps in range.</div>';
+  document.getElementById('mrHoldsList').innerHTML = holdsHtml;
+
+  // Money awarded by ring + day.
+  const money = report.money_by_ring || [];
+  const moneyHtml = money.map(m => `<div class="mr-money-row">
+    <span>${escapeHtml(fmtMrDay(Date.parse(m.day + 'T12:00:00Z')))}</span>
+    <span>R${escapeHtml(String(m.ring_num))}</span>
+    <span>${escapeHtml(String(m.money_classes))} class${m.money_classes === 1 ? '' : 'es'}</span>
+    <span class="money">$${Math.round(m.money_awarded || 0).toLocaleString('en-US')}</span>
+  </div>`).join('') || '<div class="mr-money-row" style="color:var(--text-muted);">No prize money awarded in range.</div>';
+  document.getElementById('mrMoneyList').innerHTML = moneyHtml;
+
+  // Riders with the most horses.
+  const riders = report.top_horse_riders || [];
+  const ridersHtml = riders.map((r, i) => `<div class="mr-riders-row">
+    <span>${i + 1}</span>
+    <span class="rider-name">${escapeHtml(r.rider || '—')}</span>
+    <span class="horse-count">${escapeHtml(String(r.horse_count))}</span>
+    <span>${escapeHtml(String(r.classes_entered))}</span>
+  </div>`).join('') || '<div class="mr-riders-row" style="color:var(--text-muted);">No riders with multiple horses.</div>';
+  document.getElementById('mrRidersList').innerHTML = ridersHtml;
 }
 
 document.getElementById('btnManagerReport').addEventListener('click', openManagerReport);

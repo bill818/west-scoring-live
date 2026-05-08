@@ -7074,7 +7074,127 @@ export default {
         if (a.day !== b.day) return a.day.localeCompare(b.day);
         return a.ring_num - b.ring_num;
       });
-      return json({ ok: true, slug, segments: enriched, totals });
+
+      // Rings on hold (Bill 2026-05-08): gaps BETWEEN consecutive
+      // closed segments on the same ring + same day = the ring went
+      // idle and came back. Cross-day gaps (overnight) excluded —
+      // those aren't "on hold" in the operator sense.
+      const closedSegs = enriched.filter(s => !s.is_open && s.ended_at != null);
+      const segsByRing = new Map();
+      for (const s of closedSegs) {
+        const arr = segsByRing.get(s.ring_num) || [];
+        arr.push(s); segsByRing.set(s.ring_num, arr);
+      }
+      const holds = [];
+      for (const [ringNum, arr] of segsByRing.entries()) {
+        arr.sort((a, b) => a.started_at - b.started_at);
+        for (let i = 1; i < arr.length; i++) {
+          const prev = arr[i - 1], curr = arr[i];
+          const prevDay = new Date(prev.ended_at).toISOString().slice(0, 10);
+          const currDay = new Date(curr.started_at).toISOString().slice(0, 10);
+          if (prevDay !== currDay) continue;  // overnight, not a hold
+          const gapMs = curr.started_at - prev.ended_at;
+          if (gapMs <= 0) continue;
+          holds.push({
+            ring_num: ringNum,
+            day: prevDay,
+            started_at: prev.ended_at,
+            ended_at: curr.started_at,
+            duration_minutes: Math.max(0, Math.round(gapMs / 60000)),
+            after_segment_id: prev.id,
+            before_segment_id: curr.id,
+          });
+        }
+      }
+      holds.sort((a, b) => a.started_at - b.started_at);
+
+      // Resolve show id ONCE for the money + horse-rider rollups.
+      // Both queries need it; segment query above used show_slug
+      // directly so didn't need the lookup.
+      let showRow = null;
+      try {
+        showRow = await env.WEST_DB_V3.prepare(
+          'SELECT id FROM shows WHERE slug = ?').bind(slug).first();
+      } catch (e) {
+        console.log(`[v3/ringActivityReport] show lookup failed: ${e.message}`);
+      }
+
+      // Prize money awarded by ring + day. Same json_extract pattern
+      // as the show-stats top-horses query, grouped at ring scope.
+      // Filtered by date range when from/to provided so the totals
+      // line up with the segments view.
+      let moneyByRing = [];
+      if (showRow) {
+        try {
+          const where2 = ['c.show_id = ?', "c.class_type IN ('J','T')",
+                          'c.deleted_at IS NULL',
+                          "c.prize_money IS NOT NULL", "c.prize_money != ''"];
+          const binds2 = [showRow.id];
+          if (fromDate) { where2.push('c.scheduled_date >= ?'); binds2.push(fromDate); }
+          if (toDate)   { where2.push('c.scheduled_date <= ?'); binds2.push(toDate); }
+          if (ringFilter !== null) { where2.push('r.ring_num = ?'); binds2.push(ringFilter); }
+          const moneySql = `
+            SELECT
+              r.ring_num,
+              r.name AS ring_name,
+              c.scheduled_date AS day,
+              SUM(CASE
+                WHEN s.overall_place IS NOT NULL AND s.overall_place > 0
+                THEN COALESCE(CAST(json_extract(c.prize_money,
+                  '$[' || (s.overall_place - 1) || ']') AS REAL), 0)
+                ELSE 0
+              END) AS money_awarded,
+              COUNT(DISTINCT c.id) AS money_classes
+            FROM classes c
+            JOIN rings r ON r.id = c.ring_id
+            LEFT JOIN entries e ON e.class_id = c.id
+            LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
+            WHERE ${where2.join(' AND ')}
+            GROUP BY r.id, c.scheduled_date
+            HAVING money_awarded > 0
+            ORDER BY c.scheduled_date, r.ring_num
+          `;
+          const mres = await env.WEST_DB_V3.prepare(moneySql).bind(...binds2).all();
+          moneyByRing = mres.results || [];
+        } catch (e) {
+          console.log(`[v3/ringActivityReport] money rollup failed: ${e.message}`);
+        }
+      }
+
+      // Riders with the most horses (across the whole show — date
+      // filter doesn't apply since horse-count is a roster fact, not
+      // a daily one). Hunter + jumper, ring filter applies.
+      let topHorseRiders = [];
+      if (showRow) {
+        try {
+          const where3 = ['c.show_id = ?', 'c.deleted_at IS NULL',
+            "e.rider_name IS NOT NULL AND TRIM(e.rider_name) != ''",
+            "e.horse_name IS NOT NULL AND TRIM(e.horse_name) != ''"];
+          const binds3 = [showRow.id];
+          if (ringFilter !== null) { where3.push('r.ring_num = ?'); binds3.push(ringFilter); }
+          const ridersSql = `
+            SELECT
+              MAX(e.rider_name) AS rider,
+              COUNT(DISTINCT UPPER(TRIM(e.horse_name))) AS horse_count,
+              COUNT(DISTINCT e.class_id) AS classes_entered
+            FROM entries e
+            JOIN classes c ON c.id = e.class_id
+            JOIN rings   r ON r.id = c.ring_id
+            WHERE ${where3.join(' AND ')}
+            GROUP BY UPPER(TRIM(e.rider_name))
+            HAVING horse_count > 1
+            ORDER BY horse_count DESC, rider ASC
+            LIMIT 15
+          `;
+          const rres = await env.WEST_DB_V3.prepare(ridersSql).bind(...binds3).all();
+          topHorseRiders = rres.results || [];
+        } catch (e) {
+          console.log(`[v3/ringActivityReport] horse-rider rollup failed: ${e.message}`);
+        }
+      }
+
+      return json({ ok: true, slug, segments: enriched, totals,
+        holds, money_by_ring: moneyByRing, top_horse_riders: topHorseRiders });
     }
 
     // ── POST /v3/updateRing ──────────────────────────────────────────────────
