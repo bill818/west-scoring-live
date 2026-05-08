@@ -668,12 +668,22 @@
     gap: 4px; align-self: flex-start; margin-top: -2px;
   }
   .class-panel-progress {
-    font-family: var(--font-mono);
-    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
-    color: rgba(255,255,255,.55); font-weight: 500;
-    white-space: nowrap;
+    display: flex; flex-direction: column; align-items: flex-end;
+    line-height: 1.1;
   }
   .class-panel-progress.hidden { display: none; }
+  .class-panel-progress-lbl {
+    font-family: var(--font-mono);
+    font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+    color: rgba(255,255,255,.5); font-weight: 600;
+  }
+  .class-panel-progress-val {
+    font-family: var(--font-display);
+    font-size: 13px; font-weight: 700;
+    color: rgba(255,255,255,.85);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; margin-top: 2px;
+  }
   .class-panel-pill {
     display: inline-flex; align-items: center; gap: 5px;
     background: rgba(74,222,128,.18); color: #4ade80;
@@ -1031,7 +1041,10 @@
       </div>
       <div class="class-panel-status">
         <span class="class-panel-pill" id="classPanelPill"><span class="blink"></span>In ring</span>
-        <div class="class-panel-progress" id="classPanelProgress"></div>
+        <div class="class-panel-progress hidden" id="classPanelProgress">
+          <span class="class-panel-progress-lbl" id="classPanelProgressLbl">Remaining</span>
+          <span class="class-panel-progress-val" id="classPanelProgressVal"></span>
+        </div>
       </div>
     </div>
 
@@ -1463,7 +1476,10 @@
         : '';
       var pillText = entryPill.label;
       var progressHtml = entryPill.progress
-        ? '<div class="class-panel-progress">' + esc(entryPill.progress) + '</div>'
+        ? '<div class="class-panel-progress">'
+          +   '<span class="class-panel-progress-lbl">' + esc(entryPill.progress_label || 'Remaining') + '</span>'
+          +   '<span class="class-panel-progress-val">' + esc(entryPill.progress) + '</span>'
+          + '</div>'
         : '';
       // Per-class Just-Finished banner — same single source of truth
       // as the focused panel: worker emits ep.banner_slots, page just
@@ -1711,7 +1727,10 @@
       pillEl.innerHTML = '<span class="blink"></span>' + (pill.label || '');
     }
     if (progressEl) {
-      progressEl.textContent = pill.progress || '';
+      var lblEl = $('classPanelProgressLbl');
+      var valEl = $('classPanelProgressVal');
+      if (lblEl) lblEl.textContent = pill.progress_label || 'Remaining';
+      if (valEl) valEl.textContent = pill.progress || '';
       progressEl.classList.toggle('hidden', !pill.progress);
     }
     // Live-box banner "for · Class N" tag mirrors the focused class id.
