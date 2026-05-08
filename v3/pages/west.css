@@ -365,7 +365,11 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 /* ── PUBLIC RING PAGE: CLASS LIST ────────────────────────────────────── */
 .day-section{margin-top:20px;}
 .day-section:first-child{margin-top:0;}
-.day-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:0 4px 8px;}
+/* Bill 2026-05-07: bumped from 10px / muted to 13px / navy. The day
+   group header was acting like a section divider (everything below
+   it is "Thursday's classes") but reading at the same visual weight
+   as a footer caption — too easy to scan past. */
+.day-label{font-family:var(--font-mono);font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--navy);padding:14px 4px 6px;}
 .cls-list{background:#fff;border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;}
 .cls-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;transition:background .1s;}
 .cls-row:last-child{border-bottom:none;}
