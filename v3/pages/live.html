@@ -2233,11 +2233,21 @@
       // right fields (score_total = latest round's score, current_place
       // = hunter rank, round = the round number it picked). EL/RT/WD
       // status swap is shared across lenses.
-      var jfShow = !inFinalCollapse && !!pe && (lens === 'jumper' || lens === 'equitation' || lens === 'hunter');
+      // Bill 2026-05-08: pe self-describes its shape — hunter rows
+      // carry .rounds / .displayed_round_label / .combined_total;
+      // jumper rows carry .faults / .time. Don't gate the banner on
+      // lens — there are render windows where snapshot.class_kind is
+      // null (carry-forward gap, idle frames) and pe is still set.
+      // Without this guard the jumper branch fires for a hunter pe
+      // whose faults/time/place are all null → renders "F — Time —
+      // Rank —" placeholders.
+      var peIsHunter = !!pe && (Array.isArray(pe.rounds) || pe.displayed_round_label != null || pe.combined_total != null);
+      var peIsJumper = !!pe && !peIsHunter && (pe.faults != null || pe.time != null || pe.overall_place != null);
+      var jfShow = !inFinalCollapse && !!pe && (peIsHunter || peIsJumper || !!pe.status_label);
       if (jfShow) {
         $('jfNum').textContent = '#' + pe.entry_num;
         $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
-        var isHunterPe = lens === 'hunter';
+        var isHunterPe = peIsHunter || (lens === 'hunter');
         // Always rebuild the canonical 3-slot stats row first so the IDs
         // exist on every code path. The hunter multi-round branch below
         // can override with a dynamic layout.
