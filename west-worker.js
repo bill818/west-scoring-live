@@ -7079,6 +7079,13 @@ export default {
       // closed segments on the same ring + same day = the ring went
       // idle and came back. Cross-day gaps (overnight) excluded —
       // those aren't "on hold" in the operator sense.
+      //
+      // Threshold: gaps under HOLD_MIN_MINUTES are noise (operator
+      // momentarily switched class focus, brief technical pause,
+      // cls_lock cooldown after Flush). 10 min is the operator-side
+      // threshold — anything shorter doesn't read as "the ring was on
+      // hold," it reads as normal between-class pacing. Bill 2026-05-08.
+      const HOLD_MIN_MINUTES = 10;
       const closedSegs = enriched.filter(s => !s.is_open && s.ended_at != null);
       const segsByRing = new Map();
       for (const s of closedSegs) {
@@ -7095,12 +7102,14 @@ export default {
           if (prevDay !== currDay) continue;  // overnight, not a hold
           const gapMs = curr.started_at - prev.ended_at;
           if (gapMs <= 0) continue;
+          const gapMin = Math.max(0, Math.round(gapMs / 60000));
+          if (gapMin < HOLD_MIN_MINUTES) continue;
           holds.push({
             ring_num: ringNum,
             day: prevDay,
             started_at: prev.ended_at,
             ended_at: curr.started_at,
-            duration_minutes: Math.max(0, Math.round(gapMs / 60000)),
+            duration_minutes: gapMin,
             after_segment_id: prev.id,
             before_segment_id: curr.id,
           });
