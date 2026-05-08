@@ -1160,17 +1160,33 @@ export class RingStateDO {
     // the data-mismatch bug. Bill 2026-05-06.
     const focusedClassMeta = (focusedEntry && focusedEntry.class_meta) || null;
     const focusedClassKind = (focusedEntry && focusedEntry.class_kind) || body.class_kind || null;
+    // Bill 2026-05-07: when every class on the ring has timed out
+    // (RING_LIVE_TIMEOUT_MS or operator cleared / FINAL'd them all),
+    // also flush the top-level identity/focus carry-forward. Without
+    // this the public M4 live box keeps showing the last rider's
+    // entry/horse/rider/clock for hours after the ring went silent —
+    // body.last_identity / last_scoring / last_focus from the prior
+    // batch carry through the spread below, and focus_preview gets
+    // built from the focusedEntry's stale tags. Mirrors the same
+    // "ring is idle → wipe" behavior we already do per-class
+    // (previous_entry cleared on timeout, classes filtered out of
+    // snapshot.classes when not is_live/live_since/is_final).
+    const ringHasLiveClass = liveClassIds.length > 0;
     return {
       ...body,
-      class_meta: focusedClassMeta,
-      class_kind: focusedClassKind,
-      focused_class_id: focusedId,
-      is_final: !!(focusedEntry && focusedEntry.is_final === true),
-      finalized_at: focusedEntry ? (focusedEntry.finalized_at || null) : null,
+      class_meta: ringHasLiveClass ? focusedClassMeta : null,
+      class_kind: ringHasLiveClass ? focusedClassKind : null,
+      focused_class_id: ringHasLiveClass ? focusedId : null,
+      // Identity/scoring/focus carry-forward — null when ring idle.
+      last_identity: ringHasLiveClass ? body.last_identity : null,
+      last_scoring:  ringHasLiveClass ? body.last_scoring  : null,
+      last_focus:    ringHasLiveClass ? body.last_focus    : null,
+      is_final: ringHasLiveClass && !!(focusedEntry && focusedEntry.is_final === true),
+      finalized_at: ringHasLiveClass && focusedEntry ? (focusedEntry.finalized_at || null) : null,
       // Sticky most-recent-completed entry for the focused class.
       // Consumers (live page "Just Finished" banner, future scoreboard
       // views, etc.) read this directly without client-side detection.
-      previous_entry: focusedEntry ? (focusedEntry.previous_entry || null) : null,
+      previous_entry: ringHasLiveClass && focusedEntry ? (focusedEntry.previous_entry || null) : null,
       // S46 — ring-wide live state. is_live=true means at least one
       // class on this ring is currently live (operator clicked B+{29}
       // and an intro frame fired within 1s). live_since is the start
@@ -1190,8 +1206,9 @@ export class RingStateDO {
       // live box is showing right now. Pulled from the focused class's
       // last_identity (entry/horse/rider) + last_scoring (rank/faults/
       // clock). Engine renders this as a read-only "what public sees"
-      // card. Null when nothing's focused.
-      focus_preview: this._buildFocusPreview(focusedEntry),
+      // card. Null when nothing's focused or when the ring is idle
+      // (every class timed out — see ringHasLiveClass above).
+      focus_preview: ringHasLiveClass ? this._buildFocusPreview(focusedEntry) : null,
     };
   }
 
