@@ -424,6 +424,19 @@
     return String(n);
   };
 
+  // Hunter score: up to 2 decimals, trailing zeros stripped. null → null
+  // (caller decides placeholder). Mirrors the standings table rendering
+  // where 86 displays as "86", 85.5 as "85.5", 85.75 as "85.75". Bill
+  // 2026-05-08: "decimals need to be rendered properly everywhere"
+  // (the on-course score box was showing "86.0" / "0.0").
+  WEST.format.hunterScore = function (v) {
+    if (v == null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    // Round to 2 decimals to wash out fp noise, then drop trailing zeros.
+    return parseFloat(n.toFixed(2)).toString();
+  };
+
   // HTML-safe escape. Used by every page that interpolates user data
   // into innerHTML. Single source so a future XSS rule (e.g. forbidding
   // a specific glyph) lands in one place.

@@ -872,7 +872,8 @@
     }
     if (!entryRow) return empty;
 
-    const fmt = function (v) { return (v == null) ? null : Number(v).toFixed(3); };
+    const fmt = (WEST.format && WEST.format.hunterScore)
+      || function (v) { return v == null ? null : parseFloat(Number(v).toFixed(2)).toString(); };
     const r1 = fmt(entryRow.r1_score_total);
     const r2 = fmt(entryRow.r2_score_total);
     const r3 = fmt(entryRow.r3_score_total);
@@ -934,7 +935,7 @@
             if (j.hiopt != null && j.hiopt > 0) bonus += ' <span class="bonus">+' + Number(j.hiopt).toFixed(0) + '</span>';
             if (j.handy != null && j.handy > 0) bonus += ' <span class="bonus">+' + Number(j.handy).toFixed(0) + '</span>';
           }
-          cells.push('<span class="hunter-judge-cell"><span class="base">' + Number(j.base).toFixed(1) + '</span>' + bonus + '</span>');
+          cells.push('<span class="hunter-judge-cell"><span class="base">' + (WEST.format.hunterScore(j.base) || '—') + '</span>' + bonus + '</span>');
         }
         grid += '<div class="hunter-judge-row" style="' + rowStyle + '">' + cells.join('') + '</div>';
       });
@@ -1053,7 +1054,13 @@
         var bad = false;
         for (var rb = 0; rb < numRounds; rb++) {
           if (bm & (1 << rb)) {
-            var rv = Number(entryRow['r' + (rb + 1) + '_score_total']);
+            // Bill 2026-05-08: was Number(null) === 0 → treated null R2 as
+            // a real 0, then "all-rounds subset matched combined" wrongly
+            // flipped single-round-released into Overall mode and chipped
+            // R2 = 0.0. Guard with != null first.
+            var rRaw = entryRow['r' + (rb + 1) + '_score_total'];
+            if (rRaw == null) { bad = true; break; }
+            var rv = Number(rRaw);
             if (!isFinite(rv)) { bad = true; break; }
             subRounds.push(rb + 1);
             subSum += rv;
@@ -1120,28 +1127,30 @@
     }
 
 
+    var fmtHS = (WEST.format && WEST.format.hunterScore)
+      || function (v) { return v == null ? null : parseFloat(Number(v).toFixed(2)).toString(); };
     var bigLabel, bigValue;
     var chipParts = [];
     if (displayedIsOverall) {
       bigLabel = 'Overall';
-      bigValue = Number(entryRow.combined_total).toFixed(1);
+      bigValue = fmtHS(entryRow.combined_total);
       for (var rn = 1; rn <= numRounds; rn++) {
-        var rv = Number(entryRow['r' + rn + '_score_total']);
-        if (isFinite(rv)) {
-          chipParts.push('<span class="lt-round"><span class="lbl">R' + rn + '</span><span class="v">' + rv.toFixed(1) + '</span></span>');
-        }
+        var rRaw1 = entryRow['r' + rn + '_score_total'];
+        if (rRaw1 == null) continue;
+        var rvFmt = fmtHS(rRaw1);
+        if (rvFmt == null) continue;
+        chipParts.push('<span class="lt-round"><span class="lbl">R' + rn + '</span><span class="v">' + rvFmt + '</span></span>');
       }
     } else {
       bigLabel = numRounds > 1 ? ('R' + displayedRound) : 'Score';
-      bigValue = Number(entryRow['r' + displayedRound + '_score_total']).toFixed(1);
-      // Chips: every OTHER scored round (not the one being shown big).
-      // Prefer chronological order — R1 first, then R2, etc.
+      bigValue = fmtHS(entryRow['r' + displayedRound + '_score_total']);
       for (var pr = 1; pr <= numRounds; pr++) {
         if (pr === displayedRound) continue;
-        var prv = Number(entryRow['r' + pr + '_score_total']);
-        if (isFinite(prv)) {
-          chipParts.push('<span class="lt-round"><span class="lbl">R' + pr + '</span><span class="v">' + prv.toFixed(1) + '</span></span>');
-        }
+        var prRaw = entryRow['r' + pr + '_score_total'];
+        if (prRaw == null) continue;
+        var prvFmt = fmtHS(prRaw);
+        if (prvFmt == null) continue;
+        chipParts.push('<span class="lt-round"><span class="lbl">R' + pr + '</span><span class="v">' + prvFmt + '</span></span>');
       }
     }
 
@@ -1177,7 +1186,7 @@
               bonusHtml += '<span class="lt-jb">+' + Number(match.handy).toFixed(0) + '</span>';
             }
           }
-          inner = '<span class="lt-jv">' + Number(match.base).toFixed(1) + '</span>' + bonusHtml;
+          inner = '<span class="lt-jv">' + (WEST.format.hunterScore(match.base) || '—') + '</span>' + bonusHtml;
         }
         cells.push('<span class="lt-judge"><span class="lt-jl">J' + (ji + 1) + '</span>' + inner + '</span>');
       }

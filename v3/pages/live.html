@@ -1451,9 +1451,7 @@
           // (Overall vs R1/R2/R3 via combined-total subset match).
           // See feedback note in focused-panel branch above.
           s1Lbl = 'Score';
-          s1Val = ep.displayed_score != null
-            ? Number(ep.displayed_score).toFixed(1)
-            : '—';
+          s1Val = WEST.format.hunterScore(ep.displayed_score) || '—';
           s2Lbl = 'Round';
           s2Val = ep.displayed_round_label || '—';
           s3Lbl = 'Rank';
@@ -1480,10 +1478,10 @@
           var hStats = ep.rounds.map(function (r) {
             return '<span class="jf-stat"><span class="jf-stat-lbl">'
               + esc(r.label) + '</span> <span>'
-              + esc(Number(r.score).toFixed(1)) + '</span></span>';
+              + esc(WEST.format.hunterScore(r.score) || '—') + '</span></span>';
           });
           hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Overall</span> <span>'
-            + esc(ep.combined_total != null ? Number(ep.combined_total).toFixed(1) : '—')
+            + esc(WEST.format.hunterScore(ep.combined_total) || '—')
             + '</span></span>');
           hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>'
             + esc(s3Val) + '</span></span>');
@@ -2263,11 +2261,11 @@
             // Override the canonical 3-slot layout with R1/R2/[R3]/
             // Overall/Rank — dynamic count.
             var stats = hRounds.map(function (r) {
-              return { lbl: r.label, val: Number(r.score).toFixed(1) };
+              return { lbl: r.label, val: WEST.format.hunterScore(r.score) || '—' };
             });
             stats.push({
               lbl: 'Overall',
-              val: pe.combined_total != null ? Number(pe.combined_total).toFixed(1) : '—',
+              val: WEST.format.hunterScore(pe.combined_total) || '—',
             });
             stats.push({ lbl: 'Rank', val: rankTxt });
             jfStatsRow.innerHTML = stats.map(function (s) {
@@ -2276,9 +2274,7 @@
             }).join('');
           } else {
             $('jfFaultsLbl').textContent = 'Score';
-            $('jfFaults').textContent = pe.displayed_score != null
-              ? Number(pe.displayed_score).toFixed(1)
-              : '—';
+            $('jfFaults').textContent = WEST.format.hunterScore(pe.displayed_score) || '—';
             $('jfTimeLbl').textContent = 'Round';
             $('jfTime').textContent = pe.displayed_round_label || '—';
             $('jfRankLbl').textContent = 'Rank';

@@ -1019,7 +1019,13 @@ function _decodeHunterDisplayedRound(row, classMeta) {
       let bad = false;
       for (let rb = 0; rb < numRounds; rb++) {
         if (bm & (1 << rb)) {
-          const rv = Number(row['r' + (rb + 1) + '_score_total']);
+          // Bill 2026-05-08: must guard null first — Number(null) === 0
+          // and Number.isFinite(0) === true, so a null R2 was being
+          // included as 0 in the all-rounds subset and falsely matching
+          // combined_total when only R1 was actually released.
+          const rRaw = row['r' + (rb + 1) + '_score_total'];
+          if (rRaw == null) { bad = true; break; }
+          const rv = Number(rRaw);
           if (!Number.isFinite(rv)) { bad = true; break; }
           subRounds.push(rb + 1);
           subSum += rv;
