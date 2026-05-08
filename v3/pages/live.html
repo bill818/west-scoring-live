@@ -1346,6 +1346,17 @@
     var slug = snapshot.slug || '';
     var ringNum = snapshot.ring_num != null ? String(snapshot.ring_num) : '';
     var esc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml) || function (s) { return String(s == null ? '' : s); };
+    // Hunter-score formatter — fallback inline if west-format.js cached an
+    // older copy without hunterScore. Without this guard the entire hunter
+    // banner branch throws TypeError mid-render and silently leaves the
+    // canonical placeholders visible.
+    var fmtHunterScore = (window.WEST && window.WEST.format && window.WEST.format.hunterScore)
+      || function (v) {
+        if (v == null) return null;
+        var n = Number(v);
+        if (!isFinite(n)) return null;
+        return parseFloat(n.toFixed(2)).toString();
+      };
 
     // Split classes by lifecycle_state (worker-computed):
     //   'full' (default) → render in the otherClassPanels stack
@@ -1451,7 +1462,7 @@
           // (Overall vs R1/R2/R3 via combined-total subset match).
           // See feedback note in focused-panel branch above.
           s1Lbl = 'Score';
-          s1Val = WEST.format.hunterScore(ep.displayed_score) || '—';
+          s1Val = fmtHunterScore(ep.displayed_score) || '—';
           s2Lbl = 'Round';
           s2Val = ep.displayed_round_label || '—';
           s3Lbl = 'Rank';
@@ -1478,10 +1489,10 @@
           var hStats = ep.rounds.map(function (r) {
             return '<span class="jf-stat"><span class="jf-stat-lbl">'
               + esc(r.label) + '</span> <span>'
-              + esc(WEST.format.hunterScore(r.score) || '—') + '</span></span>';
+              + esc(fmtHunterScore(r.score) || '—') + '</span></span>';
           });
           hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Overall</span> <span>'
-            + esc(WEST.format.hunterScore(ep.combined_total) || '—')
+            + esc(fmtHunterScore(ep.combined_total) || '—')
             + '</span></span>');
           hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>'
             + esc(s3Val) + '</span></span>');
@@ -2261,11 +2272,11 @@
             // Override the canonical 3-slot layout with R1/R2/[R3]/
             // Overall/Rank — dynamic count.
             var stats = hRounds.map(function (r) {
-              return { lbl: r.label, val: WEST.format.hunterScore(r.score) || '—' };
+              return { lbl: r.label, val: fmtHunterScore(r.score) || '—' };
             });
             stats.push({
               lbl: 'Overall',
-              val: WEST.format.hunterScore(pe.combined_total) || '—',
+              val: fmtHunterScore(pe.combined_total) || '—',
             });
             stats.push({ lbl: 'Rank', val: rankTxt });
             jfStatsRow.innerHTML = stats.map(function (s) {
@@ -2274,7 +2285,7 @@
             }).join('');
           } else {
             $('jfFaultsLbl').textContent = 'Score';
-            $('jfFaults').textContent = WEST.format.hunterScore(pe.displayed_score) || '—';
+            $('jfFaults').textContent = fmtHunterScore(pe.displayed_score) || '—';
             $('jfTimeLbl').textContent = 'Round';
             $('jfTime').textContent = pe.displayed_round_label || '—';
             $('jfRankLbl').textContent = 'Rank';
