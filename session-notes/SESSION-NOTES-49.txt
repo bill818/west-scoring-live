@@ -1,0 +1,312 @@
+SESSION-NOTES-49 — Banner architecture rebuild + pill/progress + late-night flash hunt
+Date: 2026-05-08 (continuation of S48 same calendar day)
+Branch: main (worktree claude/gifted-hawking-34bc82)
+Status: clean tree on 28ae9b8. Worker version 13299a36 deployed.
+        Preview live at preview.westscoring.pages.dev.
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Continuation of S48 in-show day (Aiken Charity Show II + Saratoga Spring
+II). Started with small banner polish ("show all rounds + Overall when
+N>1") and ended with a complete rebuild of the just-finished banner
+into a worker-driven slot list.
+
+22 commits after S48 was cut. Three big arcs:
+
+1. Hunter banner correctness:
+   • Round breakdown when class is past round 1
+   • Trim trailing zeros (86 not 86.0; 85.5 not 85.50; 85.75 stays)
+   • Status-aware rendering — eliminations render "Status EL" or
+     "R2 RF · R1 86" instead of treating r2_score_total=0 as a
+     real score
+   • previous_entry promote logic: hunted multiple race conditions
+     between UDP events and /v3/postCls row writes
+
+2. Banner architecture rebuild (Bill: "this shouldn't have been
+   this hard keep it simple"):
+   • Worker emits pe.banner_slots = [{label, value, emphasize?}, ...]
+   • Page is a 5-line iterator
+   • Killed ~80 lines of branching client-side logic
+   • Dragged out an esc-not-defined ReferenceError that was silently
+     killing the multi-round path on mobile
+
+3. Class header pill + 'X of Y' progress (designed for kiosk reuse):
+   • Worker emits snapshot.pill + class.pill
+   • {state, label, progress, progress_label, total, remaining, gone}
+   • Pages render directly — single source of truth across surfaces
+   • Stack: pill on top, value '27 of 40' centered below, 'GONE'
+     caption underneath
+   • FINAL state suppresses progress
+
+Plus: cache-bust the preview pipeline so mobile Safari can't serve
+stale bundles after a deploy. Bill confirmed it kept hitting cached
+old code despite hard refreshes.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — by area
+═══════════════════════════════════════════════════════════════════════════
+
+WORKER (west-worker.js)
+
+  ── Hunter banner shape detection (8d5beb6, 1eafefe) ─────────────────────
+  • _buildPrevEntry now emits pe.rounds = [{n, label, score}] for
+    every round with non-null r{N}_score_total + no terminating status.
+  • _decodeHunterDisplayedRound subset-matches combined_total against
+    the released-rounds set so the banner can show "Overall 173.5"
+    when the operator hits Display Overall and "R1 86" when only
+    R1 was released.
+  • _samePrevEntry compares combined_total + displayed_round_label
+    in addition to entry/round/faults so an Overall release on the
+    same entry re-promotes.
+
+  ── Status-aware rendering (dd9fa8f) ──────────────────────────────────────
+  Subset-match algorithm on BOTH worker (_decodeHunterDisplayedRound)
+  and template (renderLowerThird) used to treat r{N}_score_total=0
+  (the convention for status-set rounds) as a real zero score and
+  falsely flipped to Overall. Both paths now skip rounds with
+  r{N}_h_status set.
+  M4 lower-third also short-circuits when the highest round has a
+  terminating status — renders "R2 RF · R1 86" or "Status EL" when
+  no clean prior chips exist.
+
+  ── Hunter score formatter (d924813) ──────────────────────────────────────
+  Added WEST.format.hunterScore(v) — 2 decimals max, trailing zeros
+  stripped (86 → "86", 85.5 → "85.5", 85.75 → "85.75"). Replaced
+  every Number(x).toFixed(1) callsite in the M4 lower-third + judge
+  cells + score card. Each function also has a local fmt fallback so
+  a stale cached west-format.js doesn't kill rendering.
+
+  ── pe-promote race-condition saga (0e7612c → 28ae9b8) ───────────────────
+  Hunted four different races over five commits before landing on
+  the right architecture:
+
+  1. (0e7612c) Don't promote the INCOMING on-course rider when their
+     row carries prior-round data from earlier in the class.
+  2. (10a0afe) Round-2 fix: in case (a), only promote if the row
+     CHANGED since the prior batch (compare candidate to prior-row
+     candidate via _samePrevEntry).
+  3. (38cd4af) Add judges_sig fingerprint to _samePrevEntry so
+     late-arriving judges (which land after /v3/postCls writes the
+     base row) re-promote with J1/J2 cells.
+  4. (718cb26) Defer pe promote until row data settles — case (a)
+     [same rider] handled exclusively in /scores-update.
+  5. (28ae9b8) Final fix: kill case (b) too. /scores-update is the
+     SOLE pe promote site. It detects the just-finished rider via
+     signature-diff (compare body.hunter_scores vs existing.hunter_scores
+     for the entry whose row data CHANGED) — doesn't depend on
+     last_identity, which can flip to next rider before /scores-update
+     fires.
+
+  Trade-off: brief gap on rider transitions (a few hundred ms) where
+  banner stays on prior promoted entry until /v3/postCls completes.
+  Single clean update wins over snappier-but-flashy.
+
+  ── banner_slots architecture (a6e4205) ──────────────────────────────────
+  Worker now decides the entire banner shape:
+
+    EL/RF/RT/WD: Status / Reason / Rank
+    Hunter multi-round (>=2 rounds released):
+      R1 / R2 / [R3] / Overall(emph) / J1 / J2 / Rank
+    Hunter single-round: Score(emph) / J1 / J2 / Rank
+    Jumper / equitation: F / Time / Rank
+
+  Single-judge classes skip judge slots. Derby classes inline hi-opt
+  + handy on judge slots ("J1 88+5+3"). Page is a 5-line iterator.
+  Replaced ~80 lines of client-side branching.
+
+  ── Per-judge slots + judges_sig (d9222de, 38cd4af) ──────────────────────
+  Multi-judge classes get J1, J2, ... slots from the LATEST released
+  round's judges. Worker emits judges_sig (round:idx:base:hiopt:handy
+  fingerprint) in pe so _samePrevEntry detects when judge data
+  arrives after the initial promote and re-builds banner_slots.
+
+  ── Class pill + remaining-progress (c6f6a13, c702f7c, ed0d658) ──────────
+  _buildClassPill(classEntry) emits:
+    { state: 'final'|'inring'|'open',
+      label: 'FINAL'|'In Ring'|'Open',
+      progress: '27 of 40' | null,
+      progress_label: 'Gone' | null,
+      total, remaining, gone }
+
+  Attached to each class in snapshot.classes[] AND to top-level
+  snapshot.pill (focused class). Page renders pill on top, value
+  centered below, 'GONE' caption underneath. FINAL suppresses
+  progress entirely.
+
+  Initial direction was "remaining of total" with 'Remaining' label,
+  Bill flipped it to count UP (gone of total) because the number
+  ticking down read backwards as the class progressed.
+
+  ── pe judges field exposed (38cd4af) ────────────────────────────────────
+  pe carries `judges` array directly so the page-side fallback
+  (computeSlotsFromPe) can build judge slots if banner_slots is
+  somehow missing.
+
+PAGES — live.html
+
+  ── Banner DOM + render simplified (a6e4205, 822d327) ────────────────────
+  Render code dropped from ~80 lines of conditional branches to a
+  single iterator:
+
+    jfStatsRow.innerHTML = pe.banner_slots.map(s =>
+      `<span class="jf-stat${s.emphasize ? ' is-emphasis' : ''}">
+         <span class="jf-stat-lbl">${jfEsc(s.label)}</span>
+         <span>${jfEsc(s.value)}</span>
+       </span>`
+    ).join('');
+
+  THE BUG (822d327): the previous render code referenced `esc`, which
+  was declared inside renderOtherClassPanels(), not inside render().
+  At banner render time `esc` was undefined → ReferenceError → inner
+  block bailed silently → only the identity ($('jfNum')/jfName) made
+  it to the DOM, stats stayed as static placeholder HTML. Mobile
+  Safari was the canary here because Chrome MCP preview happened to
+  evaluate paths in a slightly different order that masked the
+  failure.
+
+  Lesson logged: when adding new code blocks inside render(), declare
+  ALL helpers (esc, fmt, etc.) locally in scope. Don't borrow from
+  other functions' closures.
+
+  ── computeSlotsFromPe page-side fallback ────────────────────────────────
+  Mirrors the worker's banner_slots logic so pe records that
+  pre-date the worker emitting banner_slots still render. Once every
+  in-flight pe carries banner_slots, the fallback never fires.
+
+  ── Mobile breakpoint: J1/J2 wrap to row 2 (219bb79) ─────────────────────
+  Round + Overall on row 1 (the headline numbers), judges + Rank wrap
+  to row 2 below 640px. Implemented via a sibling `.jf-break` element
+  with flex-basis:100% inserted before the first J{n} slot. Desktop
+  unchanged — break element is display:none above 640px.
+
+  ── Score-summary slot emphasized (7cc929d) ──────────────────────────────
+  Multi-round Overall and single-round Score render at 16px instead
+  of 12px so the eye lands on the headline number first. Worker emits
+  emphasize:true on those slots; page adds .is-emphasis class. Fallback
+  also detects label name ('Overall' / 'Score') for backward-compat.
+
+PAGES — class header pill
+
+  ── Two-row stack pill + 'X of Y' + 'Gone' caption ───────────────────────
+  Header status column is now flex-column, center-aligned. Pill on
+  top, value 'X of Y' centered below, small caps caption underneath.
+  CSS:
+    .class-panel-status { display:flex; flex-direction:column;
+                          align-items:center; gap:6px; }
+    .class-panel-progress-val { 13px display font, tabular-nums }
+    .class-panel-progress-lbl { 8px mono caps }
+
+DEPLOY PIPELINE
+
+  ── Cache-bust per preview deploy (be82277) ──────────────────────────────
+  Every script + stylesheet tag in live.html now references
+  `?v=__BUILD__`. deploy-preview.sh + deploy-preview.bat rewrite that
+  to `<git-short-sha>-<epoch>` at stage time, so each deploy produces
+  fresh URLs for every JS bundle. Mobile Safari can't serve stale
+  modules.
+
+  Bill caught me hard on this one — I had been pushing to GitHub but
+  not running deploy-preview.sh, so changes never made it to
+  preview.westscoring.pages.dev. Logged as workflow lesson.
+
+  Production scripts (./deploy, deploy.bat) untouched —
+  westscoring.live not ready.
+
+═══════════════════════════════════════════════════════════════════════════
+PRINCIPLES REINFORCED
+═══════════════════════════════════════════════════════════════════════════
+
+1. WORKER DECIDES SHAPE, PAGE ITERATES
+   pe.banner_slots and class.pill are both worker-emitted descriptors
+   the page renders directly. Adding new slot types or pill states is
+   a worker-only change. live.html, ring display, future scoreboard
+   all read the same fields.
+
+2. WAIT FOR ROW DATA TO SETTLE
+   pe is promoted ONLY by /scores-update (the path called after
+   /v3/postCls writes fresh row data to D1). _updateByClass no longer
+   touches pe. Single visible banner update per operator press, no
+   flash-then-correct.
+
+3. SIGNATURE-DIFF FOR "WHO JUST FINISHED"
+   /scores-update picks the promote target by diffing scoring fields
+   between body and existing scores arrays — not by reading
+   last_identity (which can flip to next rider before
+   /scores-update fires).
+
+4. KEEP HELPERS LOCAL TO WHERE THEY'RE USED
+   esc-scope bug burned ~30 minutes of debugging because esc was
+   declared in a different function's closure. Adding code inside
+   render()? Declare all helpers in render().
+
+═══════════════════════════════════════════════════════════════════════════
+MEMORY TOUCHED
+═══════════════════════════════════════════════════════════════════════════
+
+  Updated:
+    feedback_use_centralized_templates.md — referenced from banner
+                                            commits but not changed
+    project_banner_round_vs_overall_pacing.md — pinned in S48-end
+                                                already
+
+  New:
+    feedback_banner_slots_pattern.md         — single-source-of-truth
+                                               banner architecture
+    feedback_pe_promote_scores_update_only.md — sig-diff promote
+                                                 invariant
+    reference_class_pill_descriptor.md        — pill + progress shape
+                                                for reuse
+    reference_cache_bust_deploy.md            — deploy-preview.sh
+                                                 cache-bust mechanic
+
+  MEMORY.md index updated with all four new entries.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S OPEN
+═══════════════════════════════════════════════════════════════════════════
+
+- Banner round-vs-Overall pacing — pinned in
+  project_banner_round_vs_overall_pacing.md. Currently the banner
+  reflects the operator's release sequence (round score, then
+  Overall a few seconds later when they hit Display Overall). Not a
+  bug — deliberate "show what's on the scoreboard" choice. Revisit
+  if spectator feedback says the gap is confusing.
+- Brief banner gap on rider transitions — bounded by .cls write
+  latency (~few hundred ms). If too long in practice, could re-add a
+  conservative case (b) in _updateByClass that only promotes when
+  the outgoing rider's row sig matches the prior /scores-update sig
+  (i.e., we know the row is fresh).
+- Engine flat-class wiring still parked (no progress this session).
+- Engine mtime gating still parked.
+- M4 → on-course rename still pending Bill's pick on naming.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF NOTES FOR NEXT CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Worker version at session end: 13299a36-a6a5-451f-90e0-7683383eff1b.
+  HEAD is 28ae9b8 on main.
+- DON'T put pe-promote logic back into _updateByClass. /scores-update
+  is the canonical site. If the brief transition gap turns out to be
+  a problem, the ergonomic fix is a row-freshness gate in
+  /scores-update, not a return to UDP-event-driven promotion.
+- When adding code inside render() in live.html, declare all helpers
+  (esc, fmt, etc.) in render's scope. Don't reach for closures from
+  renderOtherClassPanels or renderFlatClass — different functions.
+- Adding new banner slot types (equitation bonuses, jump-off splits,
+  hi-opt accents): push them into bannerSlots in west-worker.js
+  _buildPrevEntry. Page never changes. computeSlotsFromPe (page-side
+  fallback) should mirror the same logic so pe records that pre-date
+  the new slots still render correctly.
+- Cache-bust pipeline: every page-side change MUST be followed by
+  ./deploy-preview.sh. The git push to main is necessary but not
+  sufficient — Cloudflare Pages preview is a separate manual deploy.
+  The script auto-bumps the build ID so mobile caches invalidate.
+- Production deploy (./deploy / deploy.bat) intentionally untouched
+  this session — westscoring.live is not ready.
+- The pill and banner_slots descriptors were designed with the
+  future ring display in mind. When you build that page, read
+  snapshot.pill (focused class) or snapshot.classes[*].pill
+  (multi-class kiosk view) and render the same shape.

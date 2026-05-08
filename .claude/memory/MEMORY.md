@@ -28,3 +28,7 @@
 - [Hunter displayed-round decoded server-side](feedback_hunter_displayed_round.md) — _decodeHunterDisplayedRound subset-matches combined_total → R1/R2/R3 or Overall; page reads displayed_round_label/displayed_score directly
 - [Manager Report endpoint + admin drawer](reference_manager_report.md) — /v3/ringActivityReport: daily totals, live segments, holds (>=10min), prize money by ring, top horse riders, classes start→finalize
 - [Banner round-vs-Overall pacing (revisit)](project_banner_round_vs_overall_pacing.md) — banner currently mirrors operator display sequence (round → Overall a few s later); could short-circuit straight to full breakdown — pinned to revisit
+- [Banner slots — worker decides shape, page iterates](feedback_banner_slots_pattern.md) — pe.banner_slots is the single source of truth; page is a one-line iterator. Reusable across surfaces
+- [previous_entry promoted ONLY by /scores-update (sig-diff)](feedback_pe_promote_scores_update_only.md) — _updateByClass no longer touches pe; signature-diff in /scores-update picks the just-finished rider
+- [Class pill + remaining-progress descriptor](reference_class_pill_descriptor.md) — snapshot.pill / class.pill: state, label, progress (X of Y), progress_label (Gone), counts. Reusable for kiosk + ring display
+- [Cache-bust JS bundles per preview deploy](reference_cache_bust_deploy.md) — deploy-preview.sh stamps ?v=__BUILD__ with git SHA + epoch so mobile Safari can't serve stale modules
