@@ -1469,15 +1469,38 @@ export class RingStateDO {
       ];
     } else if (classKind === 'hunter') {
       const rounds = hunterRounds || [];
+      // Per-judge slots — multi-judge classes include each judge's
+      // score for the LATEST released round (base, plus +hi-opt and
+      // +handy bonuses for derbies). Single-judge classes skip.
+      // Bill 2026-05-08.
+      const nJ = Math.max(1, Number((classMeta || {}).num_judges) || 1);
+      const isDerby = (classMeta || {}).class_mode === 2;
+      const judgeSlots = [];
+      if (nJ > 1 && Array.isArray(row.judges) && row.judges.length && rounds.length) {
+        const latestRound = rounds[rounds.length - 1].n;
+        for (let ji = 0; ji < nJ; ji++) {
+          const j = row.judges.find(x => x.round === latestRound && x.idx === ji);
+          if (!j || j.base == null) {
+            judgeSlots.push({ label: 'J' + (ji + 1), value: '—' });
+            continue;
+          }
+          let v = fmtScore(j.base);
+          if (isDerby) {
+            if (j.hiopt != null && Number(j.hiopt) > 0) v += '+' + Number(j.hiopt).toFixed(0);
+            if (j.handy != null && Number(j.handy) > 0) v += '+' + Number(j.handy).toFixed(0);
+          }
+          judgeSlots.push({ label: 'J' + (ji + 1), value: v });
+        }
+      }
       if (rounds.length >= 2) {
         bannerSlots = rounds.map(rr => ({ label: rr.label, value: fmtScore(rr.score) }));
         bannerSlots.push({ label: 'Overall', value: fmtScore(row.combined_total) });
-        bannerSlots.push({ label: 'Rank',    value: rankFor() });
+        bannerSlots = bannerSlots.concat(judgeSlots);
+        bannerSlots.push({ label: 'Rank', value: rankFor() });
       } else if (rounds.length === 1) {
-        bannerSlots = [
-          { label: 'Score', value: fmtScore(rounds[0].score) },
-          { label: 'Rank',  value: rankFor() },
-        ];
+        bannerSlots = [{ label: 'Score', value: fmtScore(rounds[0].score) }];
+        bannerSlots = bannerSlots.concat(judgeSlots);
+        bannerSlots.push({ label: 'Rank', value: rankFor() });
       }
     } else {
       // Jumper / equitation
