@@ -1497,6 +1497,12 @@
           hStats.push('<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>'
             + esc(s3Val) + '</span></span>');
           jfStatsHtml = hStats.join('');
+        } else if (!ep.status_label && isHunterLensP) {
+          // Bill 2026-05-08: single-round hunter — drop the redundant
+          // "Round: R1" slot. Score / Rank only.
+          jfStatsHtml =
+              '<span class="jf-stat"><span class="jf-stat-lbl">Score</span> <span>' + esc(s1Val) + '</span></span>'
+            + '<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>' + esc(s3Val) + '</span></span>';
         } else {
           jfStatsHtml =
               '<span class="jf-stat"><span class="jf-stat-lbl">' + esc(s1Lbl) + '</span> <span>' + esc(s1Val) + '</span></span>'
@@ -2284,12 +2290,18 @@
                 + esc(s.lbl) + '</span> <span>' + esc(s.val) + '</span></span>';
             }).join('');
           } else {
-            $('jfFaultsLbl').textContent = 'Score';
-            $('jfFaults').textContent = fmtHunterScore(pe.displayed_score) || '—';
-            $('jfTimeLbl').textContent = 'Round';
-            $('jfTime').textContent = pe.displayed_round_label || '—';
-            $('jfRankLbl').textContent = 'Rank';
-            $('jfRank').textContent = rankTxt;
+            // Bill 2026-05-08: single-round state — drop the redundant
+            // "Round: R1" slot. Numbering a sole round adds no info.
+            // Render Score / Rank as a 2-slot row.
+            if (jfStatsRow) {
+              jfStatsRow.innerHTML =
+                  '<span class="jf-stat"><span class="jf-stat-lbl">Score</span> <span>'
+                +   esc(fmtHunterScore(pe.displayed_score) || '—')
+                + '</span></span>'
+                + '<span class="jf-stat"><span class="jf-stat-lbl">Rank</span> <span>'
+                +   esc(rankTxt)
+                + '</span></span>';
+            }
           }
         } else {
           // Jumper banner: F / Time / Rank (existing behavior).

@@ -1142,16 +1142,23 @@
         chipParts.push('<span class="lt-round"><span class="lbl">R' + rn + '</span><span class="v">' + rvFmt + '</span></span>');
       }
     } else {
-      bigLabel = numRounds > 1 ? ('R' + displayedRound) : 'Score';
       bigValue = fmtHS(entryRow['r' + displayedRound + '_score_total']);
+      // Bill 2026-05-08: don't render round labels for rounds higher
+      // than the displayed (released) one — and when displayedRound is
+      // the ONLY scored round for this entry, drop the "R1" label
+      // entirely. Numbering a sole round is redundant.
       for (var pr = 1; pr <= numRounds; pr++) {
         if (pr === displayedRound) continue;
+        if (pr > displayedRound) continue;
         var prRaw = entryRow['r' + pr + '_score_total'];
         if (prRaw == null) continue;
         var prvFmt = fmtHS(prRaw);
         if (prvFmt == null) continue;
         chipParts.push('<span class="lt-round"><span class="lbl">R' + pr + '</span><span class="v">' + prvFmt + '</span></span>');
       }
+      bigLabel = (numRounds > 1 && chipParts.length > 0)
+        ? ('R' + displayedRound)
+        : 'Score';
     }
 
     var middleHtml = '<div class="m4-hunter-overall"><span class="lbl">' + bigLabel + '</span><span class="v">' + bigValue + '</span></div>';
