@@ -1447,12 +1447,15 @@
             ? (ep.current_place != null ? String(ep.current_place) : '—')
             : (ep.overall_place != null ? String(ep.overall_place) : '—');
         } else if (isHunterLensP) {
+          // Score = worker-derived "what was actually released"
+          // (Overall vs R1/R2/R3 via combined-total subset match).
+          // See feedback note in focused-panel branch above.
           s1Lbl = 'Score';
-          s1Val = ep.score_total != null
-            ? Number(ep.score_total).toFixed(1)
-            : (ep.combined_total != null ? Number(ep.combined_total).toFixed(1) : '—');
+          s1Val = ep.displayed_score != null
+            ? Number(ep.displayed_score).toFixed(1)
+            : '—';
           s2Lbl = 'Round';
-          s2Val = ep.round != null ? ('R' + ep.round) : '—';
+          s2Val = ep.displayed_round_label || '—';
           s3Lbl = 'Rank';
           s3Val = ep.current_place != null
             ? String(ep.current_place)
@@ -2212,15 +2215,19 @@
             : (pe.overall_place != null ? String(pe.overall_place) : '—');
           $('jfRank').textContent = elimRank;
         } else if (isHunterPe) {
-          // Hunter banner: Score (latest released round) / Round
-          // label / Rank. Worker emits round=1/2/3 — map to "R1"/"R2"
-          // /"R3" or "Overall" when combined matches all rounds.
+          // Hunter banner: Score (the value the operator most recently
+          // released) / Round label ("R1" / "R2" / "R3" / "Overall") /
+          // Rank. The worker computes displayed_round_label +
+          // displayed_score via combined-total subset matching in
+          // _decodeHunterDisplayedRound — same logic the M4 lower-third
+          // uses, so the banner and the on-course bar agree on which
+          // round was last released. Bill 2026-05-08.
           $('jfFaultsLbl').textContent = 'Score';
-          $('jfFaults').textContent = pe.score_total != null
-            ? Number(pe.score_total).toFixed(1)
-            : (pe.combined_total != null ? Number(pe.combined_total).toFixed(1) : '—');
+          $('jfFaults').textContent = pe.displayed_score != null
+            ? Number(pe.displayed_score).toFixed(1)
+            : '—';
           $('jfTimeLbl').textContent = 'Round';
-          $('jfTime').textContent = pe.round != null ? ('R' + pe.round) : '—';
+          $('jfTime').textContent = pe.displayed_round_label || '—';
           $('jfRankLbl').textContent = 'Rank';
           $('jfRank').textContent = pe.current_place != null
             ? String(pe.current_place)

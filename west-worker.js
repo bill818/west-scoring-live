@@ -942,6 +942,89 @@ const STATUS_CODES = {
   NS:  { label: 'DNS', full: 'No Show',        category: 'DNS'     },
 };
 
+// Pick the hunter "displayed round" for a scoring row — i.e. which
+// round (or Overall) the operator most recently RELEASED via Display
+// Scores. Mirror of the subset-matching logic in
+// v3/js/west-hunter-templates.js renderLowerThird (the M4 lower-
+// third's PRIMARY detector). Centralized here so the just-finished
+// banner, the M4 lower-third, and any future hunter surface all read
+// the SAME displayed-round + score from the worker — no client-side
+// duplication. Bill 2026-05-08.
+//
+// Rationale: combined_total = SUM of every round operator has
+// released. So:
+//   • combined matches sum(all rounds)             → Overall mode
+//   • combined matches sum of subset of rounds      → those are
+//     released; the highest-numbered round in the subset is the
+//     "current displayed round" (latest release wins ties)
+//   • combined matches one round alone              → only that
+//     round released
+// Stable across UDP cycling because it's data-only.
+//
+// fr=12/14/16 UDP tag matching is intentionally NOT in this helper
+// — that's an "active rider, this very tick" signal that's only
+// meaningful for the M4 lower-third (live focus). For previous_entry
+// (after the rider leaves), the subset-match is the right answer.
+//
+// Returns { round, label, score, isOverall } or null when row has no
+// scored rounds. round is null when isOverall=true.
+function _decodeHunterDisplayedRound(row, classMeta) {
+  if (!row || !classMeta) return null;
+  const numRounds = Math.max(1, Math.min(3, Number(classMeta.num_rounds) || 1));
+  // Collect rounds with data, in order.
+  const scored = [];
+  for (let n = 1; n <= numRounds; n++) {
+    const v = row['r' + n + '_score_total'];
+    if (v != null && Number.isFinite(Number(v))) {
+      scored.push({ n, score: Number(v) });
+    }
+  }
+  if (!scored.length) return null;
+  const combined = row.combined_total != null ? Number(row.combined_total) : null;
+  // Subset matching only applies to multi-round classes with combined.
+  if (numRounds > 1 && combined != null && Number.isFinite(combined)) {
+    const EPS = 0.5;
+    let best = null;
+    for (let bm = 1; bm < (1 << numRounds); bm++) {
+      const subRounds = [];
+      let subSum = 0;
+      let bad = false;
+      for (let rb = 0; rb < numRounds; rb++) {
+        if (bm & (1 << rb)) {
+          const rv = Number(row['r' + (rb + 1) + '_score_total']);
+          if (!Number.isFinite(rv)) { bad = true; break; }
+          subRounds.push(rb + 1);
+          subSum += rv;
+        }
+      }
+      if (bad) continue;
+      if (Math.abs(subSum - combined) >= EPS) continue;
+      if (!best
+        || subRounds.length > best.rounds.length
+        || (subRounds.length === best.rounds.length
+            && subRounds[subRounds.length - 1] > best.rounds[best.rounds.length - 1])) {
+        best = { rounds: subRounds, sum: subSum };
+      }
+    }
+    if (best) {
+      if (best.rounds.length === numRounds) {
+        return { round: null, label: 'Overall', score: combined, isOverall: true };
+      }
+      const top = best.rounds[best.rounds.length - 1];
+      return {
+        round: top,
+        label: 'R' + top,
+        score: Number(row['r' + top + '_score_total']),
+        isOverall: false,
+      };
+    }
+  }
+  // Fallback: highest-numbered scored round, never auto-promote to
+  // Overall (matches the template's no-implicit-Overall rule).
+  const top = scored[scored.length - 1];
+  return { round: top.n, label: 'R' + top.n, score: top.score, isOverall: false };
+}
+
 // Find the on-course entry's most recent ROUND status and decode it.
 // Looks at the highest-numbered round that has data (status or faults
 // or score) — that's the round the operator was running when the
@@ -1280,7 +1363,7 @@ export class RingStateDO {
   // signal — a fallen rider has no time/faults/score but the round the fall
   // happened in is still known. Without this the just-finished banner went
   // blank when an on-course rider got eliminated.
-  _buildPrevEntry(row, classKind) {
+  _buildPrevEntry(row, classKind, classMeta) {
     if (!row) return null;
     const statusKey = classKind === 'hunter' ? 'h_status' : 'status';
     let round = null;
@@ -1297,6 +1380,13 @@ export class RingStateDO {
     }
     const r = round || 1;
     const statusInfo = _decodeOnCourseStatus(row, classKind);
+    // Hunter "displayed round" — Overall vs R1/R2/R3 — derived once
+    // server-side via combined-total subset matching. The just-
+    // finished banner reads displayed_round_label + displayed_score
+    // directly instead of patching together fallbacks. Bill 2026-05-08.
+    const displayed = (classKind === 'hunter')
+      ? _decodeHunterDisplayedRound(row, classMeta || {})
+      : null;
     return {
       entry_num: row.entry_num,
       horse_name: row.horse_name || null,
@@ -1325,6 +1415,11 @@ export class RingStateDO {
       status_label:    statusInfo ? statusInfo.label    : null,
       status_category: statusInfo ? statusInfo.category : null,
       status_full:     statusInfo ? statusInfo.full     : null,
+      // Hunter — what the operator actually displayed (Overall vs R1/
+      // R2/R3). Null for jumper/equitation rows.
+      displayed_round_label: displayed ? displayed.label : null,
+      displayed_score:       displayed ? displayed.score : null,
+      displayed_is_overall:  displayed ? !!displayed.isOverall : null,
     };
   }
 
@@ -1372,7 +1467,9 @@ export class RingStateDO {
                     : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
                     : prior.hunter_scores) || [];
       const oncRow = scores.find(r => String(r.entry_num) === String(newOnCourseEntry));
-      const candidate = this._buildPrevEntry(oncRow, body.class_kind || prior.class_kind);
+      const candidate = this._buildPrevEntry(oncRow,
+        body.class_kind || prior.class_kind,
+        body.class_meta || prior.class_meta);
       if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
         candidate.finished_at = body.received_at || new Date().toISOString();
         previousEntry = candidate;
@@ -2299,7 +2396,7 @@ export class RingStateDO {
             ? (targetEntry.hunter_scores || [])
             : (targetEntry.jumper_scores || []);
           const oncRow = scoresForPrev.find(r => String(r.entry_num) === String(onCourseId));
-          const candidate = this._buildPrevEntry(oncRow, targetLens);
+          const candidate = this._buildPrevEntry(oncRow, targetLens, targetEntry.class_meta);
           if (candidate && !this._samePrevEntry(targetEntry.previous_entry, candidate)) {
             candidate.finished_at = new Date().toISOString();
             targetEntry.previous_entry = candidate;
