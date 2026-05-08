@@ -660,29 +660,29 @@
     font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
     color: rgba(255,255,255,.6); font-weight: 400; margin-top: 4px;
   }
-  /* Status column — pill on top, progress text underneath. The pill
-     sits a touch above center so the progress line drops below without
-     making the pill itself feel pinned to the bottom. Bill 2026-05-08. */
+  /* Status column — pill on top, progress underneath, all centered as
+     a tight stack. Bill 2026-05-08. */
   .class-panel-status {
-    display: flex; flex-direction: column; align-items: flex-end;
-    gap: 4px; align-self: flex-start; margin-top: -2px;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 6px; align-self: flex-start; margin-top: -2px;
   }
   .class-panel-progress {
-    display: flex; flex-direction: column; align-items: flex-end;
-    line-height: 1.1;
+    display: flex; flex-direction: column; align-items: center;
+    line-height: 1.05;
   }
   .class-panel-progress.hidden { display: none; }
-  .class-panel-progress-lbl {
-    font-family: var(--font-mono);
-    font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
-    color: rgba(255,255,255,.5); font-weight: 600;
-  }
   .class-panel-progress-val {
     font-family: var(--font-display);
     font-size: 13px; font-weight: 700;
     color: rgba(255,255,255,.85);
     font-variant-numeric: tabular-nums;
-    white-space: nowrap; margin-top: 2px;
+    white-space: nowrap;
+  }
+  .class-panel-progress-lbl {
+    font-family: var(--font-mono);
+    font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+    color: rgba(255,255,255,.5); font-weight: 600;
+    margin-top: 2px;
   }
   .class-panel-pill {
     display: inline-flex; align-items: center; gap: 5px;
@@ -1042,8 +1042,8 @@
       <div class="class-panel-status">
         <span class="class-panel-pill" id="classPanelPill"><span class="blink"></span>In ring</span>
         <div class="class-panel-progress hidden" id="classPanelProgress">
-          <span class="class-panel-progress-lbl" id="classPanelProgressLbl">Remaining</span>
           <span class="class-panel-progress-val" id="classPanelProgressVal"></span>
+          <span class="class-panel-progress-lbl" id="classPanelProgressLbl">Remaining</span>
         </div>
       </div>
     </div>
@@ -1477,8 +1477,8 @@
       var pillText = entryPill.label;
       var progressHtml = entryPill.progress
         ? '<div class="class-panel-progress">'
-          +   '<span class="class-panel-progress-lbl">' + esc(entryPill.progress_label || 'Remaining') + '</span>'
           +   '<span class="class-panel-progress-val">' + esc(entryPill.progress) + '</span>'
+          +   '<span class="class-panel-progress-lbl">' + esc(entryPill.progress_label || 'Remaining') + '</span>'
           + '</div>'
         : '';
       // Per-class Just-Finished banner — same single source of truth
