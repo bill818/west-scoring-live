@@ -1442,7 +1442,9 @@
       // iterates. Bill 2026-05-08.
       var jfHtml = '';
       var ep = entry.previous_entry;
-      var epSlots = ep && Array.isArray(ep.banner_slots) ? ep.banner_slots : [];
+      var epSlots = ep && Array.isArray(ep.banner_slots) && ep.banner_slots.length
+        ? ep.banner_slots
+        : computeSlotsFromPe(ep);
       if (ep && epSlots.length > 0) {
         var nameTxt = (ep.horse_name || '') + (ep.rider_name ? ' / ' + ep.rider_name : '');
         var jfStatsHtml = epSlots.map(function (s) {
@@ -1474,6 +1476,59 @@
         + '</div>';
     });
     container.innerHTML = html;
+  }
+
+  // Page-side fallback for pe records that pre-date worker banner_slots.
+  // Same shape decisions as the worker — kept identical so behavior
+  // doesn't drift across the boundary. Once every snapshot in flight
+  // carries banner_slots (i.e. some time after a worker redeploy and a
+  // fresh transition), this fallback never fires.
+  function computeSlotsFromPe(pe) {
+    if (!pe) return [];
+    var fmt = function (v) {
+      if (v == null) return '—';
+      var n = Number(v);
+      if (!isFinite(n)) return '—';
+      return parseFloat(n.toFixed(2)).toString();
+    };
+    var rank = pe.current_place != null ? String(pe.current_place)
+             : pe.overall_place != null ? String(pe.overall_place)
+             : '—';
+    if (pe.status_label) {
+      var isHunterShape = Array.isArray(pe.rounds) || pe.combined_total != null
+                       || pe.displayed_round_label != null;
+      return [
+        { label: isHunterShape ? 'Status' : 'F',    value: pe.status_label },
+        { label: isHunterShape ? 'Reason' : 'Time', value: pe.status_full || pe.status_label },
+        { label: 'Rank', value: rank },
+      ];
+    }
+    if (Array.isArray(pe.rounds) && pe.rounds.length >= 2) {
+      var slots = pe.rounds.map(function (r) { return { label: r.label, value: fmt(r.score) }; });
+      slots.push({ label: 'Overall', value: fmt(pe.combined_total) });
+      slots.push({ label: 'Rank',    value: rank });
+      return slots;
+    }
+    if (Array.isArray(pe.rounds) && pe.rounds.length === 1) {
+      return [
+        { label: 'Score', value: fmt(pe.rounds[0].score) },
+        { label: 'Rank',  value: rank },
+      ];
+    }
+    if (pe.displayed_score != null || pe.combined_total != null) {
+      return [
+        { label: 'Score', value: fmt(pe.displayed_score != null ? pe.displayed_score : pe.combined_total) },
+        { label: 'Rank',  value: rank },
+      ];
+    }
+    if (pe.faults != null || pe.time != null || pe.overall_place != null) {
+      return [
+        { label: 'F',    value: pe.faults != null ? String(pe.faults) : '—' },
+        { label: 'Time', value: pe.time != null ? Number(pe.time).toFixed(3) : '—' },
+        { label: 'Rank', value: rank },
+      ];
+    }
+    return [];
   }
 
   // Cached snapshot so timers (e.g. the 60s FINAL collapse) can re-invoke
@@ -2160,22 +2215,30 @@
     }
 
     // Just-finished banner — worker emits pe.banner_slots = [{label,
-    // value}, ...] with all decisions (EL vs hunter vs jumper, single
-    // vs multi-round) baked in. Page just iterates. Bill 2026-05-08:
-    // "this shouldn't have been this hard keep it simple."
+    // value}, ...] with all decisions baked in. Page just iterates.
+    // Bill 2026-05-08: "this shouldn't have been this hard keep it
+    // simple." Page-side fallback (computeSlotsFromPe) handles pe
+    // records promoted before the worker started emitting banner_slots
+    // — without it those entries render an empty banner.
     var jfBar = $('justFinishedBar');
     if (jfBar) {
       var pe = snapshot.previous_entry || null;
-      var slots = pe && Array.isArray(pe.banner_slots) ? pe.banner_slots : [];
+      var slots = pe && Array.isArray(pe.banner_slots) && pe.banner_slots.length
+        ? pe.banner_slots
+        : computeSlotsFromPe(pe);
       var jfShow = !inFinalCollapse && !!pe && slots.length > 0;
       if (jfShow) {
         $('jfNum').textContent = '#' + pe.entry_num;
         $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
         var jfStatsRow = jfBar.querySelector('.jf-stats');
+        var jfEsc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml)
+          || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+              return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            }); };
         if (jfStatsRow) {
           jfStatsRow.innerHTML = slots.map(function (s) {
             return '<span class="jf-stat"><span class="jf-stat-lbl">'
-              + esc(s.label) + '</span> <span>' + esc(s.value) + '</span></span>';
+              + jfEsc(s.label) + '</span> <span>' + jfEsc(s.value) + '</span></span>';
           }).join('');
         }
       }
