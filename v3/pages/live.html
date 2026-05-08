@@ -1037,17 +1037,10 @@
       <ul class="sb-list" id="standbyListList"></ul>
     </div>
 
-    <!-- Standings panels — only one renders at a time depending on lens.
-         Existing IDs kept so the render() logic that picks hunter vs
-         jumper and dispatches to the templates still works as-is. -->
-    <div class="standings-wrap hidden" id="hunterStandingsPanel">
-      <div class="standings-hdr">
-        <div class="standings-title">Hunter standings</div>
-        <div class="standings-hint" id="hunterStandingsHint"></div>
-      </div>
-      <div id="hunterStandingsBox"></div>
-    </div>
-    <!-- Just-finished banner — two lines: identity top, stats below. -->
+    <!-- Just-finished banner — two lines: identity top, stats below.
+         Bill 2026-05-08: moved above BOTH standings panels (was sitting
+         between hunter and jumper, which placed it under the standings
+         on hunter classes and made it look like it wasn't rendering). -->
     <div class="just-finished hidden" id="justFinishedBar">
       <div class="jf-row jf-id">
         <span class="jf-lbl">Just finished</span>
@@ -1059,6 +1052,16 @@
         <span class="jf-stat"><span class="jf-stat-lbl" id="jfTimeLbl">Time</span> <span id="jfTime">—</span></span>
         <span class="jf-stat"><span class="jf-stat-lbl" id="jfRankLbl">Rank</span> <span id="jfRank">—</span></span>
       </div>
+    </div>
+    <!-- Standings panels — only one renders at a time depending on lens.
+         Existing IDs kept so the render() logic that picks hunter vs
+         jumper and dispatches to the templates still works as-is. -->
+    <div class="standings-wrap hidden" id="hunterStandingsPanel">
+      <div class="standings-hdr">
+        <div class="standings-title">Hunter standings</div>
+        <div class="standings-hint" id="hunterStandingsHint"></div>
+      </div>
+      <div id="hunterStandingsBox"></div>
     </div>
     <div class="standings-wrap hidden" id="jumperStandingsPanel">
       <div class="standings-hdr">
