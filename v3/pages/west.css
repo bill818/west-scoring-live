@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://use.typekit.net/dcn7wbu.css');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* ═══════════════════════════════════════════════════════════════════════
    WEST v3 — shared stylesheet for all v3 pages
@@ -8,20 +9,40 @@
    Page-specific class names don't collide (admin uses .app/.sidebar/
    .ring-row; index uses .page/.toolbar/.show-card — different namespaces).
 
-   FONTS: loaded centrally via the @import on line 1. To add/remove a font
-   family or weight site-wide, edit that URL and the --font-* tokens below.
-   Pages do NOT include their own Google Fonts <link> — they just reference
-   var(--font-display) / var(--font-body) / var(--font-mono) and trust
-   this stylesheet to deliver the fonts.
+   FONTS: loaded centrally via the @imports above.
+     1. Adobe Fonts kit (dcn7wbu) — Gotham + Industry + Acumin Pro
+        Condensed + Source Code Pro + Hoefler Text. Project owner
+        manages weights/cuts at fonts.adobe.com/my_fonts.
+     2. Google Fonts — Inter at standard weights for body text.
+        Adobe ships only the heaviest Inter cut; Google provides the
+        light/regular weights body text needs.
+   To add/remove a font site-wide, edit the URLs above and the
+   --font-* tokens below. Pages do NOT include their own font links —
+   they just reference var(--font-display) / var(--font-body) /
+   var(--font-mono) / var(--font-numeric) and trust this stylesheet.
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ── TOKENS ──────────────────────────────────────────────────────────── */
 :root {
-  /* Type system — Big Shoulders Display (display) + Inter (body) + JetBrains Mono (codes).
-     Confirmed font-lab Round 2 / index-lab pitch, flipped 2026-05-03. */
-  --font-display: 'Big Shoulders Display', sans-serif;
-  --font-body:    'Inter', sans-serif;
-  --font-mono:    'JetBrains Mono', monospace;
+  /* Type system — Bill 2026-05-07: switched to Gotham (Adobe Fonts via
+     Creative Cloud) for the NBC-broadcast feel. Acumin Pro Condensed
+     handles the scoreboard numerics (clock / time / faults — condensed
+     for the ESPN-ticker look). Inter (Google Fonts) stays for body
+     text since Adobe's Inter is only the heavy cut. Source Code Pro
+     (Adobe) replaces JetBrains Mono for debug strip + data labels.
+
+     Fallback chain: Adobe family → previous shipped family → generic.
+     If the Adobe kit fails to load (network / outage / mistyped kit
+     ID) the page falls back to the Google Fonts shipped families
+     so the layout never collapses to system serif. */
+  --font-display: 'gotham-black', 'Big Shoulders Display', sans-serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'source-code-pro-black', 'JetBrains Mono', monospace;
+  /* Scoreboard numerics — heavy + condensed. Bill: "ESPN ticker /
+     Sunday Night Football lower-third" feel. Wired into the clock /
+     time / faults / rank cells specifically; not used for general
+     mono labels (those keep --font-mono for clarity at small sizes). */
+  --font-numeric: 'acumin-pro-condensed-black', 'industry-black', 'gotham-black', sans-serif;
 
   /* Palette — flipped to the index-lab-black values 2026-05-03 (Phase 5).
      Slightly cooler grays and borders; --off-white moved from #f5f5f5 to #f7f7f8.
