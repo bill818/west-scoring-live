@@ -151,7 +151,12 @@ function renderChips(cls, stats) {
     chips.push(chip(lastRound.clears, lastRoundLabel(cls, lastRound.round) + ' Clears', pct(lastRound.clears, lastRound.competed)));
   }
   if (stats.eliminated > 0) chips.push(chip(stats.eliminated, 'Eliminated'));
-  if (stats.scratched > 0)  chips.push(chip(stats.scratched, 'Scratched'));
+  // Scratched: gate on cls.finalized_at. The compute counts entries
+  // that have no round data (or only DNS/WD/SC status) — accurate
+  // ONLY after the class is FINAL. Mid-class "no round data" includes
+  // riders who haven't gone yet, which inflates the count and reads
+  // as wrong to anyone watching live. Bill 2026-05-07.
+  if (stats.scratched > 0 && cls.finalized_at) chips.push(chip(stats.scratched, 'Scratched'));
   return `<div class="stat-chips">${chips.join('')}</div>`;
 }
 
