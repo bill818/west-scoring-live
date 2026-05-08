@@ -999,11 +999,14 @@ function pickScores(bodyScores, priorScores, bodyClassMeta, focusedClassId) {
 function _decodeHunterDisplayedRound(row, classMeta) {
   if (!row || !classMeta) return null;
   const numRounds = Math.max(1, Math.min(3, Number(classMeta.num_rounds) || 1));
-  // Collect rounds with data, in order.
+  // Collect rounds with CLEAN data (skip status-set rounds — their 0
+  // isn't a real score; subset matching against 0 falsely promoted to
+  // Overall). Bill 2026-05-08.
   const scored = [];
   for (let n = 1; n <= numRounds; n++) {
     const v = row['r' + n + '_score_total'];
-    if (v != null && Number.isFinite(Number(v))) {
+    const st = row['r' + n + '_h_status'];
+    if (v != null && Number.isFinite(Number(v)) && !st) {
       scored.push({ n, score: Number(v) });
     }
   }
@@ -1019,12 +1022,13 @@ function _decodeHunterDisplayedRound(row, classMeta) {
       let bad = false;
       for (let rb = 0; rb < numRounds; rb++) {
         if (bm & (1 << rb)) {
-          // Bill 2026-05-08: must guard null first — Number(null) === 0
-          // and Number.isFinite(0) === true, so a null R2 was being
-          // included as 0 in the all-rounds subset and falsely matching
-          // combined_total when only R1 was actually released.
+          // Bill 2026-05-08: guard null AND status. Number(null) === 0
+          // and Number.isFinite(0) === true, so null was being included
+          // as 0 in the all-rounds subset. Same trap with status-set
+          // rounds where r{N}_score_total is 0 by convention.
           const rRaw = row['r' + (rb + 1) + '_score_total'];
-          if (rRaw == null) { bad = true; break; }
+          const rSt  = row['r' + (rb + 1) + '_h_status'];
+          if (rRaw == null || rSt) { bad = true; break; }
           const rv = Number(rRaw);
           if (!Number.isFinite(rv)) { bad = true; break; }
           subRounds.push(rb + 1);
@@ -1423,13 +1427,17 @@ export class RingStateDO {
       : null;
     // Per-round score breakdown for hunters — banner shows R1/R2/R3 +
     // Overall when a multi-round class is past round 1. Bill 2026-05-08.
+    // Skip rounds that ended in a terminating status (EL/RF/RT/WD) —
+    // their r{N}_score_total is 0 by convention but it isn't a real
+    // score; the status branch in the banner surfaces it correctly.
     let hunterRounds = null;
     if (classKind === 'hunter') {
       const numRounds = Math.max(1, Math.min(3, Number((classMeta || {}).num_rounds) || 1));
       hunterRounds = [];
       for (let n = 1; n <= numRounds; n++) {
         const sc = row['r' + n + '_score_total'];
-        if (sc != null && Number.isFinite(Number(sc))) {
+        const st = row['r' + n + '_h_status'];
+        if (sc != null && Number.isFinite(Number(sc)) && !st) {
           hunterRounds.push({ n, label: 'R' + n, score: Number(sc) });
         }
       }

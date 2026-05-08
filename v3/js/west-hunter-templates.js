@@ -998,6 +998,15 @@
     }
     if (!currentRound) return empty;
 
+    // Status on the highest-numbered round wins display priority — when
+    // a rider got eliminated on R2, the bar should announce the EL/RF
+    // even if R1 was clean. Bill 2026-05-08: "in case of elim you
+    // render the right score." Without this short-circuit the subset
+    // matcher below would skip R2 entirely and fall back to "Score 86"
+    // from R1, hiding the elimination.
+    var topStatus = entryRow['r' + currentRound + '_h_status'];
+    if (topStatus) topStatus = String(topStatus).trim().toUpperCase() || null;
+
     var place = (WEST.rules && WEST.rules.hunterPlaceFor)
       ? WEST.rules.hunterPlaceFor(entryRow.current_place,
           meta.scoring_type, entryRow.r1_score_total, entryRow.r1_h_status)
@@ -1054,12 +1063,13 @@
         var bad = false;
         for (var rb = 0; rb < numRounds; rb++) {
           if (bm & (1 << rb)) {
-            // Bill 2026-05-08: was Number(null) === 0 → treated null R2 as
-            // a real 0, then "all-rounds subset matched combined" wrongly
-            // flipped single-round-released into Overall mode and chipped
-            // R2 = 0.0. Guard with != null first.
+            // Bill 2026-05-08: guard null AND status. Number(null) === 0
+            // and rounds with terminating status carry r{N}_score_total=0
+            // by convention — neither is a real score the operator
+            // released, both would falsely match combined when summed.
             var rRaw = entryRow['r' + (rb + 1) + '_score_total'];
-            if (rRaw == null) { bad = true; break; }
+            var rSt  = entryRow['r' + (rb + 1) + '_h_status'];
+            if (rRaw == null || rSt) { bad = true; break; }
             var rv = Number(rRaw);
             if (!isFinite(rv)) { bad = true; break; }
             subRounds.push(rb + 1);
@@ -1129,6 +1139,15 @@
 
     var fmtHS = (WEST.format && WEST.format.hunterScore)
       || function (v) { return v == null ? null : parseFloat(Number(v).toFixed(2)).toString(); };
+    // If the highest-numbered round had a terminating status, it
+    // overrides the subset-derived displayedRound — the elimination is
+    // the most recent operator-relevant event for this entry.
+    var displayedStatus = null;
+    if (topStatus) {
+      displayedRound = currentRound;
+      displayedIsOverall = false;
+      displayedStatus = topStatus;
+    }
     var bigLabel, bigValue;
     var chipParts = [];
     if (displayedIsOverall) {
@@ -1142,23 +1161,29 @@
         chipParts.push('<span class="lt-round"><span class="lbl">R' + rn + '</span><span class="v">' + rvFmt + '</span></span>');
       }
     } else {
-      bigValue = fmtHS(entryRow['r' + displayedRound + '_score_total']);
-      // Bill 2026-05-08: don't render round labels for rounds higher
-      // than the displayed (released) one — and when displayedRound is
-      // the ONLY scored round for this entry, drop the "R1" label
-      // entirely. Numbering a sole round is redundant.
+      // Chips: prior rounds with CLEAN scores (skip rounds that ended
+      // with a terminating status — their 0 isn't a real score).
       for (var pr = 1; pr <= numRounds; pr++) {
         if (pr === displayedRound) continue;
         if (pr > displayedRound) continue;
         var prRaw = entryRow['r' + pr + '_score_total'];
         if (prRaw == null) continue;
+        if (entryRow['r' + pr + '_h_status']) continue;
         var prvFmt = fmtHS(prRaw);
         if (prvFmt == null) continue;
         chipParts.push('<span class="lt-round"><span class="lbl">R' + pr + '</span><span class="v">' + prvFmt + '</span></span>');
       }
-      bigLabel = (numRounds > 1 && chipParts.length > 0)
-        ? ('R' + displayedRound)
-        : 'Score';
+      if (displayedStatus) {
+        bigLabel = (numRounds > 1 && chipParts.length > 0)
+          ? ('R' + displayedRound)
+          : 'Status';
+        bigValue = displayedStatus;
+      } else {
+        bigValue = fmtHS(entryRow['r' + displayedRound + '_score_total']);
+        bigLabel = (numRounds > 1 && chipParts.length > 0)
+          ? ('R' + displayedRound)
+          : 'Score';
+      }
     }
 
     var middleHtml = '<div class="m4-hunter-overall"><span class="lbl">' + bigLabel + '</span><span class="v">' + bigValue + '</span></div>';
