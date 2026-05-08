@@ -500,16 +500,20 @@ function renderShowStats(stats) {
     if (hasRiders) {
       html.push(renderLeaderboardCard('Top Riders', stats.top_riders, r => ({
         name: r.rider,
-        wins: r.wins,
-        podiums: r.podiums,
+        stats: [
+          { num: r.blues,  lbl: 'Blues' },
+          { num: r.clears, lbl: 'Clears' },
+          { num: r.top3,   lbl: 'Top 3' },
+        ],
         sub: `${r.classes_entered} class${r.classes_entered === 1 ? '' : 'es'}`,
       })));
     }
     if (hasHorses) {
       html.push(renderLeaderboardCard('Top Horses', stats.top_horses, h => ({
         name: h.horse,
-        wins: h.wins,
-        podiums: h.podiums,
+        stats: [
+          { num: fmtMoney(h.money_won), lbl: 'Won' },
+        ],
         sub: h.sample_rider || '',
       })));
     }
@@ -537,19 +541,31 @@ function renderShowStats(stats) {
 function renderLeaderboardCard(title, rows, fmt) {
   const items = rows.map((r, i) => {
     const f = fmt(r);
+    const statsHtml = (f.stats || []).map(s =>
+      `<span class="num">${escapeHtml(String(s.num))}</span><span class="lbl">${escapeHtml(s.lbl)}</span>`
+    ).join('');
     return `<div class="lb-row">
       <span class="lb-rank">${i + 1}</span>
       <div>
         <div class="lb-name">${escapeHtml(f.name || '—')}</div>
         ${f.sub ? `<div class="lb-sub">${escapeHtml(f.sub)}</div>` : ''}
       </div>
-      <span class="lb-stat"><span class="num">${f.wins}</span><span class="lbl">W</span><span class="num">${f.podiums}</span><span class="lbl">P</span></span>
+      <span class="lb-stat">${statsHtml}</span>
     </div>`;
   }).join('');
   return `<div class="stat-card">
     <div class="stat-card-title">${escapeHtml(title)}</div>
     ${items}
   </div>`;
+}
+
+// Money formatter — $7,500 / $25,000 / etc. Whole dollars (no cents
+// in prize money). Returns "$0" for zero/negative — caller should
+// already have filtered those rows out via HAVING but we render
+// safely either way.
+function fmtMoney(n) {
+  const v = Number(n) || 0;
+  return '$' + Math.round(v).toLocaleString('en-US');
 }
 
 load();

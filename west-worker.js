@@ -6133,13 +6133,23 @@ export default {
             AND c.deleted_at IS NULL
         `).bind(show.id).first();
 
-        // Top riders by wins (overall_place = 1) and podiums (1-3).
+        // Top riders — Blues (1st), Clears (rounds with 0 total faults +
+        // no killing status), Top 3 (overall_place 1-3), classes entered.
+        // "Podiums" was Olympic-speak; this swaps to terminology native
+        // to hunter/jumper. Bill 2026-05-08.
         const { results: riderRows } = await env.WEST_DB_V3.prepare(`
           SELECT
             MAX(e.rider_name) AS rider,
-            SUM(CASE WHEN s.overall_place = 1                    THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN s.overall_place BETWEEN 1 AND 3        THEN 1 ELSE 0 END) AS podiums,
-            COUNT(DISTINCT e.class_id)                                              AS classes_entered
+            SUM(CASE WHEN s.overall_place = 1             THEN 1 ELSE 0 END) AS blues,
+            SUM(CASE WHEN s.overall_place BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS top3,
+            COALESCE(SUM(
+              (SELECT COUNT(*) FROM entry_jumper_rounds r
+                WHERE r.entry_id = e.id
+                  AND r.total_faults = 0
+                  AND (r.status IS NULL OR r.status NOT IN
+                       ('EL','RF','HF','OC','RO','DQ','RT','WD','DNS','SC')))
+            ), 0) AS clears,
+            COUNT(DISTINCT e.class_id) AS classes_entered
           FROM entries e
           JOIN classes c ON c.id = e.class_id
           LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
@@ -6148,19 +6158,31 @@ export default {
             AND c.deleted_at IS NULL
             AND e.rider_name IS NOT NULL AND TRIM(e.rider_name) != ''
           GROUP BY UPPER(TRIM(e.rider_name))
-          HAVING wins > 0 OR podiums > 0
-          ORDER BY wins DESC, podiums DESC, rider ASC
+          HAVING blues > 0 OR top3 > 0 OR clears > 0
+          ORDER BY blues DESC, top3 DESC, clears DESC, rider ASC
           LIMIT 10
         `).bind(show.id).all();
 
-        // Top horses — same shape, by horse.
+        // Top horses — money won across the show (sum of prize_money[place]
+        // where the horse placed in a money class). Falls back to nothing
+        // when the show has no prize_money set anywhere; sample_rider stays
+        // for the sub-line on the card.
         const { results: horseRows } = await env.WEST_DB_V3.prepare(`
           SELECT
             MAX(e.horse_name) AS horse,
             MAX(e.rider_name) AS sample_rider,
-            SUM(CASE WHEN s.overall_place = 1             THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN s.overall_place BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS podiums,
-            COUNT(DISTINCT e.class_id)                                       AS classes_entered
+            COALESCE(SUM(
+              CASE
+                WHEN s.overall_place IS NOT NULL AND s.overall_place > 0
+                     AND c.prize_money IS NOT NULL AND c.prize_money != ''
+                THEN COALESCE(
+                  CAST(json_extract(c.prize_money,
+                    '$[' || (s.overall_place - 1) || ']') AS REAL),
+                  0)
+                ELSE 0
+              END
+            ), 0) AS money_won,
+            COUNT(DISTINCT e.class_id) AS classes_entered
           FROM entries e
           JOIN classes c ON c.id = e.class_id
           LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
@@ -6169,8 +6191,8 @@ export default {
             AND c.deleted_at IS NULL
             AND e.horse_name IS NOT NULL AND TRIM(e.horse_name) != ''
           GROUP BY UPPER(TRIM(e.horse_name))
-          HAVING wins > 0 OR podiums > 0
-          ORDER BY wins DESC, podiums DESC, horse ASC
+          HAVING money_won > 0
+          ORDER BY money_won DESC, horse ASC
           LIMIT 10
         `).bind(show.id).all();
 
@@ -6249,11 +6271,17 @@ export default {
             classes_total:    counts.classes_total    || 0,
             total_entries:    counts.total_entries    || 0,
             top_riders:       (riderRows  || []).map(r => ({
-              rider: r.rider, wins: r.wins || 0, podiums: r.podiums || 0, classes_entered: r.classes_entered || 0,
+              rider: r.rider,
+              blues:  r.blues  || 0,
+              clears: r.clears || 0,
+              top3:   r.top3   || 0,
+              classes_entered: r.classes_entered || 0,
             })),
             top_horses:       (horseRows  || []).map(r => ({
-              horse: r.horse, sample_rider: r.sample_rider,
-              wins: r.wins || 0, podiums: r.podiums || 0, classes_entered: r.classes_entered || 0,
+              horse: r.horse,
+              sample_rider: r.sample_rider,
+              money_won: r.money_won || 0,
+              classes_entered: r.classes_entered || 0,
             })),
             championships:    championships,
             multi_riders:     multiRiders,
