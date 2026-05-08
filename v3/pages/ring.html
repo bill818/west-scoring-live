@@ -153,6 +153,22 @@ function partition() {
   return { scheduled, unscheduled };
 }
 
+// Sort by tsked schedule_order (the operator's interleaved run order
+// from ryegate.live). Classes without schedule_order fall back to
+// numeric class_id ordering and sort after the scheduled ones. Used
+// only in the "Scheduled" tab; the dedicated Class Name / Class
+// Number tabs keep their own sort. Bill 2026-05-08.
+function sortBySchedule(arr) {
+  return [...arr].sort((a, b) => {
+    const aHas = a.schedule_order != null;
+    const bHas = b.schedule_order != null;
+    if (aHas && bHas) return a.schedule_order - b.schedule_order;
+    if (aHas) return -1;
+    if (bHas) return 1;
+    return String(a.class_id).localeCompare(String(b.class_id), undefined, { numeric: true });
+  });
+}
+
 function sortByNumber(arr, dir) {
   const sign = dir === 'desc' ? -1 : 1;
   return [...arr].sort((a, b) =>
@@ -184,7 +200,7 @@ function renderClasses() {
     const keys = [...groups.keys()].sort();
     let html = '';
     for (const k of keys) {
-      const rows = sortByNumber(groups.get(k), 'asc').map(c => classRow(c, false)).join('');
+      const rows = sortBySchedule(groups.get(k)).map(c => classRow(c, false)).join('');
       html += `<div class="day-section">
         <div class="day-label">${escapeHtml(fmtDayLabel(k))}</div>
         <div class="cls-list">${rows}</div>
