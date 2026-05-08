@@ -1386,14 +1386,23 @@
       // round labels + recent-round-first stacking + placement rules
       // come through identically across all class panels.
       var standingsHtml = '';
+      // Bill 2026-05-08: pass isFinal + prizeMoney to renderTable
+      // so the live page matches class.html exactly when a class is
+      // FINAL (ribbon SVGs in the place column) or has prize money
+      // (money column populated). Same shared template, same options
+      // surface — no more "live page never shows ribbons" drift.
+      var renderOpts = {
+        isFinal: !!entry.is_final,
+        prizeMoney: meta && Array.isArray(meta.prize_money) ? meta.prize_money : null,
+      };
       try {
         if (lens === 'hunter' && Array.isArray(entry.hunter_scores) && entry.hunter_scores.length
             && window.WEST && window.WEST.hunterTemplates) {
-          standingsHtml = window.WEST.hunterTemplates.renderTable(meta, entry.hunter_scores);
+          standingsHtml = window.WEST.hunterTemplates.renderTable(meta, entry.hunter_scores, renderOpts);
         } else if ((lens === 'jumper' || lens === 'equitation')
             && Array.isArray(entry.jumper_scores) && entry.jumper_scores.length
             && window.WEST && window.WEST.jumperTemplates) {
-          standingsHtml = window.WEST.jumperTemplates.renderTable(meta, entry.jumper_scores);
+          standingsHtml = window.WEST.jumperTemplates.renderTable(meta, entry.jumper_scores, renderOpts);
         }
       } catch (e) {
         if (window.console) console.warn('[live] panel render', entry.class_id, e.message);
@@ -2095,8 +2104,13 @@
             };
           })};
         }
-        var html = window.WEST.hunterTemplates.renderTable(currentClassMeta, hs,
-          gridData ? { judgeGrid: gridData } : undefined);
+        // Bill 2026-05-08: same isFinal + prizeMoney pass-through.
+        var hunterRenderOpts = {
+          isFinal: !!snapshot.is_final,
+          prizeMoney: currentClassMeta && Array.isArray(currentClassMeta.prize_money) ? currentClassMeta.prize_money : null,
+        };
+        if (gridData) hunterRenderOpts.judgeGrid = gridData;
+        var html = window.WEST.hunterTemplates.renderTable(currentClassMeta, hs, hunterRenderOpts);
         if (!html || html.length < 50) {
           hsBox.innerHTML = '<div class="empty">renderTable returned empty (' + hs.length +
             ' entries, ' + placedH + ' placed). Check console.</div>';
@@ -2180,7 +2194,14 @@
       jsHint.textContent = placedJ + ' placed' +
         (js.length - placedJ ? ' · ' + (js.length - placedJ) + ' unplaced' : '');
       try {
-        var jhtml = window.WEST.jumperTemplates.renderTable(currentClassMeta, js);
+        // Bill 2026-05-08: same isFinal + prizeMoney pass-through as
+        // the per-class panels above so the focused panel matches
+        // class.html (ribbons on FINAL, money column when set).
+        var focusedRenderOpts = {
+          isFinal: !!snapshot.is_final,
+          prizeMoney: currentClassMeta && Array.isArray(currentClassMeta.prize_money) ? currentClassMeta.prize_money : null,
+        };
+        var jhtml = window.WEST.jumperTemplates.renderTable(currentClassMeta, js, focusedRenderOpts);
         if (!jhtml || jhtml.length < 50) {
           jsBox.innerHTML = '<div class="empty">renderTable returned empty (' + js.length +
             ' entries, ' + placedJ + ' placed). Check console.</div>';
