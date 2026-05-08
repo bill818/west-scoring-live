@@ -1546,11 +1546,33 @@
     var classIdFromFocus = (lastB && lastB.tags && lastB.tags['27']) || null;
     var classNameFromFocus = (lastB && lastB.tags && lastB.tags['28']) || null;
 
-    // Class panel header — number, name, sub. Number is just the digits
-    // (no "Class " prefix); the navy panel-header context provides the framing.
-    var hdrClassId = (primary && primary.class_id) || classIdFromFocus || '—';
+    // Class panel header — number + name MUST come from the same class
+    // or you get a stale-mix bug: operator switches focus on Ryegate,
+    // Channel B fires immediately with new id+name, Channel A doesn't
+    // fire until the next scoring event for the new class. Old logic
+    // sourced the number from last_scoring (Channel A) and the name
+    // from last_focus.tags[28] (Channel B), so the panel sat at "old
+    // number / new name" until the next scoring frame. Bill 2026-05-07.
+    //
+    // Fix: trust the worker's focused-class projection (focused_class_id
+    // + class_meta) — both rebuilt together in _buildSnapshot, can't
+    // desync. Fall back to last_focus tags 27/28 (atomic from the same
+    // event) when no byClass entry exists yet, then last_scoring as a
+    // last resort. The name is paired to the chip — if the matching
+    // source doesn't exist, show "—" instead of risking a wrong name.
+    var hdrClassId = snapshot.focused_class_id
+      || classIdFromFocus
+      || (primary && primary.class_id)
+      || '—';
+    var hdrClassName = null;
+    if (snapshot.class_meta && String(snapshot.class_meta.class_id) === String(hdrClassId)) {
+      hdrClassName = snapshot.class_meta.class_name;
+    }
+    if (!hdrClassName && classIdFromFocus && String(classIdFromFocus) === String(hdrClassId)) {
+      hdrClassName = classNameFromFocus;
+    }
     $('classBarNum').textContent = hdrClassId;
-    $('classBarName').textContent = clean(classNameFromFocus) || '—';
+    $('classBarName').textContent = clean(hdrClassName) || '—';
     var lensLabel = lens
       ? (lens === 'jumper' ? 'Jumper' : lens === 'hunter' ? 'Hunter' : lens === 'equitation' ? 'Equitation' : lens)
       : '';
