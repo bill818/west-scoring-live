@@ -492,6 +492,12 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .results-table .round-stacked + .round-stacked{margin-top:2px;padding-top:4px;border-top:1px dashed #eee;}
 .results-table .round-label{font-size:10px;color:var(--text-muted);letter-spacing:.04em;text-transform:uppercase;margin-right:6px;}
 .results-table .round-stacked.round-combined-row{padding-top:6px;border-top:1px solid var(--border);font-weight:600;}
+/* Bill 2026-05-08: stacked-round labels live in the column header
+   instead of being repeated on every data row. Labels stack
+   vertically with the same dashed separator as the data rows so
+   each row's faults+time aligns with the header's label. */
+.results-table thead .round-label-stack{display:block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--navy);font-weight:700;line-height:1.4;text-align:right;}
+.results-table thead .round-label-stack + .round-label-stack{margin-top:2px;padding-top:4px;border-top:1px dashed #ccc;}
 
 /* Hunter score columns. Per-round total is medium weight; combined
    total is bold + larger to read as the authoritative ranking number. */

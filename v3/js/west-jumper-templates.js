@@ -427,12 +427,40 @@
   // Stacked render: collapses 2-3 round columns into one "Rounds" column.
   // Each entry's rounds render top-down latest-first (Jump Off above
   // Round 1, etc.) per Bill's session-34 spec — saves horizontal space.
+  // Bill 2026-05-08: labels (JO / Round 1 / etc) live in the column
+  // HEADER, not on every data row — the labels are the same for every
+  // row so repeating them was wasted space, especially on mobile.
   function renderStackedTable(cls, entries, tplId) {
+    var method   = cls && cls.scoring_method;
+    var modifier = cls && cls.scoring_modifier;
+    // Compute which rounds have data anywhere in the table (union
+    // across all entries). That tells us how many label slots to
+    // put in the header AND how many slots each data row reserves
+    // (so empty rounds align with their label).
+    var activeRounds = [];
+    for (var i = 1; i <= 3; i++) {
+      var any = (entries || []).some(function (e) {
+        return roundHasData(roundOf(e, i));
+      });
+      if (any) activeRounds.push({
+        n: i,
+        label: WEST.format.roundLabel(method, modifier, i) || ('R' + i),
+      });
+    }
+    // Latest round on top.
+    activeRounds.reverse();
+
+    var labelHeaderHtml = activeRounds.length
+      ? activeRounds.map(function (r) {
+          return '<span class="round-label-stack">' + escapeHtml(r.label) + '</span>';
+        }).join('')
+      : 'Rounds';
+
     var headers = [
       { label: 'Pl', cls: 'entry-place' },
       { label: '#',  cls: 'entry-num'   },
       { html: '<span class="hd-line">Horse-Rider</span><span class="hd-line">Owner</span><span class="hd-line hd-breeding">Breeding</span>', cls: 'entry-horse-rider' },
-      { label: 'Rounds', cls: 'entry-round-stack' },
+      { html: labelHeaderHtml, cls: 'entry-round-stack' },
     ];
     var thead = '<thead><tr>' +
       headers.map(function (h) {
@@ -442,34 +470,25 @@
       '</tr></thead>';
     var tbody = '<tbody>' +
       (entries || []).map(function (e) {
-        return renderStackedRow(e, cls);
+        return renderStackedRow(e, cls, activeRounds);
       }).join('') +
       '</tbody>';
     return '<table class="results-table results-' + tplId.toLowerCase() + ' is-stacked">' +
       thead + tbody + '</table>';
   }
 
-  function renderStackedRow(entry, cls) {
-    var method   = cls && cls.scoring_method;
-    var modifier = cls && cls.scoring_modifier;
-    var stacks = [];
-    for (var i = 1; i <= 3; i++) {
-      var rnd = roundOf(entry, i);
-      if (!roundHasData(rnd)) continue;
-      stacks.push({
-        n: i,
-        label: WEST.format.roundLabel(method, modifier, i),
-        cellHtml: renderRoundCell(rnd, cls),
-      });
-    }
-    // Latest round on top — Jump Off / Phase 2 / Round N reads first.
-    stacks.reverse();
-    var stackHtml = stacks.length
-      ? stacks.map(function (s) {
-          var lbl = s.label
-            ? '<span class="round-label">' + escapeHtml(s.label) + '</span> '
-            : '';
-          return '<div class="round-stacked">' + lbl + s.cellHtml + '</div>';
+  // Render one entry's row in the stacked layout. `activeRounds` is
+  // the table-wide union of rounds with data, latest-first; we render
+  // a stack line for each (with em-dash for missing) so all data rows
+  // align with the labels in the header.
+  function renderStackedRow(entry, cls, activeRounds) {
+    var stackHtml = (activeRounds && activeRounds.length)
+      ? activeRounds.map(function (r) {
+          var rnd = roundOf(entry, r.n);
+          var cellHtml = roundHasData(rnd)
+            ? renderRoundCell(rnd, cls)
+            : '<span class="round-blank">—</span>';
+          return '<div class="round-stacked">' + cellHtml + '</div>';
         }).join('')
       : '<span class="round-blank">—</span>';
     var cells = [];
