@@ -1253,7 +1253,8 @@ export class RingStateDO {
     const classes = Object.values(this.byClass)
       .filter(c => c && (c.is_live || c.live_since != null || c.is_final))
       .sort((a, b) =>
-        String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')));
+        String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')))
+      .map(c => Object.assign({}, c, { pill: this._buildClassPill(c) }));
     const focusedId = this._focusedClassId(body);
     // Surface the persisted is_final / finalized_at for the focused
     // class at the top level. Sourced PURELY from byClass state so
@@ -1304,6 +1305,10 @@ export class RingStateDO {
       last_focus:    ringHasLiveClass ? body.last_focus    : null,
       is_final: ringHasLiveClass && !!(focusedEntry && focusedEntry.is_final === true),
       finalized_at: ringHasLiveClass && focusedEntry ? (focusedEntry.finalized_at || null) : null,
+      // Top-level pill descriptor — mirrors the focused class's pill so
+      // pages can render header status without recomputing. Per-class
+      // pills live on each entry in `classes[]`. Bill 2026-05-08.
+      pill: ringHasLiveClass && focusedEntry ? this._buildClassPill(focusedEntry) : null,
       // Sticky most-recent-completed entry for the focused class.
       // Consumers (live page "Just Finished" banner, future scoreboard
       // views, etc.) read this directly without client-side detection.
@@ -1337,6 +1342,48 @@ export class RingStateDO {
   // most recent identity + scoring frames. Tags are pulled raw so the
   // engine can show what the operator is actually seeing on the public
   // live box without re-deriving phase rules. (Bill 2026-05-06.)
+  // Pill descriptor for a class — single source of truth for the
+  // status pill + progress text shown on live, ring display, and any
+  // future scoreboard surface. Bill 2026-05-08: "all worker side we
+  // will use this on other displays."
+  //
+  // Returns { state, label, progress, total, remaining }:
+  //   state    — 'final' | 'inring' | 'open'
+  //   label    — 'FINAL' | 'In Ring' | 'Open'  (display string)
+  //   progress — 'N of M remaining' or null when FINAL / no roster
+  //   total    — total entry count (excluding DNS-like)
+  //   remaining— entries with NO score data + NO terminating status
+  _buildClassPill(classEntry) {
+    if (!classEntry) return null;
+    const isFinal = !!classEntry.is_final;
+    const isLive = !!classEntry.is_live;
+    const state = isFinal ? 'final' : isLive ? 'inring' : 'open';
+    const label = isFinal ? 'FINAL' : isLive ? 'In Ring' : 'Open';
+    // Progress count — entries that have NOT yet started (no score on
+    // any round, no status set). Once R1 is scored OR a terminating
+    // status (EL/RF/RT/WD) lands, the entry is "done" for progress
+    // purposes. Multi-round classes use round-1 progress; round 2 will
+    // get its own counter when we wire it.
+    const scores = classEntry.class_kind === 'hunter'
+      ? (classEntry.hunter_scores || [])
+      : (classEntry.jumper_scores || []);
+    let total = 0, remaining = 0;
+    for (const e of scores) {
+      // Skip rows that don't represent a real entry (DNS-like).
+      if (!e || !e.entry_num) continue;
+      total += 1;
+      const hasScore = e.r1_score_total != null
+        || e.r1_total_faults != null
+        || e.r1_total_time != null
+        || e.r1_h_status || e.r1_status;
+      if (!hasScore) remaining += 1;
+    }
+    const progress = isFinal || total === 0
+      ? null
+      : remaining + ' of ' + total + ' remaining';
+    return { state, label, progress, total, remaining };
+  }
+
   _buildFocusPreview(focusedEntry) {
     if (!focusedEntry) return null;
     const ident = focusedEntry.last_identity || null;

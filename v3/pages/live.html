@@ -660,6 +660,20 @@
     font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
     color: rgba(255,255,255,.6); font-weight: 400; margin-top: 4px;
   }
+  /* Status column — pill on top, progress text underneath. The pill
+     sits a touch above center so the progress line drops below without
+     making the pill itself feel pinned to the bottom. Bill 2026-05-08. */
+  .class-panel-status {
+    display: flex; flex-direction: column; align-items: flex-end;
+    gap: 4px; align-self: flex-start; margin-top: -2px;
+  }
+  .class-panel-progress {
+    font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: rgba(255,255,255,.55); font-weight: 500;
+    white-space: nowrap;
+  }
+  .class-panel-progress.hidden { display: none; }
   .class-panel-pill {
     display: inline-flex; align-items: center; gap: 5px;
     background: rgba(74,222,128,.18); color: #4ade80;
@@ -1015,7 +1029,10 @@
         <div class="class-panel-name" id="classBarName">—</div>
         <div class="class-panel-sub" id="classBarSub">—</div>
       </div>
-      <span class="class-panel-pill" id="classPanelPill"><span class="blink"></span>In ring</span>
+      <div class="class-panel-status">
+        <span class="class-panel-pill" id="classPanelPill"><span class="blink"></span>In ring</span>
+        <div class="class-panel-progress" id="classPanelProgress"></div>
+      </div>
     </div>
 
     <!-- SCOREBOARD CYCLING PANELS — fr=15 displays. Jog order is a
@@ -1430,14 +1447,24 @@
       if (!standingsHtml) {
         standingsHtml = '<div class="empty" style="padding:18px;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Awaiting standings…</div>';
       }
-      // Pill state — FINAL (red) when entry.is_final, OPEN (gray) otherwise.
-      // The In Ring (green pulse) pill belongs only to the focused panel
-      // above; non-focused classes that aren't final read as OPEN.
-      var isClassFinal = !!entry.is_final;
-      var pillClass = isClassFinal ? 'class-panel-pill is-final' : 'class-panel-pill';
-      var pillStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);"';
-      var pillBlinkStyle = isClassFinal ? '' : 'style="background:rgba(255,255,255,.5);animation:none;"';
-      var pillText = isClassFinal ? 'FINAL' : 'Open';
+      // Pill + progress — worker emits entry.pill = { state, label,
+      // progress }. Bill 2026-05-08.
+      var entryPill = entry.pill || {
+        state: entry.is_final ? 'final' : (entry.is_live ? 'inring' : 'open'),
+        label: entry.is_final ? 'FINAL' : (entry.is_live ? 'In Ring' : 'Open'),
+        progress: null,
+      };
+      var pillClass = 'class-panel-pill is-' + entryPill.state;
+      var pillStyle = entryPill.state === 'open'
+        ? 'style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);"'
+        : '';
+      var pillBlinkStyle = entryPill.state === 'open'
+        ? 'style="background:rgba(255,255,255,.5);animation:none;"'
+        : '';
+      var pillText = entryPill.label;
+      var progressHtml = entryPill.progress
+        ? '<div class="class-panel-progress">' + esc(entryPill.progress) + '</div>'
+        : '';
       // Per-class Just-Finished banner — same single source of truth
       // as the focused panel: worker emits ep.banner_slots, page just
       // iterates. Bill 2026-05-08.
@@ -1469,9 +1496,12 @@
         +     '<div class="class-panel-name">' + esc(meta.class_name || '—') + '</div>'
         +     '<div class="class-panel-sub">' + esc(lensLabel) + '</div>'
         +   '</div>'
-        +   '<span class="' + pillClass + '" ' + pillStyle + '>'
-        +     '<span class="blink" ' + pillBlinkStyle + '></span>' + pillText
-        +   '</span>'
+        +   '<div class="class-panel-status">'
+        +     '<span class="' + pillClass + '" ' + pillStyle + '>'
+        +       '<span class="blink" ' + pillBlinkStyle + '></span>' + esc(pillText)
+        +     '</span>'
+        +     progressHtml
+        +   '</div>'
         + '</div>'
         + jfHtml
         + '<div class="standings-wrap">' + standingsHtml + '</div>'
@@ -1668,11 +1698,21 @@
     // FINAL pill — operator-set CLASS_COMPLETE flag from Channel B {29}.
     // is_final is sticky per-class via the worker DO; once true it stays
     // true for the class.
+    // Pill + progress — worker emits snapshot.pill = { state, label,
+    // progress }. Page just renders the strings. Bill 2026-05-08.
     var pillEl = $('classPanelPill');
+    var progressEl = $('classPanelProgress');
+    var pill = snapshot.pill || { state: snapshot.is_final ? 'final' : 'open',
+      label: snapshot.is_final ? 'FINAL' : 'Open', progress: null };
     if (pillEl) {
-      var isFinalNow = !!snapshot.is_final;
-      pillEl.classList.toggle('is-final', isFinalNow);
-      pillEl.innerHTML = '<span class="blink"></span>' + (isFinalNow ? 'FINAL' : 'In ring');
+      pillEl.classList.toggle('is-final', pill.state === 'final');
+      pillEl.classList.toggle('is-inring', pill.state === 'inring');
+      pillEl.classList.toggle('is-open',   pill.state === 'open');
+      pillEl.innerHTML = '<span class="blink"></span>' + (pill.label || '');
+    }
+    if (progressEl) {
+      progressEl.textContent = pill.progress || '';
+      progressEl.classList.toggle('hidden', !pill.progress);
     }
     // Live-box banner "for · Class N" tag mirrors the focused class id.
     $('liveBoxFor').textContent = hdrClassId;
