@@ -1415,6 +1415,19 @@ export class RingStateDO {
     const displayed = (classKind === 'hunter')
       ? _decodeHunterDisplayedRound(row, classMeta || {})
       : null;
+    // Per-round score breakdown for hunters — banner shows R1/R2/R3 +
+    // Overall when a multi-round class is past round 1. Bill 2026-05-08.
+    let hunterRounds = null;
+    if (classKind === 'hunter') {
+      const numRounds = Math.max(1, Math.min(3, Number((classMeta || {}).num_rounds) || 1));
+      hunterRounds = [];
+      for (let n = 1; n <= numRounds; n++) {
+        const sc = row['r' + n + '_score_total'];
+        if (sc != null && Number.isFinite(Number(sc))) {
+          hunterRounds.push({ n, label: 'R' + n, score: Number(sc) });
+        }
+      }
+    }
     return {
       entry_num: row.entry_num,
       horse_name: row.horse_name || null,
@@ -1448,6 +1461,9 @@ export class RingStateDO {
       displayed_round_label: displayed ? displayed.label : null,
       displayed_score:       displayed ? displayed.score : null,
       displayed_is_overall:  displayed ? !!displayed.isOverall : null,
+      // All released round scores in order — banner renders R1/R2/R3 +
+      // Overall when length >= 2. Null for jumper/equitation.
+      rounds: hunterRounds,
     };
   }
 
@@ -1465,7 +1481,12 @@ export class RingStateDO {
       && a.time === b.time
       && a.overall_place === b.overall_place
       && a.current_place === b.current_place
-      && (a.status_code || null) === (b.status_code || null);
+      && (a.status_code || null) === (b.status_code || null)
+      // Hunter — Overall release doesn't bump round number but does
+      // change combined_total + displayed_round_label. Compare both
+      // so a R2-only → Overall flip on the same entry re-promotes.
+      && (a.combined_total || null) === (b.combined_total || null)
+      && (a.displayed_round_label || null) === (b.displayed_round_label || null);
   }
 
   _updateByClass(body) {
