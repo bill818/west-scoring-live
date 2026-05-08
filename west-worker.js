@@ -2261,11 +2261,31 @@ export class RingStateDO {
         const targetLens = targetEntry.class_kind;
         const targetIsHunter = targetLens === 'hunter';
         const targetIsJumper = targetLens === 'jumper' || targetLens === 'equitation';
+        // Bill 2026-05-08: don't overwrite a populated scores array
+        // with an empty one. /v3/postCls runs the entry-stale-sweep
+        // (DELETE FROM entries WHERE class_id = ? AND entry_num NOT
+        // IN ...) before the upsert; if pullJumperScoresV3 fires
+        // mid-sweep it can return [] transiently, which used to
+        // blank byClass[X].jumper_scores and the page rendered
+        // "Awaiting standings…" until the next /v3/postCls. Keep
+        // the prior populated array when the incoming is empty —
+        // the next /v3/postCls (a few hundred ms later) refreshes
+        // with the real list. Empty + nothing-prior is still
+        // legitimate (brand-new class, no entries yet).
+        const isEmptyArr = (a) => Array.isArray(a) && a.length === 0;
         if (targetIsHunter && body.hunter_scores !== undefined) {
-          targetEntry.hunter_scores = body.hunter_scores;
+          if (!(isEmptyArr(body.hunter_scores)
+                && Array.isArray(targetEntry.hunter_scores)
+                && targetEntry.hunter_scores.length > 0)) {
+            targetEntry.hunter_scores = body.hunter_scores;
+          }
         }
         if (targetIsJumper && body.jumper_scores !== undefined) {
-          targetEntry.jumper_scores = body.jumper_scores;
+          if (!(isEmptyArr(body.jumper_scores)
+                && Array.isArray(targetEntry.jumper_scores)
+                && targetEntry.jumper_scores.length > 0)) {
+            targetEntry.jumper_scores = body.jumper_scores;
+          }
         }
         // Re-evaluate previous_entry via the shared helper so multi-round
         // entries (R1 → JO) re-promote with their latest round's data.
@@ -2323,11 +2343,23 @@ export class RingStateDO {
           this.snapshot.class_kind = lensKind;
         }
         // Top-level (focused class's) scores update — backwards-compat path.
+        // Same empty-overwrite guard as the byClass path above so a
+        // transient mid-sweep [] from pullJumperScoresV3 doesn't blank
+        // the focused panel's standings.
+        const isEmptyArrTop = (a) => Array.isArray(a) && a.length === 0;
         if (isHunter && body.hunter_scores !== undefined) {
-          this.snapshot.hunter_scores = body.hunter_scores;
+          if (!(isEmptyArrTop(body.hunter_scores)
+                && Array.isArray(this.snapshot.hunter_scores)
+                && this.snapshot.hunter_scores.length > 0)) {
+            this.snapshot.hunter_scores = body.hunter_scores;
+          }
         }
         if (isJumper && body.jumper_scores !== undefined) {
-          this.snapshot.jumper_scores = body.jumper_scores;
+          if (!(isEmptyArrTop(body.jumper_scores)
+                && Array.isArray(this.snapshot.jumper_scores)
+                && this.snapshot.jumper_scores.length > 0)) {
+            this.snapshot.jumper_scores = body.jumper_scores;
+          }
         }
       }
       this.snapshot.received_at = new Date().toISOString();
