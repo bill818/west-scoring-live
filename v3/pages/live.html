@@ -2123,9 +2123,20 @@
       if (jfShow) {
         $('jfNum').textContent = '#' + pe.entry_num;
         $('jfName').textContent = (pe.horse_name || '') + (pe.rider_name ? ' / ' + pe.rider_name : '');
-        $('jfFaults').textContent = pe.faults != null ? String(pe.faults) : '—';
-        $('jfTime').textContent = pe.time != null ? Number(pe.time).toFixed(3) : '—';
-        $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
+        // Bill 2026-05-07: when a rider was eliminated/fell/retired, show
+        // the status code (EL/RT/WD) in the F slot and the verbose reason
+        // in the Time slot. Eliminated riders have no faults/time/rank
+        // — without this swap the banner read "F — Time — Rank —" and
+        // looked like a stuck/empty just-finished card.
+        if (pe.status_label) {
+          $('jfFaults').textContent = pe.status_label;
+          $('jfTime').textContent = pe.status_full || pe.status_label;
+          $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
+        } else {
+          $('jfFaults').textContent = pe.faults != null ? String(pe.faults) : '—';
+          $('jfTime').textContent = pe.time != null ? Number(pe.time).toFixed(3) : '—';
+          $('jfRank').textContent = pe.overall_place != null ? String(pe.overall_place) : '—';
+        }
       }
       jfBar.classList.toggle('hidden', !jfShow);
     }

@@ -1275,20 +1275,28 @@ export class RingStateDO {
   // LATEST scored round (3 → 2 → 1) so jump-off / multi-round results
   // surface correctly, not just R1. Returns null if the row has no
   // scoring data.
-  _buildPrevEntry(row) {
+  //
+  // Bill 2026-05-07: status (EL/RF/RT/WD) is also a valid round-attribution
+  // signal — a fallen rider has no time/faults/score but the round the fall
+  // happened in is still known. Without this the just-finished banner went
+  // blank when an on-course rider got eliminated.
+  _buildPrevEntry(row, classKind) {
     if (!row) return null;
+    const statusKey = classKind === 'hunter' ? 'h_status' : 'status';
     let round = null;
     for (let n = 3; n >= 1; n--) {
       const tf = row['r' + n + '_total_faults'];
       const tt = row['r' + n + '_total_time'];
       const sc = row['r' + n + '_score_total'];
-      if (tf != null || tt != null || sc != null) { round = n; break; }
+      const st = row['r' + n + '_' + statusKey];
+      if (tf != null || tt != null || sc != null || st) { round = n; break; }
     }
     if (round == null) {
       // Hunter-only fallback (forced classes have only current_place).
       if (row.current_place == null && row.overall_place == null) return null;
     }
     const r = round || 1;
+    const statusInfo = _decodeOnCourseStatus(row, classKind);
     return {
       entry_num: row.entry_num,
       horse_name: row.horse_name || null,
@@ -1310,12 +1318,22 @@ export class RingStateDO {
       combined_total:  row.combined_total  != null ? row.combined_total  : null,
       overall_place:   row.overall_place   != null ? row.overall_place   : null,
       current_place:   row.current_place   != null ? row.current_place   : null,
+      // Status — null when the rider completed cleanly. The banner uses
+      // status_label ("EL"/"RT"/"WD") as a primary cell when set, with
+      // status_full ("Rider Fall"/"Retired"/etc) for the secondary line.
+      status_code:     statusInfo ? statusInfo.code     : null,
+      status_label:    statusInfo ? statusInfo.label    : null,
+      status_category: statusInfo ? statusInfo.category : null,
+      status_full:     statusInfo ? statusInfo.full     : null,
     };
   }
 
   // Returns true if two previous_entry records carry the same data
-  // (entry + round + faults + time + place). finished_at and any meta
-  // are ignored. Used to skip pointless re-promotions.
+  // (entry + round + faults + time + place + status). finished_at and any
+  // meta are ignored. Used to skip pointless re-promotions. Status is in
+  // the comparison so a clean→EL flip on the SAME entry/round still
+  // triggers the banner update (the rider's status is what changed, even
+  // if their place / time / faults stayed null on both sides).
   _samePrevEntry(a, b) {
     if (!a || !b) return false;
     return String(a.entry_num) === String(b.entry_num)
@@ -1323,7 +1341,8 @@ export class RingStateDO {
       && a.faults === b.faults
       && a.time === b.time
       && a.overall_place === b.overall_place
-      && a.current_place === b.current_place;
+      && a.current_place === b.current_place
+      && (a.status_code || null) === (b.status_code || null);
   }
 
   _updateByClass(body) {
@@ -1353,7 +1372,7 @@ export class RingStateDO {
                     : body.hunter_scores && body.hunter_scores.length ? body.hunter_scores
                     : prior.hunter_scores) || [];
       const oncRow = scores.find(r => String(r.entry_num) === String(newOnCourseEntry));
-      const candidate = this._buildPrevEntry(oncRow);
+      const candidate = this._buildPrevEntry(oncRow, body.class_kind || prior.class_kind);
       if (candidate && !this._samePrevEntry(previousEntry, candidate)) {
         candidate.finished_at = body.received_at || new Date().toISOString();
         previousEntry = candidate;
@@ -2260,7 +2279,7 @@ export class RingStateDO {
             ? (targetEntry.hunter_scores || [])
             : (targetEntry.jumper_scores || []);
           const oncRow = scoresForPrev.find(r => String(r.entry_num) === String(onCourseId));
-          const candidate = this._buildPrevEntry(oncRow);
+          const candidate = this._buildPrevEntry(oncRow, targetLens);
           if (candidate && !this._samePrevEntry(targetEntry.previous_entry, candidate)) {
             candidate.finished_at = new Date().toISOString();
             targetEntry.previous_entry = candidate;
