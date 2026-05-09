@@ -1893,8 +1893,16 @@
     var pageIdleEl = $('pageIdle');
     var focusedPanelEl = $('focusedClassPanel');
     if (pageIdleEl) pageIdleEl.classList.toggle('hidden', pageHasContent);
-    if (focusedPanelEl) focusedPanelEl.style.display = hasActiveClasses ? '' : 'none';
-    if (!hasActiveClasses) {
+    // Focused panel renders only when the worker reports a real
+    // focused_class_id. If it's null (ring idle after final, between
+    // classes), the multi-class stack handles the just-finalized class
+    // — without this gate, the header falls through to a stale
+    // last_focus tag and renders a phantom "<class> — (unconfigured)
+    // OPEN" panel above the same class's correct FINAL panel. Bill
+    // 2026-05-09 (Aiken): "something weird when the operator hit final."
+    var hasFocusedClass = !!snapshot.focused_class_id;
+    if (focusedPanelEl) focusedPanelEl.style.display = (hasActiveClasses && hasFocusedClass) ? '' : 'none';
+    if (!hasActiveClasses || !hasFocusedClass) {
       // Also kill the just-finished banner since it's tied to focused class.
       var jfBarEl = $('justFinishedBar');
       if (jfBarEl) jfBarEl.classList.add('hidden');
