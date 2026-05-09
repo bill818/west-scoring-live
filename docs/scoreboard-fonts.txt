@@ -172,6 +172,49 @@ When you compare the .exe to the web look:
   Condensed Black
 
 
+FIELD-BY-FIELD MAP (Devon-style scoreboard reference)
+======================================================
+
+Spreadsheet copy: docs/scoreboard-font-fields.csv
+
+ON-COURSE IDENTITY ROW
+  Field                  Premium                              Free Alt
+  Entry # ("53")         Gotham Black                         Montserrat Black
+  Rider name             Gotham Black                         Montserrat Black
+  Horse name             Gotham Black                         Montserrat Black
+  Country code ("COL")   Source Code Pro Black                (free)
+  Country flag           SVG / PNG asset, not a font          —
+
+STATIC LABELS (small caps, lower-emphasis)
+  RANK / TA: / JUMP / TIME / REMAINING / GONE / etc.
+                         Source Code Pro Black                (free)
+
+NUMERICS — MUST NOT JUMP AS DIGITS TICK
+  Live clock ("34.20")   Acumin Pro Condensed Black + tnum    Bebas Neue
+  Rank value ("1")       Acumin Pro Condensed Black + tnum    Bebas Neue
+  TA value ("48")        Acumin Pro Condensed Black + tnum    Bebas Neue
+  Jump / Time values     Acumin Pro Condensed Black + tnum    Bebas Neue
+                         (or Source Code Pro Black if you want stat-strip
+                          values to read smaller / "data table" rather than
+                          headline)
+
+CLASS INFO BOARD
+  Class # corner ("1161") Source Code Pro Black                (free)
+  Class name (multi-line) Gotham X-Narrow Book Bold            Barlow Condensed Bold or Oswald Bold
+  Entry count ("247")     Acumin Pro Condensed Black + tnum    Bebas Neue
+
+BODY / SHOW BRAND
+  Owner / breeding / body Inter                                (free either way)
+  Show title              Gotham X-Narrow Book Bold            Barlow Condensed Bold
+
+WHY X-NARROW BOOK BOLD FOR LONG TITLES:
+"THE LITTLE BIG MAN CHALLENGE TROPHY CLASS" eats horizontal space
+fast. Regular Gotham Black is wide — would force a font-size drop
+to fit. X-Narrow Book Bold keeps the same Gotham geometric character
+at narrower proportions. Same swap we use for .show-title,
+.logo-west, and .class-panel-name on the web.
+
+
 CLOCK / SCORE NUMERAL STABILITY (NO JUMP)
 ==========================================
 

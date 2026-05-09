@@ -1,0 +1,19 @@
+Board Area,Field / Element,Example,Premium Font (paid),Free Alternative,Notes
+On-course identity,Entry number,"""53""",Gotham Black,Montserrat Black,Big headline anchor — broadcast bold weight
+On-course identity,Rider name,"""MARK BLUMAN""",Gotham Black,Montserrat Black,Primary identity line
+On-course identity,Horse name,"""UBILUC""",Gotham Black,Montserrat Black,Sub-line identity (slightly smaller than rider)
+On-course identity,Country code,"""COL""",Source Code Pro Black,Source Code Pro Black,Small all-caps abbreviation — mono-caps reads as data tag
+On-course identity,Country flag,(image),N/A,N/A,Use SVG / PNG flag asset, not a font
+Static labels,RANK label,"""RANK""",Source Code Pro Black,Source Code Pro Black,Caption / label — small mono caps role
+Static labels,Time-allowed label,"""TA:""",Source Code Pro Black,Source Code Pro Black,Caption / label
+Static labels,JUMP / TIME labels,"""JUMP""  ""TIME""",Source Code Pro Black,Source Code Pro Black,Caption / label
+Static labels,REMAINING / GONE captions (web),"""REMAINING""",Source Code Pro Black,Source Code Pro Black,Caption / label — same role as web class header progress
+Numerics (must not jump),Live clock,"""34.20""",Acumin Pro Condensed Black + tnum,Bebas Neue,Marquee number — condensed broadcast feel + tabular numerals so digits don't shift
+Numerics (must not jump),Rank value,"""1""",Acumin Pro Condensed Black + tnum,Bebas Neue,Big tabular numeral — matches clock family
+Numerics (must not jump),TA value,"""48""",Acumin Pro Condensed Black + tnum,Bebas Neue,Big tabular numeral
+Numerics (must not jump),Jump faults / Time faults values,"""0""  ""0""",Acumin Pro Condensed Black + tnum,Bebas Neue,Same family as clock — OR Source Code Pro Black if you want stat-strip values to read smaller / more "data table"
+Class info board,Class number (top corner),"""1161""",Source Code Pro Black,Source Code Pro Black,Metadata tag — matches our .class-panel-num role on web
+Class info board,Class name (multi-line),"""THE LITTLE BIG MAN / CHALLENGE TROPHY CLASS""",Gotham X-Narrow Book Bold,Barlow Condensed Bold OR Oswald Bold,Narrow cut keeps long titles readable without dropping size — same swap we use for .show-title and .logo-west on web
+Class info board,Entry count / class number,"""247""",Acumin Pro Condensed Black + tnum,Bebas Neue,Same broadcast-numeric family as the live clock — eye reads them as related data
+Body text,Owner / breeding / footnotes,"""SG EQUESTRIAN LLC""",Inter (Regular / Medium / Bold),Inter,Free either way — bundle directly. Body sans for everything that isn't display or data
+Show / page brand,Show title,"""DEVON HORSE SHOW & COUNTRY FAIR""",Gotham X-Narrow Book Bold,Barlow Condensed Bold,Same role as web .show-title — wide horizontal space, narrow cut keeps it readable
