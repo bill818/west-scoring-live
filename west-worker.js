@@ -2585,6 +2585,16 @@ export class RingStateDO {
         const targetLens = targetEntry.class_kind;
         const targetIsHunter = targetLens === 'hunter';
         const targetIsJumper = targetLens === 'jumper' || targetLens === 'equitation';
+        // Capture prior scores BEFORE we overwrite them below — the
+        // sig-diff promote logic at the end of this block needs to
+        // compare old vs new. `existing` (line 2544) and `targetEntry`
+        // are the same DO object reference, so reassigning
+        // targetEntry.hunter_scores = body.hunter_scores also mutates
+        // existing.hunter_scores. Without this snapshot, priorScores
+        // === newScores, sig-diff finds nothing, pe never promotes
+        // past the first time. Bill 2026-05-09 (Aiken jumpers).
+        const priorHunterScores = Array.isArray(targetEntry.hunter_scores) ? targetEntry.hunter_scores : [];
+        const priorJumperScores = Array.isArray(targetEntry.jumper_scores) ? targetEntry.jumper_scores : [];
         // Bill 2026-05-08: don't overwrite a populated scores array
         // with an empty one. /v3/postCls runs the entry-stale-sweep
         // (DELETE FROM entries WHERE class_id = ? AND entry_num NOT
@@ -2633,9 +2643,7 @@ export class RingStateDO {
             r.current_place, r.overall_place,
             (r.judges || []).map(j => j.round + ':' + j.idx + ':' + j.base + ':' + (j.hiopt || 0) + ':' + (j.handy || 0)).join('|'),
           ].join('~') : '';
-          const priorScores = targetIsHunter
-            ? ((existing && existing.hunter_scores) || [])
-            : ((existing && existing.jumper_scores) || []);
+          const priorScores = targetIsHunter ? priorHunterScores : priorJumperScores;
           const newScores = targetIsHunter
             ? (targetEntry.hunter_scores || [])
             : (targetEntry.jumper_scores || []);
