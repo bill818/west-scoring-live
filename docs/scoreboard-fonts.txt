@@ -172,6 +172,55 @@ When you compare the .exe to the web look:
   Condensed Black
 
 
+CLOCK / SCORE NUMERAL STABILITY (NO JUMP)
+==========================================
+
+The on-course clock on the web doesn't shift left/right as digits tick
+because Source Code Pro is monospaced — every digit (0-9, '.', ':')
+occupies the SAME horizontal width. "12.345" and "00.000" are the
+exact same pixel width. No layout reflow.
+
+Two ways to get this on the .exe:
+
+1. MONOSPACE FONT (simplest, free)
+   - Source Code Pro Black — same one we use on the web. Free, OFL.
+     https://github.com/adobe-fonts/source-code-pro
+   - JetBrains Mono Black — alternative, free.
+     https://www.jetbrains.com/lp/mono/
+   - Roboto Mono — Google Fonts, free.
+   Drop the .ttf into the .exe and use it for the clock + any other
+   "must not shift" digits.
+
+2. PROPORTIONAL FONT WITH TABULAR NUMERALS (broadcast-grade)
+   Most premium display fonts ship with an OpenType `tnum` (tabular
+   numerals) feature. The letters stay proportional but every digit
+   is forced to the same width. Best of both worlds.
+   - Acumin Pro Condensed Black — has tnum. This is why it's our
+     reserved scoreboard numeric font.
+   - Gotham — has tnum.
+   - Industry — has tnum.
+   On the web we trigger it with CSS `font-variant-numeric: tabular-nums;`
+   (used in ~20 places in west.css for tables). In a desktop app
+   (WPF / WinUI / Qt / SwiftUI / Flutter / etc.) you enable the
+   OpenType feature on the text element. The exact API depends on
+   your framework — search "<framework> opentype tabular numerals"
+   or "<framework> opentype features tnum".
+
+   Always ask the foundry "does this font have tabular numerals"
+   before buying. The premium fonts I recommend (Gotham, Acumin)
+   both do.
+
+CLOCK FONT RECOMMENDATION FOR THE .EXE:
+- Cheapest path: Source Code Pro Black, free, no shift.
+- Broadcast path: Acumin Pro Condensed Black with `tnum` enabled.
+  Looks like an ESPN scoreboard ticker — heavy condensed digits,
+  no shift.
+- AVOID: any plain proportional font (Inter, Gotham, Montserrat,
+  etc.) WITHOUT `tnum` enabled. The 1s and 7s are narrower than the
+  0s and your clock will jump every second. The font itself is fine,
+  but you have to turn on the tabular numerals feature.
+
+
 QUESTIONS BEFORE PURCHASE
 ==========================
 
