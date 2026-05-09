@@ -1,0 +1,192 @@
+WEST Scoring — Font Stack for Scoreboard App (.exe)
+=====================================================
+
+This is the font stack we use on the public web (live.html, class.html,
+results.html, admin.html, etc.) loaded via the Adobe Fonts kit
+`dcn7wbu`. For a native .exe scoreboard you'll want to license the
+desktop / app versions separately (Adobe Fonts kit license is web-only).
+
+Below is what each font does in the web app, plus the cleanest paid
+match (or the actual product) for desktop / OEM licensing.
+
+
+HOW WE USE EACH FONT
+====================
+
+1. GOTHAM BLACK ('gotham-black')
+   - Token: --font-display
+   - Where: headlines, class names ("$25,000 MAHONY-MILLER HUNTER
+     CLASSIC"), entry numbers (#624), horse names, "JUST FINISHED",
+     ribbon place numbers, score values in the just-finished banner,
+     section titles, "IN RING" pill, FINAL pill.
+   - Feel: bold, geometric, broadcast-news authority. The headline
+     workhorse.
+   - Buy: Hoefler & Co (now Monotype). https://www.typography.com/fonts/gotham
+     Gotham 4 OpenType Pro (full family) is $400 desktop, $400 web,
+     OEM/app embedding is custom-quoted (typically $thousands one-time
+     per app/per platform). Contact licensing@monotype.com for an
+     app/embedded license.
+
+2. GOTHAM X-NARROW BOOK ('gotham-xnarrow-book' weight 700)
+   - Where: brand mark ("WEST"), show titles ("Aiken Charity Show
+     Week II"), top-of-page show name. Narrower cut than regular
+     Gotham — better proportions at brand-mark size.
+   - Buy: same Hoefler/Monotype family as above. The "Gotham Narrow"
+     and "Gotham X-Narrow" cuts are sold as separate styles. Ask
+     Monotype for the full Gotham + Gotham Narrow + Gotham X-Narrow
+     set at app-license tier.
+   - Closest free alternative if budget is tight: "Montserrat"
+     (Google Fonts, SIL OFL) is a geometric sans heavily inspired
+     by Gotham. Not a perfect twin but the family rhymes.
+
+3. ACUMIN PRO CONDENSED BLACK ('acumin-pro-condensed-black')
+   - Token: --font-numeric
+   - Where: defined as the scoreboard numeric font but NOT YET wired
+     into selectors on the web. Reserved for clock / faults / time /
+     rank when we move from mono numerals to a proper scoreboard
+     ticker. You'll likely want this on the .exe scoreboard for the
+     big numeric digits.
+   - Buy: Adobe — https://fonts.adobe.com/fonts/acumin
+     Adobe sells desktop licenses outright; app/embedded licensing
+     is custom-quoted (contact Adobe Type at typesales@adobe.com or
+     licensing@adobe.com). The Pro Condensed Black weight ranges from
+     ~$50 to $100 desktop, plus OEM uplift for embedding.
+
+4. INDUSTRY BLACK ('industry-black')
+   - Token: also in --font-numeric stack as a fallback after Acumin.
+   - Where: not actively selected on the current web pages (Acumin
+     wins via fallback order). Listed as a backup.
+   - Buy: Fontfabric — https://www.fontfabric.com/fonts/industry/
+     Desktop license ~$50/weight, family pack $200-$300. App/embed
+     license is a separate SKU from Fontfabric — request via their
+     site contact form.
+
+5. SOURCE CODE PRO BLACK ('source-code-pro-black')
+   - Token: --font-mono
+   - Where: small caps labels — "JUST FINISHED", "REMAINING", "GONE",
+     "IN RING", stat row labels (R1, R2, OVERALL, J1, J2, RANK), data
+     labels, batch IDs, debug strips, schedule flag chips, monospace
+     numerals on tabular cells.
+   - Feel: technical, monospaced, broadcast-data clarity.
+   - Buy: FREE — Apache License 2.0. Bundle the .ttf files
+     directly with your .exe, no licensing cost.
+     https://github.com/adobe-fonts/source-code-pro
+     or download from Google Fonts:
+     https://fonts.google.com/specimen/Source+Code+Pro
+
+6. INTER (Black + 18pt/24pt/28pt optical sizes via Adobe;
+   regular weights via Google Fonts)
+   - Token: --font-body
+   - Where: body text, paragraph copy, panel descriptions, owner
+     names, breeding lines, footer text, anywhere that's not display
+     or mono.
+   - Feel: clean modern UI sans, the system-ui replacement.
+   - Buy: FREE — SIL Open Font License. Bundle directly with your
+     .exe at any weight. https://rsms.me/inter/ or Google Fonts.
+
+7. HOEFLER TEXT BLACK ('hoefler-txt-black')
+   - Where: in the kit but NOT currently used on any page. Reserved
+     for editorial / serif moments if we ever want them.
+   - Buy: Hoefler/Monotype. Skip unless you decide to use it — same
+     licensing path as Gotham above.
+
+
+WHAT TO EMBED IN THE SCOREBOARD .EXE
+=====================================
+
+Recommended stack — minimum cost, maximum match to the web look:
+
+REQUIRED (free, embed directly):
+  - Inter (Regular, Medium, Bold, Black) — body text, secondary labels
+  - Source Code Pro (Regular, Bold, Black) — small caps labels,
+    monospace numerals where you want them
+
+WORTH BUYING (paid, for the broadcast feel):
+  - Gotham (Black + X-Narrow Book or X-Narrow Bold) — display + brand
+    workhorse. Without this you'll lose the "NBC broadcast" character
+    that sets the look apart.
+  - Acumin Pro Condensed Black — large scoreboard numerals. If the
+    .exe shows big score / clock / time digits, this is the one.
+
+OPTIONAL:
+  - Industry Black — alternative condensed display if you want
+    variety. Acumin alone is fine.
+
+CHEAPER PATH (if you want to avoid the premium licensing entirely):
+  - Replace Gotham with Montserrat (Google Fonts, free, OFL)
+  - Replace Acumin Pro Condensed with Bebas Neue (free, OFL) — heavy
+    condensed sans, very common in sports broadcast graphics
+  - Keep Inter + Source Code Pro
+
+The free path gets you 80% of the visual character at 0% of the cost.
+The premium path gets you the actual broadcast-grade look you signed
+up for with the Adobe Fonts kit.
+
+
+HOW TO OBTAIN LICENSES
+======================
+
+Gotham (Hoefler / Monotype):
+  https://www.typography.com/fonts/gotham
+  - Web + Desktop available off-the-shelf
+  - App / OEM embedding: email licensing@monotype.com with
+    "Gotham app/OEM embed quote — desktop scoreboard
+    application, single-product, perpetual"
+
+Acumin Pro Condensed Black (Adobe):
+  https://fonts.adobe.com/fonts/acumin
+  - Click the family, then "Buy fonts" — links to the Adobe Type
+    direct-purchase store
+  - For embedding: typesales@adobe.com
+
+Industry Black (Fontfabric):
+  https://www.fontfabric.com/fonts/industry/
+  - "App License" SKU on the product page, or contact form for OEM
+
+Inter:
+  https://rsms.me/inter/  — official site has the full font files
+  https://github.com/rsms/inter  — source repo with all weights
+  License file (SIL OFL) is in the download. No purchase needed.
+
+Source Code Pro:
+  https://github.com/adobe-fonts/source-code-pro/releases
+  Apache 2.0 — bundle freely.
+
+Bebas Neue (free Acumin alternative):
+  https://fonts.google.com/specimen/Bebas+Neue
+
+Montserrat (free Gotham alternative):
+  https://fonts.google.com/specimen/Montserrat
+
+
+LOOKING AT SCREENSHOTS FROM THE WEB APP
+========================================
+
+When you compare the .exe to the web look:
+- Big white headline text (class names, horse names, scores in the
+  just-finished banner) = Gotham Black
+- Small green/red caps tags ("JUST FINISHED", "IN RING", "REMAINING",
+  "FINAL") = Source Code Pro
+- Body text + owner names = Inter
+- Big future scoreboard numerals (clock, faults, time) = Acumin Pro
+  Condensed Black
+
+
+QUESTIONS BEFORE PURCHASE
+==========================
+
+When you contact Monotype/Adobe/Fontfabric for app licensing, they
+will ask:
+- How many installations / how many end users? (Estimate
+  conservatively — the engine .exe runs on operator computers, not
+  spectator devices)
+- Is the font bundled with the .exe or downloaded at runtime?
+  (Bundled is simpler licensing-wise)
+- Single product or multiple products? (Just the scoreboard app)
+- Distribution channel? (Direct to operators, not retail)
+- Perpetual or term license? (Perpetual is what you want)
+
+A fair quote for a Gotham app license for a single niche professional
+app would land somewhere in the $1,500 - $5,000 range one-time.
+Acumin would be cheaper, low four figures. Industry the cheapest.
+Negotiate.
