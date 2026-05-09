@@ -83,6 +83,17 @@ function renderHero() {
   const ringName = ring.name || `Ring ${ring.ring_num}`;
   const countLabel = liveCount === 1 ? '1 class' : `${liveCount} classes`;
 
+  // Watch Live CTA — navy pill (matches show.html "View Classes"). Adds
+  // a small green pulse when any class on this ring is currently live
+  // per the WS subscription. Always clickable; lands on live.html.
+  const liveActive = state.liveClassIds.size > 0;
+  const liveUrl = `live.html?slug=${encodeURIComponent(state.slug)}&ring=${state.ringNum}`;
+  const watchPill = `<a class="ring-row-cta watch-live-cta${liveActive ? ' is-live' : ''}" href="${liveUrl}">
+    ${liveActive ? '<span class="cls-live-dot" aria-hidden="true"></span>' : ''}
+    <span>Watch Live</span>
+    <span class="arrow" aria-hidden="true">›</span>
+  </a>`;
+
   // Hero anchor: navy ring-number badge in the logo slot. Reuses the
   // .show-hero-logo grid cell with a .ring-badge modifier defined in
   // west.css (no inline styling here).
@@ -96,7 +107,7 @@ function renderHero() {
       <div class="show-hero-meta">${escapeHtml(show.name)}</div>
       <div class="show-hero-loc">${countLabel}</div>
     </div>
-    <div class="show-hero-side"></div>`;
+    <div class="show-hero-side">${watchPill}</div>`;
 
   // Banner count update — happens once we know the number of classes.
   const banner = document.getElementById('classesBanner');
@@ -197,7 +208,10 @@ function renderClasses() {
       if (!groups.has(c.scheduled_date)) groups.set(c.scheduled_date, []);
       groups.get(c.scheduled_date).push(c);
     }
-    const keys = [...groups.keys()].sort();
+    // Most recent day on top — date keys are YYYY-MM-DD so a reverse
+     // string sort matches reverse chronological order. Class order
+     // within each day is unchanged (schedule_order via sortBySchedule).
+    const keys = [...groups.keys()].sort().reverse();
     let html = '';
     for (const k of keys) {
       const rows = sortBySchedule(groups.get(k)).map(c => classRow(c, false)).join('');
@@ -316,8 +330,14 @@ function openLiveWS() {
       for (const id of nextIds) { if (!state.liveClassIds.has(id)) { changed = true; break; } }
     }
     if (changed) {
+      const wasActive = state.liveClassIds.size > 0;
+      const nowActive = nextIds.size > 0;
       state.liveClassIds = nextIds;
       renderClasses();
+      // Watch Live CTA shows a green pulse when any class on this ring
+      // is live; re-render the hero only when that flips, not on every
+      // class set change (renderClasses already handles per-row dots).
+      if (wasActive !== nowActive && state.show && state.ring) renderHero();
     }
   });
   ws.addEventListener('close', () => {
