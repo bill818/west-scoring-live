@@ -847,6 +847,22 @@
     .class-panel-name { font-size: 14px; letter-spacing: .03em; }
     .class-panel-sub { font-size: 9px; }
 
+    /* M4 lower-third — long horse names like "BOHEME DU MOUSTOIR" were
+       truncating with ellipsis at 18px nowrap. Scale down + allow wrap
+       to 2 lines so the whole name stays readable on phones. The bar
+       grows by one line height when needed; identity stays legible. */
+    .m4-id { padding: 8px 12px; }
+    .m4-id .horse-line {
+      font-size: 15px;
+      white-space: normal; overflow: visible; text-overflow: clip;
+      line-height: 1.15;
+      display: -webkit-box; -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2; overflow: hidden;
+    }
+    .m4-id .rider-line { font-size: 12px; white-space: normal; overflow: visible; text-overflow: clip; }
+    .m4-chip { min-width: 52px; padding: 0 10px; }
+    .m4-chip .num { font-size: 17px; }
+
     /* Flat-class mode — single column, denser rows on mobile. */
     .live-box-flat { padding: 12px 14px; }
     .live-box-flat-count { font-size: 9px; margin-bottom: 8px; }
