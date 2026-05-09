@@ -753,20 +753,19 @@
     font-size: 12px; color: var(--text-muted);
     width: 44px; text-align: right;
   }
-  /* Horse + Rider — break onto two lines. Horse first (Big Shoulders
-     navy), rider below (mono caps muted). Hide the em-dash separator. */
-  .class-panel .results-table .entry-horse-line { display: block; line-height: 1.2; }
-  .class-panel .results-table .entry-sep { display: none; }
+  /* Horse — Rider on a single line, with em-dash separator. Owner and
+     Breeding stack below as their own lines (entry-owner / entry-pedigree
+     are still block by default). Mirrors the column header
+     "Horse-Rider / Owner / Breeding". */
+  .class-panel .results-table .entry-horse-line { line-height: 1.25; }
   .class-panel .results-table .entry-horse {
-    display: block;
     font-family: var(--font-display); font-weight: 700; font-size: 15px;
-    color: var(--navy); line-height: 1.2;
+    color: var(--navy);
   }
+  .class-panel .results-table .entry-sep { color: #bbb; margin: 0 4px; }
   .class-panel .results-table .entry-rider {
-    display: block;
     font-family: var(--font-mono); font-size: 11px;
     color: var(--text-muted); letter-spacing: .02em;
-    margin-top: 1px;
   }
   .class-panel .results-table .entry-owner,
   .class-panel .results-table .entry-pedigree {
@@ -782,11 +781,18 @@
     text-align: right; padding-right: 16px;
   }
 
-  /* Mobile: drop low-priority columns to keep the table readable. */
+  /* Mobile: drop low-priority columns to keep the table readable, and
+     stack Horse / Rider onto two lines so long names don't overflow the
+     compressed column. Em-dash separator hides on mobile since the
+     stack already does the visual separation. */
   @media (max-width: 640px) {
     .class-panel .results-table thead th.col-owner,
     .class-panel .results-table .entry-owner,
     .class-panel .results-table .entry-pedigree { display: none; }
+    .class-panel .results-table .entry-horse-line { display: block; line-height: 1.2; }
+    .class-panel .results-table .entry-horse { display: block; font-size: 14px; }
+    .class-panel .results-table .entry-sep { display: none; }
+    .class-panel .results-table .entry-rider { display: block; margin-top: 1px; }
   }
 
   /* ── Live page responsive scaling ─────────────────────────────────── */
