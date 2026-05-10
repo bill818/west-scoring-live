@@ -243,6 +243,139 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ────────────────────────────────────────────────────────────────
+   DEVON 3:1 ULTRA-WIDE LAYOUT (6m × 2m)
+   No side rails — full horizontal sweep, three zones across.
+   ──────────────────────────────────────────────────────────────── */
+.sb.layout-devon3to1 {
+  aspect-ratio: 3 / 1; max-height: none;
+  grid-template-rows: auto 1fr auto;
+}
+.sb.layout-devon3to1 .sb-d3-top {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: 24px;
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--keyline);
+}
+.sb.layout-devon3to1 .sb-d3-top .brand {
+  font-family: var(--font-brand);
+  font-size: 22px; letter-spacing: .04em; color: var(--text);
+}
+.sb.layout-devon3to1 .sb-d3-top .tags {
+  display: flex; align-items: baseline; gap: 28px; justify-self: center;
+  font-family: var(--font-mono); font-size: 12px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb.layout-devon3to1 .sb-d3-top .tags .lbl { color: var(--text-faint); }
+.sb.layout-devon3to1 .sb-d3-top .tags .v {
+  font-family: var(--font-numeric); font-size: 22px;
+  color: var(--accent-yellow); letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.sb.layout-devon3to1 .sb-d3-top .tags .v-rank { color: var(--accent-green); }
+.sb.layout-devon3to1 .sb-d3-top .flag {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 13px;
+  color: var(--text); letter-spacing: .14em; text-transform: uppercase;
+}
+.sb.layout-devon3to1 .sb-d3-top .flag .swatch {
+  display: inline-block; width: 24px; height: 16px;
+  background: linear-gradient(180deg, #fcd116 33%, #003893 33%, #003893 66%, #ce1126 66%);
+  border-radius: 2px; border: 1px solid rgba(255,255,255,.2);
+}
+
+/* Body — three columns: identity left, names center, clock+stats right */
+.sb.layout-devon3to1 .sb-d3-body {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr 1fr;
+  align-items: center;
+  padding: 0 32px;
+  gap: 24px;
+}
+.sb.layout-devon3to1 .sb-d3-id {
+  display: flex; align-items: center; gap: 18px;
+}
+.sb.layout-devon3to1 .sb-d3-id .entry-num {
+  font-family: var(--font-numeric);
+  font-size: 140px; line-height: .85; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.sb.layout-devon3to1 .sb-d3-names {
+  text-align: left;
+}
+.sb.layout-devon3to1 .sb-d3-names .horse {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: 64px; line-height: .95; text-transform: uppercase;
+  color: var(--text); letter-spacing: -.005em;
+}
+.sb.layout-devon3to1 .sb-d3-names .rider {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 32px; line-height: 1.1; text-transform: uppercase;
+  color: var(--text-muted); letter-spacing: .015em;
+  margin-top: 6px;
+}
+.sb.layout-devon3to1 .sb-d3-clock {
+  text-align: right;
+}
+.sb.layout-devon3to1 .sb-d3-clock .clock-lbl {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .2em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 4px;
+}
+.sb.layout-devon3to1 .sb-d3-clock .clock-v {
+  font-family: var(--font-numeric); font-size: 128px;
+  line-height: .85; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.sb.layout-devon3to1 .sb-d3-clock .stats {
+  display: flex; gap: 24px; justify-content: flex-end;
+  margin-top: 10px;
+}
+.sb.layout-devon3to1 .sb-d3-clock .stats .cell {
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+.sb.layout-devon3to1 .sb-d3-clock .stats .lbl {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb.layout-devon3to1 .sb-d3-clock .stats .v {
+  font-family: var(--font-numeric); font-size: 28px;
+  line-height: 1; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Footer strip — class info + remaining */
+.sb.layout-devon3to1 .sb-d3-foot {
+  display: grid; grid-template-columns: auto 1fr auto auto;
+  align-items: center; gap: 18px;
+  padding: 10px 32px;
+  border-top: 1px solid var(--keyline);
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.3));
+}
+.sb.layout-devon3to1 .sb-d3-foot .cls-num {
+  font-family: var(--font-numeric); font-size: 22px;
+  color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums;
+}
+.sb.layout-devon3to1 .sb-d3-foot .cls-name {
+  font-family: var(--font-narrow); font-weight: 700;
+  font-size: 16px; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb.layout-devon3to1 .sb-d3-foot .progress {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb.layout-devon3to1 .sb-d3-foot .progress .v {
+  font-family: var(--font-numeric); font-size: 18px;
+  color: var(--text); margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Brand band ── */
 .sb-brand {
   background: linear-gradient(180deg, #1a1a1a, #0a0a0a);
@@ -484,14 +617,14 @@ body {
       <div class="variant-note">Stadium ribbon look. Data + on-course occupies most of the screen, class info as a fat right-rail. Best for very wide LED walls (MTB-bank-endzone style).</div>
     </div>
     <div class="variant" data-layout="devon">
-      <div class="variant-name">Layout B — 16:9 video wall (Devon)</div>
+      <div class="variant-name">Layout B — 16:9 video wall</div>
       <div class="variant-sample-brand" style="font-family:var(--font-display);font-size:18px;font-weight:700;">VIDEO/GFX │ DATA</div>
-      <div class="variant-note">Single 16:9 screen. All scoreboard data forced to a hard-right rail (class info merged in); left side is a video / sponsor / graphics surface. One screen does both jobs.</div>
+      <div class="variant-note">Single 16:9 screen. All scoreboard data forced to a hard-right rail (class info merged in); left side is a video / sponsor / graphics surface. For venues with 16:9 LED panels.</div>
     </div>
-    <div class="variant" data-layout="placeholder" style="opacity:.4;cursor:not-allowed;">
-      <div class="variant-name">Layout C — TBD</div>
-      <div class="variant-sample-brand" style="font-family:var(--font-display);font-size:18px;font-weight:700;">⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</div>
-      <div class="variant-note">Slot reserved for future layouts (4:3 ribbon, portrait kiosk, etc.).</div>
+    <div class="variant" data-layout="devon3to1">
+      <div class="variant-name">Layout C — Devon ultra-wide (3:1)</div>
+      <div class="variant-sample-brand" style="font-family:var(--font-display);font-size:18px;font-weight:700;">⎯⎯ 6m × 2m ⎯⎯</div>
+      <div class="variant-note">True Devon aspect (6m × 2m = 3:1). All data fills the full ultra-wide horizontally — no side rails, just three zones: identity left, headline names center, clock + stats right. Class info as a small footer strip.</div>
     </div>
   </div>
 </div>
@@ -576,6 +709,46 @@ body {
     </div>
   </div>
 
+  <!-- DEVON 3:1 ULTRA-WIDE — actual 6m × 2m Devon screen aspect -->
+  <div class="sb layout-devon3to1" id="boardDevon3to1" style="display:none;">
+    <!-- Top strip: brand · tags · flag -->
+    <div class="sb-d3-top">
+      <div class="brand" id="brandNameDevon31">Devon Horse Show</div>
+      <div class="tags">
+        <span><span class="lbl">Rank</span> <span class="v v-rank">1</span></span>
+        <span><span class="lbl">TA</span> <span class="v">48</span></span>
+      </div>
+      <div class="flag"><span class="swatch"></span>COL</div>
+    </div>
+
+    <!-- Body: three zones across -->
+    <div class="sb-d3-body">
+      <div class="sb-d3-id">
+        <div class="entry-num">53</div>
+      </div>
+      <div class="sb-d3-names">
+        <div class="horse">UBILUC</div>
+        <div class="rider">Mark Bluman</div>
+      </div>
+      <div class="sb-d3-clock">
+        <div class="clock-lbl">Clock</div>
+        <div class="clock-v">34.20</div>
+        <div class="stats">
+          <div class="cell"><span class="lbl">Jump</span><span class="v">0</span></div>
+          <div class="cell"><span class="lbl">Time</span><span class="v">0</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer strip: class info + In Ring + remaining -->
+    <div class="sb-d3-foot">
+      <div class="cls-num">1161</div>
+      <div class="cls-name">The Little Big Man Challenge Trophy Class</div>
+      <span class="sb-cls-pill">In Ring</span>
+      <div class="progress"><span class="v">38 of 247</span> Gone</div>
+    </div>
+  </div>
+
   <!-- DEVON LAYOUT — 16:9 video wall, data column hard-right -->
   <div class="sb layout-devon" id="boardDevon" style="display:none;">
     <div class="sb-body">
@@ -655,10 +828,17 @@ const layoutPicker = document.getElementById('layoutPicker');
 const activeLayoutLabel = document.getElementById('activeLayoutLabel');
 const boardWide = document.getElementById('board');
 const boardDevon = document.getElementById('boardDevon');
+const boardDevon31 = document.getElementById('boardDevon3to1');
 const layoutLabels = {
-  wide: 'Wide stadium',
-  devon: '16:9 video wall (Devon)',
+  wide:        'Wide stadium',
+  devon:       '16:9 video wall',
+  devon3to1:   'Devon ultra-wide (3:1)',
 };
+function showLayout(key) {
+  boardWide.style.display    = (key === 'wide')      ? '' : 'none';
+  boardDevon.style.display   = (key === 'devon')     ? '' : 'none';
+  boardDevon31.style.display = (key === 'devon3to1') ? '' : 'none';
+}
 layoutPicker.addEventListener('click', (e) => {
   const v = e.target.closest('.variant');
   if (!v || v.dataset.layout === 'placeholder') return;
@@ -666,13 +846,13 @@ layoutPicker.addEventListener('click', (e) => {
   v.classList.add('is-active');
   const key = v.dataset.layout;
   activeLayoutLabel.textContent = layoutLabels[key];
-  if (key === 'wide')  { boardWide.style.display = '';  boardDevon.style.display = 'none'; }
-  if (key === 'devon') { boardWide.style.display = 'none'; boardDevon.style.display = ''; }
+  showLayout(key);
 });
 
 const picker = document.getElementById('variantPicker');
 const brandName = document.getElementById('brandName');
 const brandNameDevon = document.getElementById('brandNameDevon');
+const brandNameDevon31 = document.getElementById('brandNameDevon31');
 const activeLabel = document.getElementById('activeBrandLabel');
 const labels = {
   'hoefler': "Hoefler Text Black",
@@ -690,7 +870,7 @@ picker.addEventListener('click', (e) => {
   document.querySelectorAll('.variant').forEach(el => el.classList.remove('is-active'));
   v.classList.add('is-active');
   const key = v.dataset.brand;
-  [brandName, brandNameDevon].forEach(el => {
+  [brandName, brandNameDevon, brandNameDevon31].forEach(el => {
     if (!el) return;
     el.style.fontFamily = fonts[key];
     el.style.fontWeight = (key === 'gotham-xn') ? 700 : 400;
