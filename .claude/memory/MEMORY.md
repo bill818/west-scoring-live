@@ -33,3 +33,4 @@
 - [Class pill + remaining-progress descriptor](reference_class_pill_descriptor.md) — snapshot.pill / class.pill: state, label, progress (X of Y), progress_label (Gone), counts. Reusable for kiosk + ring display
 - [Cache-bust JS bundles per preview deploy](reference_cache_bust_deploy.md) — deploy-preview.sh stamps ?v=__BUILD__ with git SHA + epoch so mobile Safari can't serve stale modules
 - [Engine → vMix local integration plan](project_engine_vmix_integration.md) — pinned plan for a second engine on the broadcast computer that writes scoring.json + serves a local HTTP/WS for vMix Title sources and Browser Source overlays
+- [NEXT engine push — unlock UDP ports](project_engine_udp_port_unlock.md) — manual override fields for input/relay ports; default stays config.dat auto-detect; ships ahead of the broader vMix work
