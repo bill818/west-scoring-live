@@ -399,24 +399,25 @@ body {
   text-transform: none;
 }
 /* Stat boxes on the video — discrete cards floating at bottom-right.
-   Replaces the full-width gradient strip so the video stays clean
-   above; cards have their own semi-transparent backdrop. */
+   Three cards: CLOCK · TA→RANK · FAULTS. The middle card swaps from
+   TA (in-round) to RANK (after the rider finishes). Bill 2026-05-10. */
 .sb.layout-devon3to1 .sb-d3-overlay {
   position: absolute;
   right: clamp(16px, 2.5vmin, 32px);
   bottom: clamp(16px, 2.5vmin, 32px);
-  display: flex; gap: clamp(10px, 1.5vmin, 18px);
+  display: flex; gap: clamp(8px, 1.4vmin, 16px);
   align-items: stretch;
 }
 .sb.layout-devon3to1 .sb-d3-overlay .card {
   background: rgba(8,8,12,.78);
   border: 1px solid var(--keyline-strong);
   border-radius: 8px;
-  padding: clamp(8px, 1.5vmin, 18px) clamp(14px, 2.4vmin, 28px);
+  padding: clamp(8px, 1.5vmin, 18px) clamp(12px, 2.2vmin, 26px);
   display: flex; flex-direction: column;
-  align-items: center; gap: 2px;
+  align-items: center; justify-content: center; gap: 2px;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  min-width: clamp(80px, 11vmin, 150px);
 }
 .sb.layout-devon3to1 .sb-d3-overlay .card .lbl {
   font-family: var(--font-mono);
@@ -426,11 +427,21 @@ body {
 }
 .sb.layout-devon3to1 .sb-d3-overlay .card .v {
   font-family: var(--font-numeric);
-  font-size: clamp(60px, 12vmin, 150px);
   line-height: .9; color: var(--text);
   font-variant-numeric: tabular-nums; letter-spacing: -.02em;
 }
-.sb.layout-devon3to1 .sb-d3-overlay .card-clock .v { color: var(--accent-yellow); }
+/* Clock = biggest, yellow. TA/Rank + Faults = secondary size. */
+.sb.layout-devon3to1 .sb-d3-overlay .card-clock .v {
+  color: var(--accent-yellow);
+  font-size: clamp(58px, 11vmin, 140px);
+}
+.sb.layout-devon3to1 .sb-d3-overlay .card-ta .v,
+.sb.layout-devon3to1 .sb-d3-overlay .card-rank .v,
+.sb.layout-devon3to1 .sb-d3-overlay .card-faults .v {
+  font-size: clamp(44px, 8vmin, 100px);
+}
+/* RANK gets a green accent when it appears (rider finished clean). */
+.sb.layout-devon3to1 .sb-d3-overlay .card-rank .v { color: var(--accent-green); }
 
 /* ── Brand band ── */
 .sb-brand {
@@ -687,6 +698,24 @@ body {
 
 <div class="lab-section">
   <div class="lab-section-hd">
+    Round state <span class="v" id="activeStateLabel">In round (TA)</span>
+  </div>
+  <div class="variants" id="statePicker" style="grid-template-columns:repeat(2,1fr);">
+    <div class="variant is-active" data-state="inround">
+      <div class="variant-name">In round</div>
+      <div class="variant-sample-brand" style="font-family:var(--font-mono);font-size:14px;letter-spacing:.18em;color:var(--text-muted);">CLOCK · <span style="color:var(--text)">TA</span> · FAULTS</div>
+      <div class="variant-note">Clock ticking, TA shows the time allowed for the round (e.g. 90s). Middle card is white.</div>
+    </div>
+    <div class="variant" data-state="finished">
+      <div class="variant-name">Finished</div>
+      <div class="variant-sample-brand" style="font-family:var(--font-mono);font-size:14px;letter-spacing:.18em;color:var(--text-muted);">CLOCK · <span style="color:var(--accent-green)">RANK</span> · FAULTS</div>
+      <div class="variant-note">Rider's done. TA card flips to RANK with the green accent. Devon Layout C only — wide stadium and 16:9 layouts unchanged.</div>
+    </div>
+  </div>
+</div>
+
+<div class="lab-section">
+  <div class="lab-section-hd">
     Brand band font <span class="v" id="activeBrandLabel">Hoefler Text Black</span>
   </div>
   <div class="variants" id="variantPicker">
@@ -802,10 +831,16 @@ body {
           <b>Live Course Camera</b>
           Video / sponsor / graphics
         </div>
-        <div class="sb-d3-overlay">
+        <div class="sb-d3-overlay" id="d3overlay">
           <div class="card card-clock">
             <span class="lbl">Clock</span>
             <span class="v">34.20</span>
+          </div>
+          <!-- Middle card: TA during round → RANK after finish.
+               JS toggle below the layout picker swaps state for demo. -->
+          <div class="card card-ta" id="d3midCard">
+            <span class="lbl" id="d3midLbl">TA</span>
+            <span class="v" id="d3midVal">90</span>
           </div>
           <div class="card card-faults">
             <span class="lbl">Faults</span>
@@ -889,6 +924,32 @@ body {
 </div>
 
 <script>
+// State picker — flip the middle Devon card between TA (in-round)
+// and RANK (after finish). Bill 2026-05-10.
+const statePicker = document.getElementById('statePicker');
+const activeStateLabel = document.getElementById('activeStateLabel');
+const d3midCard = document.getElementById('d3midCard');
+const d3midLbl = document.getElementById('d3midLbl');
+const d3midVal = document.getElementById('d3midVal');
+statePicker.addEventListener('click', (e) => {
+  const v = e.target.closest('.variant');
+  if (!v) return;
+  document.querySelectorAll('#statePicker .variant').forEach(el => el.classList.remove('is-active'));
+  v.classList.add('is-active');
+  const key = v.dataset.state;
+  if (key === 'inround') {
+    activeStateLabel.textContent = 'In round (TA)';
+    d3midCard.classList.remove('card-rank'); d3midCard.classList.add('card-ta');
+    d3midLbl.textContent = 'TA';
+    d3midVal.textContent = '90';
+  } else {
+    activeStateLabel.textContent = 'Finished (Rank)';
+    d3midCard.classList.remove('card-ta'); d3midCard.classList.add('card-rank');
+    d3midLbl.textContent = 'Rank';
+    d3midVal.textContent = '1';
+  }
+});
+
 // Layout picker — swap between the wide stadium board and the
 // Devon-style 16:9 video-wall layout.
 const layoutPicker = document.getElementById('layoutPicker');
