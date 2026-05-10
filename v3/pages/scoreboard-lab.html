@@ -398,40 +398,39 @@ body {
   letter-spacing: .04em; color: var(--text); margin-bottom: 8px;
   text-transform: none;
 }
-/* Clock + faults — lower third overlay on the video. */
+/* Stat boxes on the video — discrete cards floating at bottom-right.
+   Replaces the full-width gradient strip so the video stays clean
+   above; cards have their own semi-transparent backdrop. */
 .sb.layout-devon3to1 .sb-d3-overlay {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  height: 33.33%;
-  background: linear-gradient(180deg, transparent, rgba(0,0,0,.7) 30%, rgba(0,0,0,.85));
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 clamp(20px, 3vmin, 40px);
-  gap: clamp(20px, 3vmin, 40px);
+  position: absolute;
+  right: clamp(16px, 2.5vmin, 32px);
+  bottom: clamp(16px, 2.5vmin, 32px);
+  display: flex; gap: clamp(10px, 1.5vmin, 18px);
+  align-items: stretch;
 }
-.sb.layout-devon3to1 .sb-d3-overlay .clock-v {
+.sb.layout-devon3to1 .sb-d3-overlay .card {
+  background: rgba(8,8,12,.78);
+  border: 1px solid var(--keyline-strong);
+  border-radius: 8px;
+  padding: clamp(8px, 1.5vmin, 18px) clamp(14px, 2.4vmin, 28px);
+  display: flex; flex-direction: column;
+  align-items: center; gap: 2px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.sb.layout-devon3to1 .sb-d3-overlay .card .lbl {
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.7vmin, 18px);
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb.layout-devon3to1 .sb-d3-overlay .card .v {
   font-family: var(--font-numeric);
-  font-size: clamp(80px, 16vmin, 200px);
-  line-height: .82; color: var(--accent-yellow);
-  font-variant-numeric: tabular-nums; letter-spacing: -.025em;
+  font-size: clamp(60px, 12vmin, 150px);
+  line-height: .9; color: var(--text);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
 }
-.sb.layout-devon3to1 .sb-d3-overlay .stats {
-  display: flex; gap: clamp(16px, 3vmin, 36px);
-  align-items: baseline;
-}
-.sb.layout-devon3to1 .sb-d3-overlay .stats .cell {
-  display: flex; align-items: baseline; gap: 6px;
-}
-.sb.layout-devon3to1 .sb-d3-overlay .stats .pre {
-  font-family: var(--font-display); font-weight: 700;
-  font-size: clamp(26px, 4.5vmin, 52px);
-  color: var(--text); letter-spacing: .02em;
-  text-transform: uppercase;
-}
-.sb.layout-devon3to1 .sb-d3-overlay .stats .v {
-  font-family: var(--font-numeric);
-  font-size: clamp(40px, 7vmin, 88px);
-  line-height: 1; color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
+.sb.layout-devon3to1 .sb-d3-overlay .card-clock .v { color: var(--accent-yellow); }
 
 /* ── Brand band ── */
 .sb-brand {
@@ -804,10 +803,13 @@ body {
           Video / sponsor / graphics
         </div>
         <div class="sb-d3-overlay">
-          <div class="clock-v">34.20</div>
-          <div class="stats">
-            <div class="cell"><span class="pre">J</span><span class="v">0</span></div>
-            <div class="cell"><span class="pre">T</span><span class="v">0</span></div>
+          <div class="card card-clock">
+            <span class="lbl">Clock</span>
+            <span class="v">34.20</span>
+          </div>
+          <div class="card card-faults">
+            <span class="lbl">Faults</span>
+            <span class="v">0</span>
           </div>
         </div>
       </div>
