@@ -5776,6 +5776,14 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const slug = request.headers.get('X-West-Slug');
       if (!slug) return err('Missing X-West-Slug header');
+      // Optional ring header (engine side, since 2026-05-09). When present
+      // we INSERT placeholder rows for class_ids in tsked that don't yet
+      // exist in the DB — keeps tsked-only (operator-hasn't-opened-yet)
+      // classes visible on the public ring page. Without it, this
+      // endpoint stays UPDATE-only for backwards compat with older
+      // engine builds.
+      const ringStr = request.headers.get('X-West-Ring');
+      let ringId = null;
       let showId;
       try {
         const show = await env.WEST_DB_V3.prepare(
@@ -5785,6 +5793,15 @@ export default {
         const lk = computeShowLock(show);
         if (lk.locked) return lockedResponse(lk.reason);
         showId = show.id;
+        if (ringStr) {
+          const ringNum = parseInt(ringStr, 10);
+          if (Number.isFinite(ringNum)) {
+            const ring = await env.WEST_DB_V3.prepare(
+              'SELECT id FROM rings WHERE show_id = ? AND ring_num = ?'
+            ).bind(showId, ringNum).first();
+            if (ring) ringId = ring.id;
+          }
+        }
       } catch (e) { return err('DB error: ' + e.message); }
       const bytes = await request.arrayBuffer();
       const size = bytes.byteLength;
@@ -5842,21 +5859,51 @@ export default {
       } catch (e) {
         console.log(`[v3/postTsked] clear-stale failed for ${slug}: ${e.message}`);
       }
-      // Update classes (UPDATE-only, never INSERT — .cls POST is the
-      // authority for class existence). schedule_order = 1-indexed
-      // position in the tsked file. Bill 2026-05-07: this is what
-      // ryegate.live uses to drive class display order; without it
+      // Update classes by class_id within the show. schedule_order =
+      // 1-indexed position in the tsked file. Bill 2026-05-07: this is
+      // what ryegate.live uses to drive class display order; without it
       // the public ring page sorts by class_id alphabetically (325,
       // 330, 335, ...) instead of the operator's interleaved schedule
       // (325, 925, 930, 330, ...).
+      //
+      // INSERT path (Bill 2026-05-09): when X-West-Ring is supplied and
+      // an UPDATE matches no row, INSERT a placeholder class row so the
+      // schedule renders BEFORE the operator opens the class in
+      // Ryegate. parse_status='unconfigured' marks it as awaiting a
+      // .cls; /v3/postCls overwrites everything else when the operator
+      // touches the class. Older engine builds without the ring header
+      // fall through to the original skipped-counter behavior.
+      let inserted = 0;
       for (let idx = 0; idx < rows.length; idx++) {
         const r = rows[idx];
         try {
           const res = await env.WEST_DB_V3.prepare(
             `UPDATE classes SET scheduled_date = ?, schedule_flag = ?, schedule_order = ? WHERE show_id = ? AND class_id = ?`
           ).bind(r.isoDate, r.flag, idx + 1, showId, r.classId).run();
-          if (res.meta && res.meta.changes > 0) updated++;
-          else skipped++;
+          if (res.meta && res.meta.changes > 0) {
+            updated++;
+            continue;
+          }
+          // No existing row. If we know the ring, insert a placeholder.
+          if (ringId != null) {
+            const placeholderR2Key = `${slug}/cls/${r.classId}.cls`;
+            try {
+              await env.WEST_DB_V3.prepare(
+                `INSERT INTO classes
+                   (show_id, ring_id, class_id, class_type, parse_status, r2_key,
+                    scheduled_date, schedule_flag, schedule_order)
+                 VALUES (?, ?, ?, 'U', 'unconfigured', ?, ?, ?, ?)`
+              ).bind(showId, ringId, r.classId, placeholderR2Key, r.isoDate, r.flag, idx + 1).run();
+              inserted++;
+            } catch (insErr) {
+              // UNIQUE collision (same class_id on a different ring already)
+              // or any other constraint hit — count as skipped, log once.
+              console.log(`[v3/postTsked] insert skip ${slug}/${r.classId}: ${insErr.message}`);
+              skipped++;
+            }
+          } else {
+            skipped++;
+          }
         } catch (e) {
           console.log(`[v3/postTsked] update failed for ${slug}/${r.classId}: ${e.message}`);
           invalid++;
@@ -5865,10 +5912,10 @@ export default {
       const received_at = new Date().toISOString();
       await env.WEST_LIVE.put(
         `tsked-last:${slug}`,
-        JSON.stringify({ received_at, size, rows_total: rows.length, updated, skipped, cleared, invalid, r2_key: r2Key }),
+        JSON.stringify({ received_at, size, rows_total: rows.length, updated, inserted, skipped, cleared, invalid, r2_key: r2Key, ring_num: ringStr || null }),
         { expirationTtl: 86400 }
       );
-      return json({ ok: true, received_at, rows_total: rows.length, updated, skipped, cleared, invalid });
+      return json({ ok: true, received_at, rows_total: rows.length, updated, inserted, skipped, cleared, invalid });
     }
 
     // ── POST /v3/reprocessTsked?slug=X ───────────────────────────────────────
@@ -5885,13 +5932,27 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug query param');
+      // Optional ?ring=N — when provided, also INSERT placeholder rows
+      // for tsked class_ids that don't yet exist in DB. Mirrors the
+      // /v3/postTsked X-West-Ring header behavior. Bill 2026-05-09.
+      const ringStr = url.searchParams.get('ring');
       let showId;
+      let ringId = null;
       try {
         const show = await env.WEST_DB_V3.prepare(
           'SELECT id FROM shows WHERE slug = ?'
         ).bind(slug).first();
         if (!show) return err('Unknown show slug', 404);
         showId = show.id;
+        if (ringStr) {
+          const ringNum = parseInt(ringStr, 10);
+          if (Number.isFinite(ringNum)) {
+            const ring = await env.WEST_DB_V3.prepare(
+              'SELECT id FROM rings WHERE show_id = ? AND ring_num = ?'
+            ).bind(showId, ringNum).first();
+            if (ring) ringId = ring.id;
+          }
+        }
       } catch (e) { return err('DB error: ' + e.message); }
       let text;
       try {
@@ -5915,19 +5976,36 @@ export default {
         const flag = (cols[3] || '').trim() || null;
         rows.push({ classId, isoDate, flag });
       }
-      let updated = 0;
+      let updated = 0, inserted = 0;
       for (let idx = 0; idx < rows.length; idx++) {
         const r = rows[idx];
         try {
           const res = await env.WEST_DB_V3.prepare(
             `UPDATE classes SET scheduled_date = ?, schedule_flag = ?, schedule_order = ? WHERE show_id = ? AND class_id = ?`
           ).bind(r.isoDate, r.flag, idx + 1, showId, r.classId).run();
-          if (res.meta && res.meta.changes > 0) updated++;
+          if (res.meta && res.meta.changes > 0) {
+            updated++;
+            continue;
+          }
+          if (ringId != null) {
+            const placeholderR2Key = `${slug}/cls/${r.classId}.cls`;
+            try {
+              await env.WEST_DB_V3.prepare(
+                `INSERT INTO classes
+                   (show_id, ring_id, class_id, class_type, parse_status, r2_key,
+                    scheduled_date, schedule_flag, schedule_order)
+                 VALUES (?, ?, ?, 'U', 'unconfigured', ?, ?, ?, ?)`
+              ).bind(showId, ringId, r.classId, placeholderR2Key, r.isoDate, r.flag, idx + 1).run();
+              inserted++;
+            } catch (insErr) {
+              console.log(`[v3/reprocessTsked] insert skip ${slug}/${r.classId}: ${insErr.message}`);
+            }
+          }
         } catch (e) {
           console.log(`[v3/reprocessTsked] update failed for ${slug}/${r.classId}: ${e.message}`);
         }
       }
-      return json({ ok: true, slug, rows_total: rows.length, updated });
+      return json({ ok: true, slug, rows_total: rows.length, updated, inserted });
     }
 
     // ── GET /v3/listEntries?class_id=N ───────────────────────────────────────

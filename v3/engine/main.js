@@ -872,6 +872,12 @@ async function postTskedIfChanged(reason) {
         'Content-Type': 'application/octet-stream',
         'X-West-Key': config.authKey,
         'X-West-Slug': config.showSlug,
+        // Ring binding lets the worker INSERT placeholder class rows for
+        // tsked entries that don't yet have a .cls file (operator hasn't
+        // opened the class yet). Without this, scheduled-but-unopened
+        // classes silently disappear from the public schedule until
+        // someone touches them in Ryegate. Bill 2026-05-09 (Saratoga).
+        'X-West-Ring': String(config.ringNum),
       },
       body: bytes,
     });
