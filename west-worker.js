@@ -4491,10 +4491,10 @@ export default {
     if (method === 'GET' && path === '/v3/engineLatest') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const ENGINE_LATEST = {
-              version: '3.1.5',
-              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.1.5.asar',
-              sha256:  'be2fd2532ba22d57544f81392b54d7ec120cb3f65079b886372124d75ae9461f',
-              releasedAt: '2026-05-06T20:14:45.686Z',
+              version: '3.1.6',
+              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.1.6.asar',
+              sha256:  'adcd43a4757d6095eaff5ee6169da0b203bb5d8879595c8296c719af16470eec',
+              releasedAt: '2026-05-10T00:45:19.034Z',
               releaseNotes: 'Flush live now wipes EVERY class off the live page (including finalized) with a 15-second cooldown to absorb trailing .cls writes from class-close. Worker-side fixes: Channel B {29}=F always wins (no more race-condition un-finalize), un-finalize requires same B+intro pair as live trigger, stale focus carries forward only within 20 minutes, hunter score box now shows the actually-displayed round (not just the highest scored), per-judge breakdown follows the displayed round.',
             };
       return json({ manifest: ENGINE_LATEST });

@@ -42,7 +42,7 @@ const { spawn } = require('child_process');
 
 const sbFunnel = require('./scoreboard-funnel');
 
-const ENGINE_VERSION = '3.1.5';
+const ENGINE_VERSION = '3.1.6';
 const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
 const HEARTBEAT_INTERVAL_MS = 10_000;          // active cadence
