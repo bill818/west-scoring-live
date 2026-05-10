@@ -245,10 +245,8 @@ body {
 
 /* ────────────────────────────────────────────────────────────────
    DEVON 3:1 ULTRA-WIDE LAYOUT (6m × 2m)
-   Readability-first redesign — all chrome dropped (no top strip,
-   no footer, no labels), every pixel goes to live data. Spectators
-   are 30-100m away from a 2m-tall screen so anything under ~12% of
-   screen height = unreadable. Three zones across, sized to dominate.
+   Two zones: LEFT data (2.5m × 2m) | RIGHT video (3.5m × 2m).
+   Clock + faults overlay the lower third of the video.
    Bill 2026-05-10.
    ──────────────────────────────────────────────────────────────── */
 .sb.layout-devon3to1 {
@@ -258,86 +256,112 @@ body {
 
 .sb.layout-devon3to1 .sb-d3-body {
   display: grid;
-  grid-template-columns: 1fr 1.7fr 1.1fr;
-  align-items: center;
-  padding: 28px 36px;
-  gap: 36px;
+  grid-template-columns: 2.5fr 3.5fr;
   height: 100%;
+  gap: 0;
 }
 
-/* LEFT — entry # + flag stripe */
-.sb.layout-devon3to1 .sb-d3-id {
-  display: flex; flex-direction: column; align-items: flex-start;
-  gap: 12px;
+/* ── LEFT ZONE: DATA (2.5m × 2m, near-square) ── */
+.sb.layout-devon3to1 .sb-d3-data {
+  background: linear-gradient(180deg, #0a0a0a, #050507);
+  border-right: 1px solid var(--keyline-strong);
+  padding: clamp(16px, 3vmin, 36px);
+  display: flex; flex-direction: column;
+  align-items: flex-start; justify-content: center;
+  gap: clamp(8px, 2vmin, 22px);
 }
-.sb.layout-devon3to1 .sb-d3-id .entry-num {
+.sb.layout-devon3to1 .sb-d3-data .top-row {
+  display: flex; align-items: center; gap: clamp(12px, 2vmin, 24px);
+}
+.sb.layout-devon3to1 .sb-d3-data .entry-num {
   font-family: var(--font-numeric);
-  font-size: clamp(120px, 32vmin, 320px);
+  font-size: clamp(110px, 26vmin, 240px);
   line-height: .82; color: var(--accent-yellow);
   font-variant-numeric: tabular-nums; letter-spacing: -.025em;
 }
-.sb.layout-devon3to1 .sb-d3-id .flag-row {
-  display: flex; align-items: center; gap: 10px;
+.sb.layout-devon3to1 .sb-d3-data .flag-block {
+  display: flex; flex-direction: column; gap: 6px;
+  align-items: flex-start;
 }
-.sb.layout-devon3to1 .sb-d3-id .flag-swatch {
+.sb.layout-devon3to1 .sb-d3-data .flag-swatch {
   display: inline-block;
-  width: clamp(32px, 5vmin, 56px);
-  height: clamp(20px, 3.4vmin, 36px);
+  width: clamp(40px, 5vmin, 64px);
+  height: clamp(26px, 3.4vmin, 42px);
   background: linear-gradient(180deg, #fcd116 33%, #003893 33%, #003893 66%, #ce1126 66%);
   border-radius: 3px; border: 1px solid rgba(255,255,255,.25);
 }
-.sb.layout-devon3to1 .sb-d3-id .country {
+.sb.layout-devon3to1 .sb-d3-data .country {
   font-family: var(--font-display); font-weight: 800;
-  font-size: clamp(28px, 5vmin, 56px);
+  font-size: clamp(28px, 4.5vmin, 52px);
   color: var(--text); letter-spacing: .04em;
 }
-
-/* CENTER — horse + rider names (the headline) */
-.sb.layout-devon3to1 .sb-d3-names {
-  display: flex; flex-direction: column; gap: 8px;
-  text-align: left;
-}
-.sb.layout-devon3to1 .sb-d3-names .horse {
+.sb.layout-devon3to1 .sb-d3-data .horse {
   font-family: var(--font-display); font-weight: 800;
-  font-size: clamp(72px, 14vmin, 180px);
+  font-size: clamp(56px, 9.5vmin, 130px);
   line-height: .92; text-transform: uppercase;
-  color: var(--text); letter-spacing: -.01em;
+  color: var(--text); letter-spacing: -.005em;
+  word-break: break-word;
 }
-.sb.layout-devon3to1 .sb-d3-names .rider {
+.sb.layout-devon3to1 .sb-d3-data .rider {
   font-family: var(--font-display); font-weight: 700;
-  font-size: clamp(36px, 7vmin, 88px);
+  font-size: clamp(32px, 5.5vmin, 72px);
   line-height: 1.0; text-transform: uppercase;
   color: var(--text); letter-spacing: .005em;
   opacity: .92;
 }
 
-/* RIGHT — clock + faults */
-.sb.layout-devon3to1 .sb-d3-clock {
-  display: flex; flex-direction: column; align-items: flex-end;
-  gap: 12px;
+/* ── RIGHT ZONE: VIDEO (3.5m × 2m) with bottom-third overlay ── */
+.sb.layout-devon3to1 .sb-d3-video {
+  position: relative;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(184,32,37,.18), transparent 55%),
+    radial-gradient(circle at 70% 75%, rgba(74,222,128,.10), transparent 55%),
+    #07070a;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
 }
-.sb.layout-devon3to1 .sb-d3-clock .clock-v {
+.sb.layout-devon3to1 .sb-d3-video .video-placeholder {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--text-faint); text-align: center;
+}
+.sb.layout-devon3to1 .sb-d3-video .video-placeholder b {
+  display: block; font-family: var(--font-brand);
+  font-size: clamp(28px, 5vmin, 64px);
+  letter-spacing: .04em; color: var(--text); margin-bottom: 8px;
+  text-transform: none;
+}
+/* Clock + faults — lower third overlay on the video. */
+.sb.layout-devon3to1 .sb-d3-overlay {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 33.33%;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.7) 30%, rgba(0,0,0,.85));
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 clamp(20px, 3vmin, 40px);
+  gap: clamp(20px, 3vmin, 40px);
+}
+.sb.layout-devon3to1 .sb-d3-overlay .clock-v {
   font-family: var(--font-numeric);
-  font-size: clamp(120px, 28vmin, 280px);
+  font-size: clamp(80px, 16vmin, 200px);
   line-height: .82; color: var(--accent-yellow);
   font-variant-numeric: tabular-nums; letter-spacing: -.025em;
 }
-.sb.layout-devon3to1 .sb-d3-clock .stats {
-  display: flex; gap: clamp(20px, 4vmin, 44px);
+.sb.layout-devon3to1 .sb-d3-overlay .stats {
+  display: flex; gap: clamp(16px, 3vmin, 36px);
   align-items: baseline;
 }
-.sb.layout-devon3to1 .sb-d3-clock .stats .cell {
-  display: flex; align-items: baseline; gap: 8px;
+.sb.layout-devon3to1 .sb-d3-overlay .stats .cell {
+  display: flex; align-items: baseline; gap: 6px;
 }
-.sb.layout-devon3to1 .sb-d3-clock .stats .pre {
+.sb.layout-devon3to1 .sb-d3-overlay .stats .pre {
   font-family: var(--font-display); font-weight: 700;
-  font-size: clamp(28px, 5vmin, 56px);
+  font-size: clamp(26px, 4.5vmin, 52px);
   color: var(--text); letter-spacing: .02em;
   text-transform: uppercase;
 }
-.sb.layout-devon3to1 .sb-d3-clock .stats .v {
+.sb.layout-devon3to1 .sb-d3-overlay .stats .v {
   font-family: var(--font-numeric);
-  font-size: clamp(40px, 7vmin, 80px);
+  font-size: clamp(40px, 7vmin, 88px);
   line-height: 1; color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -676,32 +700,36 @@ body {
   </div>
 
   <!-- DEVON 3:1 ULTRA-WIDE — actual 6m × 2m Devon screen aspect.
-       Readability-first: no chrome, all data huge. Static info
-       (venue name, class info, rank, TA, remaining count) lives
-       outside this surface — announcer or a separate sign. -->
+       LEFT (2.5m × 2m): data zone — entry/flag/horse/rider.
+       RIGHT (3.5m × 2m): video zone with clock + faults overlaid
+       on the bottom third. Bill 2026-05-10. -->
   <div class="sb layout-devon3to1" id="boardDevon3to1" style="display:none;">
     <div class="sb-d3-body">
-      <!-- LEFT: entry # + flag/country -->
-      <div class="sb-d3-id">
-        <div class="entry-num">53</div>
-        <div class="flag-row">
-          <span class="flag-swatch"></span>
-          <span class="country">COL</span>
+      <!-- LEFT: data column (entry, flag, horse, rider) -->
+      <div class="sb-d3-data">
+        <div class="top-row">
+          <div class="entry-num">53</div>
+          <div class="flag-block">
+            <span class="flag-swatch"></span>
+            <span class="country">COL</span>
+          </div>
         </div>
-      </div>
-
-      <!-- CENTER: headline names -->
-      <div class="sb-d3-names">
         <div class="horse">UBILUC</div>
         <div class="rider">Mark Bluman</div>
       </div>
 
-      <!-- RIGHT: clock + faults (no labels — yellow = clock, white pre = faults) -->
-      <div class="sb-d3-clock">
-        <div class="clock-v">34.20</div>
-        <div class="stats">
-          <div class="cell"><span class="pre">J</span><span class="v">0</span></div>
-          <div class="cell"><span class="pre">T</span><span class="v">0</span></div>
+      <!-- RIGHT: video zone + bottom-third overlay for clock/faults -->
+      <div class="sb-d3-video">
+        <div class="video-placeholder">
+          <b>Live Course Camera</b>
+          Video / sponsor / graphics
+        </div>
+        <div class="sb-d3-overlay">
+          <div class="clock-v">34.20</div>
+          <div class="stats">
+            <div class="cell"><span class="pre">J</span><span class="v">0</span></div>
+            <div class="cell"><span class="pre">T</span><span class="v">0</span></div>
+          </div>
         </div>
       </div>
     </div>
