@@ -245,134 +245,100 @@ body {
 
 /* ────────────────────────────────────────────────────────────────
    DEVON 3:1 ULTRA-WIDE LAYOUT (6m × 2m)
-   No side rails — full horizontal sweep, three zones across.
+   Readability-first redesign — all chrome dropped (no top strip,
+   no footer, no labels), every pixel goes to live data. Spectators
+   are 30-100m away from a 2m-tall screen so anything under ~12% of
+   screen height = unreadable. Three zones across, sized to dominate.
+   Bill 2026-05-10.
    ──────────────────────────────────────────────────────────────── */
 .sb.layout-devon3to1 {
   aspect-ratio: 3 / 1; max-height: none;
-  grid-template-rows: auto 1fr auto;
-}
-.sb.layout-devon3to1 .sb-d3-top {
-  display: grid; grid-template-columns: auto 1fr auto;
-  align-items: center; gap: 24px;
-  padding: 12px 32px;
-  border-bottom: 1px solid var(--keyline);
-}
-.sb.layout-devon3to1 .sb-d3-top .brand {
-  font-family: var(--font-brand);
-  font-size: 22px; letter-spacing: .04em; color: var(--text);
-}
-.sb.layout-devon3to1 .sb-d3-top .tags {
-  display: flex; align-items: baseline; gap: 28px; justify-self: center;
-  font-family: var(--font-mono); font-size: 12px;
-  letter-spacing: .14em; text-transform: uppercase;
-  color: var(--text-muted);
-}
-.sb.layout-devon3to1 .sb-d3-top .tags .lbl { color: var(--text-faint); }
-.sb.layout-devon3to1 .sb-d3-top .tags .v {
-  font-family: var(--font-numeric); font-size: 22px;
-  color: var(--accent-yellow); letter-spacing: 0;
-  font-variant-numeric: tabular-nums;
-}
-.sb.layout-devon3to1 .sb-d3-top .tags .v-rank { color: var(--accent-green); }
-.sb.layout-devon3to1 .sb-d3-top .flag {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: 13px;
-  color: var(--text); letter-spacing: .14em; text-transform: uppercase;
-}
-.sb.layout-devon3to1 .sb-d3-top .flag .swatch {
-  display: inline-block; width: 24px; height: 16px;
-  background: linear-gradient(180deg, #fcd116 33%, #003893 33%, #003893 66%, #ce1126 66%);
-  border-radius: 2px; border: 1px solid rgba(255,255,255,.2);
+  grid-template-rows: 1fr;
 }
 
-/* Body — three columns: identity left, names center, clock+stats right */
 .sb.layout-devon3to1 .sb-d3-body {
   display: grid;
-  grid-template-columns: 1fr 1.6fr 1fr;
+  grid-template-columns: 1fr 1.7fr 1.1fr;
   align-items: center;
-  padding: 0 32px;
-  gap: 24px;
+  padding: 28px 36px;
+  gap: 36px;
+  height: 100%;
 }
+
+/* LEFT — entry # + flag stripe */
 .sb.layout-devon3to1 .sb-d3-id {
-  display: flex; align-items: center; gap: 18px;
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 12px;
 }
 .sb.layout-devon3to1 .sb-d3-id .entry-num {
   font-family: var(--font-numeric);
-  font-size: 140px; line-height: .85; color: var(--accent-yellow);
-  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  font-size: clamp(120px, 32vmin, 320px);
+  line-height: .82; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.025em;
 }
+.sb.layout-devon3to1 .sb-d3-id .flag-row {
+  display: flex; align-items: center; gap: 10px;
+}
+.sb.layout-devon3to1 .sb-d3-id .flag-swatch {
+  display: inline-block;
+  width: clamp(32px, 5vmin, 56px);
+  height: clamp(20px, 3.4vmin, 36px);
+  background: linear-gradient(180deg, #fcd116 33%, #003893 33%, #003893 66%, #ce1126 66%);
+  border-radius: 3px; border: 1px solid rgba(255,255,255,.25);
+}
+.sb.layout-devon3to1 .sb-d3-id .country {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(28px, 5vmin, 56px);
+  color: var(--text); letter-spacing: .04em;
+}
+
+/* CENTER — horse + rider names (the headline) */
 .sb.layout-devon3to1 .sb-d3-names {
+  display: flex; flex-direction: column; gap: 8px;
   text-align: left;
 }
 .sb.layout-devon3to1 .sb-d3-names .horse {
   font-family: var(--font-display); font-weight: 800;
-  font-size: 64px; line-height: .95; text-transform: uppercase;
-  color: var(--text); letter-spacing: -.005em;
+  font-size: clamp(72px, 14vmin, 180px);
+  line-height: .92; text-transform: uppercase;
+  color: var(--text); letter-spacing: -.01em;
 }
 .sb.layout-devon3to1 .sb-d3-names .rider {
   font-family: var(--font-display); font-weight: 700;
-  font-size: 32px; line-height: 1.1; text-transform: uppercase;
-  color: var(--text-muted); letter-spacing: .015em;
-  margin-top: 6px;
-}
-.sb.layout-devon3to1 .sb-d3-clock {
-  text-align: right;
-}
-.sb.layout-devon3to1 .sb-d3-clock .clock-lbl {
-  font-family: var(--font-mono); font-size: 11px;
-  letter-spacing: .2em; text-transform: uppercase;
-  color: var(--text-muted); margin-bottom: 4px;
-}
-.sb.layout-devon3to1 .sb-d3-clock .clock-v {
-  font-family: var(--font-numeric); font-size: 128px;
-  line-height: .85; color: var(--accent-yellow);
-  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
-}
-.sb.layout-devon3to1 .sb-d3-clock .stats {
-  display: flex; gap: 24px; justify-content: flex-end;
-  margin-top: 10px;
-}
-.sb.layout-devon3to1 .sb-d3-clock .stats .cell {
-  display: flex; flex-direction: column; align-items: flex-end;
-}
-.sb.layout-devon3to1 .sb-d3-clock .stats .lbl {
-  font-family: var(--font-mono); font-size: 10px;
-  letter-spacing: .18em; text-transform: uppercase;
-  color: var(--text-muted);
-}
-.sb.layout-devon3to1 .sb-d3-clock .stats .v {
-  font-family: var(--font-numeric); font-size: 28px;
-  line-height: 1; color: var(--text);
-  font-variant-numeric: tabular-nums;
+  font-size: clamp(36px, 7vmin, 88px);
+  line-height: 1.0; text-transform: uppercase;
+  color: var(--text); letter-spacing: .005em;
+  opacity: .92;
 }
 
-/* Footer strip — class info + remaining */
-.sb.layout-devon3to1 .sb-d3-foot {
-  display: grid; grid-template-columns: auto 1fr auto auto;
-  align-items: center; gap: 18px;
-  padding: 10px 32px;
-  border-top: 1px solid var(--keyline);
-  background: linear-gradient(180deg, transparent, rgba(0,0,0,.3));
+/* RIGHT — clock + faults */
+.sb.layout-devon3to1 .sb-d3-clock {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: 12px;
 }
-.sb.layout-devon3to1 .sb-d3-foot .cls-num {
-  font-family: var(--font-numeric); font-size: 22px;
-  color: var(--accent-yellow);
-  font-variant-numeric: tabular-nums;
+.sb.layout-devon3to1 .sb-d3-clock .clock-v {
+  font-family: var(--font-numeric);
+  font-size: clamp(120px, 28vmin, 280px);
+  line-height: .82; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.025em;
 }
-.sb.layout-devon3to1 .sb-d3-foot .cls-name {
-  font-family: var(--font-narrow); font-weight: 700;
-  font-size: 16px; letter-spacing: .02em;
-  text-transform: uppercase; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.sb.layout-devon3to1 .sb-d3-clock .stats {
+  display: flex; gap: clamp(20px, 4vmin, 44px);
+  align-items: baseline;
 }
-.sb.layout-devon3to1 .sb-d3-foot .progress {
-  font-family: var(--font-mono); font-size: 11px;
-  letter-spacing: .14em; text-transform: uppercase;
-  color: var(--text-muted);
+.sb.layout-devon3to1 .sb-d3-clock .stats .cell {
+  display: flex; align-items: baseline; gap: 8px;
 }
-.sb.layout-devon3to1 .sb-d3-foot .progress .v {
-  font-family: var(--font-numeric); font-size: 18px;
-  color: var(--text); margin-right: 4px;
+.sb.layout-devon3to1 .sb-d3-clock .stats .pre {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: clamp(28px, 5vmin, 56px);
+  color: var(--text); letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.sb.layout-devon3to1 .sb-d3-clock .stats .v {
+  font-family: var(--font-numeric);
+  font-size: clamp(40px, 7vmin, 80px);
+  line-height: 1; color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -709,43 +675,35 @@ body {
     </div>
   </div>
 
-  <!-- DEVON 3:1 ULTRA-WIDE — actual 6m × 2m Devon screen aspect -->
+  <!-- DEVON 3:1 ULTRA-WIDE — actual 6m × 2m Devon screen aspect.
+       Readability-first: no chrome, all data huge. Static info
+       (venue name, class info, rank, TA, remaining count) lives
+       outside this surface — announcer or a separate sign. -->
   <div class="sb layout-devon3to1" id="boardDevon3to1" style="display:none;">
-    <!-- Top strip: brand · tags · flag -->
-    <div class="sb-d3-top">
-      <div class="brand" id="brandNameDevon31">Devon Horse Show</div>
-      <div class="tags">
-        <span><span class="lbl">Rank</span> <span class="v v-rank">1</span></span>
-        <span><span class="lbl">TA</span> <span class="v">48</span></span>
-      </div>
-      <div class="flag"><span class="swatch"></span>COL</div>
-    </div>
-
-    <!-- Body: three zones across -->
     <div class="sb-d3-body">
+      <!-- LEFT: entry # + flag/country -->
       <div class="sb-d3-id">
         <div class="entry-num">53</div>
+        <div class="flag-row">
+          <span class="flag-swatch"></span>
+          <span class="country">COL</span>
+        </div>
       </div>
+
+      <!-- CENTER: headline names -->
       <div class="sb-d3-names">
         <div class="horse">UBILUC</div>
         <div class="rider">Mark Bluman</div>
       </div>
+
+      <!-- RIGHT: clock + faults (no labels — yellow = clock, white pre = faults) -->
       <div class="sb-d3-clock">
-        <div class="clock-lbl">Clock</div>
         <div class="clock-v">34.20</div>
         <div class="stats">
-          <div class="cell"><span class="lbl">Jump</span><span class="v">0</span></div>
-          <div class="cell"><span class="lbl">Time</span><span class="v">0</span></div>
+          <div class="cell"><span class="pre">J</span><span class="v">0</span></div>
+          <div class="cell"><span class="pre">T</span><span class="v">0</span></div>
         </div>
       </div>
-    </div>
-
-    <!-- Footer strip: class info + In Ring + remaining -->
-    <div class="sb-d3-foot">
-      <div class="cls-num">1161</div>
-      <div class="cls-name">The Little Big Man Challenge Trophy Class</div>
-      <span class="sb-cls-pill">In Ring</span>
-      <div class="progress"><span class="v">38 of 247</span> Gone</div>
     </div>
   </div>
 
@@ -852,7 +810,6 @@ layoutPicker.addEventListener('click', (e) => {
 const picker = document.getElementById('variantPicker');
 const brandName = document.getElementById('brandName');
 const brandNameDevon = document.getElementById('brandNameDevon');
-const brandNameDevon31 = document.getElementById('brandNameDevon31');
 const activeLabel = document.getElementById('activeBrandLabel');
 const labels = {
   'hoefler': "Hoefler Text Black",
@@ -870,7 +827,7 @@ picker.addEventListener('click', (e) => {
   document.querySelectorAll('.variant').forEach(el => el.classList.remove('is-active'));
   v.classList.add('is-active');
   const key = v.dataset.brand;
-  [brandName, brandNameDevon, brandNameDevon31].forEach(el => {
+  [brandName, brandNameDevon].forEach(el => {
     if (!el) return;
     el.style.fontFamily = fonts[key];
     el.style.fontWeight = (key === 'gotham-xn') ? 700 : 400;
