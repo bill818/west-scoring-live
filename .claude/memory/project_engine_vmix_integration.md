@@ -4,9 +4,16 @@ description: Pinned plan for installing a WEST engine on the broadcast (vMix) co
 type: project
 originSessionId: 2c0d6cb2-afca-4968-8604-3704ce41ab60
 ---
-**Status:** Planned 2026-05-10, not yet built.
+**Status:** Planned 2026-05-10, **slated for Devon show**, not yet built.
 
 **Where:** Full plan in `docs/v3-planning/ENGINE-VMIX-INTEGRATION.md`.
+
+**Confirmed decisions (Bill 2026-05-10):**
+- Local-only broadcast engine — no cloud posting from the vMix PC.
+- Operator engine continues to handle the cloud / public-website write.
+- Devon has OK internet but local LAN is more reliable for broadcast.
+- Engine may already have a "local broadcasting only" setting —
+  investigate first before adding new config.
 
 **Quick summary:**
 - A second engine instance runs on the vMix computer, listens to the

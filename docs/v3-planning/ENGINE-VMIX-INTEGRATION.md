@@ -200,13 +200,23 @@ Phase 1 is the big one — extracting the snapshot core. That unblocks
 everything else and also de-duplicates code with the worker. Worth
 doing carefully so the cloud path doesn't drift from the local path.
 
-## Open questions for Bill
+## Confirmed decisions (Bill 2026-05-10)
 
-- Does Devon (and other venues) have stable internet at the broadcast
-  position, or is the local path the ONLY reliable option? (If yes,
-  this becomes the default; cloud path stays for spectator use only.)
+- **Devon production is on.** This isn't a hypothetical anymore — the
+  broadcast engine ships for the Devon show.
+- **Local-only broadcast engine.** Devon has OK internet but the
+  local LAN path is more reliable. The broadcast engine writes
+  ONLY to the local vMix consumers (scoring.json + localhost server).
+  No cloud post.
+- **Operator engine continues to write to Cloudflare** for the
+  public spectator website. That's the score computer's existing
+  job and it stays unchanged.
+- **Possible existing local-only flag:** Bill recalls the engine
+  may already have a "local broadcasting only" setting. Investigate
+  before adding a new one — reuse if it exists.
+
+## Open questions
+
 - Who installs / configures the engine on the vMix machine — us, the
   broadcast team, or a one-click installer? Affects how much config
   UI we need to build.
-- Do we want the broadcast engine to also write a redundant feed to
-  Cloudflare (belt + suspenders), or stay strictly local?
