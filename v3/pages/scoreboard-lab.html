@@ -77,6 +77,9 @@ body {
 
 /* ────────────────────────────────────────────────────────────────
    SCOREBOARD — full-screen-style mockup
+   Two layouts:
+     .sb.layout-wide  — stadium ribbon (current) — 1fr / 360px
+     .sb.layout-devon — 16:9 video wall — left video area, right data rail
    ──────────────────────────────────────────────────────────────── */
 .sb {
   width: 100%; aspect-ratio: 16 / 9; max-height: 900px;
@@ -87,6 +90,157 @@ body {
   grid-template-rows: auto 1fr;
   border: 1px solid var(--keyline-strong);
   box-shadow: 0 10px 50px rgba(0,0,0,.5);
+}
+
+/* DEVON layout — single 16:9 screen, data column hard-right */
+.sb.layout-devon { grid-template-rows: 1fr; }
+.sb.layout-devon .sb-brand { display: none; }
+.sb.layout-devon .sb-body {
+  grid-template-columns: 1fr 420px; height: 100%;
+}
+.sb.layout-devon .sb-left {
+  /* Left = video / graphics area. Show a placeholder background
+     that can be replaced with an iframe / video / banner image
+     in production. */
+  background:
+    radial-gradient(circle at 30% 20%, rgba(184,32,37,.18), transparent 50%),
+    radial-gradient(circle at 70% 80%, rgba(74,222,128,.10), transparent 50%),
+    #07070a;
+  padding: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  position: relative;
+  border-right: 1px solid var(--keyline-strong);
+}
+.sb.layout-devon .sb-left .video-placeholder {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sb.layout-devon .sb-left .video-placeholder b {
+  display: block; font-family: var(--font-brand); font-size: 48px;
+  letter-spacing: .04em; color: var(--text); margin-bottom: 8px;
+  text-transform: none;
+}
+.sb.layout-devon .sb-right {
+  grid-row: auto; padding: 0;
+  display: grid; grid-template-rows: auto auto 1fr auto;
+  gap: 0;
+  background: linear-gradient(180deg, #131316, #0a0a0d);
+}
+
+/* DEVON — internal sections of the right rail */
+.sb-devon-brand {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--keyline-strong);
+  text-align: center;
+}
+.sb-devon-brand .name {
+  font-family: var(--font-brand); font-size: 22px;
+  color: var(--text); letter-spacing: .04em;
+}
+.sb-devon-cls {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--keyline);
+  display: grid; grid-template-columns: auto 1fr;
+  align-items: center; gap: 14px;
+}
+.sb-devon-cls .num {
+  font-family: var(--font-numeric); font-size: 36px;
+  color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.sb-devon-cls .name {
+  font-family: var(--font-narrow); font-weight: 700;
+  font-size: 17px; line-height: 1.15; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--text);
+}
+.sb-devon-cls .pill-row {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 12px;
+}
+.sb-devon-cls .pill-row .progress {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb-devon-cls .pill-row .progress .v {
+  font-family: var(--font-numeric); font-size: 16px;
+  color: var(--text); letter-spacing: 0;
+  margin-right: 4px; font-variant-numeric: tabular-nums;
+}
+
+.sb-devon-id {
+  padding: 22px 22px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  align-items: stretch;
+}
+.sb-devon-id .top-row {
+  display: flex; align-items: center; gap: 14px;
+}
+.sb-devon-id .entry-num {
+  font-family: var(--font-numeric); font-size: 80px;
+  line-height: .9; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.sb-devon-id .flag-block {
+  display: flex; flex-direction: column; gap: 4px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-muted); letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.sb-devon-id .flag-swatch {
+  display: inline-block; width: 28px; height: 18px;
+  background: linear-gradient(180deg, #fcd116 33%, #003893 33%, #003893 66%, #ce1126 66%);
+  border-radius: 3px; border: 1px solid rgba(255,255,255,.2);
+}
+.sb-devon-id .horse {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: 38px; line-height: 1; text-transform: uppercase;
+  color: var(--text); letter-spacing: -.005em;
+}
+.sb-devon-id .rider {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 22px; line-height: 1.1; text-transform: uppercase;
+  color: var(--text-muted); letter-spacing: .02em;
+}
+
+.sb-devon-clock {
+  padding: 16px 22px;
+  border-top: 1px solid var(--keyline);
+  background: linear-gradient(180deg, #1a1a1f, #0a0a0d);
+}
+.sb-devon-clock .lbl {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 4px;
+}
+.sb-devon-clock .v {
+  font-family: var(--font-numeric); font-size: 92px;
+  line-height: 1; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+
+.sb-devon-stats {
+  display: grid; grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--keyline);
+}
+.sb-devon-stats .cell {
+  padding: 10px 22px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.sb-devon-stats .cell + .cell {
+  border-left: 1px solid var(--keyline);
+}
+.sb-devon-stats .cell .lbl {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sb-devon-stats .cell .v {
+  font-family: var(--font-numeric); font-size: 32px;
+  line-height: 1; color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Brand band ── */
@@ -321,6 +475,29 @@ body {
 
 <div class="lab-section">
   <div class="lab-section-hd">
+    Layout <span class="v" id="activeLayoutLabel">Wide stadium</span>
+  </div>
+  <div class="variants" id="layoutPicker">
+    <div class="variant is-active" data-layout="wide">
+      <div class="variant-name">Layout A — Wide stadium</div>
+      <div class="variant-sample-brand" style="font-family:var(--font-display);font-size:18px;font-weight:700;">⎯⎯ DATA ⎯⎯ │ CLS</div>
+      <div class="variant-note">Stadium ribbon look. Data + on-course occupies most of the screen, class info as a fat right-rail. Best for very wide LED walls (MTB-bank-endzone style).</div>
+    </div>
+    <div class="variant" data-layout="devon">
+      <div class="variant-name">Layout B — 16:9 video wall (Devon)</div>
+      <div class="variant-sample-brand" style="font-family:var(--font-display);font-size:18px;font-weight:700;">VIDEO/GFX │ DATA</div>
+      <div class="variant-note">Single 16:9 screen. All scoreboard data forced to a hard-right rail (class info merged in); left side is a video / sponsor / graphics surface. One screen does both jobs.</div>
+    </div>
+    <div class="variant" data-layout="placeholder" style="opacity:.4;cursor:not-allowed;">
+      <div class="variant-name">Layout C — TBD</div>
+      <div class="variant-sample-brand" style="font-family:var(--font-display);font-size:18px;font-weight:700;">⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</div>
+      <div class="variant-note">Slot reserved for future layouts (4:3 ribbon, portrait kiosk, etc.).</div>
+    </div>
+  </div>
+</div>
+
+<div class="lab-section">
+  <div class="lab-section-hd">
     Brand band font <span class="v" id="activeBrandLabel">Hoefler Text Black</span>
   </div>
   <div class="variants" id="variantPicker">
@@ -343,7 +520,7 @@ body {
 </div>
 
 <div class="lab-section">
-  <div class="sb" id="board">
+  <div class="sb layout-wide" id="board">
     <!-- BRAND BAND -->
     <div class="sb-brand">
       <span class="sb-brand-name" id="brandName">HITS CULPEPER</span>
@@ -351,7 +528,7 @@ body {
 
     <!-- BODY -->
     <div class="sb-body">
-      <!-- LEFT: ON-COURSE -->
+      <!-- WIDE: LEFT — ON-COURSE -->
       <div class="sb-left">
         <div class="sb-tags">
           <span><span class="lbl">Target</span> <span class="v v-rank">1</span></span>
@@ -381,7 +558,7 @@ body {
         </div>
       </div>
 
-      <!-- RIGHT: CLASS INFO -->
+      <!-- WIDE: RIGHT — CLASS INFO -->
       <div class="sb-right">
         <div class="sb-cls-num">
           <span>Class</span>
@@ -393,6 +570,68 @@ body {
           <div class="sb-cls-progress" style="margin-top:18px;">
             <span class="v">38 of 247</span>
             <span class="lbl">Gone</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEVON LAYOUT — 16:9 video wall, data column hard-right -->
+  <div class="sb layout-devon" id="boardDevon" style="display:none;">
+    <div class="sb-body">
+      <!-- LEFT: video / graphic surface (placeholder) -->
+      <div class="sb-left">
+        <div class="video-placeholder">
+          <b>DEVON HORSE SHOW &amp; COUNTRY FAIR</b>
+          Video / sponsor / graphics surface
+        </div>
+      </div>
+
+      <!-- RIGHT: data rail — all scoreboard fields stacked -->
+      <div class="sb-right">
+        <!-- Brand band -->
+        <div class="sb-devon-brand">
+          <span class="name" id="brandNameDevon">Devon Horse Show</span>
+        </div>
+
+        <!-- Class info (merged from secondary panel) -->
+        <div class="sb-devon-cls">
+          <span class="num">1161</span>
+          <span class="name">The Little Big Man Challenge Trophy Class</span>
+          <div class="pill-row">
+            <span class="sb-cls-pill">In Ring</span>
+            <span class="progress"><span class="v">38 of 247</span> Gone</span>
+          </div>
+        </div>
+
+        <!-- On-course identity -->
+        <div class="sb-devon-id">
+          <div class="top-row">
+            <div class="entry-num">53</div>
+            <div class="flag-block">
+              <span class="flag-swatch"></span>
+              <span>COL · Rank 1 · TA 90</span>
+            </div>
+          </div>
+          <div class="horse">UBILUC</div>
+          <div class="rider">Mark Bluman</div>
+        </div>
+
+        <!-- Live clock — the marquee -->
+        <div class="sb-devon-clock">
+          <div class="lbl">Clock</div>
+          <div class="v">34.20</div>
+        </div>
+
+        <!-- Faults split bottom -->
+        <div class="sb-devon-stats">
+          <div class="cell">
+            <span class="lbl">Jump</span>
+            <span class="v">0</span>
+          </div>
+          <div class="cell">
+            <span class="lbl">Time</span>
+            <span class="v">0</span>
           </div>
         </div>
       </div>
@@ -410,8 +649,30 @@ body {
 </div>
 
 <script>
+// Layout picker — swap between the wide stadium board and the
+// Devon-style 16:9 video-wall layout.
+const layoutPicker = document.getElementById('layoutPicker');
+const activeLayoutLabel = document.getElementById('activeLayoutLabel');
+const boardWide = document.getElementById('board');
+const boardDevon = document.getElementById('boardDevon');
+const layoutLabels = {
+  wide: 'Wide stadium',
+  devon: '16:9 video wall (Devon)',
+};
+layoutPicker.addEventListener('click', (e) => {
+  const v = e.target.closest('.variant');
+  if (!v || v.dataset.layout === 'placeholder') return;
+  document.querySelectorAll('#layoutPicker .variant').forEach(el => el.classList.remove('is-active'));
+  v.classList.add('is-active');
+  const key = v.dataset.layout;
+  activeLayoutLabel.textContent = layoutLabels[key];
+  if (key === 'wide')  { boardWide.style.display = '';  boardDevon.style.display = 'none'; }
+  if (key === 'devon') { boardWide.style.display = 'none'; boardDevon.style.display = ''; }
+});
+
 const picker = document.getElementById('variantPicker');
 const brandName = document.getElementById('brandName');
+const brandNameDevon = document.getElementById('brandNameDevon');
 const activeLabel = document.getElementById('activeBrandLabel');
 const labels = {
   'hoefler': "Hoefler Text Black",
@@ -429,9 +690,12 @@ picker.addEventListener('click', (e) => {
   document.querySelectorAll('.variant').forEach(el => el.classList.remove('is-active'));
   v.classList.add('is-active');
   const key = v.dataset.brand;
-  brandName.style.fontFamily = fonts[key];
-  brandName.style.fontWeight = (key === 'gotham-xn') ? 700 : 400;
-  brandName.style.letterSpacing = (key === 'acumin') ? '.06em' : '.04em';
+  [brandName, brandNameDevon].forEach(el => {
+    if (!el) return;
+    el.style.fontFamily = fonts[key];
+    el.style.fontWeight = (key === 'gotham-xn') ? 700 : 400;
+    el.style.letterSpacing = (key === 'acumin') ? '.06em' : '.04em';
+  });
   activeLabel.textContent = labels[key];
 });
 </script>
