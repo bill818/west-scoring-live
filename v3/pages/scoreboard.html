@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WEST Scoreboard</title>
+<link rel="stylesheet" href="https://use.typekit.net/dcn7wbu.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
+<style>
+/*  WEST Scoreboard — production overlay for native-pixel Chrome window.
+    USAGE:
+      1. Open Chrome, sized to the LED wall's exact pixel dimensions.
+      2. Set Chrome zoom to 100%, OS scaling to 100%.
+      3. Load this page (?ring=N&slug=... when WS is wired).
+      4. F11 fullscreen, or use a kiosk extension to lock it.
+    All sizing is viewport-relative (vmin/vh) so the layout scales
+    linearly with the window. No clamps with absolute px floors.   */
+
+:root {
+  --bg: #0a0a0a;
+  --text: #fff;
+  --text-muted: rgba(255,255,255,.6);
+  --text-faint: rgba(255,255,255,.35);
+  --accent-yellow: #ffc62a;
+  --accent-red: #b82025;
+  --accent-green: #4ade80;
+  --keyline: rgba(255,255,255,.08);
+  --keyline-strong: rgba(255,255,255,.18);
+
+  --font-display: 'gotham-black', 'Montserrat', 'Helvetica Neue', sans-serif;
+  --font-narrow:  'gotham-xnarrow-book', 'Barlow Condensed', sans-serif;
+  --font-numeric: 'acumin-pro-condensed-black', 'Bebas Neue', sans-serif;
+  --font-mono:    'source-code-pro-black', 'JetBrains Mono', monospace;
+  --font-body:    'Inter', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  width: 100vw; height: 100vh;
+  overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-body);
+}
+
+/* Board fills the entire viewport — Chrome window IS the frame. */
+.sb {
+  width: 100vw; height: 100vh;
+  display: grid;
+  grid-template-columns: 2.5fr 3.5fr;  /* Devon: 2.5m data + 3.5m video */
+  background: var(--bg);
+}
+
+/* ── LEFT: data zone ──────────────────────────────────────────── */
+.sb-data {
+  background: linear-gradient(180deg, #0a0a0a, #050507);
+  border-right: 1px solid var(--keyline-strong);
+  padding: 2.5vmin;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 2vmin;
+}
+
+/* TOP: class info strip */
+.cls-block {
+  display: flex; flex-direction: column; gap: .8vmin;
+  border-bottom: 1px solid var(--keyline);
+  padding-bottom: 1.5vmin;
+}
+.cls-block .cls-top-row {
+  display: flex; align-items: baseline; gap: 1.6vmin;
+}
+.cls-block .cls-num {
+  font-family: var(--font-numeric);
+  font-size: 5vmin; line-height: 1;
+  color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums;
+}
+.cls-block .cls-pill {
+  display: inline-flex; align-items: center; gap: .8vmin;
+  padding: .8vmin 1.4vmin; border-radius: 999px;
+  background: rgba(74,222,128,.18); color: var(--accent-green);
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 2.4vmin; letter-spacing: .08em; text-transform: uppercase;
+}
+.cls-block .cls-pill::before {
+  content: ''; width: 1vmin; height: 1vmin;
+  border-radius: 50%; background: var(--accent-green);
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .35; transform: scale(.85); }
+}
+.cls-block .cls-name {
+  font-family: var(--font-narrow); font-weight: 700;
+  font-size: 3.6vmin; line-height: 1.05; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--text);
+}
+.cls-block .cls-progress {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 3vmin; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.cls-block .cls-progress .lbl {
+  font-family: var(--font-mono); font-size: 1.6vmin;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted); font-weight: 500;
+  margin-left: .6vmin;
+}
+
+/* MIDDLE: horse + rider headline */
+.names-block {
+  display: flex; flex-direction: column;
+  justify-content: center; gap: 1.4vmin;
+}
+.horse {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: 10.5vmin; line-height: .9;
+  text-transform: uppercase; color: var(--text);
+  letter-spacing: -.005em; word-break: break-word;
+}
+.rider {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 6vmin; line-height: 1;
+  text-transform: uppercase; color: var(--text);
+  letter-spacing: .005em; opacity: .92;
+}
+
+/* BOTTOM: entry # + flag + country + TA/Rank chip */
+.meta-row {
+  display: flex; align-items: center; gap: 1.8vmin;
+  border-top: 1px solid var(--keyline);
+  padding-top: 1.5vmin;
+  font-family: var(--font-display); font-weight: 800;
+  text-transform: uppercase; color: var(--text);
+}
+.meta-row .entry-lbl {
+  font-family: var(--font-mono); font-size: 1.8vmin;
+  letter-spacing: .18em; color: var(--text-muted);
+  font-weight: 500;
+}
+.meta-row .entry-num {
+  font-family: var(--font-numeric); font-size: 5.5vmin;
+  line-height: 1; color: var(--accent-yellow);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.meta-row .flag-swatch {
+  display: inline-block;
+  width: 4.4vmin; height: 2.8vmin;
+  background: linear-gradient(180deg, #fcd116 33%, #003893 33%, #003893 66%, #ce1126 66%);
+  border-radius: .3vmin; border: 1px solid rgba(255,255,255,.25);
+}
+.meta-row .country {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: 3vmin; letter-spacing: .04em; color: var(--text);
+}
+.meta-row .meta-stat {
+  display: inline-flex; align-items: baseline; gap: .6vmin;
+  margin-left: auto;
+}
+.meta-row .meta-stat .lbl {
+  font-family: var(--font-mono); font-size: 1.8vmin;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-muted); font-weight: 500;
+}
+.meta-row .meta-stat .v {
+  font-family: var(--font-numeric); font-size: 5.5vmin;
+  line-height: 1; color: var(--text);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.meta-row .meta-stat.is-rank .v { color: var(--accent-green); }
+
+/* ── RIGHT: video zone ────────────────────────────────────────── */
+.sb-video {
+  position: relative;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(184,32,37,.18), transparent 55%),
+    radial-gradient(circle at 70% 75%, rgba(74,222,128,.10), transparent 55%),
+    #07070a;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+/* Live course camera goes here in production — replace this with an
+   <iframe>, <video>, or an absolutely-positioned image element. */
+.video-placeholder {
+  font-family: var(--font-mono); font-size: 1.4vmin;
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--text-faint); text-align: center;
+}
+.video-placeholder b {
+  display: block; font-family: 'hoefler-txt-black', Georgia, serif;
+  font-size: 5vmin; letter-spacing: .04em;
+  color: var(--text); margin-bottom: .8vmin;
+  text-transform: none;
+}
+
+/* Stat cards — top-right corner of video, no labels. */
+.sb-overlay {
+  position: absolute;
+  right: 2.5vmin; top: 2.5vmin;
+  display: flex; gap: 1.4vmin;
+}
+.sb-overlay .card {
+  background: rgba(8,8,12,.78);
+  border: 1px solid var(--keyline-strong);
+  border-radius: .8vmin;
+  padding: 1.5vmin 2.2vmin;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(.6vmin);
+  -webkit-backdrop-filter: blur(.6vmin);
+  min-width: 11vmin;
+}
+.sb-overlay .card .v {
+  font-family: var(--font-numeric); line-height: .9; color: var(--text);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.sb-overlay .card-clock .v {
+  color: var(--accent-yellow); font-size: 11vmin;
+}
+.sb-overlay .card-faults .v { font-size: 8vmin; }
+</style>
+</head>
+<body>
+
+<div class="sb">
+  <!-- LEFT: data column -->
+  <div class="sb-data">
+    <div class="cls-block">
+      <div class="cls-top-row">
+        <span class="cls-num" id="clsNum">1161</span>
+        <span class="cls-pill" id="clsPill">In Ring</span>
+      </div>
+      <div class="cls-name" id="clsName">The Little Big Man Challenge Trophy Class</div>
+      <div class="cls-progress"><span id="clsProgress">38 of 247</span> <span class="lbl" id="clsProgressLbl">Gone</span></div>
+    </div>
+    <div class="names-block">
+      <div class="horse" id="horse">UBILUC</div>
+      <div class="rider" id="rider">Mark Bluman</div>
+    </div>
+    <div class="meta-row">
+      <span class="entry-lbl">Entry</span>
+      <span class="entry-num" id="entryNum">53</span>
+      <span class="flag-swatch" id="flagSwatch"></span>
+      <span class="country" id="country">COL</span>
+      <span class="meta-stat" id="metaStat">
+        <span class="lbl" id="metaStatLbl">TA</span>
+        <span class="v" id="metaStatVal">90</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- RIGHT: video zone with overlay cards -->
+  <div class="sb-video">
+    <!-- Replace .video-placeholder with <iframe>/<video> in production -->
+    <div class="video-placeholder">
+      <b>Live Course Camera</b>
+      Video / sponsor / graphics
+    </div>
+    <div class="sb-overlay">
+      <div class="card card-clock"><span class="v" id="clockVal">34.20</span></div>
+      <div class="card card-faults"><span class="v" id="faultsVal">0</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Production wiring goes here — subscribe to the local engine WS or
+// the cloud worker WS and update the bindings. For now the page
+// renders static placeholder values; swap to live data when the
+// scoreboard.json + WS feed lands.
+//
+// Bindings ready for binding:
+//   clsNum, clsPill, clsName, clsProgress, clsProgressLbl
+//   horse, rider
+//   entryNum, flagSwatch, country
+//   metaStat (class is-rank when finished), metaStatLbl, metaStatVal
+//   clockVal, faultsVal
+</script>
+</body>
+</html>
