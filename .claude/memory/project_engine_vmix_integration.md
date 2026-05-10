@@ -12,8 +12,20 @@ originSessionId: 2c0d6cb2-afca-4968-8604-3704ce41ab60
 - Local-only broadcast engine — no cloud posting from the vMix PC.
 - Operator engine continues to handle the cloud / public-website write.
 - Devon has OK internet but local LAN is more reliable for broadcast.
-- Engine may already have a "local broadcasting only" setting —
-  investigate first before adding new config.
+
+**Existing engine modes (current build):**
+The engine already has a 4-mode pill: WEBSITE+PASS-THROUGH /
+WEBSITE ONLY / PASS-THROUGH ONLY / IDLE. Combines `(show selected
+× pass-through)` axes. None match what we need for vMix-broadcast
+— add a 5th BROADCAST mode that turns on a local HTTP/WS server +
+scoring.json writer, with cloud post and RSServer relay both off.
+
+**Also bundled: UDP port manual override**
+Currently the engine auto-detects UDP ports from Ryegate's config.dat
+and hardcodes the relay host as 127.0.0.1. Add manual overrides in
+Data Settings → "UDP Ports (advanced)" so field troubleshooting
+doesn't require editing Windows files by hand. This is independent
+of the vMix work — ship as step 1.
 
 **Quick summary:**
 - A second engine instance runs on the vMix computer, listens to the

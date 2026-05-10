@@ -183,22 +183,118 @@ WOULD notice — hence the local path.
 
 ## Build order (when ready)
 
-1. Extract a "snapshot core" library from west-worker.js — the pure
+1. **UDP port manual override** (small, ship first). Add the four
+   config fields + the Data Settings advanced section. Independent
+   of the broadcast work; immediately useful for field troubleshooting.
+2. Extract a "snapshot core" library from west-worker.js — the pure
    logic of "given UDP events, what's the current state." Make it
    runnable in Node (so the engine can use it) AND in a Worker (so
    the cloud path keeps using it). Single source of truth for
    scoring state.
-2. Add UDP listener to the engine (on Windows, Node + dgram).
-3. Add local HTTP + WS server to the engine.
-4. Build `overlay.html` page with the Devon-style layout, transparent
+3. Add the UDP listener to the engine in broadcast mode (Windows,
+   Node + dgram). The existing engine already listens to UDP — this
+   is reusing that infrastructure without the relay/post side
+   effects.
+4. Add local HTTP + WS server to the engine.
+5. Build `overlay.html` page with the Devon-style layout, transparent
    background, WS subscription.
-5. Wire `scoring.json` writer that runs on each snapshot rebuild.
-6. Test on a single ring with a real Ryegate feed.
-7. Document the vMix setup steps for the broadcast team.
+6. Wire `scoring.json` writer that runs on each snapshot rebuild.
+7. Add BROADCAST as a 5th option to the Mode pill UI. Hides the
+   show picker / makes it optional. Toggles `broadcastLocal`,
+   `passthrough=false`, `liveScoringPaused=true` together.
+8. Test on a single ring with a real Ryegate feed.
+9. Document the vMix setup steps for the broadcast team.
 
-Phase 1 is the big one — extracting the snapshot core. That unblocks
+Step 2 is the big one — extracting the snapshot core. That unblocks
 everything else and also de-duplicates code with the worker. Worth
 doing carefully so the cloud path doesn't drift from the local path.
+
+Step 1 (port override) is independent — can ship to operators
+ahead of the broadcast work as a standalone improvement.
+
+## Existing engine modes (current build, found 2026-05-10)
+
+The engine already has a **Mode pill** in the header that combines two
+axes: `(show selected × pass-through enabled)` → 4 named modes. Found
+in `v3/engine/renderer/index.html:43-70`.
+
+| Mode                     | Show selected | UDP → RSServer relay | Worker writes |
+|--------------------------|---------------|----------------------|---------------|
+| WEBSITE + PASS-THROUGH   | ✅            | ✅                   | ✅            |
+| WEBSITE ONLY             | ✅            | ❌                   | ✅            |
+| PASS-THROUGH ONLY        | ❌            | ✅                   | ❌            |
+| IDLE                     | ❌            | ❌                   | ❌            |
+
+**Relevant flags / runtime state:**
+- `config.passthrough` (bool, default true) — UDP → RSServer relay
+- `liveScoringPaused` (runtime, top-bar pause) — pauses ALL worker writes
+- `showLocked` (runtime, set on worker 423) — pauses writes
+- `config.workerUrl` + `config.authKey` — required for any cloud post
+
+## Add a 5th mode: BROADCAST (vMix-local)
+
+| Mode                     | Show     | RSServer | Worker | Local JSON | Local HTTP/WS |
+|--------------------------|----------|----------|--------|------------|----------------|
+| **BROADCAST**            | optional | ❌       | ❌     | ✅         | ✅             |
+
+- Show selection is optional. Ring number is what matters (so the
+  engine knows which UDP frames belong to it).
+- No cloud post — operator engine handles that.
+- No RSServer relay — vMix is the consumer, not a downstream RS box.
+- New: writes `scoring.json` on each event AND mounts a localhost
+  HTTP+WS server with `overlay.html` for the vMix Web Browser Source.
+
+Implementation:
+- New config field: `broadcastLocal: true | false` (default false).
+- New config field: `broadcastPort: 8765` (default).
+- New config field: `scoringJsonPath: "C:\\vMix\\scoring.json"` (or
+  similar venue-specific path).
+- Mode pill UI gets a 5th item:
+  ```
+  BROADCAST
+  ring locked · vMix overlay + scoring.json (no cloud)
+  ```
+- Picking it sets `passthrough=false`, `liveScoringPaused=true`,
+  `broadcastLocal=true`. Hides the show picker (or makes it
+  optional / readonly to "ring N").
+
+## Unlock UDP port selection (also Bill 2026-05-10)
+
+**Current:** UDP ports are auto-detected from Ryegate's `config.dat`,
+no UI override. See `detectInputPort()` in `main.js:546`. Defaults:
+- `inputPort` = `config.dat` row 0 col 1, fallback **29696** (channel A)
+- `rsserverPort` = `inputPort + 1` (hardcoded in `main.js:1147`)
+- `rsserverHost` = `127.0.0.1` (hardcoded in `main.js:1148`)
+
+There's also a Channel B port (focus / CLASS_COMPLETE — typically
+31000) that's currently auto-derived elsewhere.
+
+**Wanted:** manual override in Data Settings so operators can:
+- Force a specific input port (e.g. 31000) when Ryegate's config.dat
+  isn't where the engine expects it
+- Point the relay at a non-localhost host (multi-PC fan-out where
+  RSServer runs on a different machine)
+- Pick a non-default rsserverPort (not always inputPort+1 — some
+  installs use different mapping)
+
+Add config fields:
+- `inputPortOverride: <int | null>` — explicit channel A listen port
+- `inputPortBOverride: <int | null>` — explicit channel B listen port
+- `rsserverHostOverride: <string | null>` — relay target host
+- `rsserverPortOverride: <int | null>` — relay target port
+
+When `null`, fall back to the existing auto-detection. When set,
+honor the override and surface a small "manual" badge in the UI so
+the operator knows they're not reading config.dat.
+
+UI: Data Settings tab gets a new "UDP Ports (advanced)" collapsible
+section with four numeric/string inputs. Locked by default behind a
+"Show advanced" toggle so casual operators don't see it.
+
+Rationale: troubleshooting in the field is currently impossible —
+if config.dat is unreadable or the port mapping is non-standard, the
+operator has to edit a Windows file by hand. Manual override unblocks
+that without a Ryegate reinstall.
 
 ## Confirmed decisions (Bill 2026-05-10)
 
