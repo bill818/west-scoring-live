@@ -43,7 +43,7 @@ const { spawn } = require('child_process');
 const sbFunnel = require('./scoreboard-funnel');
 const reconciliation = require('./reconciliation');
 
-const ENGINE_VERSION = '3.2.0';
+const ENGINE_VERSION = '3.2.1';
 // Public-facing site origin — used to build the operator-facing "test URL"
 // surfaced in the Status pane and tray menu. Currently the Cloudflare Pages
 // preview branch is the active v3 site (production westscoring.live is still

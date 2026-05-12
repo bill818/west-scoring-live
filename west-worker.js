@@ -4491,11 +4491,11 @@ export default {
     if (method === 'GET' && path === '/v3/engineLatest') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const ENGINE_LATEST = {
-              version: '3.2.0',
-              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.2.0.asar',
-              sha256:  'aad17b7a4824cb04d643f5b22bbee7066fd80e6dd54079444b7bea4a76690865',
-              releasedAt: '2026-05-12T00:20:49.363Z',
-              releaseNotes: 'Folder vs website reconciliation: engine diffs the local Ryegate folder against the websites R2 inventory every 60s. Amber Mismatch pill in the title bar when out of sync. New pane on the Status tab lists files on website but not local (one-click Restore selected pulls them down, useful after a PC swap) and files local but not on website (Upload selected override-gate for pre-built classes or operator-approved files the date gate refused).',
+              version: '3.2.1',
+              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.2.1.asar',
+              sha256:  '8a8ed80eec96f71dc699b064864cd50f297ab7b45f3fdbcf515d044f1e94b98d',
+              releasedAt: '2026-05-12T00:30:23.642Z',
+              releaseNotes: 'Hotfix on 3.2.0 — adds reconciliation.js to the installer bundle (was missing from the electron-builder file list so 3.2.0 crashed on startup with Cannot find module ./reconciliation). Otherwise identical to 3.2.0: folder vs website diff every 60s, Mismatch pill, Restore from website / Upload override actions.',
             };
       return json({ manifest: ENGINE_LATEST });
     }
