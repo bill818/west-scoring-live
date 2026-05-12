@@ -5864,14 +5864,20 @@ export default {
       const ringStr = request.headers.get('X-West-Ring');
       let ringId = null;
       let showId;
+      let showStartDate = null;
+      let showEndDate = null;
+      let showIsTest = false;
       try {
         const show = await env.WEST_DB_V3.prepare(
-          'SELECT id, lock_override, end_date FROM shows WHERE slug = ?'
+          'SELECT id, lock_override, start_date, end_date, is_test FROM shows WHERE slug = ?'
         ).bind(slug).first();
         if (!show) return err('Unknown show slug', 404);
         const lk = computeShowLock(show);
         if (lk.locked) return lockedResponse(lk.reason);
         showId = show.id;
+        showStartDate = show.start_date || null;
+        showEndDate   = show.end_date   || null;
+        showIsTest    = !!show.is_test;
         if (ringStr) {
           const ringNum = parseInt(ringStr, 10);
           if (Number.isFinite(ringNum)) {
@@ -5882,6 +5888,29 @@ export default {
           }
         }
       } catch (e) { return err('DB error: ' + e.message); }
+      // 3.2.2+ — placeholder INSERTs are gated by the show's date envelope
+      // the same way the engine gates .cls uploads. Without this, an
+      // operator pointing the engine at next week's show before today's
+      // ends would have last-week's tsked.csv create placeholder rows
+      // for stale class IDs — the Old Salem 2026-05-11 incident. We
+      // compute "in window" here once, then below short-circuit the
+      // INSERT branch when out of window. UPDATEs always run (existing
+      // class rows are real, regardless of whether we're "in window").
+      const tskedInsertsAllowed = (() => {
+        if (showIsTest) return true;             // TEST shows bypass
+        if (!showStartDate) return true;         // no start_date = no gate
+        const startMs = Date.parse(showStartDate + 'T00:00:00');
+        if (!Number.isFinite(startMs)) return true; // bad date = no gate
+        const nowMs = Date.now();
+        if (nowMs < startMs) return false;       // before show start
+        if (showEndDate) {
+          const endMs = Date.parse(showEndDate + 'T23:59:59');
+          if (Number.isFinite(endMs) && nowMs > endMs + 24 * 60 * 60 * 1000) {
+            return false;                        // after show end + 24h
+          }
+        }
+        return true;
+      })();
       const bytes = await request.arrayBuffer();
       const size = bytes.byteLength;
       if (size === 0) return err('Empty body');
@@ -5963,8 +5992,11 @@ export default {
             updated++;
             continue;
           }
-          // No existing row. If we know the ring, insert a placeholder.
-          if (ringId != null) {
+          // No existing row. If we know the ring AND we're in the show's
+          // date envelope, insert a placeholder. Out of window = skip;
+          // prevents last-week's tsked.csv from spawning empty class
+          // rows when the engine first points at next week's show.
+          if (ringId != null && tskedInsertsAllowed) {
             const placeholderR2Key = `${slug}/cls/${r.classId}.cls`;
             try {
               await env.WEST_DB_V3.prepare(
