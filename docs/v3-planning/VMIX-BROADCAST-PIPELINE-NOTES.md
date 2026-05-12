@@ -7,6 +7,22 @@ production manager is the authority on what they need; this doc is to
 get us speaking the same vocabulary and to give Bill enough to drive
 the conversation.
 
+## Confirmed decisions (Bill 2026-05-11)
+
+- **Data format: XML.** We emit `scoring.xml` for vMix Data Source +
+  Title Designer binding. (May also emit `scoring.json` cheap-cost
+  for any future consumer.)
+- **No replay graphics.** Clean feed comes from house videographers;
+  no replay overlays, no slo-mo, no X-Y graphics in scope.
+- **WEST controls the house videowalls** — vMix is one of WEST's
+  outputs. (Confirm whether vMix output target is broadcast stream,
+  videowalls, or both — see Open Questions.)
+- **After Effects role: Pattern A — pre-rendered stingers / titles.**
+  AE produces transition assets (MOV+alpha); engine fires cue signals
+  via vMix HTTP API; vMix plays the AE stinger. Data text comes from
+  our XML, not from AE. We do NOT need the more complex AE+NDI live
+  pipeline.
+
 ## What we already have on our side
 
 - Engine v3.2.0+ ships UDP events as separate categories. Bill's
@@ -187,42 +203,54 @@ stinger. We just fire the event; they decide what plays.
 
 ## Open questions for the production manager
 
-These need answers before we start building the engine-side trigger
-emitter:
+Some questions are answered (struck through); the rest still need
+producer input before we start building.
 
-1. **vMix data ingest preference**: XML Data Source + Title Designer, or
-   HTML Web Browser Source, or both layered together?
+1. ~~**vMix data ingest preference**: XML Data Source + Title
+   Designer, or HTML Web Browser Source, or both?~~ → **XML** locked.
+   (HTML Web Browser Source can still be added later as an additional
+   layer for sub-second clock if Title-poll lag becomes a problem.)
 
-2. **After Effects role**: rendering branded stingers/transitions only,
-   OR live-data-driven graphics via NDI (Pattern C above)? Big build
-   difference between those.
+2. ~~**After Effects role**: rendering branded stingers/transitions
+   only, OR live-data-driven graphics via NDI?~~ → **Pattern A**
+   (pre-rendered stingers). No live AE+NDI rig needed.
 
 3. **Trigger consumption**: should the engine call vMix's HTTP API
-   directly to cue titles, OR fire WS events that the HTML overlay
-   listens to, OR both?
+   directly to cue titles + fire stingers, OR fire events to a
+   listener that wraps the HTTP API on the producer's machine?
+   (Recommend: engine calls vMix HTTP API directly — fewer moving
+   parts.) **Open for producer.**
 
 4. **Lower-third format**: what fields, what time-on-screen, what
-   transitions? (Determines whether we need vMix Titles or full HTML
-   overlay.)
+   transition style? Determines XML row shape and which AE stingers
+   we expect (rider-intro / score-reveal / class-title / etc.).
+   **Open for producer.**
 
-5. **Multi-graphic states**: any time a "PiP" sponsor strip or stats
-   board overlays the lower-third? Stacking order matters for our
-   layered approach.
+5. **Multi-graphic states**: any time a sponsor strip or stats board
+   overlays the lower-third? Stacking order matters for the layered
+   approach. **Open for producer.**
 
-6. **Replay graphics**: are replay overlays (X-Y graphics, slo-mo
-   speed indicator) part of this pipeline or a separate path?
+6. ~~**Replay graphics**~~ → out of scope. Clean feed only.
 
-7. **Branding sources**: AE templates the production team already owns?
-   We'd want sample MOGRT / project files to know what shape they're
-   in so we don't make engineering decisions that block them.
+7. **Branding sources**: AE projects the production team already
+   owns? Sample MOGRT / final-render files would let us know what
+   shape they're in so our XML row design doesn't lock them out.
+   **Open for producer.**
 
 8. **Network setup**: vMix PC on the same LAN as Ryegate AND/OR the
    operator engine? Multicast vs unicast? Confirms whether our
    "vMix engine listens to same Ryegate UDP" assumption holds.
+   **Open — engineering question for the venue.**
 
-9. **Multi-ring**: one vMix machine driving graphics for ring 1 and 2
-   simultaneously? Affects whether we run one engine per ring or one
-   engine that exposes both rings.
+9. **Multi-ring**: one vMix machine driving graphics for ring 1 and
+   2 simultaneously? Affects whether we run one engine per ring or
+   one engine that exposes both rings. **Open for producer.**
+
+10. **vMix output target**: what is vMix's program output going to?
+    Broadcast stream (TV / web), house videowalls (in-venue LED
+    panels), or both? Bill flagged that WEST controls the videowalls
+    — confirm vMix is the source for them too vs. a separate path.
+    **Open for Bill / producer.**
 
 ## Next concrete steps (once questions answered)
 
