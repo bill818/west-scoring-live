@@ -43,7 +43,7 @@ const { spawn } = require('child_process');
 const sbFunnel = require('./scoreboard-funnel');
 const reconciliation = require('./reconciliation');
 
-const ENGINE_VERSION = '3.2.1';
+const ENGINE_VERSION = '3.2.2';
 // Public-facing site origin — used to build the operator-facing "test URL"
 // surfaced in the Status pane and tray menu. Currently the Cloudflare Pages
 // preview branch is the active v3 site (production westscoring.live is still
@@ -400,17 +400,31 @@ async function installUpdate() {
     const resourcesDir = process.resourcesPath;
     const newAsarPath  = path.join(resourcesDir, 'app.asar.new');
     const asarPath     = path.join(resourcesDir, 'app.asar');
+    const prevAsarPath = path.join(resourcesDir, 'app.asar.previous');
+    const prevVerPath  = path.join(resourcesDir, 'previous-version.txt');
     fs.writeFileSync(newAsarPath, buf);
 
+    // 3.2.2 — preserve the current asar as app.asar.previous so the
+    // renderer can offer one-click rollback after a regression. The
+    // sidecar previous-version.txt records what version is in that
+    // asar so the UI button can read "Roll back to 3.X.Y". Always
+    // overwrite any existing .previous so we don't keep ancient bytes.
+    const prevVersion = ENGINE_VERSION;
     const swapBatPath = 'c:\\west\\v3\\update-swap.bat';
     const enginePath  = process.execPath;
     const batchContent = [
       '@echo off',
       'ping 127.0.0.1 -n 3 > nul 2>&1',
+      `if exist "${prevAsarPath}" del /Q "${prevAsarPath}"`,
+      `if exist "${asarPath}" move /Y "${asarPath}" "${prevAsarPath}"`,
       `move /Y "${newAsarPath}" "${asarPath}"`,
       `start "" "${enginePath}"`,
       '(goto) 2>nul & del "%~f0"',
     ].join('\r\n');
+    // Write the version sidecar BEFORE the swap — main process owns the
+    // running version, the swap helper can't read package.json easily.
+    try { fs.writeFileSync(prevVerPath, prevVersion + '\r\n', 'utf8'); }
+    catch (e) { log(`[UPDATE] previous-version sidecar write failed (non-fatal): ${e.message}`); }
     fs.mkdirSync(path.dirname(swapBatPath), { recursive: true });
     fs.writeFileSync(swapBatPath, batchContent, 'utf8');
 
@@ -429,6 +443,74 @@ async function installUpdate() {
     updateState.installing = false;
     log(`[UPDATE] install failed: ${e.message}`);
     pushState();
+    return { ok: false, error: e.message };
+  }
+}
+
+// 3.2.2 — rollback support. Mirror of installUpdate, in reverse: swaps
+// app.asar with app.asar.previous via a one-shot batch helper, then
+// relaunches. previousVersionInfo() reads the sidecar so the renderer
+// knows which version is currently sitting in app.asar.previous.
+function previousVersionInfo() {
+  if (!app.isPackaged) return null;
+  try {
+    const resourcesDir = process.resourcesPath;
+    const prevAsarPath = path.join(resourcesDir, 'app.asar.previous');
+    if (!fs.existsSync(prevAsarPath)) return null;
+    const prevVerPath = path.join(resourcesDir, 'previous-version.txt');
+    let version = null;
+    try { version = (fs.readFileSync(prevVerPath, 'utf8') || '').trim() || null; }
+    catch (e) { /* sidecar missing — engine ran an older OTA that didn't write one */ }
+    return { available: true, version };
+  } catch (e) { return null; }
+}
+
+async function rollbackEngine() {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Rollback only runs on packaged builds' };
+  }
+  const info = previousVersionInfo();
+  if (!info || !info.available) {
+    return { ok: false, error: 'No previous version stored — rollback unavailable' };
+  }
+  try {
+    const resourcesDir = process.resourcesPath;
+    const asarPath     = path.join(resourcesDir, 'app.asar');
+    const prevAsarPath = path.join(resourcesDir, 'app.asar.previous');
+    const prevVerPath  = path.join(resourcesDir, 'previous-version.txt');
+    const swapBatPath = 'c:\\west\\v3\\rollback-swap.bat';
+    const enginePath  = process.execPath;
+    // Swap via a side-channel temp name so the rename is atomic regardless
+    // of which file got moved first. After swap, the previous-version sidecar
+    // is rewritten with the version we just left so the operator can swap
+    // back if rollback turns out to be wrong.
+    const tmpAsarPath = path.join(resourcesDir, 'app.asar.swap');
+    const leavingVersion = ENGINE_VERSION;
+    const batchContent = [
+      '@echo off',
+      'ping 127.0.0.1 -n 3 > nul 2>&1',
+      `if exist "${tmpAsarPath}" del /Q "${tmpAsarPath}"`,
+      `move /Y "${asarPath}" "${tmpAsarPath}"`,
+      `move /Y "${prevAsarPath}" "${asarPath}"`,
+      `move /Y "${tmpAsarPath}" "${prevAsarPath}"`,
+      `start "" "${enginePath}"`,
+      '(goto) 2>nul & del "%~f0"',
+    ].join('\r\n');
+    try { fs.writeFileSync(prevVerPath, leavingVersion + '\r\n', 'utf8'); }
+    catch (e) { log(`[ROLLBACK] sidecar write failed: ${e.message}`); }
+    fs.mkdirSync(path.dirname(swapBatPath), { recursive: true });
+    fs.writeFileSync(swapBatPath, batchContent, 'utf8');
+    log(`[ROLLBACK] launching swap helper (leaving ${leavingVersion} → ${info.version || 'previous'}), exiting`);
+    const child = spawn('cmd.exe', ['/c', swapBatPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    setTimeout(() => app.exit(0), 200);
+    return { ok: true };
+  } catch (e) {
+    log(`[ROLLBACK] failed: ${e.message}`);
     return { ok: false, error: e.message };
   }
 }
@@ -702,7 +784,7 @@ function buildStateSnapshot() {
       recentRecoveries: watchdogState.recentRecoveries,
       degraded: watchdogState.degraded,
     },
-    update: { ...updateState },
+    update: { ...updateState, previous: previousVersionInfo() },
     recentEvents: recentEvents.slice(0, RECENT_EVENTS_MAX),
     // Settings — what the renderer's settings pane edits. Defaults applied
     // here so empty config.json fields render as the defaults rather than
@@ -1838,6 +1920,10 @@ function setupIpc() {
     return await installUpdate();
   });
 
+  ipcMain.handle('rollback-engine', async () => {
+    return await rollbackEngine();
+  });
+
   ipcMain.handle('save-credentials', async (_evt, { workerUrl, authKey }) => {
     workerUrl = String(workerUrl || '').trim().replace(/\/$/, '');
     authKey   = String(authKey   || '').trim();
@@ -2173,7 +2259,20 @@ function handleFatal(label, err) {
     try { app.relaunch(); } catch (e) {}
     app.exit(1);
   } else {
-    log(`[CRASH-LOOP] ${CRASH_LOOP_MAX} crashes within ${CRASH_LOOP_WINDOW_MS / 1000}s — refusing further relaunch. Manual restart required.`);
+    // 3.2.2 — crash-loop guard tripped. Before giving up, try ONE auto
+    // rollback to app.asar.previous. Writes the same rollback batch the
+    // manual button uses, then exits without app.relaunch — the batch
+    // will spawn a fresh engine off the previous asar. Clearing the
+    // crash log here means the rollback target gets a fresh 3-strike
+    // budget; if it ALSO crash-loops we want to stop, not ping-pong.
+    const info = previousVersionInfo();
+    if (info && info.available) {
+      log(`[CRASH-LOOP] ${CRASH_LOOP_MAX} crashes within ${CRASH_LOOP_WINDOW_MS / 1000}s — attempting auto-rollback to ${info.version || 'previous'}.`);
+      try { writeCrashLog([]); } catch (e) {}
+      rollbackEngine().catch(e => log(`[CRASH-LOOP ROLLBACK FAIL] ${e.message}`));
+      return;
+    }
+    log(`[CRASH-LOOP] ${CRASH_LOOP_MAX} crashes within ${CRASH_LOOP_WINDOW_MS / 1000}s — no previous version stored; refusing further relaunch. Manual restart required.`);
     app.exit(1);
   }
 }

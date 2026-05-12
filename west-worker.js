@@ -4491,11 +4491,11 @@ export default {
     if (method === 'GET' && path === '/v3/engineLatest') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const ENGINE_LATEST = {
-              version: '3.2.1',
-              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.2.1.asar',
-              sha256:  '8a8ed80eec96f71dc699b064864cd50f297ab7b45f3fdbcf515d044f1e94b98d',
-              releasedAt: '2026-05-12T00:30:23.642Z',
-              releaseNotes: 'Hotfix on 3.2.0 — adds reconciliation.js to the installer bundle (was missing from the electron-builder file list so 3.2.0 crashed on startup with Cannot find module ./reconciliation). Otherwise identical to 3.2.0: folder vs website diff every 60s, Mismatch pill, Restore from website / Upload override actions.',
+              version: '3.2.2',
+              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.2.2.asar',
+              sha256:  '71097a5d150af1cb55a6a3af3cc0d3bd2629b27dd8297881b0259a976a9105bb',
+              releasedAt: '2026-05-12T00:46:45.238Z',
+              releaseNotes: 'Rollback support: every OTA update now preserves the prior asar as app.asar.previous. New Roll back button in Settings under Check now restores the previous version on demand. If the engine ever crashes 3 times within 60s (the crash-loop guard), it auto-rolls back to the previous asar instead of giving up. Wont help startup-crash classes where main.js cant load at all  the standalone OneDrive installer remains the worst-case recovery for that  but covers regressions that surface after launch.',
             };
       return json({ manifest: ENGINE_LATEST });
     }

@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('westEngine', {
   saveCredentials: (workerUrl, authKey) => ipcRenderer.invoke('save-credentials', { workerUrl, authKey }),
   checkForUpdate: ()                    => ipcRenderer.invoke('check-for-update'),
   installUpdate:  ()                    => ipcRenderer.invoke('install-update'),
+  rollbackEngine: ()                    => ipcRenderer.invoke('rollback-engine'),
   repostCls:      ()              => ipcRenderer.invoke('repost-cls'),
   repostTsked:    ()              => ipcRenderer.invoke('repost-tsked'),
   toggleForwarding: ()            => ipcRenderer.invoke('toggle-forwarding'),

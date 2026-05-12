@@ -466,6 +466,11 @@
             <button class="btn-secondary" id="btnCheckUpdate">Check now</button>
             <button class="btn-primary" id="btnInstallUpdate" hidden>Install &amp; restart</button>
           </div>
+          <div class="settings-row update-rollback-row">
+            <span class="settings-row-hint" id="rollbackHint">No previous version stored — rollback unavailable. After the next OTA update, this option will become available so you can swap back if the new version misbehaves.</span>
+            <span class="update-status" id="rollbackStatus"></span>
+            <button class="btn-secondary" id="btnRollback" disabled>Roll back</button>
+          </div>
         </fieldset>
 
         <fieldset class="settings-group">

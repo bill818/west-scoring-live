@@ -424,6 +424,23 @@
       lastCheck.textContent = 'Checking on launch + hourly';
     }
 
+    // 3.2.2 — rollback button. Enabled only when app.asar.previous exists
+    // (operator has installed at least one OTA update on this machine).
+    const rollbackBtn  = $('#btnRollback');
+    const rollbackHint = $('#rollbackHint');
+    const prev = upd.previous;
+    if (prev && prev.available) {
+      rollbackBtn.disabled = false;
+      rollbackBtn.textContent = prev.version
+        ? `Roll back to ${prev.version}`
+        : 'Roll back to previous';
+      rollbackHint.textContent = 'Restores the previously-installed engine and restarts. Used to undo an OTA update that introduced a regression.';
+    } else {
+      rollbackBtn.disabled = true;
+      rollbackBtn.textContent = 'Roll back';
+      rollbackHint.textContent = 'No previous version stored — rollback unavailable. After the next OTA update, this will become available so you can swap back if the new version misbehaves.';
+    }
+
     // Health pill — surfaces the watchdog's degraded list. Recovery actions
     // are handled in main; the pill is read-only.
     const wd = state.watchdog || {};
@@ -1315,6 +1332,32 @@
       statusEl.textContent = '✓ exiting…';
       statusEl.className = 'update-status ok';
       // Engine will exit and be relaunched by the swap helper.
+    } catch (e) {
+      statusEl.textContent = '✗ ' + e.message;
+      statusEl.className = 'update-status fail';
+    }
+  });
+
+  // 3.2.2 — rollback button. Same restart cycle as install: writes a
+  // swap batch, exits, batch relaunches off the previous asar.
+  $('#btnRollback').addEventListener('click', async () => {
+    const upd = (lastState && lastState.update) || {};
+    const prev = upd.previous;
+    const target = prev && prev.version ? `version ${prev.version}` : 'the previously-installed version';
+    const ok = confirm(`Roll back the engine to ${target} and restart?\n\nThe engine will be unavailable for ~5 seconds during the swap. The current version remains as the new "previous" so you can swap forward again.`);
+    if (!ok) return;
+    const statusEl = $('#rollbackStatus');
+    statusEl.textContent = 'rolling back…';
+    statusEl.className = 'update-status';
+    try {
+      const res = await window.westEngine.rollbackEngine();
+      if (!res || !res.ok) {
+        statusEl.textContent = '✗ ' + ((res && res.error) || 'failed');
+        statusEl.className = 'update-status fail';
+        return;
+      }
+      statusEl.textContent = '✓ exiting…';
+      statusEl.className = 'update-status ok';
     } catch (e) {
       statusEl.textContent = '✗ ' + e.message;
       statusEl.className = 'update-status fail';
