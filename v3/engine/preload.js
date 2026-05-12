@@ -57,7 +57,12 @@ contextBridge.exposeInMainWorld('westEngine', {
     ipcRenderer.invoke('set-class-live-state', { class_id, action }),
   // S46 — flush is_live across all classes on this ring (one button).
   flushLiveAll: () => ipcRenderer.invoke('set-class-live-state', { class_id: null, action: 'flush_all' }),
+  // 3.2.0 — folder/website reconciliation actions.
+  reconcileRefresh:        ()          => ipcRenderer.invoke('reconcile-refresh'),
+  reconcileRestore:        (class_ids) => ipcRenderer.invoke('reconcile-restore', { class_ids }),
+  reconcileUploadOverride: (class_ids) => ipcRenderer.invoke('reconcile-upload-override', { class_ids }),
   openLog:        ()              => ipcRenderer.send('open-log'),
   openAdmin:      ()              => ipcRenderer.send('open-admin'),
+  openTestUrl:    ()              => ipcRenderer.send('open-test-url'),
   minimizeToTray: ()              => ipcRenderer.send('minimize-to-tray'),
 });

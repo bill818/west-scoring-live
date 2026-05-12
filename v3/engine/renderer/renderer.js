@@ -124,9 +124,32 @@
     $('#setInputPort').value    = settings.inputPort    || '';
     $('#setRsserverPort').value = settings.rsserverPort || '';
     $('#setFocusPort').value    = settings.focusPort    || '';
-    // Scoreboard tab — same auto-detected values as Settings tab.
-    $('#sbInputPort').textContent    = settings.inputPort    || '—';
-    $('#sbRsserverPort').textContent = settings.rsserverPort || '—';
+    // Scoreboard tab — editable port override fields (3.1.9). Each input
+    // shows the saved override (or empty when none); placeholder shows the
+    // auto-detected fallback so operators see what they'd get with no
+    // override. Source label below switches to "manual" in amber when an
+    // override is active.
+    setPortInput(
+      $('#sbInputPortInput'),
+      $('#sbInputSource'),
+      settings.inputPortOverride,
+      settings.detectedInputPort || settings.inputPort,
+      settings.inputPortSource || 'auto from config.dat'
+    );
+    setPortInput(
+      $('#sbRsserverPortInput'),
+      $('#sbRsserverPortSource'),
+      settings.rsserverPortOverride,
+      (settings.detectedInputPort || settings.inputPort) + 1,
+      settings.rsserverPortSource || 'listen + 1'
+    );
+    setHostInput(
+      $('#sbRsserverHostInput'),
+      $('#sbRsserverHostSource'),
+      settings.rsserverHostOverride,
+      '127.0.0.1',
+      settings.rsserverHostSource || 'localhost'
+    );
     // Protocol tab — show which port we'd be listening on.
     const protoIn = document.getElementById('protoInputPort');
     if (protoIn) protoIn.textContent = settings.inputPort || '—';
@@ -137,6 +160,152 @@
   // the in-flight save's value is the truth, not whatever main has pushed
   // (which was sampled before writeConfig completed).
   const featureSaveInFlight = new Set();
+  // Same trick for port override fields — don't let a state push stomp on
+  // the value while the operator is editing or a save is in flight.
+  const portSaveInFlight = new Set();
+
+  // 3.2.0 — track the shape of the rendered reconciliation lists so we
+  // only rebuild rows when the diff actually changes. Avoids wiping out
+  // operator checkbox selections during a 60s background refresh.
+  let lastReconKey = '';
+  function reconKey(r) {
+    if (!r) return '';
+    const lo = (r.localOnly  || []).map(f => f.class_id).join(',');
+    const so = (r.serverOnly || []).map(f => f.class_id).join(',');
+    return `lo:${lo}|so:${so}`;
+  }
+  function fmtMtime(ms) {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    return d.toLocaleString();
+  }
+  function fmtSize(n) {
+    if (n == null) return '—';
+    if (n < 1024) return `${n}B`;
+    return `${(n / 1024).toFixed(1)}K`;
+  }
+  function gateLabel(gate) {
+    if (!gate) return '';
+    if (gate.allow) {
+      const r = gate.reason || '';
+      if (r === 'test-show' || r === 'test-class') return `<span class="gate allowed">${r}</span>`;
+      if (r === 'no-meta')   return `<span class="gate allowed">would upload (no meta)</span>`;
+      return `<span class="gate allowed">date ok</span>`;
+    }
+    return `<span class="gate blocked">blocked: ${gate.reason || '?'}</span>`;
+  }
+  function renderReconciliation(r) {
+    const pill = $('#reconPill');
+    const pane = $('#reconPane');
+    if (!r || r.inSync) {
+      pill.hidden = true;
+      pane.hidden = true;
+      return;
+    }
+    pill.hidden = false;
+    pane.hidden = false;
+    const counts = [];
+    if (r.serverOnly.length) counts.push(`${r.serverOnly.length} on website only`);
+    if (r.localOnly.length)  counts.push(`${r.localOnly.length} local only`);
+    $('#reconPillText').textContent = counts.join(' · ') || 'Mismatch';
+    $('#reconSummary').textContent = (r.refreshing ? '· refreshing · ' : '') +
+      counts.join(' · ') +
+      (r.both ? ` · ${r.both} matched` : '') +
+      (r.loadedAt ? ` · checked ${fmtAgo(r.loadedAt)}` : '');
+
+    const errEl = $('#reconError');
+    if (r.error) {
+      errEl.textContent = r.error;
+      errEl.hidden = false;
+    } else {
+      errEl.hidden = true;
+    }
+
+    const key = reconKey(r);
+    if (key === lastReconKey) return;          // shape unchanged — keep operator selections
+    lastReconKey = key;
+
+    // ── server-only list (restore candidates) ──
+    const soSec  = $('#reconServerOnly');
+    const soList = $('#reconServerOnlyList');
+    if (r.serverOnly.length) {
+      soSec.hidden = false;
+      soList.innerHTML = r.serverOnly.map(f => `
+        <li class="recon-row">
+          <input type="checkbox" class="recon-pick recon-pick-server" data-cid="${esc(f.class_id)}" checked>
+          <span class="cid">${esc(f.class_id)}</span>
+          <span class="meta">${fmtSize(f.size)} · uploaded ${esc(f.uploaded || '—')}</span>
+          <span></span>
+        </li>`).join('');
+      $('#reconServerOnlyAll').checked = true;
+    } else {
+      soSec.hidden = true;
+    }
+
+    // ── local-only list (upload candidates) ──
+    const loSec  = $('#reconLocalOnly');
+    const loList = $('#reconLocalOnlyList');
+    if (r.localOnly.length) {
+      loSec.hidden = false;
+      loList.innerHTML = r.localOnly.map(f => {
+        const allow = f.gate && f.gate.allow;
+        // Default: blocked files = unchecked (operator opts in), allowed
+        // files = unchecked too in this list (they'll upload normally via
+        // the watcher anyway; this list is for FORCE-upload override).
+        // We surface them all so the operator can see the full diff.
+        const checked = '';
+        return `
+        <li class="recon-row">
+          <input type="checkbox" class="recon-pick recon-pick-local" data-cid="${esc(f.class_id)}" ${checked}>
+          <span class="cid">${esc(f.class_id)}</span>
+          <span class="meta">${fmtSize(f.size)} · ${fmtMtime(f.mtimeMs)}</span>
+          ${gateLabel(f.gate)}
+        </li>`;
+      }).join('');
+      $('#reconLocalOnlyAll').checked = false;
+    } else {
+      loSec.hidden = true;
+    }
+  }
+  // Helper — html escape (renderer already has one but it's deeper; small
+  // local copy keeps this block independent).
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    );
+  }
+
+  // 3.1.9 — port override helpers. Each routing field shows the saved
+  // override value (or empty) with the auto-detected fallback as
+  // placeholder. Source label flips to amber "manual" when override
+  // active. Skipped while the input has focus (don't fight the operator's
+  // typing) and while a save is in flight.
+  function setPortInput(input, sourceEl, override, autoVal, autoLabel) {
+    if (!input) return;
+    const key = input.id;
+    const hasOverride = override !== null && override !== undefined && override !== '';
+    if (document.activeElement !== input && !portSaveInFlight.has(key)) {
+      input.value = hasOverride ? String(override) : '';
+    }
+    if (autoVal != null) input.placeholder = String(autoVal);
+    if (sourceEl) {
+      sourceEl.textContent = hasOverride ? 'manual' : autoLabel;
+      sourceEl.classList.toggle('manual', hasOverride);
+    }
+  }
+  function setHostInput(input, sourceEl, override, autoVal, autoLabel) {
+    if (!input) return;
+    const key = input.id;
+    const hasOverride = !!(override && String(override).trim());
+    if (document.activeElement !== input && !portSaveInFlight.has(key)) {
+      input.value = hasOverride ? String(override) : '';
+    }
+    if (autoVal != null) input.placeholder = String(autoVal);
+    if (sourceEl) {
+      sourceEl.textContent = hasOverride ? 'manual' : autoLabel;
+      sourceEl.classList.toggle('manual', hasOverride);
+    }
+  }
 
   function populateFeatures(features) {
     if (!features) return;
@@ -443,6 +612,30 @@
       heartbeatEl.className = 'stat-val idle';
     }
 
+    // 3.2.0 — reconciliation pane + title-bar pill. Hidden when local
+    // folder matches the website's R2 inventory. When mismatched, the
+    // pane lists the two diff buckets (server-only = restore candidates,
+    // local-only = upload candidates with per-file gate result). The
+    // pill in the title bar lights up so the operator sees it without
+    // having to be on the Status tab.
+    renderReconciliation(state.reconciliation);
+
+    // 3.1.8 — Test URL pane. Shown whenever a show is selected; the URL
+    // form switches based on showMeta.is_test (TEST show = bare URL, real
+    // show = ?test=1 to reveal test classes). state.testUrl is built in
+    // main.js and pushed; renderer just displays.
+    const testUrlPane = $('#testUrlPane');
+    if (state.testUrl && state.testUrl.url) {
+      testUrlPane.hidden = false;
+      $('#testUrlVal').textContent = state.testUrl.url;
+      $('#testUrlLabel').textContent = state.testUrl.label || 'Test URL';
+      $('#testUrlHint').textContent = state.testUrl.kind === 'test-show'
+        ? 'this show is hidden from the public homepage — direct link still works'
+        : 'reveals test classes that are hidden from the public show page';
+    } else {
+      testUrlPane.hidden = true;
+    }
+
     $('#statClsPosts').textContent = state.config
       ? `${state.clsPostCount} ok · ${state.clsPostFailCount} failed`
       : '—';
@@ -743,6 +936,126 @@
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
   });
 
+  // ── Reconciliation pane wiring (3.2.0) ─────────────────────────────────
+  // Pill in the title bar takes you to the Status tab and scrolls the pane
+  // into view; Refresh button forces a diff bypassing the 60s interval;
+  // bulk-select toggles operate on the visible list; the two action
+  // buttons fire the matching IPC handlers and surface a status pill.
+  const reconPill          = $('#reconPill');
+  const btnReconRefresh    = $('#btnReconRefresh');
+  const reconServerAllCb   = $('#reconServerOnlyAll');
+  const reconLocalAllCb    = $('#reconLocalOnlyAll');
+  const btnReconRestore    = $('#btnReconRestore');
+  const btnReconUpload     = $('#btnReconUploadOverride');
+  const reconRestoreStatus = $('#reconRestoreStatus');
+  const reconUploadStatus  = $('#reconUploadStatus');
+
+  if (reconPill) {
+    reconPill.addEventListener('click', () => {
+      const statusTab = $('#tabStatus');
+      if (statusTab) statusTab.click();
+      const pane = $('#reconPane');
+      if (pane && !pane.hidden) pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+  if (btnReconRefresh) {
+    btnReconRefresh.addEventListener('click', async () => {
+      btnReconRefresh.disabled = true;
+      btnReconRefresh.textContent = '↻ Refreshing…';
+      try { await window.westEngine.reconcileRefresh(); }
+      catch (e) {}
+      btnReconRefresh.textContent = '↻ Refresh';
+      btnReconRefresh.disabled = false;
+    });
+  }
+  if (reconServerAllCb) {
+    reconServerAllCb.addEventListener('change', () => {
+      document.querySelectorAll('.recon-pick-server').forEach(cb => { cb.checked = reconServerAllCb.checked; });
+    });
+  }
+  if (reconLocalAllCb) {
+    reconLocalAllCb.addEventListener('change', () => {
+      document.querySelectorAll('.recon-pick-local').forEach(cb => { cb.checked = reconLocalAllCb.checked; });
+    });
+  }
+  function gatherChecked(selector) {
+    return Array.from(document.querySelectorAll(selector))
+      .filter(cb => cb.checked)
+      .map(cb => cb.getAttribute('data-cid'));
+  }
+  if (btnReconRestore) {
+    btnReconRestore.addEventListener('click', async () => {
+      const ids = gatherChecked('.recon-pick-server');
+      if (!ids.length) {
+        reconRestoreStatus.textContent = 'no rows selected';
+        reconRestoreStatus.className = 'recon-status fail';
+        setTimeout(() => { reconRestoreStatus.textContent = ''; reconRestoreStatus.className = 'recon-status'; }, 2200);
+        return;
+      }
+      btnReconRestore.disabled = true;
+      btnReconRestore.textContent = '↓ Restoring…';
+      try {
+        const res = await window.westEngine.reconcileRestore(ids);
+        if (!res || !res.ok) throw new Error((res && res.error) || 'restore failed');
+        reconRestoreStatus.textContent = `✓ ${res.restored} restored${res.failed ? ` · ${res.failed} failed` : ''}`;
+        reconRestoreStatus.className = 'recon-status ok';
+      } catch (e) {
+        reconRestoreStatus.textContent = '✗ ' + e.message;
+        reconRestoreStatus.className = 'recon-status fail';
+      }
+      setTimeout(() => { reconRestoreStatus.textContent = ''; reconRestoreStatus.className = 'recon-status'; }, 4000);
+      btnReconRestore.textContent = '↓ Restore selected';
+      btnReconRestore.disabled = false;
+    });
+  }
+  if (btnReconUpload) {
+    btnReconUpload.addEventListener('click', async () => {
+      const ids = gatherChecked('.recon-pick-local');
+      if (!ids.length) {
+        reconUploadStatus.textContent = 'no rows selected';
+        reconUploadStatus.className = 'recon-status fail';
+        setTimeout(() => { reconUploadStatus.textContent = ''; reconUploadStatus.className = 'recon-status'; }, 2200);
+        return;
+      }
+      if (!confirm(`Force-upload ${ids.length} file${ids.length === 1 ? '' : 's'}, bypassing the date gate? This is intended for pre-built classes or rare edge cases — don't use it to push prior-week leftovers.`)) return;
+      btnReconUpload.disabled = true;
+      btnReconUpload.textContent = '↑ Uploading…';
+      try {
+        const res = await window.westEngine.reconcileUploadOverride(ids);
+        if (!res || !res.ok) throw new Error((res && res.error) || 'upload failed');
+        reconUploadStatus.textContent = `✓ ${res.uploaded} uploaded${res.failed ? ` · ${res.failed} failed` : ''}`;
+        reconUploadStatus.className = 'recon-status ok';
+      } catch (e) {
+        reconUploadStatus.textContent = '✗ ' + e.message;
+        reconUploadStatus.className = 'recon-status fail';
+      }
+      setTimeout(() => { reconUploadStatus.textContent = ''; reconUploadStatus.className = 'recon-status'; }, 4000);
+      btnReconUpload.textContent = '↑ Upload selected (override gate)';
+      btnReconUpload.disabled = false;
+    });
+  }
+
+  // Copy test URL — reads the visible value (which the render pass keeps
+  // in sync with state.testUrl from main). Flash green on success.
+  $('#btnCopyTestUrl').addEventListener('click', async () => {
+    const btn  = $('#btnCopyTestUrl');
+    const text = $('#testUrlVal').textContent.trim();
+    if (!text || text === '—') return;
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.classList.add('copied');
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'Copy'; }, 1500);
+    } catch (e) {
+      btn.textContent = 'Failed';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    }
+  });
+
+  $('#btnOpenTestUrl').addEventListener('click', () => {
+    window.westEngine.openTestUrl();
+  });
+
   $('#btnRepostCls').addEventListener('click', async () => {
     const btn = $('#btnRepostCls');
     btn.disabled = true;
@@ -774,6 +1087,63 @@
   $('#btnPauseForwarding').addEventListener('click', async () => {
     try { await window.westEngine.toggleForwarding(); } catch (e) {}
   });
+
+  // ── UDP routing — lock checkbox + editable port overrides (3.1.9) ──────
+  // Fields default to LOCKED (read-only) so operators don't accidentally
+  // edit during a show. Unlocking enables the inputs; saving on `change`
+  // (blur or Enter) writes to config + rebinds UDP listeners. The lock
+  // re-locks itself after a successful save so the operator can't forget.
+  const sbRoutingLock = $('#sbRoutingLock');
+  const portInputs = [
+    { el: $('#sbInputPortInput'),    key: 'inputPortOverride'    },
+    { el: $('#sbRsserverHostInput'), key: 'rsserverHostOverride' },
+    { el: $('#sbRsserverPortInput'), key: 'rsserverPortOverride' },
+  ];
+  function applyRoutingLock() {
+    const locked = sbRoutingLock.checked;
+    for (const { el } of portInputs) {
+      if (el) el.disabled = locked;
+    }
+  }
+  if (sbRoutingLock) {
+    sbRoutingLock.addEventListener('change', applyRoutingLock);
+    applyRoutingLock();
+  }
+
+  // Save handler — fires on blur or Enter. Empty string = clear override
+  // (revert to auto-detect). Status text shows the result for a moment.
+  async function savePortField(input, key) {
+    if (!input) return;
+    const raw = input.value.trim();
+    portSaveInFlight.add(input.id);
+    const statusEl = $('#sbRoutingStatus');
+    try {
+      const patch = {};
+      patch[key] = raw;
+      const res = await window.westEngine.saveSettings(patch);
+      if (!res.ok) throw new Error(res.error || 'save failed');
+      if (statusEl) {
+        statusEl.textContent = '✓ saved · listeners rebound';
+        statusEl.className = 'sb-routing-status ok';
+        setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'sb-routing-status'; }, 2400);
+      }
+    } catch (e) {
+      if (statusEl) {
+        statusEl.textContent = '✗ ' + e.message;
+        statusEl.className = 'sb-routing-status fail';
+        setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'sb-routing-status'; }, 4000);
+      }
+    } finally {
+      portSaveInFlight.delete(input.id);
+    }
+  }
+  for (const { el, key } of portInputs) {
+    if (!el) continue;
+    el.addEventListener('change', () => savePortField(el, key));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+  }
 
   $('#btnOpenLog').addEventListener('click', () => window.westEngine.openLog());
   $('#btnOpenAdmin').addEventListener('click', () => window.westEngine.openAdmin());

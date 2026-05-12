@@ -32,7 +32,7 @@
 //     "ringNum":    1                          // can be empty after S42 — picker writes it
 //   }
 
-const { app, Tray, Menu, BrowserWindow, ipcMain, dialog, nativeImage, shell } = require('electron');
+const { app, Tray, Menu, BrowserWindow, ipcMain, dialog, nativeImage, shell, clipboard } = require('electron');
 const crypto = require('crypto');
 const dgram = require('dgram');
 const fs = require('fs');
@@ -41,8 +41,14 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const sbFunnel = require('./scoreboard-funnel');
+const reconciliation = require('./reconciliation');
 
-const ENGINE_VERSION = '3.1.6';
+const ENGINE_VERSION = '3.2.0';
+// Public-facing site origin — used to build the operator-facing "test URL"
+// surfaced in the Status pane and tray menu. Currently the Cloudflare Pages
+// preview branch is the active v3 site (production westscoring.live is still
+// running v2). Swap to https://westscoring.live when v3 cuts over.
+const PUBLIC_PAGES_ORIGIN = 'https://preview.westscoring.pages.dev';
 const CONFIG_PATH = 'c:\\west\\v3\\config.json';
 const LOG_PATH = 'c:\\west\\v3\\engine_log.txt';
 const HEARTBEAT_INTERVAL_MS = 10_000;          // active cadence
@@ -81,6 +87,43 @@ let lastClsPostFile = null;
 let lastClsPostError = null;
 let clsWatcher = null;
 const clsDebounceTimers = new Map();
+
+// Date-gate state (3.1.7). showMeta caches the connected show's start_date /
+// end_date / is_test from /v3/getShow. shouldUploadCls() consults it on every
+// upload to reject .cls files that fall outside the show's date envelope —
+// the actual fix for the Saratoga 2026-05-07 stale-folder incident. Cache is
+// sticky: a transient worker hiccup mid-show keeps using the last successful
+// fetch so the gate doesn't go cold under network blips. Refreshed every 5
+// min so admin toggles (is_test flip, date edits) reach the engine.
+let showMeta = null;            // { slug, start_date, end_date, is_test, loadedAt }
+let showMetaFetching = false;
+let showMetaLastError = null;
+let clsBlockedCount = 0;
+let lastClsBlocked = null;      // { filename, reason, at }
+const SHOWMETA_REFRESH_MS = 5 * 60 * 1000;
+const SHOWMETA_END_GRACE_MS = 24 * 60 * 60 * 1000;
+
+// Reconciliation state (3.2.0). Compares local Ryegate folder against the
+// website's R2 inventory every RECONCILE_REFRESH_MS. Surfaces a "folder
+// mismatch" pill in the renderer + the reconciliation pane on Status, where
+// the operator can restore files from website (PC swap recovery) or force
+// upload of files the date gate would block.
+let reconState = {
+  loadedAt: 0,
+  error: null,
+  inSync: true,
+  localOnly: [],     // [{ class_id, filename, mtimeMs, size, gate }]
+  serverOnly: [],    // [{ class_id, size, uploaded }]
+  both: 0,
+};
+let reconRefreshing = false;
+let reconLastChangeAt = 0;       // last time the diff actually changed shape
+const RECONCILE_REFRESH_MS = 60 * 1000;
+// Per-class one-shot upload-anyway overrides. When the operator clicks
+// "Upload anyway" on a gate-blocked file, its class_id lands here; the
+// next postClsFile() call for that class_id bypasses the date gate, then
+// removes the entry. Survives the rest of the engine session.
+const uploadOverrideClassIds = new Set();
 
 let tskedWatcher = null;
 let tskedDebounceTimer = null;
@@ -559,6 +602,42 @@ function detectInputPort() {
   return FALLBACK_INPUT_PORT;
 }
 
+// 3.1.9 — resolve effective UDP ports, honoring per-field overrides set in
+// the Scoreboard tab. Each override is null/empty by default; when present,
+// the override wins. Surfaces the *source* so the renderer can label the
+// row "manual" vs "auto from config.dat" / "listen + 1" / "fixed".
+//
+// Used by startUdpListeners (the engine binds with these) and pushState
+// (so the renderer renders the same effective values, never out of sync).
+function getEffectivePorts() {
+  const cfg = config || {};
+  const inputOverride = parsePortOverride(cfg.inputPortOverride);
+  const inputPort = inputOverride || detectedInputPort;
+  const inputSource = inputOverride ? 'manual' : 'auto from config.dat';
+
+  const rsserverPortOverride = parsePortOverride(cfg.rsserverPortOverride);
+  const rsserverPort = rsserverPortOverride || (inputPort + 1);
+  const rsserverPortSource = rsserverPortOverride ? 'manual' : 'listen + 1';
+
+  const rsserverHostOverride = (cfg.rsserverHostOverride || '').trim();
+  const rsserverHost = rsserverHostOverride || '127.0.0.1';
+  const rsserverHostSource = rsserverHostOverride ? 'manual' : 'localhost';
+
+  return {
+    inputPort, inputSource,
+    rsserverPort, rsserverPortSource,
+    rsserverHost, rsserverHostSource,
+    focusPort: FOCUS_PORT,
+  };
+}
+
+function parsePortOverride(v) {
+  if (v == null || v === '') return null;
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 65535) return null;
+  return n;
+}
+
 // ── State push to renderer ──────────────────────────────────────────────────
 let stateThrottleTimer = null;
 function pushState() {
@@ -581,6 +660,25 @@ function buildStateSnapshot() {
     showLocked,
     lastHeartbeatAt, lastHeartbeatOk, lastHeartbeatError, heartbeatCount, heartbeatFailCount,
     clsPostCount, clsPostFailCount, lastClsPostAt, lastClsPostFile, lastClsPostError,
+    // Date-gate state (3.1.7). showMeta drives shouldUploadCls; the blocked
+    // counters surface "X files refused" so the operator can spot the
+    // Saratoga pattern (engine started on a folder full of prior-week .cls
+    // and the gate caught it). lastClsBlocked carries the most recent
+    // refusal for the renderer's diagnostic line.
+    showMeta, showMetaLastError, clsBlockedCount, lastClsBlocked,
+    // 3.1.8 — operator-facing "test URL" surfaced in Status pane + tray.
+    // For TEST shows: bare direct URL (the show is hidden from the public
+    // homepage but lives at the same URL slot). For real shows: URL with
+    // ?test=1 to reveal classes named "TEST...". Null when no show selected
+    // or showMeta hasn't loaded yet.
+    testUrl: computeTestUrl(),
+    // 3.2.0 — folder/website reconciliation state. Renderer surfaces a
+    // "folder mismatch" pill + dedicated pane when inSync=false.
+    reconciliation: {
+      ...reconState,
+      refreshing: reconRefreshing,
+      lastChangeAt: reconLastChangeAt,
+    },
     tskedPostCount, tskedSkipCount, tskedLastPostAt, tskedLastError,
     udpListening, udpFrameCount, lastUdpAt, lastFocusAt,
     udpBatchFlushCount, udpBatchEventCount, udpLastBatchAt, udpLastBatchSize,
@@ -609,16 +707,35 @@ function buildStateSnapshot() {
     // Settings — what the renderer's settings pane edits. Defaults applied
     // here so empty config.json fields render as the defaults rather than
     // blank inputs. Ports are auto-detected (not editable) per v2 funnel rule.
-    settings: config ? {
-      clsDir:          config.clsDir          || DEFAULT_CLS_DIR,
-      tskedPath:       config.tskedPath       || DEFAULT_TSKED_PATH,
-      ryegateConfPath: config.ryegateConfPath || DEFAULT_RYEGATE_CONF,
-      inputPort:       detectedInputPort,
-      rsserverPort:    detectedInputPort + 1,
-      focusPort:       FOCUS_PORT,
-      workerUrl:       config.workerUrl       || '',
-      authKey:         config.authKey         || '',
-    } : null,
+    settings: config ? (function () {
+      const eff = getEffectivePorts();
+      return {
+        clsDir:          config.clsDir          || DEFAULT_CLS_DIR,
+        tskedPath:       config.tskedPath       || DEFAULT_TSKED_PATH,
+        ryegateConfPath: config.ryegateConfPath || DEFAULT_RYEGATE_CONF,
+        // Effective values — what the engine is actually binding to.
+        inputPort:    eff.inputPort,
+        rsserverPort: eff.rsserverPort,
+        rsserverHost: eff.rsserverHost,
+        focusPort:    eff.focusPort,
+        // Source labels — drives the "manual" / "auto from config.dat" / etc
+        // hint next to each field in the Scoreboard tab.
+        inputPortSource:    eff.inputSource,
+        rsserverPortSource: eff.rsserverPortSource,
+        rsserverHostSource: eff.rsserverHostSource,
+        // Detected fallback — what auto-detect resolves to right now. Used
+        // by the renderer as the placeholder when the override is blank.
+        detectedInputPort: detectedInputPort,
+        // Raw override values — populates the editable inputs. Empty string
+        // when no override is set (operator sees an empty field; placeholder
+        // shows the auto-detected value).
+        inputPortOverride:    config.inputPortOverride    ?? '',
+        rsserverPortOverride: config.rsserverPortOverride ?? '',
+        rsserverHostOverride: config.rsserverHostOverride ?? '',
+        workerUrl: config.workerUrl || '',
+        authKey:   config.authKey   || '',
+      };
+    })() : null,
     // Scoreboard feature flags — funnel-side toggles. Persisted in config.json.
     // HOLD target state machine lives in scoreboard-funnel.js with the v2 bug
     // fix baked in (empty {18} clears, class change clears).
@@ -734,6 +851,175 @@ async function workerFetch(path, opts) {
 }
 
 // ── .cls posting ────────────────────────────────────────────────────────────
+
+// Tiny CSV-aware splitter — same shape as worker's parseCsvLineV3. Engine
+// only needs col[1] of row 0 (class name) for the test-class gate; the
+// worker still does the authoritative full parse on upload.
+function parseCsvLineEngine(line) {
+  const out = [];
+  let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (q && line[i + 1] === '"') { cur += '"'; i++; }
+      else q = !q;
+    } else if (ch === ',' && !q) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseClsClassName(bytes) {
+  try {
+    const text = bytes.toString('utf8');
+    const firstLine = (text.split(/\r?\n/)[0] || '').trim();
+    if (!firstLine) return null;
+    const cols = parseCsvLineEngine(firstLine);
+    const name = (cols[1] || '').trim();
+    return name || null;
+  } catch (e) { return null; }
+}
+
+// Date-gate decision. Returns { allow, reason } where reason is one of:
+//   no-meta       — showMeta not loaded yet (very early startup, fail open)
+//   test-show     — shows.is_test = 1 → bypass gate entirely
+//   test-class    — class_name matches /test/i → bypass gate
+//   no-start-date — show has no start_date set → no gate to apply
+//   bad-start-date / bad-end-date — date string failed to parse
+//   date-ok       — mtime within [start_date, end_date + 24h]
+//   before-start-date / after-end-date+grace — BLOCKED
+function shouldUploadCls(filename, mtimeMs, bytes) {
+  if (!showMeta) return { allow: true, reason: 'no-meta' };
+  if (showMeta.is_test) return { allow: true, reason: 'test-show' };
+  const className = parseClsClassName(bytes);
+  if (className && /test/i.test(className)) {
+    return { allow: true, reason: 'test-class' };
+  }
+  if (!showMeta.start_date) return { allow: true, reason: 'no-start-date' };
+  const startMs = Date.parse(showMeta.start_date + 'T00:00:00');
+  if (!Number.isFinite(startMs)) return { allow: true, reason: 'bad-start-date' };
+  if (mtimeMs < startMs) return { allow: false, reason: 'before-start-date' };
+  if (showMeta.end_date) {
+    const endMs = Date.parse(showMeta.end_date + 'T23:59:59');
+    if (!Number.isFinite(endMs)) return { allow: true, reason: 'bad-end-date' };
+    if (mtimeMs > endMs + SHOWMETA_END_GRACE_MS) {
+      return { allow: false, reason: 'after-end-date+grace' };
+    }
+  }
+  return { allow: true, reason: 'date-ok' };
+}
+
+// Build the operator-facing test URL based on currently selected show +
+// showMeta. Returns { url, kind, label } so the renderer can render the
+// right header text alongside the URL. Null when no show is selected.
+//   kind = 'test-show'   → show.is_test = 1 (bare URL, no test param)
+//          'real-show'   → real show (?test=1 reveals test classes)
+function computeTestUrl() {
+  if (!configReady()) return null;
+  const slug = config.showSlug;
+  const baseUrl = `${PUBLIC_PAGES_ORIGIN}/show.html?slug=${encodeURIComponent(slug)}`;
+  // If showMeta isn't loaded yet, default to "real show" form — the test=1
+  // param is a no-op on a TEST show (the page still renders) so this is
+  // safe; we just don't get the more accurate label until meta loads.
+  const isTestShow = !!(showMeta && showMeta.is_test);
+  return {
+    url:  isTestShow ? baseUrl : `${baseUrl}&test=1`,
+    kind: isTestShow ? 'test-show' : 'real-show',
+    label: isTestShow ? 'Test show URL' : 'Test classes URL',
+  };
+}
+
+// 3.2.0 — refresh reconciliation diff. Runs on a 60s interval AND on
+// demand (show change, manual refresh, after syncAllCls completes).
+// Cheap when in-sync (only ever opens local-only files for the gate).
+async function refreshReconciliation() {
+  if (reconRefreshing) return;
+  if (!configReady()) {
+    reconState = { loadedAt: Date.now(), error: null, inSync: true, localOnly: [], serverOnly: [], both: 0 };
+    pushState();
+    return;
+  }
+  reconRefreshing = true;
+  try {
+    const clsDir = config.clsDir || DEFAULT_CLS_DIR;
+    const localScan = reconciliation.scanLocalCls(clsDir);
+    if (!localScan.ok) {
+      reconState = { ...reconState, loadedAt: Date.now(), error: `local scan failed: ${localScan.error}` };
+      pushState();
+      return;
+    }
+    const serverScan = await reconciliation.fetchServerCls(
+      config.workerUrl, config.authKey, config.showSlug, config.ringNum
+    );
+    if (!serverScan.ok) {
+      reconState = { ...reconState, loadedAt: Date.now(), error: `server fetch failed: ${serverScan.error}` };
+      pushState();
+      return;
+    }
+    const d = reconciliation.diff(localScan.files, serverScan.files, shouldUploadCls);
+    const inSync = d.localOnly.length === 0 && d.serverOnly.length === 0;
+    const prev = reconState;
+    const shapeChanged =
+      prev.localOnly.length !== d.localOnly.length ||
+      prev.serverOnly.length !== d.serverOnly.length;
+    reconState = {
+      loadedAt: Date.now(),
+      error: null,
+      inSync,
+      localOnly: d.localOnly,
+      serverOnly: d.serverOnly,
+      both: d.both,
+    };
+    if (shapeChanged) {
+      reconLastChangeAt = Date.now();
+      log(`[RECON] diff: ${d.localOnly.length} local-only, ${d.serverOnly.length} server-only, ${d.both} in both`);
+    }
+    pushState();
+  } catch (e) {
+    reconState = { ...reconState, loadedAt: Date.now(), error: `uncaught: ${e.message}` };
+    log(`[RECON UNCAUGHT] ${e.message}`);
+    pushState();
+  } finally {
+    reconRefreshing = false;
+  }
+}
+
+// Refresh showMeta from the worker. Sticky cache — a fetch failure leaves
+// the prior showMeta in place so a transient worker hiccup mid-show doesn't
+// open the gate. Called from startup, show-change, and a 5-min interval.
+async function fetchShowMeta() {
+  if (!configReady()) return;
+  if (showMetaFetching) return;
+  showMetaFetching = true;
+  try {
+    const { res, data } = await workerFetch(
+      `/v3/getShow?slug=${encodeURIComponent(config.showSlug)}`,
+      { headers: { 'X-West-Key': config.authKey } }
+    );
+    if (!res.ok || !data.ok || !data.show) {
+      showMetaLastError = (data && data.error) || `HTTP ${res.status}`;
+      log(`[SHOWMETA FETCH FAIL] ${showMetaLastError}`);
+      return;
+    }
+    showMeta = {
+      slug: data.show.slug,
+      start_date: data.show.start_date || null,
+      end_date: data.show.end_date || null,
+      is_test: !!data.show.is_test,
+      loadedAt: Date.now(),
+    };
+    showMetaLastError = null;
+    log(`Show meta: slug=${showMeta.slug} start=${showMeta.start_date || '—'} end=${showMeta.end_date || '—'} is_test=${showMeta.is_test ? 'YES' : 'no'}`);
+    pushState();
+  } catch (e) {
+    showMetaLastError = e.message;
+    log(`[SHOWMETA FETCH UNCAUGHT] ${e.message}`);
+  } finally {
+    showMetaFetching = false;
+  }
+}
+
 function classIdFromFilename(filename) {
   if (!filename.toLowerCase().endsWith('.cls')) return null;
   const base = filename.slice(0, -4);
@@ -751,6 +1037,26 @@ async function postClsFile(filename) {
   try { bytes = fs.readFileSync(full); }
   catch (e) { log(`[CLS READ FAIL] ${filename}: ${e.message}`); return; }
   if (!bytes.length) { log(`[CLS SKIP] ${filename}: empty`); return; }
+  // Date gate (3.1.7) — refuse uploads that fall outside the show's date
+  // envelope. Test shows and test classes bypass. See shouldUploadCls.
+  // 3.2.0: per-class one-shot override consumes here so the operator can
+  // approve a single gate-blocked file from the reconciliation pane.
+  let mtimeMs = 0;
+  try { mtimeMs = fs.statSync(full).mtimeMs; }
+  catch (e) { log(`[CLS STAT FAIL] ${filename}: ${e.message}`); /* fall through with mtime=0 — gate may still pass for test cases */ }
+  if (uploadOverrideClassIds.has(classId)) {
+    uploadOverrideClassIds.delete(classId);
+    log(`[CLS GATE OVERRIDE] ${filename} — operator-approved one-shot upload`);
+  } else {
+    const gate = shouldUploadCls(filename, mtimeMs, bytes);
+    if (!gate.allow) {
+      clsBlockedCount++;
+      lastClsBlocked = { filename, reason: gate.reason, at: Date.now() };
+      log(`[CLS BLOCKED] ${filename} — ${gate.reason} (mtime=${new Date(mtimeMs).toISOString()}, show ${showMeta && showMeta.start_date}→${showMeta && showMeta.end_date})`);
+      pushState();
+      return;
+    }
+  }
   try {
     const { res, data } = await workerFetch('/v3/postCls', {
       method: 'POST',
@@ -1142,10 +1448,12 @@ async function flushUdpEventBatch() {
 function startUdpListeners() {
   stopUdpListeners();
   if (!config) return;
-  const inputPort = detectedInputPort;
-  const focusPort = FOCUS_PORT;
-  const rsserverPort = inputPort + 1;
-  const rsserverHost = '127.0.0.1';
+  const eff = getEffectivePorts();
+  const inputPort    = eff.inputPort;
+  const focusPort    = eff.focusPort;
+  const rsserverPort = eff.rsserverPort;
+  const rsserverHost = eff.rsserverHost;
+  log(`[UDP] listen=${inputPort} (${eff.inputSource}), forward=${rsserverHost}:${rsserverPort} (${eff.rsserverHostSource} / ${eff.rsserverPortSource}), focus=${focusPort}`);
 
   // Shared outbound socket — one ephemeral bind, fan-out via .send().
   udpOutSocket = dgram.createSocket({ type: 'udp4' });
@@ -1363,7 +1671,7 @@ function buildTrayMenu() {
     { type: 'separator' },
     { label: 'Open window', click: showWindow },
     { type: 'separator' },
-    { label: 'Reload config', click: () => { loadConfig(); rebindWatchers(); pushState(); updateTrayTooltip(); } },
+    { label: 'Reload config', click: () => { loadConfig(); rebindWatchers(); fetchShowMeta().catch(() => {}); pushState(); updateTrayTooltip(); } },
     { label: 'Send heartbeat now', click: async () => { await sendHeartbeat(); updateTrayTooltip(); } },
     { label: 'Re-sync all .cls now', click: () => { syncAllCls().then(updateTrayTooltip); } },
     { label: 'Re-send tsked.csv now', click: async () => {
@@ -1371,6 +1679,19 @@ function buildTrayMenu() {
         await postTskedIfChanged('manual');
         updateTrayTooltip();
     }},
+    { type: 'separator' },
+    { label: 'Copy test URL', click: () => {
+        // Computes the URL from the live show state at click-time so the
+        // menu never needs to be rebuilt when the operator switches shows.
+        const t = computeTestUrl();
+        if (!t) {
+          dialog.showMessageBox({ type: 'info', message: 'No show selected — pick a show first to get its test URL.' });
+          return;
+        }
+        clipboard.writeText(t.url);
+        log(`Test URL copied to clipboard: ${t.url}`);
+    }},
+    { type: 'separator' },
     { label: 'Open log folder', click: () => shell.openPath(path.dirname(LOG_PATH)) },
     { type: 'separator' },
     { label: 'Exit', click: () => { isQuitting = true; app.quit(); } },
@@ -1487,11 +1808,20 @@ function setupIpc() {
     tskedLastHash = null;            // force re-post on switch
     holdState.clearForNewClass();    // don't carry HOLD target across shows
     currentFocus = null;             // and clear focus context
+    showMeta = null;                 // old show's date envelope must not gate new uploads
+    showMetaLastError = null;
     pushState();
     updateTrayTooltip();
-    // Fire heartbeat + sync immediately so the new pairing is reflected fast
+    // Fetch showMeta BEFORE syncing — the gate needs dates loaded so we
+    // don't dump foreign files onto the new show during the startup sync.
+    // Then re-run reconciliation so the renderer reflects the new show's
+    // diff immediately rather than waiting for the 60s interval.
     sendHeartbeat().catch(() => {});
-    syncAllCls().catch(() => {});
+    reconState = { loadedAt: 0, error: null, inSync: true, localOnly: [], serverOnly: [], both: 0 };
+    fetchShowMeta()
+      .then(() => syncAllCls())
+      .then(() => refreshReconciliation())
+      .catch(() => {});
     postTskedIfChanged('show-switch').catch(() => {});
     return { ok: true };
   });
@@ -1542,6 +1872,8 @@ function setupIpc() {
     tskedLastHash = null;
     holdState.clearForNewClass();
     currentFocus = null;
+    showMeta = null;                 // no show = no date envelope
+    showMetaLastError = null;
     pushState();
     updateTrayTooltip();
     return { ok: true };
@@ -1567,8 +1899,9 @@ function setupIpc() {
 
   ipcMain.handle('save-settings', async (_evt, patch) => {
     // Validate before writing — bad data here would brick the engine.
-    // Ports are NOT in this handler — they're auto-detected from
-    // config.dat per the v2 funnel rule. Only paths are editable.
+    // Paths + the optional UDP port overrides (3.1.9) are settable here.
+    // Each override is empty-string = clear (back to auto), otherwise a
+    // valid port number (1-65535) for ports or a non-empty host string.
     const errors = [];
     const updates = {};
     if (patch.clsDir !== undefined) {
@@ -1586,13 +1919,34 @@ function setupIpc() {
       if (!v) errors.push('ryegateConfPath cannot be empty');
       else updates.ryegateConfPath = v;
     }
+    // Port override fields — pass empty string to CLEAR (revert to
+    // auto-detect / default). Pass an integer 1-65535 to override.
+    for (const key of ['inputPortOverride', 'rsserverPortOverride']) {
+      if (patch[key] !== undefined) {
+        const raw = patch[key];
+        if (raw === '' || raw === null) {
+          updates[key] = null;
+        } else {
+          const n = parseInt(raw, 10);
+          if (!Number.isFinite(n) || n < 1 || n > 65535) {
+            errors.push(`${key} must be blank or 1-65535`);
+          } else {
+            updates[key] = n;
+          }
+        }
+      }
+    }
+    if (patch.rsserverHostOverride !== undefined) {
+      const v = String(patch.rsserverHostOverride || '').trim();
+      updates.rsserverHostOverride = v || null;
+    }
     if (errors.length) {
       return { ok: false, error: errors.join('; ') };
     }
     writeConfig(updates);
     log(`Settings saved: ${Object.keys(updates).join(', ')}`);
     loadConfig();             // re-detects port from new config.dat path
-    rebindWatchers();
+    rebindWatchers();         // restarts UDP listeners with new effective ports
     pushState();
     return { ok: true };
   });
@@ -1693,7 +2047,86 @@ function setupIpc() {
     // Admin lives on Pages preview, not the worker. Hardcoded for now.
     shell.openExternal('https://preview.westscoring.pages.dev/v3/pages/admin.html');
   });
+  ipcMain.on('open-test-url', () => {
+    const t = computeTestUrl();
+    if (t && t.url) shell.openExternal(t.url);
+  });
   ipcMain.on('minimize-to-tray', () => { if (win && !win.isDestroyed()) win.hide(); });
+
+  // ── Reconciliation handlers (3.2.0) ─────────────────────────────────────
+  // Renderer-triggered actions for the folder/website diff pane.
+  //
+  //   reconcile-refresh           — re-run the diff now (operator clicked
+  //                                 Refresh; bypasses the 60s interval).
+  //   reconcile-restore           — fetch /v3/downloadCls for each class_id
+  //                                 and write the bytes into the local
+  //                                 watch folder. The cls watcher will
+  //                                 pick them up on the next debounce tick
+  //                                 (or stays inert if mtime already
+  //                                 matches what the watcher saw last).
+  //   reconcile-upload-override   — flag class_ids for one-shot gate
+  //                                 bypass, then post each file. Used to
+  //                                 force-push files the date gate
+  //                                 refused (pre-built classes, etc).
+  ipcMain.handle('reconcile-refresh', async () => {
+    await refreshReconciliation();
+    return { ok: true };
+  });
+
+  ipcMain.handle('reconcile-restore', async (_evt, { class_ids } = {}) => {
+    if (!configReady()) return { ok: false, error: 'no show selected' };
+    if (!Array.isArray(class_ids) || !class_ids.length) {
+      return { ok: false, error: 'no class_ids supplied' };
+    }
+    const clsDir = config.clsDir || DEFAULT_CLS_DIR;
+    try { fs.mkdirSync(clsDir, { recursive: true }); } catch (e) {}
+    let restored = 0, failed = 0;
+    for (const cid of class_ids) {
+      if (!/^[A-Za-z0-9_-]{1,16}$/.test(String(cid))) { failed++; continue; }
+      try {
+        const url = `${config.workerUrl}/v3/downloadCls?slug=${encodeURIComponent(config.showSlug)}&ring=${config.ringNum}&class=${encodeURIComponent(cid)}`;
+        const res = await fetch(url, { headers: { 'X-West-Key': config.authKey } });
+        if (!res.ok) { failed++; log(`[RECON RESTORE FAIL] ${cid}: HTTP ${res.status}`); continue; }
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (!buf.length) { failed++; log(`[RECON RESTORE FAIL] ${cid}: empty body`); continue; }
+        fs.writeFileSync(path.join(clsDir, `${cid}.cls`), buf);
+        restored++;
+        log(`[RECON RESTORE OK] ${cid}.cls (${buf.length} bytes)`);
+      } catch (e) {
+        failed++;
+        log(`[RECON RESTORE UNCAUGHT] ${cid}: ${e.message}`);
+      }
+    }
+    // Don't re-upload what we just downloaded — the bytes already match
+    // server. Refresh the diff so the renderer reflects the new state.
+    await refreshReconciliation();
+    return { ok: true, restored, failed };
+  });
+
+  ipcMain.handle('reconcile-upload-override', async (_evt, { class_ids } = {}) => {
+    if (!configReady()) return { ok: false, error: 'no show selected' };
+    if (!Array.isArray(class_ids) || !class_ids.length) {
+      return { ok: false, error: 'no class_ids supplied' };
+    }
+    let uploaded = 0, failed = 0;
+    for (const cid of class_ids) {
+      if (!/^[A-Za-z0-9_-]{1,16}$/.test(String(cid))) { failed++; continue; }
+      uploadOverrideClassIds.add(String(cid));
+      const before = clsPostCount;
+      try {
+        await postClsFile(`${cid}.cls`);
+        if (clsPostCount > before) uploaded++; else failed++;
+      } catch (e) {
+        failed++;
+        log(`[RECON UPLOAD-OVERRIDE UNCAUGHT] ${cid}: ${e.message}`);
+      }
+      // postClsFile consumed the override on entry; clear any leftover
+      // (e.g. if it bailed before reading bytes).
+      uploadOverrideClassIds.delete(String(cid));
+    }
+    await refreshReconciliation();
+    return { ok: true, uploaded, failed };
+  });
 }
 
 function todayIsoDate() {
@@ -1792,12 +2225,33 @@ app.whenReady().then(() => {
     sendHeartbeat().then(updateTrayTooltip);
     startClsWatcher();
     startTskedWatcher();
-    syncAllCls().then(updateTrayTooltip).catch(e => log(`[SYNC UNCAUGHT] ${e.message}`));
+    // Load show meta BEFORE syncAllCls so the gate has dates to compare
+    // against. If the fetch fails, syncAllCls runs anyway (gate fails open
+    // when showMeta is null — the per-file watcher path catches up later).
+    // Then run the first reconciliation diff so the UI lights up on boot
+    // when the operator's pointed at a stale folder.
+    fetchShowMeta()
+      .then(() => syncAllCls())
+      .then(() => refreshReconciliation())
+      .then(updateTrayTooltip)
+      .catch(e => log(`[SYNC UNCAUGHT] ${e.message}`));
     postTskedIfChanged('startup').catch(e => log(`[TSKED STARTUP UNCAUGHT] ${e.message}`));
     backfillShowNameIfMissing().catch(() => {});
   } else {
     log('No show selected — heartbeat / .cls / tsked watchers paused until picker is used.');
   }
+  // Refresh showMeta every 5 min so admin edits (is_test flip, date moves)
+  // reach the gate without an engine restart. Sticky cache survives
+  // transient fetch failures.
+  setInterval(() => {
+    if (configReady()) fetchShowMeta().catch(() => {});
+  }, SHOWMETA_REFRESH_MS);
+  // 3.2.0 — folder/website reconciliation refresh on a 60s interval.
+  // Cheap when in-sync. Operator can also trigger via the renderer's
+  // "Refresh" button or get an immediate refresh after a show switch.
+  setInterval(() => {
+    if (configReady()) refreshReconciliation().catch(() => {});
+  }, RECONCILE_REFRESH_MS);
   // Adaptive heartbeat: 10s when UDP is firing (active scoring), 30s after
   // 5 min of UDP silence. Reverts to 10s the instant UDP wakes up. Cuts idle
   // worker traffic ~67% without sacrificing freshness during real shows.

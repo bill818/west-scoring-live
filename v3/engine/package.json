@@ -1,6 +1,6 @@
 {
   "name": "west-engine",
-  "version": "3.1.6",
+  "version": "3.2.0",
   "description": "WEST v3 scoring engine — heartbeat-only Phase 1 build.",
   "main": "main.js",
   "private": true,

@@ -74,6 +74,10 @@
     <span class="update-pill-icon">⬆</span>
     <span class="update-pill-text" id="updatePillText">Update</span>
   </button>
+  <button class="recon-pill" id="reconPill" type="button" hidden title="Folder doesn't match website — click to review">
+    <span class="recon-pill-icon">⚠</span>
+    <span class="recon-pill-text" id="reconPillText">Mismatch</span>
+  </button>
   <div class="health-pill" id="healthPill" title="Watchdog health (UDP listeners + watchers)">
     <span class="health-dot" id="healthDot"></span>
     <span class="health-pill-text" id="healthPillText">—</span>
@@ -147,6 +151,18 @@
       </div>
     </section>
 
+    <section class="pane test-url-pane" id="testUrlPane" hidden>
+      <h2 class="pane-title">
+        <span id="testUrlLabel">Test URL</span>
+        <span class="pane-title-hint" id="testUrlHint"></span>
+      </h2>
+      <div class="test-url-row">
+        <code class="test-url-val" id="testUrlVal">—</code>
+        <button class="btn-secondary" id="btnCopyTestUrl" title="Copy URL to clipboard">Copy</button>
+        <button class="btn-secondary" id="btnOpenTestUrl" title="Open in default browser">Open</button>
+      </div>
+    </section>
+
     <section class="pane status-pane">
       <h2 class="pane-title">Status</h2>
       <div class="status-grid">
@@ -177,6 +193,39 @@
       </div>
     </section>
 
+    <section class="pane recon-pane" id="reconPane" hidden>
+      <h2 class="pane-title">
+        Folder vs website
+        <span class="pane-title-hint" id="reconSummary">—</span>
+        <button class="btn-secondary btn-tiny" id="btnReconRefresh" title="Re-run the diff now">↻ Refresh</button>
+      </h2>
+      <div class="recon-error" id="reconError" hidden></div>
+      <div class="recon-section" id="reconServerOnly" hidden>
+        <div class="recon-section-head">
+          <strong>On website, not local</strong>
+          <span class="recon-section-hint">Files the engine could pull down — useful after a PC swap or accidental folder wipe.</span>
+        </div>
+        <ul class="recon-list" id="reconServerOnlyList"></ul>
+        <div class="recon-actions">
+          <label class="recon-bulk"><input type="checkbox" id="reconServerOnlyAll" checked> Select all</label>
+          <button class="btn-secondary" id="btnReconRestore">↓ Restore selected</button>
+          <span class="recon-status" id="reconRestoreStatus"></span>
+        </div>
+      </div>
+      <div class="recon-section" id="reconLocalOnly" hidden>
+        <div class="recon-section-head">
+          <strong>Local, not on website</strong>
+          <span class="recon-section-hint">Files in the Ryegate folder that haven't uploaded. Date-gate decisions shown — uncheck to skip a file, check to force-upload anyway.</span>
+        </div>
+        <ul class="recon-list" id="reconLocalOnlyList"></ul>
+        <div class="recon-actions">
+          <label class="recon-bulk"><input type="checkbox" id="reconLocalOnlyAll"> Select all</label>
+          <button class="btn-secondary" id="btnReconUploadOverride">↑ Upload selected (override gate)</button>
+          <span class="recon-status" id="reconUploadStatus"></span>
+        </div>
+      </div>
+    </section>
+
     <section class="pane events-pane">
       <h2 class="pane-title">
         Recent events
@@ -202,23 +251,36 @@
       <h2 class="pane-title">
         Routing
         <span class="pane-title-hint">UDP in → RSServer relay</span>
+        <label class="sb-routing-lock" title="Uncheck to edit. Re-check when finished to prevent accidental changes during a show.">
+          <input type="checkbox" id="sbRoutingLock" checked>
+          <span>🔒 Lock fields</span>
+        </label>
       </h2>
       <div class="sb-routing-grid">
         <div class="sb-route">
           <span class="sb-route-label">Listen (Ryegate → engine)</span>
-          <span class="sb-route-val" id="sbInputPort">—</span>
+          <input class="sb-route-input" id="sbInputPortInput" type="number" min="1" max="65535" placeholder="—" title="UDP port the engine listens on for Ryegate scoring frames. Blank = auto-detect from Ryegate config.dat.">
           <span class="sb-route-source" id="sbInputSource">auto from config.dat</span>
         </div>
         <div class="sb-route">
-          <span class="sb-route-label">Forward (engine → RSServer)</span>
-          <span class="sb-route-val" id="sbRsserverPort">—</span>
-          <span class="sb-route-source">listen + 1</span>
+          <span class="sb-route-label">Forward — host (engine → RSServer)</span>
+          <input class="sb-route-input sb-route-input-host" id="sbRsserverHostInput" type="text" placeholder="127.0.0.1" title="Host the engine forwards scoreboard frames to. Blank = 127.0.0.1 (RSServer running on this same PC).">
+          <span class="sb-route-source" id="sbRsserverHostSource">localhost</span>
+        </div>
+        <div class="sb-route">
+          <span class="sb-route-label">Forward — port</span>
+          <input class="sb-route-input" id="sbRsserverPortInput" type="number" min="1" max="65535" placeholder="listen + 1" title="UDP port RSServer is listening on. Blank = listen port + 1.">
+          <span class="sb-route-source" id="sbRsserverPortSource">listen + 1</span>
         </div>
         <div class="sb-route">
           <span class="sb-route-label">Focus (Ryegate → engine)</span>
           <span class="sb-route-val">31000</span>
           <span class="sb-route-source">fixed</span>
         </div>
+      </div>
+      <div class="sb-routing-hint" id="sbRoutingHint">
+        Leave a field blank to use the default (shown as placeholder). Changes save and rebind UDP listeners immediately.
+        <span class="sb-routing-status" id="sbRoutingStatus"></span>
       </div>
       <div class="sb-routing-actions">
         <button class="btn-secondary" id="btnPauseForwarding">⏸ Disable pass-through</button>
