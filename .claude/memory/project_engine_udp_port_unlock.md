@@ -1,10 +1,10 @@
 ---
-name: NEXT engine update — unlock UDP ports (manual override)
-description: Slated for the next engine release push. Default stays config.dat auto-detect; add manual override fields so operators can change the listen + relay ports without editing Ryegate files.
+name: UDP port manual override — DONE 2026-05-11 (engine v3.1.9)
+description: Shipped. Routing pane on Scoreboard tab has editable Listen / Forward host / Forward port inputs with a Lock checkbox. Blank = auto-detect.
 type: project
 originSessionId: 2c0d6cb2-afca-4968-8604-3704ce41ab60
 ---
-**Status:** Pinned for the next engine update push. Bill 2026-05-10.
+**SHIPPED 2026-05-11 in engine v3.1.9.** Bill 2026-05-10.
 
 **What ships:**
 - Unlock UDP port selection in the engine UI.
