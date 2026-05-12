@@ -4491,11 +4491,11 @@ export default {
     if (method === 'GET' && path === '/v3/engineLatest') {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const ENGINE_LATEST = {
-              version: '3.1.6',
-              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.1.6.asar',
-              sha256:  'adcd43a4757d6095eaff5ee6169da0b203bb5d8879595c8296c719af16470eec',
-              releasedAt: '2026-05-10T00:45:19.034Z',
-              releaseNotes: 'Flush live now wipes EVERY class off the live page (including finalized) with a 15-second cooldown to absorb trailing .cls writes from class-close. Worker-side fixes: Channel B {29}=F always wins (no more race-condition un-finalize), un-finalize requires same B+intro pair as live trigger, stale focus carries forward only within 20 minutes, hunter score box now shows the actually-displayed round (not just the highest scored), per-judge breakdown follows the displayed round.',
+              version: '3.2.0',
+              asarUrl: 'https://preview.westscoring.pages.dev/engine/3.2.0.asar',
+              sha256:  'aad17b7a4824cb04d643f5b22bbee7066fd80e6dd54079444b7bea4a76690865',
+              releasedAt: '2026-05-12T00:20:49.363Z',
+              releaseNotes: 'Folder vs website reconciliation: engine diffs the local Ryegate folder against the websites R2 inventory every 60s. Amber Mismatch pill in the title bar when out of sync. New pane on the Status tab lists files on website but not local (one-click Restore selected pulls them down, useful after a PC swap) and files local but not on website (Upload selected override-gate for pre-built classes or operator-approved files the date gate refused).',
             };
       return json({ manifest: ENGINE_LATEST });
     }
@@ -4509,8 +4509,11 @@ export default {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       try {
+        // Public index endpoint — TEST shows are filtered out. They're still
+        // reachable by direct slug URL so operators can verify scoreboards,
+        // but they don't appear in the homepage list.
         const { results: showRows } = await env.WEST_DB_V3.prepare(
-          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, is_test, created_at, updated_at FROM shows WHERE is_test = 0 ORDER BY start_date DESC, id DESC'
         ).all();
         const shows = (showRows || []);
         for (const s of shows) s.is_locked = computeShowLock(s).locked ? 1 : 0;
@@ -4532,11 +4535,14 @@ export default {
         let classes = [];
         if (ringIds.length) {
           const cph = ringIds.map(() => '?').join(',');
+          // Test classes are filtered out — they're sandbox runs, not
+          // real classes the public should see in the index preview.
           const { results: cRows } = await env.WEST_DB_V3.prepare(
             `SELECT c.id, c.ring_id, c.class_id, c.class_name, c.scheduled_date, c.class_type,
                     (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
              FROM classes c
              WHERE c.ring_id IN (${cph}) AND (c.deleted_at IS NULL)
+                   AND (c.is_test = 0 OR c.is_test IS NULL)
              ORDER BY c.scheduled_date DESC NULLS LAST, c.class_id DESC`
           ).bind(...ringIds).all();
           classes = (cRows || []).filter(c => (c.entry_count || 0) > 0);
@@ -4835,7 +4841,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       try {
         const { results } = await env.WEST_DB_V3.prepare(
-          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, is_test, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
         ).all();
         const shows = results || [];
         // Computed lock state — admin sidebar reads is_locked directly,
@@ -4873,7 +4879,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, is_test } = body;
       if (!slug) return err('Missing slug');
       if (!/^[a-z][a-z0-9-]{2,59}$/.test(slug)) {
         return err('Invalid slug — must match ^[a-z][a-z0-9-]{2,59}$');
@@ -4883,14 +4889,19 @@ export default {
       const statsVal = stats_eligible === false || stats_eligible === 0 ? 0 : 1;
       const tzVal = (timezone && typeof timezone === 'string' && timezone.trim()) ? timezone.trim() : 'America/New_York';
       const layoutVal = (results_layout === 'inline' || results_layout === 'stacked') ? results_layout : 'stacked';
+      // is_test: explicit param wins; otherwise auto-detect from name (any case).
+      // TEST shows skip the engine date gate and are filtered from the public index.
+      const isTestVal = (is_test === true || is_test === 1) ? 1
+                      : (is_test === false || is_test === 0) ? 0
+                      : (/test/i.test(name) ? 1 : 0);
       try {
         await env.WEST_DB_V3.prepare(`
-          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO shows (slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, is_test)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           slug, name.trim(), start_date || null, end_date || null,
           (venue || '').trim() || null, (location || '').trim() || null,
-          statusVal, statsVal, tzVal, layoutVal
+          statusVal, statsVal, tzVal, layoutVal, isTestVal
         ).run();
         const show = await env.WEST_DB_V3.prepare(
           'SELECT * FROM shows WHERE slug = ?'
@@ -4938,7 +4949,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config, split_decision_top_n, lock_override } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config, split_decision_top_n, lock_override, is_test } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
@@ -4993,6 +5004,10 @@ export default {
           return err("Invalid lock_override — must be 'auto', 'unlocked', or 'locked'");
         }
         updates.push('lock_override = ?'); binds.push(lock_override);
+      }
+      if (is_test !== undefined) {
+        updates.push('is_test = ?');
+        binds.push((is_test === true || is_test === 1) ? 1 : 0);
       }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
@@ -5134,6 +5149,11 @@ export default {
       try { parsed = parseClsHeaderV3(bytes); }
       catch (e) { parsed = { class_type: 'U', class_name: null, parse_status: 'parse_error', parse_notes: 'parser threw: ' + e.message }; }
       let classDbId = null;
+      // Class-level TEST flag — set when the parsed class_name contains
+      // "test" (case-insensitive). Operators flag a class as test by
+      // naming it "TEST", "TEST 1", "TEST scoreboard run", etc. Public
+      // class lists filter is_test=1 out; the ?test=1 URL reveals them.
+      const isTestClass = parsed.class_name && /test/i.test(parsed.class_name) ? 1 : 0;
       try {
         await env.WEST_DB_V3.prepare(`
           INSERT INTO classes (show_id, ring_id, class_id, class_name, class_type,
@@ -5146,8 +5166,8 @@ export default {
                                is_team, show_all_rounds, ribbons_only,
                                r1_time_allowed, r2_time_allowed, r3_time_allowed,
                                parse_status, parse_notes,
-                               r2_key, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                               r2_key, is_test, first_seen_at, parsed_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name         = excluded.class_name,
             class_type         = excluded.class_type,
@@ -5177,6 +5197,7 @@ export default {
             parse_status       = excluded.parse_status,
             parse_notes        = excluded.parse_notes,
             r2_key             = excluded.r2_key,
+            is_test            = excluded.is_test,
             parsed_at          = datetime('now'),
             deleted_at         = NULL
         `).bind(
@@ -5209,6 +5230,7 @@ export default {
           parsed.parse_status || 'parse_error',
           parsed.parse_notes || null,
           r2Key,
+          isTestClass,
         ).run();
         const row = await env.WEST_DB_V3.prepare(
           'SELECT id FROM classes WHERE show_id = ? AND ring_id = ? AND class_id = ?'
@@ -5591,21 +5613,29 @@ export default {
       }});
     }
 
-    // ── GET /v3/listClasses?slug=X[&ring=N] ──────────────────────────────────
+    // ── GET /v3/listClasses?slug=X[&ring=N][&include_test=1] ─────────────────
     // Returns classes for a show (optionally filtered to one ring). Includes
     // ring_num for convenience so the admin can group client-side without
     // extra lookups.
+    //
+    // Test-class filtering: by default, classes with is_test=1 are hidden
+    // (operator named them "TEST" / "TEST 1" / etc — sandbox scoreboard runs).
+    // Pass include_test=1 to reveal them — show.html does this when the URL
+    // carries ?test=1, and admin.html always passes it so the operator sees
+    // every class regardless of name.
     if (method === 'GET' && path === '/v3/listClasses') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       const ringStr = url.searchParams.get('ring');
+      const includeTest = url.searchParams.get('include_test') === '1';
       if (!slug) return err('Missing slug');
       try {
         const show = await env.WEST_DB_V3.prepare(
           'SELECT id FROM shows WHERE slug = ?'
         ).bind(slug).first();
         if (!show) return err('Show not found', 404);
+        const testFilter = includeTest ? '' : ' AND (c.is_test = 0 OR c.is_test IS NULL)';
         let query, params;
         if (ringStr !== null && ringStr !== undefined) {
           const ringNum = parseInt(ringStr, 10);
@@ -5622,7 +5652,7 @@ export default {
           // on class_id keeps "9" before "10" in fallback ordering.
           query = `SELECT c.*, ? AS ring_num,
                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
-                   FROM classes c WHERE c.ring_id = ?
+                   FROM classes c WHERE c.ring_id = ?${testFilter}
                    ORDER BY c.scheduled_date IS NULL, c.scheduled_date,
                             c.schedule_order IS NULL, c.schedule_order,
                             CAST(c.class_id AS INTEGER), c.class_id`;
@@ -5631,7 +5661,7 @@ export default {
           query = `SELECT c.*, r.ring_num,
                    (SELECT COUNT(*) FROM entries WHERE class_id = c.id) AS entry_count
                    FROM classes c JOIN rings r ON r.id = c.ring_id
-                   WHERE c.show_id = ?
+                   WHERE c.show_id = ?${testFilter}
                    ORDER BY r.ring_num, c.scheduled_date IS NULL, c.scheduled_date,
                             c.schedule_order IS NULL, c.schedule_order,
                             CAST(c.class_id AS INTEGER), c.class_id`;
@@ -5757,6 +5787,55 @@ export default {
           'Content-Disposition': `attachment; filename="${cls}.cls"`,
         },
       });
+    }
+
+    // ── GET /v3/listCls?slug=X&ring=N ────────────────────────────────────────
+    // Returns the R2 .cls inventory for (slug, ring). Used by the engine
+    // reconciliation flow: engine compares its local folder against this
+    // list and surfaces mismatches (foreign files, missing-on-website,
+    // missing-locally) in the task tray.
+    //
+    // Each entry: { class_id, size, uploaded, etag }
+    //   uploaded = R2 PUT timestamp (ISO string). Approximates "last
+    //              upload to website" — NOT the local file's mtime.
+    //   etag     = R2 etag (MD5 of contents for single-part puts).
+    //              Engine can compare against an MD5 of its local file
+    //              to detect drift without re-downloading.
+    //
+    // Paginated through cursor — rings with >1000 classes are rare but
+    // the loop handles it cleanly.
+    if (method === 'GET' && path === '/v3/listCls') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      const slug = url.searchParams.get('slug');
+      const ring = url.searchParams.get('ring');
+      if (!slug || !ring) return err('Missing slug or ring');
+      const ringNumInt = parseInt(ring, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring');
+      const prefix = `${slug}/${ringNumInt}/`;
+      const files = [];
+      try {
+        let cursor;
+        do {
+          const listed = await env.WEST_R2_CLS.list({ prefix, cursor });
+          for (const obj of (listed.objects || [])) {
+            // Key format: "<slug>/<ring>/<class_id>.cls".
+            // Strip prefix + ".cls" suffix to recover class_id.
+            const tail = obj.key.slice(prefix.length);
+            if (!tail.endsWith('.cls')) continue;
+            const class_id = tail.slice(0, -4);
+            const etag = (obj.etag || '').replace(/^"|"$/g, '');
+            files.push({
+              class_id,
+              size: obj.size,
+              uploaded: obj.uploaded instanceof Date ? obj.uploaded.toISOString() : String(obj.uploaded || ''),
+              etag,
+            });
+          }
+          cursor = listed.truncated ? listed.cursor : null;
+        } while (cursor);
+      } catch (e) { return err('R2 list failed: ' + e.message); }
+      return json({ ok: true, slug, ring: ringNumInt, files });
     }
 
     // ── POST /v3/postTsked ───────────────────────────────────────────────────
@@ -6606,6 +6685,7 @@ export default {
           WHERE c.show_id = ?
             AND c.class_type IN ('J','T')
             AND c.deleted_at IS NULL
+            AND (c.is_test = 0 OR c.is_test IS NULL)
         `).bind(show.id).first();
 
         // Top riders — Blues (1st), Clears (rounds with 0 total faults +
@@ -6631,6 +6711,7 @@ export default {
           WHERE c.show_id = ?
             AND c.class_type IN ('J','T')
             AND c.deleted_at IS NULL
+            AND (c.is_test = 0 OR c.is_test IS NULL)
             AND e.rider_name IS NOT NULL AND TRIM(e.rider_name) != ''
           GROUP BY UPPER(TRIM(e.rider_name))
           HAVING blues > 0 OR top3 > 0 OR clears > 0
@@ -6664,6 +6745,7 @@ export default {
           WHERE c.show_id = ?
             AND c.class_type IN ('J','T')
             AND c.deleted_at IS NULL
+            AND (c.is_test = 0 OR c.is_test IS NULL)
             AND e.horse_name IS NOT NULL AND TRIM(e.horse_name) != ''
           GROUP BY UPPER(TRIM(e.horse_name))
           HAVING money_won > 0
@@ -6685,6 +6767,7 @@ export default {
             AND c.class_type IN ('J','T')
             AND c.is_championship = 1
             AND c.deleted_at IS NULL
+            AND (c.is_test = 0 OR c.is_test IS NULL)
             AND s.overall_place IN (1, 2)
           ORDER BY c.scheduled_date IS NULL, c.scheduled_date, CAST(c.class_id AS INTEGER), s.overall_place
         `).bind(show.id).all();
@@ -6720,6 +6803,7 @@ export default {
           WHERE c.show_id = ?
             AND c.class_type IN ('J','T')
             AND c.deleted_at IS NULL
+            AND (c.is_test = 0 OR c.is_test IS NULL)
             AND e.rider_name IS NOT NULL AND TRIM(e.rider_name) != ''
             AND e.horse_name IS NOT NULL AND TRIM(e.horse_name) != ''
           GROUP BY UPPER(TRIM(e.rider_name))

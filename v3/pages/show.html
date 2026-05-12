@@ -32,6 +32,16 @@
   <span class="bc-current" id="bcCurrent">…</span>
 </nav>
 
+<div id="testShowBanner" class="test-show-banner" style="display:none;">
+  <span class="test-show-banner-tag">TEST</span>
+  <span class="test-show-banner-text">This is a sandbox show used to verify scoring, scoreboards, or overlays. It's not listed on the public homepage and the engine accepts uploads anytime regardless of show dates.</span>
+</div>
+
+<div id="testClassBanner" class="test-show-banner" style="display:none;">
+  <span class="test-show-banner-tag">TEST</span>
+  <span class="test-show-banner-text">Test mode — viewing classes that are normally hidden from the public show page. Real classes are still visible too. Remove <code>?test=1</code> from the URL to return to the public view.</span>
+</div>
+
 <div id="hero" class="show-hero">
   <div class="spinner" style="grid-column: 1 / 4;"></div>
 </div>
@@ -106,6 +116,11 @@ function renderHero(show) {
   const status = deriveStatus(show);
   const dates = fmtDateRange(show);
   const initials = showInitials(show.name);
+
+  // TEST show banner — visible on any sandbox show so anyone who lands
+  // here by direct URL knows this isn't a real event.
+  const testBanner = document.getElementById('testShowBanner');
+  if (testBanner) testBanner.style.display = show.is_test ? '' : 'none';
 
   // Logo source priority: admin-uploaded R2 URL first, then file
   // convention. If both fail, the cell falls back to a placeholder
@@ -315,6 +330,7 @@ function renderRings(rings, classes) {
     return;
   }
   const slug = getSlug();
+  const testMode = WEST.api.queryParam('test') === '1';
   const counts = countByRing(classes);
   const recent = recentClassesByRing(classes);
 
@@ -347,13 +363,16 @@ function renderRings(rings, classes) {
         <div class="ring-preview-title">Recent classes</div>
         <ul class="ring-class-list">`;
       for (const c of ringRecent) {
-        const classUrl = `class.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
+        let classUrl = `class.html?slug=${encodeURIComponent(slug)}&ring=${r.ring_num}&class=${encodeURIComponent(c.class_id)}`;
+        if (testMode) classUrl += '&test=1';
         const isLive = liveSet.has(String(c.class_id));
         const rowCls = isLive ? 'ring-class is-live' : 'ring-class';
         const dot = isLive ? '<span class="cls-live-dot"></span>' : '';
+        const testTag = c.is_test ? '<span class="ring-class-test-tag">TEST</span>' : '';
         preview += `<li><a class="${rowCls}" href="${classUrl}">
           <span class="cls-num">${dot}${escapeHtml(c.class_id)}</span>
           <span class="cls-name">${escapeHtml(c.class_name || '—')}</span>
+          ${testTag}
         </a></li>`;
       }
       preview += '</ul></div>';
@@ -428,12 +447,29 @@ async function load() {
     showHeroError('No show specified', 'Add ?slug=&lt;slug&gt; to the URL');
     return;
   }
+  // ?test=1 — reveal test classes that are normally hidden from the public
+  // class list. Operator uses this on their broadcast PC to verify
+  // scoreboard rendering against a test class without exposing the test
+  // data on the public homepage / show page.
+  const testMode = WEST.api.queryParam('test') === '1';
   try {
+    const classesUrl = testMode
+      ? `/v3/listClasses?slug=${encodeURIComponent(slug)}&include_test=1`
+      : `/v3/listClasses?slug=${encodeURIComponent(slug)}`;
     const [showRes, ringsRes, classesRes] = await Promise.all([
       fetchJson(`/v3/getShow?slug=${encodeURIComponent(slug)}`),
       fetchJson(`/v3/listRings?slug=${encodeURIComponent(slug)}`),
-      fetchJson(`/v3/listClasses?slug=${encodeURIComponent(slug)}`),
+      fetchJson(classesUrl),
     ]);
+    // Test-mode banner: shown when ?test=1 reveals test classes on a real
+    // show. The TEST-show banner (above the hero) handles the
+    // show.is_test=1 case independently — both can render together for
+    // a TEST show being viewed with ?test=1, which is fine.
+    const testClassBanner = document.getElementById('testClassBanner');
+    const hasTestClasses = (classesRes.classes || []).some(c => c.is_test);
+    if (testClassBanner) {
+      testClassBanner.style.display = (testMode && hasTestClasses && !showRes.show.is_test) ? '' : 'none';
+    }
     renderHero(showRes.show);
     // Pass the raw classes array — renderRings derives both counts and
     // recent-classes from it (the previous signature took a pre-computed

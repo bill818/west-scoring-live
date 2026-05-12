@@ -147,6 +147,13 @@ header{background:var(--black);border-bottom:3px solid var(--red);position:stick
 .show-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .show-date{display:block;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);}
 .show-lock{font-size:12px;flex-shrink:0;opacity:.75;}
+.show-test{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;padding:2px 5px;border-radius:3px;background:var(--blue-bg);color:var(--blue);flex-shrink:0;font-weight:600;}
+.test-show-banner{background:var(--amber-bg);color:var(--amber);padding:10px 16px;border-left:4px solid var(--amber);border-radius:4px;margin:12px 16px 0;display:flex;align-items:center;gap:10px;font-size:13px;}
+.test-show-banner-tag{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;font-weight:700;padding:3px 7px;background:var(--amber);color:#fff;border-radius:3px;flex-shrink:0;}
+.test-show-banner-text{flex:1;line-height:1.4;}
+.test-show-banner-text code{font-family:var(--font-mono);font-size:11px;background:rgba(180,83,9,0.12);padding:1px 4px;border-radius:2px;}
+.ring-class-test-tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;padding:1px 5px;border-radius:2px;background:var(--amber-bg);color:var(--amber);font-weight:700;margin-left:6px;}
+.class-test-badge{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;padding:1px 5px;border-radius:2px;background:var(--amber-bg);color:var(--amber);font-weight:700;margin-left:6px;vertical-align:middle;}
 
 .system{margin-top:24px;padding-top:16px;border-top:1px solid var(--border);}
 .system-header{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding:4px 10px;margin-bottom:4px;}
@@ -280,6 +287,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);}
 .form-group{margin-bottom:16px;}
 .form-group label{display:block;font-size:12px;font-weight:500;color:var(--text-body);margin-bottom:6px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.05em;}
 .form-group input{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;}
+.form-group input[type="checkbox"]{width:auto;padding:0;margin-right:6px;vertical-align:middle;}
 .form-group input:focus{outline:2px solid var(--blue);outline-offset:-1px;}
 .form-group select{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px;background:#fff;}
 .form-group input.input-readonly{background:var(--off-white);color:var(--text-muted);cursor:not-allowed;}

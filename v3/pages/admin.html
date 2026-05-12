@@ -262,6 +262,10 @@
       </div>
     </div>
     <div class="form-group">
+      <label><input type="checkbox" id="f_showIsTest"> Test show (sandbox)</label>
+      <div class="form-hint">Hidden from the public homepage. Engine skips the start/end date gate so you can test anytime with any folder contents. Reachable by direct URL — operator pages still work normally.</div>
+    </div>
+    <div class="form-group">
       <label for="f_showLockOverride">Engine lock</label>
       <select id="f_showLockOverride">
         <option value="auto">Auto — locks after end date (recommended)</option>
@@ -571,12 +575,16 @@ function renderSidebar() {
       const lockIcon = s.is_locked
         ? `<span class="show-lock" title="${lockTitle}">🔒</span>`
         : '';
+      const testPill = s.is_test
+        ? `<span class="show-test" title="Test show — hidden from public homepage">TEST</span>`
+        : '';
       li.innerHTML = `
         <span class="show-dot ${dotClass}"></span>
         <div class="show-item-body">
           <span class="show-name">${escapeHtml(s.name)}</span>
           <span class="show-date">${fmtDateRange(s)}</span>
         </div>
+        ${testPill}
         ${lockIcon}`;
       li.addEventListener('click', () => selectShow(s.slug));
       ul.appendChild(li);
@@ -630,7 +638,7 @@ async function loadRings(slug) {
 
 async function loadClasses(slug) {
   try {
-    const { classes } = await api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}`);
+    const { classes } = await api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}&include_test=1`);
     state.classes = classes;
     renderClasses();
   } catch (e) {
@@ -724,11 +732,14 @@ function renderClasses() {
       : 'no entries';
     const countCls = entryCount > 0 ? 'class-count' : 'class-count class-count-empty';
     const countBadge = `<span class="${countCls}">${countText}</span>`;
+    const testBadge = c.is_test
+      ? `<span class="class-test-badge" title="Test class — hidden from public show page; bypasses engine date gate">TEST</span>`
+      : '';
     let rowHtml = `<li class="class-row-wrap${expanded ? ' expanded' : ''}">
       <div class="class-row${statusClass}" data-class-db-id="${c.id}">
         <span class="class-id">${escapeHtml(c.class_id)}</span>
         <span class="class-type-badge ${typeClass}">${escapeHtml(c.class_type || '?')}</span>
-        <span class="class-name-cell"><span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>${flagBadge}</span>
+        <span class="class-name-cell"><span class="class-name">${escapeHtml(c.class_name || '(no name)')}</span>${flagBadge}${testBadge}</span>
         <span class="class-method">${escapeHtml(methodStr)}</span>
         ${countBadge}
       </div>`;
@@ -1162,6 +1173,7 @@ function openShowDialog(mode, show) {
   document.getElementById('f_showLayout').value        = s.results_layout || 'stacked';
   document.getElementById('f_showStatus').value        = s.status        || 'pending';
   document.getElementById('f_showStatsEligible').checked = s.stats_eligible === 0 ? false : true;
+  document.getElementById('f_showIsTest').checked      = !!s.is_test;
   document.getElementById('f_showLockOverride').value  = s.lock_override || 'auto';
   document.getElementById('f_showError').classList.remove('visible');
 
@@ -1268,6 +1280,20 @@ document.getElementById('btnRemoveLogo').addEventListener('click', async () => {
   }
 });
 
+// Slug input lowercase mask — coerce as the operator types so any
+// uppercase letters (Roman numerals like II, etc.) auto-fold to the
+// lowercase-only slug rule without tripping the validator. Preserves
+// the cursor position so the caret doesn't jump to the end mid-edit.
+document.getElementById('f_showSlug').addEventListener('input', (e) => {
+  const el = e.target;
+  const lower = el.value.toLowerCase();
+  if (lower !== el.value) {
+    const pos = el.selectionStart;
+    el.value = lower;
+    try { el.setSelectionRange(pos, pos); } catch (err) {}
+  }
+});
+
 document.getElementById('btnCreateShow').addEventListener('click', () => openShowDialog('create'));
 document.getElementById('btnEditShow').addEventListener('click', () => {
   const show = state.shows.find(s => s.slug === state.selectedSlug);
@@ -1285,6 +1311,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
   const results_layout = document.getElementById('f_showLayout').value;
   const status   = document.getElementById('f_showStatus').value;
   const stats_eligible = document.getElementById('f_showStatsEligible').checked ? 1 : 0;
+  const is_test = document.getElementById('f_showIsTest').checked ? 1 : 0;
   const errEl = document.getElementById('f_showError');
   errEl.classList.remove('visible');
   if (!name) { errEl.textContent = 'Name is required.'; errEl.classList.add('visible'); return; }
@@ -1294,7 +1321,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
   }
   try {
     const lock_override = document.getElementById('f_showLockOverride').value;
-    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible, lock_override };
+    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible, lock_override, is_test };
     if (showDialogMode === 'edit') {
       await api('POST', '/v3/updateShow', payload);
       WEST.drawer.close('dlgShow');
@@ -1414,7 +1441,7 @@ async function loadManagerReport() {
   try {
     const [reportRes, classesRes] = await Promise.all([
       fetch(`${BASE}/v3/ringActivityReport?${params.toString()}`).then(r => r.json()),
-      api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}`),
+      api('GET', `/v3/listClasses?slug=${encodeURIComponent(slug)}&include_test=1`),
     ]);
     if (!reportRes.ok) throw new Error(reportRes.error || 'Report failed');
     renderManagerReport(reportRes, classesRes.classes || [], { from, to, ring });
