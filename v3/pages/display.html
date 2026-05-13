@@ -1189,6 +1189,10 @@
   // hand-pulls tags inline; pinned to migrate when its next refactor
   // lands — same data path, same module-load order.)
   function renderOnCourseCard(meta, lens, focused, snap) {
+    // Class final → hide the on-course card entirely. No rider is on
+    // course once the operator hits CLASS_COMPLETE; showing the last
+    // horse + clock implies the class is still live. Bill 2026-05-13.
+    if (snap && snap.is_final) return '';
     var fp = snap && snap.focus_preview;
     var out = '<div class="sb-section">';
     out += '<div class="sb-label">On Course</div>';
@@ -1281,6 +1285,10 @@
   // r1_total_time) was papering over the worker's decisions and got
   // dropped 2026-05-13 in the centralization pass.
   function renderPreviousCard(meta, lens, focused, snap) {
+    // Class final → hide the previous card too. Once the class is over,
+    // "Previous" rider is just stale context; the standings panel carries
+    // the actual results. Bill 2026-05-13.
+    if (snap && snap.is_final) return '';
     var pe = snap && snap.previous_entry;
     if (!pe || !pe.entry_num) return '';
     if (!Array.isArray(pe.banner_slots) || !pe.banner_slots.length) return '';
