@@ -37,7 +37,7 @@
     6:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },           // IV.1 Optimum (mod=1 → [1,2])
     7:  { scoreRounds:[1],   tiebreak:null, wipesOnFail:{} },           // Timed Equitation
     9:  { scoreRounds:[1,2], tiebreak:null, wipesOnFail:{2:[1]} },      // II.2d two-phase (ladder, one ride)
-    11: { scoreRounds:[1,2], tiebreak:null, wipesOnFail:{} },           // II.2c qualifier advance (no ladder — PH2 fail keeps PH1)
+    11: { scoreRounds:[1],   tiebreak:2,    wipesOnFail:{} },           // II.2c qualifier advance — clear PH1 → placed; PH2 is tiebreak only. Mirrors II.2b (method 13). Bill 2026 confirmed: Old Salem class 424 RT'd PH2 entry was getting place 17 from Ryegate but rendering as "—". Prior rule (scoreRounds:[1,2]) contradicted the "PH2 fail keeps PH1" intent in the comment.
     13: { scoreRounds:[1],   tiebreak:2,    wipesOnFail:{} },           // II.2b Immediate JO
     14: { scoreRounds:[1,2], tiebreak:3,    wipesOnFail:{2:[1]} },      // Team (ladder)
     15: { scoreRounds:[2],   tiebreak:null, wipesOnFail:{} },           // Winning Round (R2 IS the final)
