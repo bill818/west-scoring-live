@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ring Display · WEST Scoring v3</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<!-- west.css is linked for the central font @imports (Adobe kit + Inter).
+     Palette tokens are OVERRIDDEN below for the dark kiosk theme. The
+     standings tables (.results-table) inherit the typography but get
+     re-skinned via the dark overrides at the bottom of this <style>. -->
+<link rel="stylesheet" href="west.css">
+<style>
+  /* ── DARK PALETTE — kiosk takeover ──────────────────────────────────── */
+  :root {
+    --bg:           #0a0e1a;
+    --card:         #111827;
+    --card-2:       #0f1726;
+    --border:       #1e2940;
+    --border-2:     #2a3550;
+    --text-body:    #f0f0f0;
+    --text-muted:   #8b94a8;
+    --text-faint:   #8088a0;          /* bumped from #5a6478 — 5a was 2.98:1 on card, too dim for kiosk reading */
+    --off-white:    #0f1726;          /* used by .results-table thead bg — re-aimed to card-2 */
+    --white:        #111827;          /* used by .results-table bg — re-aimed to card */
+    --black:        #000000;
+    --red:          #b82025;
+    --gold:         #fbbf24;
+    --green:        #34d399;
+    --highlight:    rgba(251,191,36,0.12);
+    --highlight-2:  rgba(251,191,36,0.04);
+    --row-bg:       #111827;
+    --row-bg-hover: #1a2335;
+    --border-strong:#2a3550;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text-body);
+    font-family: var(--font-body), -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* ── PAGE GRID ──────────────────────────────────────────────────────── */
+  /* topbar full width, then 3-col row beneath:
+       OOG (220) | Standings (1fr) | Sidebar (400)              */
+  #app {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    grid-template-columns: 1fr;
+  }
+  .main {
+    display: grid;
+    grid-template-columns: 220px 1fr 400px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  /* Region wrappers are transparent to layout — their inner div (.topbar /
+     .oog / .standings / .sidebar) is what gets the grid-item or flow
+     position. Lets us swap each region's innerHTML independently without
+     a parent rebuild affecting the others. Bill 2026-05-13. */
+  #regionTopbar, #regionOog, #regionStandings, #regionSidebar { display: contents; }
+
+  /* ── TOP BAR ────────────────────────────────────────────────────────── */
+  .topbar {
+    background: var(--card);
+    border-bottom: 3px solid var(--red);
+  }
+  .topbar-row1 {
+    display: flex; align-items: center; gap: 24px;
+    padding: 10px 22px 4px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 8px; }
+  .brand-img {
+    height: 28px; width: auto; filter: invert(1);
+    align-self: center;
+  }
+  .brand-west {
+    font-family: 'gotham-xnarrow-book', var(--font-display);
+    font-weight: 700; font-size: 22px; letter-spacing: 0.02em;
+    color: #fff; line-height: 1;
+  }
+  /* --red (#b82025) reads dim as text on the dark topbar card. Brand red
+     still owns the 3px border + pills + accents (bg uses, where it reads
+     fine), but here we want a brighter text-tinted red. */
+  .brand-sep { font-family: var(--font-mono); font-size: 12px; color: #f04046; }
+  .brand-sub { font-family: var(--font-mono); font-size: 12px; color: #f04046; letter-spacing: 0.04em; }
+
+  .top-class { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+  .top-class-num {
+    font-family: var(--font-display);
+    font-size: 30px; font-weight: 900; color: #fff; line-height: 1;
+  }
+  .top-class-name {
+    font-family: var(--font-display);
+    font-size: 22px; font-weight: 700; color: var(--text-body); line-height: 1.1;
+    max-width: 800px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .topbar-row2 {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px; padding: 4px 22px 10px;
+  }
+  .top-specs {
+    display: flex; align-items: center; gap: 18px;
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-muted); letter-spacing: 0.04em;
+  }
+  .top-spec { display: inline-flex; align-items: baseline; gap: 6px; }
+  .top-spec .lbl { color: var(--text-muted); text-transform: uppercase; }
+  .top-spec .val { color: #fff; font-weight: 600; font-size: 13px; }
+  .top-spec.is-accent .val { color: var(--gold); }
+
+  .top-progress { display: flex; align-items: center; gap: 14px; }
+  .top-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 2px;
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: #fff; background: var(--red);
+  }
+  .top-pill.state-final  { background: #4b5563; }
+  .top-pill.state-open   { background: #6b7280; }
+  .top-pill.state-inring { background: var(--red); }
+  .top-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #fff;
+    animation: blink 1.6s ease-in-out infinite;
+  }
+  .top-pill.state-final .dot, .top-pill.state-open .dot { display: none; }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+  .top-progress-count {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 13px; color: #fff; font-weight: 600;
+  }
+  .top-progress-count .lbl {
+    font-size: 9px; color: var(--text-muted);
+    letter-spacing: 0.14em; text-transform: uppercase;
+    margin-left: 6px;
+  }
+  .top-progress-bar {
+    width: 140px; height: 5px; background: var(--border);
+    border-radius: 3px; overflow: hidden;
+  }
+  .top-progress-fill {
+    height: 100%; background: var(--green); border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  /* ── OOG PANEL (left) ───────────────────────────────────────────────── */
+  .oog {
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .oog-section { display: flex; flex-direction: column; min-height: 0; }
+  .oog-section.is-grow { flex: 1; }
+  .oog-section.is-shrink { flex: 0 1 auto; max-height: 50%; }
+  .oog-header {
+    font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600;
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    background: var(--card-2);
+  }
+  .oog-header.is-gone { color: var(--text-faint); }
+  .oog-list {
+    flex: 1; overflow-y: auto; scrollbar-width: none;
+  }
+  .oog-list::-webkit-scrollbar { display: none; }
+  .oog-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+  .oog-row.is-gone { opacity: 0.35; }
+  .oog-row.is-current { background: var(--highlight); border-left: 3px solid var(--gold); padding-left: 9px; }
+  .oog-order {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+    min-width: 20px; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .oog-info { flex: 1; min-width: 0; }
+  .oog-horse {
+    font-size: 12px; font-weight: 600; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .oog-rider {
+    font-size: 10px; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .oog-empty {
+    padding: 14px;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  /* ── STANDINGS (center) ─────────────────────────────────────────────── */
+  .standings {
+    background: var(--bg);
+    overflow-y: auto; scrollbar-width: none;
+    min-width: 0;
+  }
+  .standings::-webkit-scrollbar { display: none; }
+  .standings-empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; flex-direction: column; gap: 14px;
+    color: var(--text-faint);
+    font-family: var(--font-mono); font-size: 13px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .standings-empty img { height: 80px; filter: invert(1); opacity: 0.18; }
+
+  /* Re-skin .results-table for dark theme. west.css gives us the base —
+     these overrides re-aim the surface colors + borders, leaving the
+     structure / typography / row HTML intact. */
+  .standings .results-table {
+    background: var(--card);
+    border: none;
+    border-radius: 0;
+    /* border-collapse: collapse (inherited from west.css) breaks
+       position: sticky on <th>. Switch to separate + zero spacing so
+       the sticky header below works. Also unset west.css's
+       overflow:hidden — that overflow on an ancestor between the
+       sticky element and the scrolling .standings traps the sticky
+       behavior in Chromium / WebKit. (The hidden was only there to
+       enforce border-radius clipping, which we don't use here.) */
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: visible;
+  }
+  /* Sticky header — pins to the top of the .standings scroll container
+     while body rows scroll under it. Bill 2026-05-13: 30-ft viewing
+     distance, scroll cycles continuously, header must stay visible.
+     Important: position:sticky on <th> needs border-collapse:separate
+     (set on .results-table above). On Chromium <thead> as table-header-
+     group sometimes isn't sticky-eligible, so we sticky each <th>
+     individually plus give <thead> a non-default position-context. */
+  .standings .results-table thead { position: relative; z-index: 2; }
+  .standings .results-table thead th {
+    background: var(--card-2);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    padding: 12px 14px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .standings .results-table tbody td {
+    color: var(--text-body);
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    padding: 12px 14px;
+  }
+  .standings .results-table tbody tr:hover { background: var(--row-bg-hover); }
+  .standings .results-table .entry-horse  { color: #fff; font-weight: 600; font-size: 16px; }
+  .standings .results-table .entry-rider  { color: var(--text-muted); font-size: 13px; }
+  .standings .results-table .entry-owner,
+  .standings .results-table .entry-pedigree { color: var(--text-faint); }
+  .standings .results-table .round-blank  { color: var(--text-faint); }
+  /* Red is the brand accent and reads OK as background/border on dark,
+     but pure --red (#b82025) as TEXT on dark cards drops to ~2.8:1 —
+     too dim for kiosk reading. Bump the text-red specifically. */
+  .standings .results-table .round-status { color: #ff6b6e; font-weight: 700; }
+  /* west.css paints the stacked round labels (Round 1 / Phase 2 / JO etc)
+     in --navy by default — black on dark = invisible. Re-target to the
+     muted token so the labels read against the card. */
+  .standings .results-table .round-label-stack { color: var(--text-muted) !important; }
+  .standings .results-table .round-label-stack + .round-label-stack { border-top-color: var(--border) !important; }
+  /* west.css renders .place-num (the numeric place inside stacked-rounds
+     header for OF/Flat) in --black. Same dark-on-dark issue. */
+  .standings .results-table .place-num { color: #fff !important; }
+  /* Place numerals — keep Big Shoulders + tabular */
+  .standings .results-table .entry-place {
+    font-family: var(--font-display);
+    font-weight: 900; font-size: 22px; color: #fff;
+  }
+  /* Faults/Time emphasis */
+  .standings .results-table .round-faults { color: #fff; font-weight: 600; }
+  .standings .results-table .round-time { color: var(--text-body); }
+  .standings .results-table .round-faults.is-clean { color: var(--green); }
+
+  /* Judge-grid drop-down rows (hunter multi-judge) */
+  .standings .judges-detail-row { background: var(--card-2); }
+  .standings .judges-detail-row td { color: var(--text-body); border-bottom: 1px solid var(--border); }
+  .standings tr.has-judges-toggle { cursor: pointer; }
+  .standings tr.has-judges-toggle.is-open { background: var(--row-bg-hover); }
+
+  /* ── SIDEBAR (right) ────────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--card);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sb-section {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-label {
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 10px;
+  }
+  .sb-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .sb-card.is-current {
+    background: var(--highlight);
+    border-color: rgba(251,191,36,0.25);
+  }
+  .sb-entry-line {
+    font-family: var(--font-body);
+    font-size: 16px; font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .sb-card.is-current .sb-entry-line { color: var(--gold); }
+  .sb-entry-line .round-tag {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-muted); margin-left: 8px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .sb-primary {
+    font-family: var(--font-display);
+    font-size: 26px; font-weight: 700; color: #fff;
+    line-height: 1.15;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
+  .sb-secondary {
+    font-size: 16px; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 10px;
+  }
+  .sb-phase {
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-muted); text-align: center;
+    margin-top: 8px;
+  }
+  .sb-clock {
+    font-family: var(--font-numeric), var(--font-mono);
+    font-size: 56px; font-weight: 900; line-height: 1;
+    color: var(--gold); text-align: center;
+    margin: 8px 0 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sb-clock.phase-finished { color: #fff; }
+  .sb-clock.phase-intro,
+  .sb-clock.phase-countdown { color: var(--gold); }
+  .sb-clock.phase-overtime  { color: #ff6b6e; }
+  .sb-faults-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px; text-align: center;
+    margin-top: 8px;
+  }
+  .sb-fault-cell .lbl {
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .sb-fault-cell .val {
+    font-family: var(--font-numeric), var(--font-mono);
+    font-size: 26px; font-weight: 700; color: #fff;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sb-fault-cell .val.is-clean { color: var(--green); }
+  .sb-rank {
+    font-family: var(--font-mono);
+    font-size: 18px; font-weight: 700; color: var(--gold);
+    text-align: center; margin-top: 12px;
+    letter-spacing: 0.06em;
+  }
+
+  /* Previous card — same shape, smaller scale + dimmed */
+  .sb-card.is-previous { opacity: 0.7; }
+  .sb-card.is-previous .sb-primary { font-size: 20px; }
+  .sb-card.is-previous .sb-secondary { font-size: 14px; margin-bottom: 6px; }
+  .sb-prev-result {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .sb-prev-result .lbl { font-size: 11px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; }
+  .sb-prev-result .val { font-size: 16px; color: #fff; font-weight: 600; }
+  .sb-prev-result .place { color: var(--gold); }
+
+  /* QR slot bottom right */
+  .sb-bottom {
+    margin-top: auto;
+    padding: 16px 18px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .sb-qr-img {
+    width: 110px; height: 110px;
+    background: #fff; padding: 6px; border-radius: 6px;
+    flex: 0 0 auto;
+  }
+  .sb-qr-img img { width: 100%; height: 100%; display: block; }
+  .sb-qr-meta { flex: 1; min-width: 0; }
+  .sb-qr-meta .lbl {
+    font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .sb-qr-meta .url {
+    font-family: var(--font-display);
+    font-size: 18px; font-weight: 700; color: #fff;
+    margin-top: 4px; line-height: 1.2;
+  }
+  .sb-qr-meta .sub {
+    font-family: var(--font-mono);
+    font-size: 10px; color: var(--text-muted);
+    margin-top: 4px; letter-spacing: 0.04em;
+  }
+
+  /* ── IDLE / NO-CLASS ────────────────────────────────────────────────── */
+  .idle {
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; flex-direction: column; gap: 16px;
+    background: var(--bg);
+  }
+  .idle img { height: 80px; filter: invert(1); opacity: 0.25; }
+  .idle-label {
+    font-family: var(--font-mono); font-size: 14px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  /* Transport dot — tiny, bottom-left corner, debug only */
+  .transport-dot {
+    position: fixed; bottom: 8px; left: 8px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4b5563; z-index: 100;
+  }
+  .transport-dot.is-ws    { background: var(--green); }
+  .transport-dot.is-poll  { background: var(--gold); }
+  .transport-dot.is-error { background: var(--red); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="idle" class="idle">
+    <img src="../../assets/logo.png" alt="WEST">
+    <div class="idle-label">Waiting for class&hellip;</div>
+  </div>
+</div>
+<div id="transportDot" class="transport-dot" title="transport"></div>
+
+<!-- Diagnostic overlay — visible in-page error / state readout. Bottom
+     strip; only renders content when ?debug=1 OR an uncaught error fires.
+     Removing this once display.html is stable in the field. -->
+<div id="diagOverlay" style="position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;
+     background:rgba(0,0,0,0.85);color:#fff;font:11px/1.4 var(--font-mono),monospace;
+     padding:8px 14px;z-index:1000;display:none;white-space:pre-wrap;border-top:2px solid var(--red);"></div>
+<script>
+  (function () {
+    var diag = document.getElementById('diagOverlay');
+    var qsDbg = new URLSearchParams(location.search);
+    var SHOW_DEBUG = qsDbg.get('debug') === '1';
+    function show(msg, isErr) {
+      if (!diag) return;
+      diag.style.display = 'block';
+      diag.style.color = isErr ? '#ff8b8b' : '#fff';
+      diag.textContent = msg;
+    }
+    window.__diag = show;
+    window.addEventListener('error', function (e) {
+      show('[JS ERROR] ' + (e.message || '?') + '\n  at ' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || ''), true);
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      show('[PROMISE REJECTED] ' + (e.reason && e.reason.message || e.reason || '?'), true);
+    });
+    if (SHOW_DEBUG) {
+      diag.style.display = 'block';
+      diag.textContent = '[debug] script tag loaded. waiting for modules…';
+    }
+  })();
+</script>
+
+<!-- Shared modules — same load order as live.html. west-clock + scoreboard
+     are not strictly required for v1 (no jog/standby in this layout), but
+     keeping the bundle aligned simplifies future enrichments. -->
+<script src="../js/west-api.js?v=__BUILD__"></script>
+<script src="../js/west-format.js?v=__BUILD__"></script>
+<script src="../js/west-status.js?v=__BUILD__"></script>
+<script src="../js/west-rules.js?v=__BUILD__"></script>
+<script src="../js/west-clock.js?v=__BUILD__"></script>
+<script src="../js/west-ribbons.js?v=__BUILD__"></script>
+<script src="../js/west-jumper-templates.js?v=__BUILD__"></script>
+<script src="../js/west-hunter-templates.js?v=__BUILD__"></script>
+<script src="../js/west-flat.js?v=__BUILD__"></script>
+<script src="../js/west-scoreboard.js?v=__BUILD__"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Params ──────────────────────────────────────────────────────────────
+  var qs   = new URLSearchParams(location.search);
+  var SLUG = qs.get('slug') || '';
+  var RING = qs.get('ring') || qs.get('ring_num') || '1';
+  var DEBUG = qs.get('debug') === '1';
+
+  function dbg(msg) {
+    if (!DEBUG) return;
+    var el = document.getElementById('diagOverlay');
+    if (!el) return;
+    el.style.display = 'block';
+    var existing = el.textContent || '';
+    el.textContent = (existing + '\n' + msg).split('\n').slice(-12).join('\n');
+  }
+
+  dbg('[boot] slug=' + SLUG + ' ring=' + RING +
+      ' WEST.api=' + (typeof WEST !== 'undefined' && !!WEST.api) +
+      ' WEST.format=' + (typeof WEST !== 'undefined' && !!WEST.format));
+
+  // ── Module shorthands ───────────────────────────────────────────────────
+  var BASE   = WEST.api.BASE;
+  var esc    = WEST.format.escapeHtml;
+  var fmtTime = function (t) {
+    if (t == null || t === '') return '';
+    var n = Number(t);
+    if (!Number.isFinite(n)) return String(t);
+    return WEST.format.time ? WEST.format.time(n) : n.toFixed(3);
+  };
+
+  // ── Public-URL host for QR. Mirrors live.html's BASE convention.
+  // Bill 2026-05-13: page is deployed at westscoring.live; preview is the
+  // pages.dev preview branch. We point the QR at the production host —
+  // when somebody scans a QR they should land on the public site, not the
+  // preview deploy.
+  var PUBLIC_HOST = 'https://westscoring.live';
+
+  // ── State ───────────────────────────────────────────────────────────────
+  var snapshotState = null;
+  var classIndex = null;        // [{id, class_id, r1_time_allowed, sponsor, ...}, ...]
+  var classIndexFetched = 0;    // ms epoch of last successful fetch
+  var classIndexInFlight = null;
+  var rosterByClassDbId = {};   // D1 PK -> { entries, fetched_at }
+  var rosterInFlight = {};      // D1 PK -> Promise
+  var lastFocusedClassId = null;
+  var entryHistory = [];        // ordered list of entry_nums seen on course
+  var showInfo = null;          // { name, slug, ... } from /v3/getShow — used
+                                // for the QR label so the kiosk shows the
+                                // friendly name instead of the URL slug.
+
+  // ── Transport ───────────────────────────────────────────────────────────
+  var WS_BASE = BASE.replace(/^http/, 'ws');
+  var POLL_MS = 1500;                   // fast polling when WS is down
+  var WS_RECONNECT_MS = 2500;
+  var WS_STALE_MS = 30000;              // zombie-WS detection — if no
+                                        // message arrives within this
+                                        // window while the socket reports
+                                        // open, force a reconnect. This
+                                        // replaces the earlier keepalive
+                                        // poll, which was feeding the
+                                        // clock module out-of-sync
+                                        // snapshots and causing the
+                                        // every-WS-packet flicker
+                                        // (Bill 2026-05-13 diagnostic).
+  var ws = null, wsOpen = false, pollHandle = null;
+  var lastWsMessageAt = 0;
+  var wsStaleHandle = null;
+  var consecutiveErrors = 0;
+
+  function setTransport(state) {
+    var dot = document.getElementById('transportDot');
+    if (!dot) return;
+    dot.className = 'transport-dot is-' + state;
+    dot.title = 'transport: ' + state;
+  }
+  function pollOnce() {
+    var u = BASE + '/v3/getRingState?slug=' + encodeURIComponent(SLUG) +
+            '&ring_num=' + encodeURIComponent(RING);
+    fetch(u, { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (data) {
+        consecutiveErrors = 0;
+        if (!data || data.ok !== true) throw new Error(data && data.error || 'bad payload');
+        safeRender(data.snapshot || null, true);
+      })
+      .catch(function (e) {
+        consecutiveErrors++;
+        dbg('[pollOnce error] ' + (e && e.message));
+        if (consecutiveErrors >= 3) setTransport('error');
+      });
+  }
+  function startPolling() {
+    if (pollHandle) return;
+    setTransport('poll');
+    pollOnce();
+    pollHandle = setInterval(pollOnce, POLL_MS);
+  }
+  function stopPolling() {
+    if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
+  }
+
+  // Zombie-WS detector — when WS reports open but no message has arrived
+  // for WS_STALE_MS, force close so the existing onclose path fires
+  // reconnect + fast polling. Cheaper than keepalive polling AND it
+  // doesn't feed the clock module out-of-sync snapshots from a stale
+  // /v3/getRingState cache. The earlier keepalive approach was the
+  // source of the every-WS-packet flicker Bill saw on 2026-05-13.
+  function startWsStaleWatch() {
+    stopWsStaleWatch();
+    wsStaleHandle = setInterval(function () {
+      if (!ws || ws.readyState !== 1 /* OPEN */) return;
+      if (!lastWsMessageAt) return; // never received any message yet
+      var ageMs = Date.now() - lastWsMessageAt;
+      if (ageMs > WS_STALE_MS) {
+        dbg('[ws stale] no message in ' + Math.round(ageMs / 1000) + 's — forcing reconnect');
+        try { ws.close(); } catch (e) {}
+      }
+    }, 5000);
+  }
+  function stopWsStaleWatch() {
+    if (wsStaleHandle) { clearInterval(wsStaleHandle); wsStaleHandle = null; }
+  }
+  function connectWs() {
+    var url = WS_BASE + '/v3/live?slug=' + encodeURIComponent(SLUG) +
+              '&ring_num=' + encodeURIComponent(RING);
+    try { ws = new WebSocket(url); }
+    catch (e) {
+      startPolling();
+      setTimeout(connectWs, WS_RECONNECT_MS);
+      return;
+    }
+    ws.onopen = function () {
+      wsOpen = true;
+      consecutiveErrors = 0;
+      lastWsMessageAt = Date.now();
+      setTransport('ws');
+      stopPolling();
+      startWsStaleWatch();    // detect zombie sockets; replaces keepalive poll
+    };
+    ws.onmessage = function (ev) {
+      lastWsMessageAt = Date.now();
+      try {
+        var msg = JSON.parse(ev.data);
+        if (msg.type === 'snapshot' && msg.data) safeRender(msg.data, true);
+        else if (msg.type === 'idle') safeRender(null, true);
+      } catch (e) { dbg('[ws.onmessage error] ' + e.message); }
+    };
+    ws.onerror = function () {};
+    ws.onclose = function () {
+      wsOpen = false;
+      stopWsStaleWatch();
+      startPolling();
+      setTimeout(connectWs, WS_RECONNECT_MS);
+    };
+  }
+
+  // ── Class index + roster fetches ────────────────────────────────────────
+  // The snapshot's class_meta carries the Ryegate-side class_id ("424")
+  // but NOT the D1 PK that /v3/listEntries needs. /v3/listClasses returns
+  // both (id = D1 PK, class_id = Ryegate id) plus richer fields the
+  // top bar uses (r1_time_allowed, sponsor, trophy, prize_money JSON, etc).
+  // Fetch once per slug+ring with a 60s TTL; refresh after that so newly
+  // posted classes appear.
+  var CLASS_INDEX_TTL_MS = 60000;
+  var ROSTER_TTL_MS = 60000;
+
+  function ensureClassIndex() {
+    var now = Date.now();
+    if (classIndex && (now - classIndexFetched) < CLASS_INDEX_TTL_MS) return Promise.resolve(classIndex);
+    if (classIndexInFlight) return classIndexInFlight;
+    var url = '/v3/listClasses?slug=' + encodeURIComponent(SLUG) +
+              '&ring=' + encodeURIComponent(RING) + '&include_test=1';
+    classIndexInFlight = WEST.api.fetchJson(url)
+      .then(function (j) {
+        classIndexInFlight = null;
+        if (!j || !j.ok) return null;
+        classIndex = j.classes || [];
+        classIndexFetched = Date.now();
+        // Re-render so the topbar + OOG can immediately use the enriched
+        // class row without waiting for the next snapshot tick.
+        safeRender(snapshotState);
+        return classIndex;
+      })
+      .catch(function (e) {
+        classIndexInFlight = null;
+        dbg('[ensureClassIndex error] ' + (e && e.message));
+        return null;
+      });
+    return classIndexInFlight;
+  }
+
+  // Find the /v3/listClasses row that matches the snapshot's focused
+  // class. Returns null until ensureClassIndex resolves.
+  function indexRowFor(ryegateClassId) {
+    if (!classIndex || ryegateClassId == null) return null;
+    return classIndex.find(function (r) {
+      return String(r.class_id) === String(ryegateClassId);
+    }) || null;
+  }
+
+  function ensureRoster(classDbId) {
+    if (!classDbId) return Promise.resolve(null);
+    var cached = rosterByClassDbId[classDbId];
+    var now = Date.now();
+    if (cached && (now - cached.fetched_at) < ROSTER_TTL_MS) return Promise.resolve(cached);
+    if (rosterInFlight[classDbId]) return rosterInFlight[classDbId];
+    var p = WEST.api.fetchJson('/v3/listEntries?class_id=' + encodeURIComponent(classDbId))
+      .then(function (j) {
+        rosterInFlight[classDbId] = null;
+        if (!j || !j.ok) return null;
+        var rec = { entries: j.entries || [], fetched_at: Date.now() };
+        rosterByClassDbId[classDbId] = rec;
+        safeRender(snapshotState);
+        return rec;
+      })
+      .catch(function (e) {
+        rosterInFlight[classDbId] = null;
+        dbg('[ensureRoster error] ' + (e && e.message));
+        return null;
+      });
+    rosterInFlight[classDbId] = p;
+    return p;
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  function clean(s) {
+    return s == null ? '' : String(s).replace(/\r/g, '').trim();
+  }
+  function findFocusedClass(snap) {
+    if (!snap || !snap.classes || !snap.classes.length) return null;
+    var id = snap.focused_class_id;
+    if (id) {
+      var hit = snap.classes.find(function (c) { return c.class_id === id; });
+      if (hit) return hit;
+    }
+    // Fall through to first live class
+    return snap.classes[0] || null;
+  }
+  function classMetaOf(focused) {
+    return (focused && focused.class_meta) || null;
+  }
+  function lensOf(focused) {
+    if (!focused) return null;
+    return focused.class_kind || null;
+  }
+  function scoresOf(focused) {
+    if (!focused) return [];
+    var k = focused.class_kind;
+    if (k === 'hunter') return focused.hunter_scores || [];
+    return focused.jumper_scores || [];
+  }
+
+  // safeRender wraps render() so any sync throw inside it surfaces to the
+  // diag overlay instead of being swallowed by the transport-layer
+  // try/catch. Returning silently from a sync render() failure was why
+  // pass-1 looked stuck on the "Waiting for class…" placeholder even with
+  // good snapshots arriving — the boot/render dbg lines confirmed the
+  // function ran, but a downstream throw left #app's initial HTML intact.
+  //
+  // fromTransport=true marks "this snapshot just arrived over WS or poll".
+  // The clock module only consumes transport-fresh snapshots — secondary
+  // re-renders (roster fetch resolves, class-index resolves) replay the
+  // CACHED snapshotState through render() to redraw the OOG/topbar, and
+  // if those replays also fed WEST.clock.set() the clock would re-baseline
+  // to a stale last_scoring frame and visibly bounce backward. Fix:
+  // only call clock.set from the transport path.
+  function safeRender(snap, fromTransport) {
+    try { render(snap, !!fromTransport); }
+    catch (e) {
+      dbg('[render THREW] ' + (e && e.message) + '\n  ' + (e && e.stack ? e.stack.split('\n').slice(0, 4).join('\n  ') : ''));
+      if (window.console) console.error('[display.html] render threw:', e);
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────
+  function render(snap, fromTransport) {
+    snapshotState = snap;
+    var focused = findFocusedClass(snap);
+    var meta = classMetaOf(focused);
+    var lens = lensOf(focused);
+    var scores = scoresOf(focused);
+
+    if (DEBUG) {
+      var idTags = (snap && snap.last_identity && snap.last_identity.tags) || {};
+      var ocEntryD = (idTags['1'] || '').toString().trim();
+      var ocHorseD = (idTags['2'] || '').toString().trim();
+      var scTags = (snap && snap.last_scoring && snap.last_scoring.tags) || {};
+      var ocTa = (scTags['13'] || '').toString().trim();
+      var rn = WEST.clock && WEST.clock._state && WEST.clock._state.roundNum;
+      dbg('[' + (fromTransport ? 'tx' : 'replay') + '] focused=' + (focused && focused.class_id)
+        + ' oc=#' + ocEntryD + '/' + ocHorseD
+        + ' ta=' + ocTa
+        + ' rn=' + rn
+        + ' scores=' + (scores && scores.length));
+    }
+
+    // Feed the clock module ONLY on transport-fresh snapshots. Secondary
+    // re-renders (roster fetch, class-index fetch) replay the cached
+    // snapshotState to redraw the OOG/topbar — replaying that stale
+    // last_scoring through clock.set would re-baseline and bounce the
+    // visible timer. The 10Hz tick keeps running off its existing state
+    // between transport ticks.
+    if (fromTransport && WEST.clock && WEST.clock.set) WEST.clock.set(snap || {});
+
+    // No class on this ring → idle screen. This path bypasses the
+    // region shell, so we wipe the shell flag — when activity resumes,
+    // render() rebuilds the regions from scratch instead of trying to
+    // updateRegion() on elements that no longer exist.
+    if (!focused || !meta) {
+      var appElIdle = document.getElementById('app');
+      appElIdle.innerHTML =
+        '<div class="idle"><img src="../../assets/logo.png" alt="WEST">' +
+        '<div class="idle-label">Ring ' + esc(RING) + ' &middot; ' + esc(SLUG) + '</div>' +
+        '<div class="idle-label" style="opacity:0.5;">Waiting for class&hellip;</div></div>';
+      delete appElIdle.dataset.shellBuilt;
+      return;
+    }
+
+    // Ensure the class index is loaded — needed to resolve the focused
+    // class's D1 PK (the snapshot's class_meta only carries the Ryegate
+    // class_id) AND to pull richer fields like r1_time_allowed / sponsor
+    // for the top bar that aren't in the snapshot.
+    ensureClassIndex();
+    var indexRow = indexRowFor(focused.class_id);
+
+    // Class change → refresh roster. classDbId comes from the index row.
+    var classDbId = indexRow && indexRow.id ? indexRow.id : null;
+    if (classDbId && classDbId !== lastFocusedClassId) {
+      lastFocusedClassId = classDbId;
+      ensureRoster(classDbId);
+    } else if (classDbId) {
+      var cached = rosterByClassDbId[classDbId];
+      if (!cached || (Date.now() - cached.fetched_at) > ROSTER_TTL_MS) {
+        ensureRoster(classDbId);
+      }
+    }
+
+    // Merge index row fields into meta so renderTopbar / renderOOG see
+    // everything (TA values, sponsor, trophy, prize_money) without
+    // having to know whether the field came from class_meta or
+    // /v3/listClasses.
+    if (indexRow) {
+      meta = Object.assign({}, indexRow, meta || {});
+      // Above: meta from class_meta WINS on key collisions — class_meta
+      // is the "live truth" (last .cls write). indexRow fills gaps.
+    }
+
+    // Track entry history for "previous" fallback
+    var ident = (snap && snap.last_identity) || null;
+    var ocEntry = ident && ident.tags ? clean(ident.tags['1']) : '';
+    if (ocEntry) {
+      var lastSeen = entryHistory.length ? entryHistory[entryHistory.length - 1] : null;
+      if (ocEntry !== lastSeen) entryHistory.push(ocEntry);
+      if (entryHistory.length > 32) entryHistory.shift();
+    }
+
+    // Per-region rendering. Each panel (topbar / OOG / standings / sidebar)
+    // gets its own container with its own hash guard, so updates in one
+    // panel don't trigger DOM rebuilds elsewhere. Bill 2026-05-13: scoring
+    // updates were causing the static topbar to flicker because the entire
+    // app.innerHTML was being replaced on every score arrival.
+    var appEl = document.getElementById('app');
+    if (!appEl.dataset.shellBuilt) {
+      appEl.innerHTML =
+        '<div id="regionTopbar"></div>' +
+        '<div class="main">' +
+          '<div id="regionOog"></div>' +
+          '<div id="regionStandings"></div>' +
+          '<div id="regionSidebar"></div>' +
+        '</div>';
+      appEl.dataset.shellBuilt = '1';
+    }
+
+    updateRegion('regionTopbar',    renderTopbar(meta, focused, snap));
+    updateRegion('regionOog',       renderOOG(focused, meta, snap, classDbId));
+    updateRegion('regionStandings', renderStandings(meta, lens, scores, snap));
+    var sidebarTouched = updateRegion('regionSidebar', renderSidebar(meta, lens, focused, snap));
+
+    // Clock callback re-attaches when sidebar rebuilds. Auto-scroll only
+    // resets on actual class change — every score arrival rebuilds the
+    // standings region, so resetting on every rebuild was pinning the
+    // scroll back to 0 and starving the cycling animation. Mid-scroll
+    // rows may shift slightly when a score lands, but the cycle keeps
+    // moving instead of snapping. Bill 2026-05-13.
+    if (sidebarTouched) wireClock();
+    if (classDbId && classDbId !== autoScrollLastClassId) {
+      autoScrollLastClassId = classDbId;
+      wireAutoScroll();
+    }
+  }
+  var autoScrollLastClassId = null;
+
+  function updateRegion(id, html) {
+    var el = document.getElementById(id);
+    if (!el) return false;
+    var h = quickHash(html);
+    if (el.dataset.h === h) return false;
+    // Preserve scroll position of any scrollable child across the rebuild
+    // (innerHTML replace destroys the inner DOM, defaulting new scrollers
+    // back to 0). The standings region's auto-cycle would otherwise reset
+    // every time a score arrived. Bill 2026-05-13.
+    var savedScroll = null;
+    var innerScroller = el.firstElementChild && el.firstElementChild.id === 'standingsScroll'
+      ? el.firstElementChild : el.querySelector('#standingsScroll');
+    if (innerScroller) savedScroll = innerScroller.scrollTop;
+    el.dataset.h = h;
+    el.innerHTML = html;
+    if (savedScroll != null) {
+      var fresh = el.querySelector('#standingsScroll');
+      if (fresh) fresh.scrollTop = savedScroll;
+    }
+    return true;
+  }
+
+  // 32-bit FNV-1a string hash — small + fast, good enough to detect
+  // "did anything visible change" without storing the entire previous
+  // HTML string. Collisions on legitimate diffs would skip a render;
+  // probability is negligible for the page sizes involved here.
+  function quickHash(s) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h.toString(36);
+  }
+
+  // ── TOP BAR ─────────────────────────────────────────────────────────────
+  function renderTopbar(meta, focused, snap) {
+    var pill = (focused && focused.pill) || snap.pill || null;
+
+    // TA per round. Field names are r1_time_allowed / r2_time_allowed /
+    // r3_time_allowed on both class_meta (snapshot) and the /v3/listClasses
+    // row, so the same lookups work after the index-row merge in render().
+    var ta1 = numOr(meta.r1_time_allowed);
+    var ta2 = numOr(meta.r2_time_allowed);
+    var ta3 = numOr(meta.r3_time_allowed);
+    var rlbl = function (n) {
+      if (WEST.format && WEST.format.roundLabel) {
+        return WEST.format.roundLabel(meta.scoring_method, meta.scoring_modifier, n) || ('R' + n);
+      }
+      return 'R' + n;
+    };
+
+    // classDescription synthesizes class_type + mode + method + modifier +
+    // num_rounds + judges into one human line — friendlier than
+    // methodLabel() for the top-bar chip. (Prior pass-1 bug: I called
+    // methodLabel with the wrong arg order, which threw on .toUpperCase()
+    // — caught by safeRender, surfaced via the debug strip.)
+    var methodLabel = '';
+    if (WEST.format && WEST.format.classDescription) {
+      methodLabel = WEST.format.classDescription(meta) || '';
+    } else if (WEST.format && WEST.format.methodLabel) {
+      methodLabel = WEST.format.methodLabel(meta.class_type, meta.scoring_method, meta.class_mode, meta.scoring_modifier) || '';
+    }
+
+    var classNum = meta.class_id || focused.class_id || '';
+    var className = meta.class_name || focused.class_name || '';
+
+    var out = '<div class="topbar">';
+    out += '<div class="topbar-row1">';
+    out += '<div class="brand">'
+      + '<img class="brand-img" src="../../assets/logo.png" alt="WEST">'
+      + '<span class="brand-west">WEST</span>'
+      + '<span class="brand-sep">|</span>'
+      + '<span class="brand-sub">Scoring.Live</span>'
+      + '</div>';
+    out += '<div class="top-class">'
+      + '<div class="top-class-num">' + esc(classNum) + '</div>'
+      + '<div class="top-class-name">' + esc(className) + '</div>'
+      + '</div>';
+    out += '</div>'; // row1
+
+    out += '<div class="topbar-row2">';
+    out += '<div class="top-specs">';
+    if (methodLabel) {
+      out += '<span class="top-spec"><span class="val">' + esc(methodLabel) + '</span></span>';
+    }
+    if (meta.sponsor) {
+      out += '<span class="top-spec is-accent"><span class="lbl">Sponsor</span> <span class="val">' + esc(meta.sponsor) + '</span></span>';
+    }
+    if (meta.trophy) {
+      out += '<span class="top-spec is-accent"><span class="lbl">Trophy</span> <span class="val">' + esc(meta.trophy) + '</span></span>';
+    }
+    // Cap TA chips to the rounds the method actually uses. Ryegate writes
+    // r3_time_allowed on the .cls header even for 2-round methods (and
+    // operators sometimes carry stale values across classes), so showing
+    // a chip just because the value is non-zero misleads spectators into
+    // expecting a round that won't be ridden. Source of truth:
+    //   • Jumper/T → WEST.jumperTemplates.detect → 1R/EQ=1, 2R=2, 3R/TEAM=3
+    //   • Hunter   → meta.num_rounds
+    // Bill 2026-05-13: "only display the TAs for the rounds we're using".
+    var maxRounds = 1;
+    var ct = String(meta.class_type || '').toUpperCase();
+    if (ct === 'H') {
+      maxRounds = Number(meta.num_rounds) || 1;
+    } else if (WEST.jumperTemplates && WEST.jumperTemplates.detect) {
+      var tplId = WEST.jumperTemplates.detect(meta);
+      maxRounds = tplId === '3R' || tplId === 'TEAM' ? 3
+               : tplId === '2R' ? 2
+               : 1;
+    }
+    if (ta1 && maxRounds >= 1) out += '<span class="top-spec"><span class="lbl">' + esc(rlbl(1)) + '</span> <span class="val">' + ta1 + 's</span></span>';
+    if (ta2 && maxRounds >= 2) out += '<span class="top-spec"><span class="lbl">' + esc(rlbl(2)) + '</span> <span class="val">' + ta2 + 's</span></span>';
+    if (ta3 && maxRounds >= 3) out += '<span class="top-spec"><span class="lbl">' + esc(rlbl(3)) + '</span> <span class="val">' + ta3 + 's</span></span>';
+    out += '</div>'; // top-specs
+
+    out += '<div class="top-progress">';
+    if (pill) {
+      var pillState = pill.state || 'open';
+      out += '<span class="top-pill state-' + esc(pillState) + '">'
+        + (pillState === 'inring' ? '<span class="dot"></span>' : '')
+        + esc(pill.label || '') + '</span>';
+      if (pill.progress) {
+        out += '<span class="top-progress-count">' + esc(pill.progress)
+          + '<span class="lbl">' + esc(pill.progress_label || 'Gone') + '</span></span>';
+        // Visual bar — proceed % of total gone
+        var pct = pill.total ? Math.round((pill.gone || 0) / pill.total * 100) : 0;
+        out += '<div class="top-progress-bar"><div class="top-progress-fill" style="width:' + pct + '%"></div></div>';
+      }
+    }
+    out += '</div>'; // top-progress
+    out += '</div>'; // row2
+    out += '</div>'; // topbar
+    return out;
+  }
+  function numOr(v, fallback) {
+    var n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+    if (fallback != null) {
+      var f = Number(fallback);
+      if (Number.isFinite(f) && f > 0) return f;
+    }
+    return null;
+  }
+
+  // ── OOG (left panel) ────────────────────────────────────────────────────
+  // OOG panel — thin wrapper that delegates the up-next/seen split + row
+  // markup to WEST.scoreboard.renderOOG. Same module that owns the
+  // jog-order and standby-list renderers, so all "list of horses in some
+  // ceremonial order" surfaces resolve through one place.
+  function renderOOG(focused, meta, snap, classDbId) {
+    var roster = classDbId && rosterByClassDbId[classDbId] ? rosterByClassDbId[classDbId].entries : null;
+    var fp = snap && snap.focus_preview;
+    var ocEntryNum = fp && fp.entry_num ? fp.entry_num : null;
+
+    if (!roster) {
+      return '<div class="oog">'
+        + '<div class="oog-section is-grow">'
+        +   '<div class="oog-header">Order of Go</div>'
+        +   '<div class="oog-list"><div class="oog-empty">Loading&hellip;</div></div>'
+        + '</div></div>';
+    }
+    if (!WEST.scoreboard || !WEST.scoreboard.renderOOG) {
+      return '<div class="oog"><div class="oog-section is-grow"><div class="oog-empty">scoreboard module unavailable</div></div></div>';
+    }
+    // Kiosk decision (Bill 2026-05-13): the upcoming/remaining list is
+    // just whatever the .cls had left over and rarely reflects an
+    // operator-curated order. For the public display surface, only show
+    // the Seen (already-competed) list. Pass hideUpcoming through to the
+    // central renderer; other consumers can still get the full OOG.
+    return '<div class="oog">'
+      + WEST.scoreboard.renderOOG(meta, roster, {
+          onCourseEntryNum: ocEntryNum,
+          hideUpcoming: true,
+        })
+      + '</div>';
+  }
+
+  // ── STANDINGS (center) ──────────────────────────────────────────────────
+  function renderStandings(meta, lens, scores, snap) {
+    var out = '<div class="standings" id="standingsScroll">';
+    if (!scores || !scores.length || !meta) {
+      out += '<div class="standings-empty">'
+        + '<img src="../../assets/logo.png" alt="WEST">'
+        + '<div>Standings will appear as entries finish</div>'
+        + '</div></div>';
+      return out;
+    }
+
+    var isFinal = !!snap.is_final;
+    var prizeMoney = Array.isArray(meta.prize_money) ? meta.prize_money
+                   : (typeof meta.prize_money === 'string' ? safeParseArray(meta.prize_money) : null);
+    var opts = { isFinal: isFinal, prizeMoney: prizeMoney };
+
+    try {
+      if (lens === 'hunter' && WEST.hunterTemplates && WEST.hunterTemplates.renderTable) {
+        out += WEST.hunterTemplates.renderTable(meta, scores, opts);
+      } else if (WEST.jumperTemplates && WEST.jumperTemplates.renderTable) {
+        out += WEST.jumperTemplates.renderTable(meta, scores, opts);
+      } else {
+        out += '<div class="standings-empty"><div>Templates unavailable</div></div>';
+      }
+    } catch (e) {
+      out += '<div class="standings-empty"><div>renderTable error: ' + esc(e.message) + '</div></div>';
+    }
+
+    out += '</div>';
+    return out;
+  }
+  function safeParseArray(s) {
+    try { var p = JSON.parse(s); return Array.isArray(p) ? p : null; }
+    catch (e) { return null; }
+  }
+
+  // ── SIDEBAR (right) ─────────────────────────────────────────────────────
+  function renderSidebar(meta, lens, focused, snap) {
+    var out = '<div class="sidebar">';
+
+    out += renderOnCourseCard(meta, lens, focused, snap);
+    out += renderPreviousCard(meta, lens, focused, snap);
+    out += renderQrSlot();
+
+    out += '</div>';
+    return out;
+  }
+
+  // Render the on-course card. SOURCE OF TRUTH = snapshot.focus_preview
+  // — the worker-built object that already lifts entry/horse/rider from
+  // identity tags, faults/clock/rank from scoring tags, and decodes the
+  // entry's status from the D1 row. Reading from focus_preview keeps the
+  // page out of the business of UDP-tag interpretation. (live.html still
+  // hand-pulls tags inline; pinned to migrate when its next refactor
+  // lands — same data path, same module-load order.)
+  function renderOnCourseCard(meta, lens, focused, snap) {
+    var fp = snap && snap.focus_preview;
+    var out = '<div class="sb-section">';
+    out += '<div class="sb-label">On Course</div>';
+    if (!fp || !fp.entry_num) {
+      out += '<div class="sb-card" style="text-align:center;color:var(--text-faint);font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:24px 12px;">No rider in ring</div>';
+      out += '</div>';
+      return out;
+    }
+
+    var isEq      = !!(meta.is_equitation || lens === 'equitation');
+    var primary   = isEq ? (fp.rider || fp.horse) : (fp.horse || fp.rider);
+    var secondary = isEq ? fp.horse : fp.rider;
+
+    var flagHtml = '';
+    if (fp.country_code && WEST.format && WEST.format.flagFor) {
+      var f = WEST.format.flagFor(meta || {}, { country_code: fp.country_code });
+      if (f) flagHtml = '<span style="margin-right:6px;">' + esc(f) + '</span>';
+    }
+
+    // Round label slot — clock callback (wireClock) populates 10Hz from
+    // WEST.clock._state.roundNum so TA changes flip R1 → JO instantly.
+    out += '<div class="sb-card is-current">';
+    out += '<div class="sb-entry-line">#' + esc(fp.entry_num)
+      + ' <span class="round-tag" id="ocRoundTag" style="display:none;"></span>'
+      + '</div>';
+    document.body.dataset.scoringMethod   = meta.scoring_method != null ? meta.scoring_method : '';
+    document.body.dataset.scoringModifier = meta.scoring_modifier != null ? meta.scoring_modifier : '';
+    out += '<div class="sb-primary">' + flagHtml + esc(primary || '—') + '</div>';
+    out += '<div class="sb-secondary">' + esc(secondary || '') + '</div>';
+
+    // Status badge — only when focus_preview decoded one from the D1 row
+    // (eliminated / withdrew / retired mid-class). Worker handles the
+    // ELIM family collapse via west-status.publicLabel.
+    if (fp.status_label) {
+      out += '<div class="sb-rank" style="color:#ff6b6e;margin-top:4px;">'
+        + esc(fp.status_label) + (fp.status_full ? ' · ' + esc(fp.status_full) : '')
+        + '</div>';
+    }
+
+    if (lens === 'hunter') {
+      // Hunter on-course → identity card with displayed score when set.
+      // focus_preview.rank passes through Ryegate {8} — operator-config
+      // dependent (rank vs. score on the scoreboard); render whatever
+      // the worker surfaced.
+      if (fp.rank) {
+        var hRankVal = String(fp.rank).replace(/^\s*RANK\s*/i, '').trim();
+        if (hRankVal) out += '<div class="sb-clock phase-finished">' + esc(hRankVal) + '</div>';
+      }
+    } else {
+      out += '<div class="sb-phase" id="ocPhaseLabel">&mdash;</div>';
+      out += '<div class="sb-clock" id="ocClockBig">&mdash;</div>';
+
+      // Faults from focus_preview — same prefix-tolerant extractor that
+      // west-live-strip.js uses ("4" / "JUMP 4" / "TIME: 2" all parse).
+      var jf = focusFaultNum(fp.jump_faults);
+      var tf = focusFaultNum(fp.time_faults);
+      var total = jf + tf;
+      out += '<div class="sb-faults-grid">';
+      out += '<div class="sb-fault-cell"><div class="lbl">Jump</div><div class="val' + (jf === 0 ? ' is-clean' : '') + '">' + jf + '</div></div>';
+      out += '<div class="sb-fault-cell"><div class="lbl">Time</div><div class="val">' + tf + '</div></div>';
+      out += '<div class="sb-fault-cell"><div class="lbl">Total</div><div class="val' + (total === 0 ? ' is-clean' : '') + '">' + total + '</div></div>';
+      out += '</div>';
+
+      // Strip Ryegate's leading "RANK" prefix when present — tag {8}
+      // can arrive as "RANK 5", "RANK", or bare "5" depending on
+      // Ryegate config. Page renders the label itself, so doubling
+      // ("RANK RANK 5") was the bug. Bill 2026-05-13.
+      if (fp.rank) {
+        var rankVal = String(fp.rank).replace(/^\s*RANK\s*/i, '').trim();
+        if (rankVal) out += '<div class="sb-rank">RANK ' + esc(rankVal) + '</div>';
+      }
+    }
+
+    out += '</div>'; // sb-card
+    out += '</div>'; // sb-section
+    return out;
+  }
+
+  function focusFaultNum(val) {
+    if (val == null) return 0;
+    var m = String(val).match(/(\d+(?:\.\d+)?)/);
+    return m ? parseFloat(m[1]) : 0;
+  }
+
+  // Previous-rider card. Iterates pe.banner_slots verbatim — worker
+  // owns the shape per the central directive ("Banner slots — worker
+  // decides shape, page iterates"). When banner_slots is empty/absent,
+  // render NOTHING and let the worker contract sort itself out. The
+  // previous page-side fallback (overall_place / r1_total_faults /
+  // r1_total_time) was papering over the worker's decisions and got
+  // dropped 2026-05-13 in the centralization pass.
+  function renderPreviousCard(meta, lens, focused, snap) {
+    var pe = snap && snap.previous_entry;
+    if (!pe || !pe.entry_num) return '';
+    if (!Array.isArray(pe.banner_slots) || !pe.banner_slots.length) return '';
+
+    var isEq = !!(meta.is_equitation || lens === 'equitation');
+    var primary   = isEq ? (pe.rider_name || pe.horse_name) : (pe.horse_name || pe.rider_name);
+    var secondary = isEq ? pe.horse_name : pe.rider_name;
+
+    var out = '<div class="sb-section">';
+    out += '<div class="sb-label">Previous</div>';
+    out += '<div class="sb-card is-previous">';
+    out += '<div class="sb-entry-line">#' + esc(pe.entry_num) + '</div>';
+    out += '<div class="sb-primary">' + esc(primary || '—') + '</div>';
+    if (secondary) out += '<div class="sb-secondary">' + esc(secondary) + '</div>';
+    pe.banner_slots.forEach(function (s) {
+      var isPlace = s.label === 'Place';
+      out += '<div class="sb-prev-result">'
+        + '<span class="lbl">' + esc(s.label) + '</span>'
+        + '<span class="val' + (isPlace ? ' place' : '') + '">' + esc(s.value) + '</span>'
+        + '</div>';
+    });
+    out += '</div></div>';
+    return out;
+  }
+
+  function renderQrSlot() {
+    // QR via api.qrserver.com — no library. Image-only, single request,
+    // cached by browser. If we go offline-capable later this becomes an
+    // inline encoder. For now the page assumes internet (per project
+    // memory: deploy-anywhere-with-internet model).
+    var url = PUBLIC_HOST + '/show.html?slug=' + encodeURIComponent(SLUG);
+    var qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data='
+              + encodeURIComponent(url);
+    // Show name — friendly version from /v3/getShow when fetched, falls
+    // back to the slug if the request hasn't resolved yet or failed.
+    var showName = (showInfo && showInfo.name) || SLUG;
+    var out = '<div class="sb-bottom">';
+    out += '<div class="sb-qr-img"><img src="' + esc(qrSrc) + '" alt="QR"></div>';
+    out += '<div class="sb-qr-meta">'
+      + '<div class="lbl">Live Results</div>'
+      + '<div class="url">westscoring<br>.live</div>'
+      + '<div class="sub">' + esc(showName) + '</div>'
+      + '</div>';
+    out += '</div>';
+    return out;
+  }
+
+  // ── Clock wiring (post-render) ──────────────────────────────────────────
+  // west-clock.start runs at 10Hz and calls back with (text, phase). We
+  // attach a fresh callback on each render so the elements it writes to
+  // are the latest ones (the previous DOM is gone after innerHTML swap).
+  function wireClock() {
+    if (!WEST.clock || !WEST.clock.start) return;
+    // Kiosk policy: do NOT extrapolate. Bill's directive (see live-strip
+    // comment "we ran into this problem before with trying to extrapolate
+    // the times"): the clock should follow the engine's output exactly —
+    // whatever integer second Ryegate's last A1 frame carried, that's what
+    // we show. 'whole' mode in WEST.clock disables the 10Hz tenth-second
+    // interpolation. Result: clock advances 1-per-second in lockstep with
+    // Ryegate's broadcast, no synthetic motion between frames.
+    if (WEST.clock.setMode) WEST.clock.setMode('whole');
+    WEST.clock.start(function (text, phase) {
+      var bigEl = document.getElementById('ocClockBig');
+      var phEl  = document.getElementById('ocPhaseLabel');
+      var rtEl  = document.getElementById('ocRoundTag');
+      if (bigEl) {
+        bigEl.textContent = text;
+        bigEl.className = 'sb-clock phase-' + (phase || 'idle');
+      }
+      if (phEl) {
+        var label = ({
+          idle: '—',
+          intro: 'Intro',
+          countdown: 'Countdown',
+          on_course: 'On Course',
+          finished: 'Finished',
+        })[phase] || phase || '';
+        phEl.textContent = label;
+      }
+      // Round tag — derived from CURRENT TA, not cumulative roundNum.
+      // Bill 2026-05-13: phase label was sticking on "Phase 2" because
+      // clock.state.roundNum = taSeen.length (cumulative count of unique
+      // TA values). For Two-Phase methods (method 9) the same rider runs
+      // both phases under one ride, so once both TAs have been observed
+      // roundNum stays at 2 forever — even when the operator switches
+      // the scoreboard back to Phase 1 for the next horse. The right
+      // signal is "which TA is firing RIGHT NOW", i.e. the position of
+      // state.currentTa in state.taSeen.
+      if (rtEl) {
+        var cs = WEST.clock._state;
+        var curTa = cs && cs.currentTa;
+        var taIdx = cs && cs.taSeen ? cs.taSeen.indexOf(curTa) : -1;
+        var curRound = taIdx >= 0 ? taIdx + 1 : (cs ? cs.roundNum : 0);
+        var smRaw = document.body.dataset.scoringMethod;
+        var smNum = smRaw === '' ? null : Number(smRaw);
+        var moRaw = document.body.dataset.scoringModifier;
+        var moNum = moRaw === '' ? null : Number(moRaw);
+        var rndText = '';
+        if (curRound > 0 && smNum != null && WEST.format && WEST.format.roundLabel) {
+          rndText = WEST.format.roundLabel(smNum, moNum, curRound) || '';
+        }
+        if (rndText) {
+          rtEl.textContent = rndText;
+          rtEl.style.display = '';
+        } else {
+          rtEl.style.display = 'none';
+        }
+      }
+    });
+  }
+
+  // ── Auto-scroll on standings ────────────────────────────────────────────
+  // Hold-top → scroll down 2px/tick → hold-bottom → snap-top → repeat.
+  // Wires to whatever #standingsScroll element exists after the latest
+  // render. State is module-scope so it survives re-renders, but reset
+  // whenever the height of the content suggests the table changed.
+  var scrollState = 'hold-top';
+  var scrollTimer = 0;
+  function wireAutoScroll() {
+    // No-op here — the actual ticking is a fixed setInterval below.
+    // Reset on render so a brand-new standings table starts from the top.
+    scrollState = 'hold-top';
+    scrollTimer = 0;
+    var el = document.getElementById('standingsScroll');
+    if (el) el.scrollTop = 0;
+  }
+  setInterval(function () {
+    var el = document.getElementById('standingsScroll');
+    if (!el) return;
+    if (el.scrollHeight <= el.clientHeight) return;
+    if (scrollState === 'hold-top') {
+      scrollTimer++;
+      if (scrollTimer >= 100) { scrollState = 'scrolling'; scrollTimer = 0; }
+    } else if (scrollState === 'scrolling') {
+      el.scrollTop += 2;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
+        scrollState = 'hold-bottom'; scrollTimer = 0;
+      }
+    } else if (scrollState === 'hold-bottom') {
+      scrollTimer++;
+      if (scrollTimer >= 120) {
+        el.scrollTop = 0;
+        scrollState = 'hold-top';
+        scrollTimer = 0;
+      }
+    }
+  }, 50);
+
+  // ── Boot ────────────────────────────────────────────────────────────────
+  if (!SLUG) {
+    document.getElementById('app').innerHTML =
+      '<div class="idle"><img src="../../assets/logo.png" alt="WEST">' +
+      '<div class="idle-label">Missing ?slug=&hellip; param</div></div>';
+    return;
+  }
+  setTransport('poll');
+  startPolling();
+  connectWs();
+
+  // Fire-and-forget show-info fetch — fills the QR label with the friendly
+  // show name instead of the slug. Re-renders on resolve so the QR slot
+  // picks up the new label without waiting for the next snapshot tick.
+  WEST.api.fetchJson('/v3/getShow?slug=' + encodeURIComponent(SLUG))
+    .then(function (j) {
+      if (j && j.ok && j.show) {
+        showInfo = j.show;
+        safeRender(snapshotState, false);
+      }
+    })
+    .catch(function (e) { dbg('[getShow error] ' + (e && e.message)); });
+})();
+</script>
+</body>
+</html>

@@ -67,9 +67,173 @@
     }).join('');
   }
 
+  // ── renderOOG(classMeta, rosterEntries, opts) ──────────────────────────
+  //
+  // Kiosk / ring-display Order-of-Go panel. Auto-detects between two modes:
+  //
+  //   • hasOOG  — at least one roster entry has ride_order > 0 → render
+  //               "Up Next" (sorted by ride_order) + "Competed" (sorted
+  //               by place). Operator loaded a schedule.
+  //   • seen-only — no entry has a real ride_order → drop Up Next and
+  //               render a single "Seen" list of entries with any data,
+  //               place-first. The operator either skipped scheduling
+  //               or this class doesn't carry one (catch-all warm-ups,
+  //               etc).
+  //
+  // Roster entries are the wide-shape rows from /v3/listEntries:
+  //   { id, entry_num, horse_name, rider_name, ride_order, overall_place,
+  //     current_place, r1_status, r2_status, r3_status, r1_h_status, ...,
+  //     r1_time, r1_total_faults, combined_total, r1_score_total, ... }
+  //
+  // Opts:
+  //   onCourseEntryNum  — string/number entry_num that's currently in the
+  //                       ring. Renders the gold-bordered "is-current"
+  //                       row treatment. Pass focus_preview.entry_num.
+  //   labels            — overrides for header strings { upNext, gone,
+  //                       seen, empty }. Defaults: "Up Next" / "Competed"
+  //                       / "Seen" / "Awaiting first ride".
+  //   hideUpcoming      — when true, drop the upcoming/remaining list
+  //                       entirely. Kiosk policy: the .cls's ride_order
+  //                       is rarely operator-curated, so showing it as
+  //                       "Up Next" misleads spectators. Display surfaces
+  //                       opt in; admin / live retain the full list.
+  //                       Bill 2026-05-13.
+  //
+  // Returns the INNER HTML for the .oog container (page wraps it). The
+  // page styles `.oog-section`, `.oog-header`, `.oog-list`, `.oog-row`
+  // etc. — west.css doesn't ship those yet because only display.html
+  // uses them, but future kiosk consumers can adopt the same class names.
+  function renderOOG(classMeta, rosterEntries, opts) {
+    opts = opts || {};
+    var rows = rosterEntries || [];
+    var ocEntry = opts.onCourseEntryNum != null ? String(opts.onCourseEntryNum) : '';
+    var lbl = Object.assign({
+      upNext: 'Up Next',
+      gone:   'Competed',
+      seen:   'Seen',
+      empty:  'Awaiting first ride',
+    }, opts.labels || {});
+    var isEq = !!(classMeta && classMeta.is_equitation);
+
+    function entryIsGone(e) {
+      if (!e) return false;
+      if (e.overall_place != null) return true;
+      if (e.current_place != null) return true;
+      if (e.r1_status || e.r2_status || e.r3_status) return true;
+      if (e.r1_h_status || e.r2_h_status || e.r3_h_status) return true;
+      if (e.r1_time || e.r2_time || e.r3_time) return true;
+      if (e.combined_total != null) return true;
+      if (e.r1_score_total != null || e.r2_score_total != null || e.r3_score_total != null) return true;
+      return false;
+    }
+
+    var upNext = [], gone = [];
+    rows.forEach(function (e) {
+      if (entryIsGone(e)) gone.push(e);
+      else upNext.push(e);
+    });
+    // hideUpcoming collapses the panel to Seen-only regardless of whether
+    // ride_order is set — the kiosk decision per Bill 2026-05-13.
+    var hasOOG = !opts.hideUpcoming
+              && rows.some(function (e) { return Number(e.ride_order) > 0; });
+
+    upNext.sort(function (a, b) {
+      var oa = Number(a.ride_order) || 999, ob = Number(b.ride_order) || 999;
+      if (oa !== ob) return oa - ob;
+      return (Number(a.entry_num) || 0) - (Number(b.entry_num) || 0);
+    });
+
+    // Latest finished_at across this entry's rounds — anchor for the Seen
+    // sort below. Falls back to NULL when no per-round timestamp is
+    // available (legacy rows that predate migration 037, or rounds that
+    // only carry status with no scored data). Latest because a multi-round
+    // class's "when did they last ride" is the most useful chronological
+    // signal — a Round-1 finisher who hasn't ridden R2 yet sits earlier
+    // than an entry that just finished a jump-off.
+    function latestFinishedAt(e) {
+      var ts = null;
+      ['r1_finished_at','r2_finished_at','r3_finished_at',
+       'r1_h_finished_at','r2_h_finished_at','r3_h_finished_at'].forEach(function (k) {
+        if (e[k] && (!ts || String(e[k]) > String(ts))) ts = e[k];
+      });
+      return ts;
+    }
+
+    // Gone list — chronological by latest finished_at, MOST RECENT FIRST.
+    // The center standings panel already shows place-sorted "leaderboard"
+    // ordering; the side panel's job is "what's happening right now", so
+    // the just-finished rider sits at the top. Falls back to place /
+    // entry_num for rows with no finished_at (rows that predate migration
+    // 037 or carry only status with no scored data). Same rule in both
+    // OOG and seen-only modes — Bill 2026-05-13: "the seen should be the
+    // order they went into the ring", side panel is recency-first.
+    gone.sort(function (a, b) {
+      var ta = latestFinishedAt(a), tb = latestFinishedAt(b);
+      if (ta && tb) return String(tb).localeCompare(String(ta));
+      if (ta && !tb) return -1;
+      if (!ta && tb) return  1;
+      var pa = Number(a.overall_place || a.current_place) || 999;
+      var pb = Number(b.overall_place || b.current_place) || 999;
+      if (pa !== pb) return pa - pb;
+      return (Number(a.entry_num) || 0) - (Number(b.entry_num) || 0);
+    });
+
+    function rowHtml(e, kind) {
+      var orderText = kind === 'gone'
+        ? (e.overall_place || e.current_place || '')
+        : (e.ride_order || '');
+      var isCurrent = (kind !== 'gone') && ocEntry && (String(e.entry_num) === ocEntry);
+      var primary   = isEq ? e.rider_name : e.horse_name;
+      var secondary = isEq ? e.horse_name : e.rider_name;
+      return '<div class="oog-row'
+        + (kind === 'gone' ? ' is-gone' : '')
+        + (isCurrent ? ' is-current' : '') + '">'
+        + '<span class="oog-order">' + esc(orderText || '') + '</span>'
+        + '<div class="oog-info">'
+        +   '<div class="oog-horse">' + esc(primary || '') + '</div>'
+        +   '<div class="oog-rider">' + esc(secondary || '') + '</div>'
+        + '</div></div>';
+    }
+
+    var out = '';
+    if (hasOOG) {
+      if (upNext.length) {
+        var grow = gone.length === 0;
+        out += '<div class="oog-section ' + (grow ? 'is-grow' : 'is-shrink') + '">'
+          +   '<div class="oog-header">' + esc(lbl.upNext) + ' (' + upNext.length + ')</div>'
+          +   '<div class="oog-list">'
+          +   upNext.map(function (e) { return rowHtml(e, 'upNext'); }).join('')
+          +   '</div></div>';
+      }
+      if (gone.length) {
+        out += '<div class="oog-section is-grow">'
+          +   '<div class="oog-header is-gone">' + esc(lbl.gone) + ' (' + gone.length + ')</div>'
+          +   '<div class="oog-list">'
+          +   gone.map(function (e) { return rowHtml(e, 'gone'); }).join('')
+          +   '</div></div>';
+      }
+      if (!upNext.length && !gone.length) {
+        out += '<div class="oog-section is-grow">'
+          +   '<div class="oog-header">Order of Go</div>'
+          +   '<div class="oog-list"><div class="oog-empty">No entries</div></div>'
+          +   '</div>';
+      }
+    } else {
+      out += '<div class="oog-section is-grow">'
+        +   '<div class="oog-header">' + esc(lbl.seen) + ' (' + gone.length + ')</div>'
+        +   '<div class="oog-list">'
+        +   (gone.length
+              ? gone.map(function (e) { return rowHtml(e, 'gone'); }).join('')
+              : '<div class="oog-empty">' + esc(lbl.empty) + '</div>')
+        +   '</div></div>';
+    }
+    return out;
+  }
+
   WEST.scoreboard = {
     renderJogOrder,
     renderStandbyList,
+    renderOOG,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

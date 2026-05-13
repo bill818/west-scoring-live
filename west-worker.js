@@ -122,8 +122,11 @@ async function pullHunterScoresV3(env, classPk) {
              THEN 1 ELSE 0 END,
         ehs.current_place ASC,
         CAST(e.entry_num AS INTEGER) ASC
-      LIMIT 50
     `).bind(classPk).all();
+    /* LIMIT removed 2026-05-13 — Old Salem class 421 had 72 entries; the
+       50-row cap truncated 22 rows, mis-stated the pill as "48 of 50"
+       instead of "48 of 72", and hid the bottom of standings. Class size
+       is bounded by Ryegate's roster (low hundreds at most). */
     const rows = r.results || [];
     // Per-judge per-round scores — needed for derby HighOpt/Handy display
     // and multi-judge breakdown in the live score card. Bulk-pull all
@@ -230,8 +233,8 @@ async function pullJumperScoresV3(env, classPk) {
              THEN 1 ELSE 0 END,
         ejs.overall_place ASC,
         CAST(e.entry_num AS INTEGER) ASC
-      LIMIT 50
     `).bind(classPk).all();
+    /* LIMIT removed 2026-05-13 — see pullHunterScoresV3 note above. */
     return r.results || [];
   } catch (e) {
     console.log(`[pullJumperScoresV3] failed for class_pk=${classPk}: ${e.message}`);
@@ -1439,6 +1442,10 @@ export class RingStateDO {
       entry_num: onCourseEntryNum,
       horse: grab(iTags, '2'),
       rider: grab(iTags, '3') || grab(iTags, '7'),
+      // 3-letter country code (FEI nationality on identity frames).
+      // Lifted so kiosk + display consumers don't have to dip into
+      // raw last_identity.tags to render the flag. Bill 2026-05-13.
+      country_code: grab(iTags, '5'),
       rank: grab(sTags, '8'),
       label_or_ta: grab(sTags, '13'),
       jump_faults: grab(sTags, '14'),
@@ -5422,6 +5429,18 @@ export default {
                 // round used to have data and no longer does (operator edited
                 // the class in Ryegate). Delete existing rounds for this
                 // entry, then insert only rounds that currently have data.
+                //
+                // Preserve finished_at across the delete+insert: capture the
+                // existing per-round timestamps, then reuse them on INSERT
+                // for rounds that already had data. New rounds get NOW.
+                // This makes finished_at a true "first time scored" anchor
+                // that survives subsequent .cls rewrites. Migration 037.
+                const { results: prevFinishedRows } = await env.WEST_DB_V3.prepare(
+                  'SELECT round, finished_at FROM entry_jumper_rounds WHERE entry_id = ?'
+                ).bind(entryId).all();
+                const prevFinishedByRound = new Map(
+                  (prevFinishedRows || []).map(r => [r.round, r.finished_at])
+                );
                 await env.WEST_DB_V3.prepare(
                   'DELETE FROM entry_jumper_rounds WHERE entry_id = ?'
                 ).bind(entryId).run();
@@ -5437,18 +5456,21 @@ export default {
                     status != null ||
                     (numericStatus != null && numericStatus !== 0);
                   if (!hasAnyData) continue;
+                  const finishedAt = prevFinishedByRound.get(round)
+                                  || new Date().toISOString();
                   await env.WEST_DB_V3.prepare(`
                     INSERT INTO entry_jumper_rounds (
                       entry_id, round,
                       time, penalty_sec, total_time, time_faults, jump_faults, total_faults,
                       status, numeric_status,
-                      first_seen_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                      first_seen_at, updated_at, finished_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
                   `).bind(
                     entryId, round,
                     s[p + 'time'], s[p + 'penalty_sec'], s[p + 'total_time'],
                     s[p + 'time_faults'], s[p + 'jump_faults'], s[p + 'total_faults'],
-                    s[p + 'status'], s[p + 'numeric_status']
+                    s[p + 'status'], s[p + 'numeric_status'],
+                    finishedAt
                   ).run();
                 }
               }
@@ -5504,7 +5526,15 @@ export default {
                   s.score_parse_status, s.score_parse_notes
                 ).run();
 
-                // Fresh-replace round rows (same pattern as jumper).
+                // Fresh-replace round rows (same pattern as jumper). Preserve
+                // finished_at across delete+insert — first scored timestamp
+                // survives subsequent .cls rewrites. Migration 037.
+                const { results: prevFinishedRowsH } = await env.WEST_DB_V3.prepare(
+                  'SELECT round, finished_at FROM entry_hunter_rounds WHERE entry_id = ?'
+                ).bind(entryId).all();
+                const prevFinishedByRoundH = new Map(
+                  (prevFinishedRowsH || []).map(r => [r.round, r.finished_at])
+                );
                 await env.WEST_DB_V3.prepare(
                   'DELETE FROM entry_hunter_rounds WHERE entry_id = ?'
                 ).bind(entryId).run();
@@ -5519,12 +5549,14 @@ export default {
                     status != null ||
                     (numericStatus != null && numericStatus !== 0);
                   if (!hasAnyData) continue;
+                  const finishedAt = prevFinishedByRoundH.get(round)
+                                  || new Date().toISOString();
                   await env.WEST_DB_V3.prepare(`
                     INSERT INTO entry_hunter_rounds (
                       entry_id, round, total, status, numeric_status,
-                      first_seen_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-                  `).bind(entryId, round, total, status, numericStatus).run();
+                      first_seen_at, updated_at, finished_at
+                    ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+                  `).bind(entryId, round, total, status, numericStatus, finishedAt).run();
                 }
               }
               entriesStatus += ` | ${scoreParse.status}`;
@@ -6167,21 +6199,27 @@ export default {
                   r1.time AS r1_time, r1.penalty_sec AS r1_penalty_sec, r1.total_time AS r1_total_time,
                   r1.time_faults AS r1_time_faults, r1.jump_faults AS r1_jump_faults, r1.total_faults AS r1_total_faults,
                   r1.status AS r1_status, r1.numeric_status AS r1_numeric_status,
+                  r1.finished_at AS r1_finished_at,
                   r2.time AS r2_time, r2.penalty_sec AS r2_penalty_sec, r2.total_time AS r2_total_time,
                   r2.time_faults AS r2_time_faults, r2.jump_faults AS r2_jump_faults, r2.total_faults AS r2_total_faults,
                   r2.status AS r2_status, r2.numeric_status AS r2_numeric_status,
+                  r2.finished_at AS r2_finished_at,
                   r3.time AS r3_time, r3.penalty_sec AS r3_penalty_sec, r3.total_time AS r3_total_time,
                   r3.time_faults AS r3_time_faults, r3.jump_faults AS r3_jump_faults, r3.total_faults AS r3_total_faults,
                   r3.status AS r3_status, r3.numeric_status AS r3_numeric_status,
+                  r3.finished_at AS r3_finished_at,
                   hs.go_order, hs.current_place, hs.combined_total,
                   hs.score_parse_status AS h_score_parse_status,
                   hs.score_parse_notes  AS h_score_parse_notes,
                   hr1.total AS r1_score_total,
                   hr1.status AS r1_h_status, hr1.numeric_status AS r1_h_numeric_status,
+                  hr1.finished_at AS r1_h_finished_at,
                   hr2.total AS r2_score_total,
                   hr2.status AS r2_h_status, hr2.numeric_status AS r2_h_numeric_status,
+                  hr2.finished_at AS r2_h_finished_at,
                   hr3.total AS r3_score_total,
-                  hr3.status AS r3_h_status, hr3.numeric_status AS r3_h_numeric_status
+                  hr3.status AS r3_h_status, hr3.numeric_status AS r3_h_numeric_status,
+                  hr3.finished_at AS r3_h_finished_at
            FROM entries e
            LEFT JOIN entry_jumper_summary s ON s.entry_id = e.id
            LEFT JOIN entry_jumper_rounds r1 ON r1.entry_id = e.id AND r1.round = 1

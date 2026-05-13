@@ -1,0 +1,349 @@
+SESSION-NOTES-51 — Ring display page (display.html) — built, iterated, deployed
+Date: 2026-05-13
+Branch: claude/eloquent-mayer-60965b → main
+Status: All work pushed to origin/main. Worker version af08a28f deployed.
+        Preview live at preview.westscoring.pages.dev.
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Goal coming in: build the long-pinned ring-display kiosk page off v2's
+display.html shape, using v3's centralized module stack.
+
+Shipped a fully working v3/pages/display.html that:
+  • Reuses the v3 transport (WS /v3/live + getRingState fallback)
+  • Consumes the snapshot's focus_preview as the on-course contract
+  • Renders standings via the existing jumper/hunter templates
+  • Has a dark kiosk theme that re-skins .results-table via CSS-var overrides
+  • Carries a Seen-only OOG list (no Up Next), chronological by finished_at
+  • Includes a QR slot pointing at westscoring.live/show.html?slug=…
+  • Sticky standings header pinned during auto-scroll cycling
+  • Per-region rendering shell — topbar / OOG / standings / sidebar
+    each update independently so score arrivals don't flicker the topbar
+
+Plus three worker-side improvements driven by the kiosk build:
+  • snapshot.focus_preview gained country_code (FEI nationality)
+  • New migration 037 — finished_at on entry_*_rounds, preserved across
+    the worker's DELETE-then-INSERT round-write pattern
+  • LIMIT 50 hardcap removed from pullJumperScoresV3 + pullHunterScoresV3
+    (was truncating 72-entry class to 50 rows — pill said "48 of 50"
+    when reality was "48 of 72")
+
+And a small live.html polish:
+  • TA chips inline under the class name (method-aware round count,
+    Phase 1/2 labels for two-phase, etc.)
+  • Dropped the "(unconfigured)" placeholder — empty until lens resolves
+
+═══════════════════════════════════════════════════════════════════════════
+DESIGN ARC
+═══════════════════════════════════════════════════════════════════════════
+
+Started by reading v2/display.html (~1080 LOC, inline templates for every
+jumper/hunter/derby/equitation variant) and the v3 module stack we already
+had. Bill's directive was clear early: "I'd tend to say build this right
+from our original architecture — the live page is working really well, I
+feel like there are centralized functions we already built that can
+stabilize that page."
+
+Initial build dropped a lot of v2's page-side logic in favor of:
+  • snapshot.focus_preview for the on-course identity / clock / faults
+    (worker decodes UDP tags, page just reads fields)
+  • WEST.jumperTemplates.renderTable / WEST.hunterTemplates.renderTable
+    for standings — same renderers class.html + live.html use
+  • previous_entry.banner_slots iteration only (no page-side fallback)
+  • New WEST.scoreboard.renderOOG (alongside existing renderJogOrder /
+    renderStandbyList) for the kiosk OOG / Seen panel
+
+The page took several refinement passes once it was live against
+osf-spring-ii ring 1 during an active class:
+
+  1. RANK double-prefix — fp.rank arrives as "RANK 5" sometimes; my
+     code added "RANK " in front, displaying "RANK RANK 5". Strip the
+     leading "RANK\s*" before rendering.
+  2. Friendly show name in QR slot — fetched /v3/getShow once on boot,
+     fell back to slug while in flight.
+  3. TA chips capped to actually-used rounds — Ryegate writes r3_time_
+     allowed on .cls headers even for 2-round methods. Source of truth
+     is jumperTemplates.detect (1R/EQ → 1, 2R → 2, 3R/TEAM → 3) for
+     jumpers, num_rounds for hunters. Same fix later mirrored on live.
+  4. OOG: drop the upcoming list entirely. Bill's call after seeing
+     the .cls's ride_order isn't really operator-curated and shouldn't
+     mislead spectators. WEST.scoreboard.renderOOG now takes a
+     hideUpcoming opt; display.html passes true, other consumers don't.
+  5. Seen list in ring-entry chronological order. Required new D1
+     column finished_at on entry_jumper_rounds + entry_hunter_rounds
+     (migration 037), worker preserving the value across its DELETE-
+     then-INSERT round-write pattern, exposing r*_finished_at via
+     listEntries, and sorting by latest-finished_at descending so the
+     most-recent rider sits at the top.
+  6. Dark theme contrast pass — instrumented an in-page audit walking
+     every text node, computing fg vs effective-bg with rgba alpha
+     blending, flagging contrast < 3.0. Found .results-table
+     .round-label-stack rendering near-black on dark (was --navy),
+     .place-num same (--black), --text-faint too dim, --red too dim
+     as text. Targeted overrides on the standings-scoped rules.
+  7. Per-region rendering split. Initial implementation re-wrote the
+     entire #app innerHTML on every render, causing the topbar to
+     flicker when scores arrived. Split into four <div id="region…">
+     wrappers, each with its own innerHTML hash guard. Wrappers use
+     display:contents so the inner .topbar / .oog / .standings /
+     .sidebar remain the grid items.
+  8. Sticky standings header. Plain position:sticky on <th> wasn't
+     pinning. Tracked through three issues: border-collapse:collapse
+     (inherited from west.css — switched to separate on the standings
+     table), overflow:hidden on the table (was there for border-radius
+     clipping — switched to visible), and position:relative on thead
+     (kept). All three needed to align before sticky engaged.
+  9. Autoscroll regression after the region split. wireAutoScroll ran
+     on every render and reset scrollTop=0; fixed by gating on
+     classDbId change. Then updateRegion's innerHTML write was
+     destroying #standingsScroll and resetting it; fixed by
+     capturing+restoring scrollTop on rebuild.
+ 10. Clock flicker debug. With the page running stable but the clock
+     bouncing between phases, instrumented the WS stream to capture
+     last_scoring frames over time. Caught the clock's phase flipping
+     between on_course/integer and finished/decimal every ~5s. Root
+     cause was the keepalive poll I had added earlier as a zombie-WS
+     safety net — it was fetching /v3/getRingState which returned a
+     slightly-stale snapshot, re-baselining the clock module to a
+     previous rider's decimal t17. Suppressed all polls at runtime
+     and confirmed the flicker stopped. Replaced keepalive with a
+     proper zombie-WS detector: if WS reports OPEN but no message
+     arrives in 30s, force close so the existing onclose reconnect
+     fires.
+ 11. Phase label stuck on "Phase 2". Two-Phase methods (method 9) ride
+     both phases per rider — TA flips twice per ride. WEST.clock state
+     roundNum = taSeen.length, which settles at 2 once both TAs are
+     observed and stays there forever. Switched the page's round-tag
+     derivation to taSeen.indexOf(currentTa) + 1 — "which TA is firing
+     RIGHT NOW", not cumulative count.
+ 12. Bill noticed only 50 entries showing in the standings on a
+     72-entry class. Asked "how many in the cls? is it fifty or more
+     than fifty?" — pointed straight at the bug. Worker had hardcoded
+     LIMIT 50 in both pullJumperScoresV3 and pullHunterScoresV3.
+     Removed. Pill went from "48 of 50" to "48 of 72" on next refresh.
+
+Bill's higher-order theme throughout: "are we using centralized and
+tested calls for these pages? no client side formulations?" — pushed
+hard on the discipline of building this page as a thin consumer of
+shared modules + worker contracts, not as another bespoke surface.
+The OOG renderer move into WEST.scoreboard, the focus_preview-only
+on-course card, and the banner_slots-only previous card all came
+out of that pressure.
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED — by layer
+═══════════════════════════════════════════════════════════════════════════
+
+FRONTEND — new page
+  v3/pages/display.html (~1370 LOC)
+    Kiosk takeover layout (no header chrome, overflow:hidden body).
+    Dark palette overrides via :root re-declaration. west.css linked
+    for fonts + .results-table structure; dark colors layered on top.
+    Top bar: brand + class number + name + method label + sponsor +
+      trophy + TA chips + pill (state, label, progress, bar).
+    Left: Seen list via WEST.scoreboard.renderOOG with hideUpcoming.
+    Center: standings via jumperTemplates / hunterTemplates,
+      sticky header, auto-scroll cycling.
+    Right: on-course card driven by snapshot.focus_preview,
+      previous card iterating pe.banner_slots, QR slot pointing at
+      westscoring.live/show.html?slug=… via api.qrserver.com.
+    Per-region rendering (topbar / OOG / standings / sidebar) with
+    independent hash guards.
+    Diagnostic strip behind ?debug=1 — error handler + per-tick
+    snapshot summary lines.
+
+FRONTEND — updates
+  v3/js/west-scoreboard.js
+    New WEST.scoreboard.renderOOG(meta, rosterEntries, opts).
+    Auto-detects hasOOG by ride_order > 0; opts.hideUpcoming forces
+    Seen-only. Sort: latest finished_at desc, fall back to place.
+    opts.onCourseEntryNum lights the current row.
+
+  v3/pages/live.html
+    TA chips appended to class-bar sub line, method-aware round labels,
+    capped by jumperTemplates.detect / num_rounds.
+    Dropped "(unconfigured)" fallback — empty until lens resolves.
+
+WORKER
+  west-worker.js
+    _buildFocusPreview() — added country_code = grab(iTags, '5') so
+      kiosk consumers don't dip into raw last_identity.tags for the
+      FEI nationality flag.
+    pullJumperScoresV3 + pullHunterScoresV3 — removed LIMIT 50.
+      Bug truncated 72-row class to 50.
+    /v3/postCls jumper + hunter round writers — preserve finished_at
+      across DELETE-then-INSERT. Captures existing values into a Map
+      keyed by round, reuses them on INSERT for rounds that already
+      had data. New rounds get datetime('now').
+    /v3/listEntries — SELECT r1_finished_at / r2_finished_at /
+      r3_finished_at / r1_h_finished_at / r2_h_finished_at /
+      r3_h_finished_at so page-side sort can use them.
+
+DB
+  v3/migrations/037_rounds_finished_at.sql
+    ALTER TABLE entry_jumper_rounds ADD COLUMN finished_at TEXT;
+    ALTER TABLE entry_hunter_rounds ADD COLUMN finished_at TEXT;
+    Applied via Cloudflare MCP d1_database_query against
+    WEST_DB_V3 (93f7a6dd-…).
+
+═══════════════════════════════════════════════════════════════════════════
+LESSONS / GOTCHAS
+═══════════════════════════════════════════════════════════════════════════
+
+1. STICKY <th> NEEDS THREE THINGS TO ALIGN
+   - border-collapse: separate on the <table>
+   - overflow: visible on the <table> (not hidden — west.css had it
+     hidden for border-radius clipping)
+   - position: sticky + top: 0 on the <th>
+   Any one missing kills the pin. Diagnosed by walking the ancestor
+   chain looking for overflow / position contexts.
+
+2. ROUNDNUM IS CUMULATIVE, NOT CURRENT
+   WEST.clock._state.roundNum = taSeen.length. Settles at the highest
+   round count observed for the class and stays there. For "what round
+   is on the scoreboard right now", use:
+     taSeen.indexOf(currentTa) + 1
+   Critical for two-phase methods that flip TA per-rider.
+
+3. KEEPALIVE POLLS POISON CLOCK STATE
+   Adding a 5s keepalive fetch of /v3/getRingState as a zombie-WS
+   safety net seemed harmless. It wasn't — the cached snapshot the
+   endpoint returned could carry a STALE last_scoring (from a
+   previous rider with a decimal t17), which when fed to
+   WEST.clock.set re-baselined the phase to "finished" and overwrote
+   the live on-course state. Every 5 seconds the clock would flicker
+   to a previous rider's finish time and back. Zombie-WS detection
+   should NOT replay snapshots; just monitor last-message timestamp
+   and force-close stale sockets.
+
+4. WORKER LIMIT 50 ON SCORES QUERY
+   pullJumperScoresV3 + pullHunterScoresV3 had a hardcoded LIMIT 50
+   that capped the snapshot's jumper_scores / hunter_scores arrays.
+   Pill counts, standings table, ALL downstream consumers showed
+   "X of 50" even for 72-entry classes. Real-world class sizes
+   regularly exceed 50; the limit was a development-era artifact.
+
+5. FULL-PAGE innerHTML REPLACE ON EVERY WS MESSAGE = FLICKER
+   Initial display.html did a single document.getElementById('app').
+   innerHTML = html on every snapshot. Even with a hash guard
+   suppressing no-change writes, real score arrivals rebuild
+   everything — and the static topbar visibly blinks. Per-region
+   wrappers (#regionTopbar / #regionOog / #regionStandings /
+   #regionSidebar), each with display:contents and their own
+   updateRegion hash guard, scope the rebuilds to the region that
+   actually changed.
+
+6. innerHTML REPLACE DESTROYS INNER SCROLL STATE
+   When updateRegion writes new HTML into #regionStandings, the
+   inner #standingsScroll element is replaced and its scrollTop
+   defaults to 0. Auto-cycling animation pinned to the top forever.
+   Fix: capture scrollTop before write, restore on the fresh
+   element. updateRegion now does this for any region containing
+   #standingsScroll.
+
+7. DROPPING "(unconfigured)" IS A REAL UX FIX
+   The fallback label looked broken on the public live page when
+   the snapshot hadn't yet resolved a lens. Showing an empty sub
+   line is better than parenthesized debug copy.
+
+═══════════════════════════════════════════════════════════════════════════
+MEMORY TOUCHED
+═══════════════════════════════════════════════════════════════════════════
+
+Repo-local (.claude/memory/, this commit):
+  Updated:
+    (none — display page memory lives in global)
+
+Global (~/.claude/projects/…/memory/):
+  Updated:
+    project_ring_display_page.md — mark BUILT 2026-05-13; current
+      shape (Seen-only, sticky header, per-region rendering, focus_
+      preview-driven on-course); link to follow-up items below.
+    reference_jumper_stats_pipeline.md — note that pullJumperScoresV3
+      no longer caps at 50 rows.
+    MEMORY.md — index entries for the new items below.
+
+  New:
+    project_display_page_built.md — what the page does, what modules
+      it consumes, where its quirks live (per-region rendering, scroll
+      preservation, sticky header CSS triplet).
+    feedback_no_keepalive_poll.md — never add a getRingState keepalive
+      that feeds the clock module; zombie-WS detection should be
+      message-timestamp based.
+    project_finished_at_columns.md — what r*_finished_at means, how
+      the worker preserves it across delete-replace, what consumes it
+      (kiosk Seen sort today, stats / replay later).
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT'S OPEN — for next session
+═══════════════════════════════════════════════════════════════════════════
+
+DISPLAY PAGE — pass-2 follow-ups:
+  • Class stats panel (was pinned out of pass-1; v2 had per-round
+    clears / 1-3 / 4 / avg flt + fastest-4-fault block).
+  • Per-judge mini-leaderboards for multi-judge hunter classes
+    (v2 had these in the sidebar).
+  • Bottom-right slot is currently the QR code — Bill mentioned
+    wanting to potentially make it a "peek at another ring" mini-
+    panel later (single liveStrip chip mounted there).
+  • Frame-0 (Clear SB) policy: today the clock drops to "—" when
+    Ryegate clears between riders. Kiosk-specific behavior could
+    freeze on last value instead. Bill didn't pick a direction yet.
+
+LIVE.HTML follow-ups out of this session:
+  • Migrate live.html's on-course card to consume snapshot.focus_
+    preview the same way display.html does (still hand-pulling
+    last_identity.tags['1']/'2'/'3'/'5' inline).
+
+CENTRALIZATION OPPORTUNITIES NOTED BUT NOT DONE:
+  • WEST.display.renderOnCourseCard — extract on-course card HTML
+    so live + display + future kiosks share it. Currently each
+    page composes inline.
+  • WEST.display.renderClassTopbar — same for the top bar.
+  Bill's guidance on west-display.js was "expand when a NEW chip
+  pattern appears across pages, not retroactively refactor" — so
+  these wait until there are two consumers.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF NOTES FOR NEXT CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Engine unchanged this session. Worker version af08a28f deployed.
+  Display page lives at preview.westscoring.pages.dev/display.html
+  with ?slug=<show>&ring=<n>. Add ?debug=1 to surface the
+  diagnostic strip + error overlay.
+
+- snapshot.focus_preview is the page-facing on-course contract.
+  Pull from there, not from raw last_identity.tags. Country code
+  is now in focus_preview.country_code (added this session).
+
+- WEST.scoreboard now exports renderOOG alongside renderJogOrder
+  / renderStandbyList. Display.html passes opts.hideUpcoming=true
+  to render Seen-only. Other consumers can omit it for the full
+  Up Next + Competed treatment.
+
+- finished_at columns on entry_*_rounds. Worker preserves across
+  delete-replace. Use latest-r1/2/3_finished_at descending for
+  "most-recent first" sort; fall back to place/entry_num for rows
+  predating migration 037.
+
+- Per-region rendering is the model now: #app contains four
+  #region… divs (display:contents so they're transparent to the
+  grid), each with its own innerHTML hash guard via updateRegion.
+  Adding new top-level UI? Add a region, render into it. Don't
+  rewrite #app.innerHTML directly except for the initial shell or
+  idle transitions (where shellBuilt gets wiped to re-trigger).
+
+- Auto-cycle scroll state lives at module scope (scrollState /
+  scrollTimer). wireAutoScroll() resets ONLY on class change
+  (autoScrollLastClassId tracker). updateRegion preserves
+  #standingsScroll.scrollTop across innerHTML writes.
+
+- NEVER add a keepalive poll that calls safeRender. See
+  feedback_no_keepalive_poll.md. WS-staleness detection should
+  be message-timestamp-based.
+
+- DON'T touch the LIMIT in pullJumperScoresV3 / pullHunterScoresV3
+  again. It's gone for a reason.

@@ -1,7 +1,7 @@
 # JS Modules and Pages — Current State
 
 > Quick reference for "where does X live?" and "who consumes Y?"
-> Last updated: 2026-04-25 (Session 38, jumper time-allowed in hero).
+> Last updated: 2026-05-13 (Session 51, display.html shipped + per-region rendering + finished_at columns).
 > Companion to [CENTRALIZED-JS-ARCHITECTURE.txt](CENTRALIZED-JS-ARCHITECTURE.txt) (the planning doc).
 
 ---
@@ -22,7 +22,9 @@ Every public page loads these via `<script>` tags. Worker and engine share them 
 | [west-cls-hunter.js](../../v3/js/west-cls-hunter.js) | Hunter lens .cls column-position spec. Read by parser. | layout descriptor object |
 | [west-data.js](../../v3/js/west-data.js) | Network/transport layer (planned future home for WebSocket subscription). | (currently minimal) |
 | [west-display.js](../../v3/js/west-display.js) | Reusable UI building blocks — phase pills, badges, ribbons (planned). | (currently minimal) |
-| [west-clock.js](../../v3/js/west-clock.js) | Live ticking clock (planned, for live + display pages). | (currently minimal) |
+| [west-clock.js](../../v3/js/west-clock.js) | Live ticking clock — phase / countdown / on-course / finished. Consumed by live + display. `_state.taSeen` + `currentTa` are the right signals for "which round is on the scoreboard right now" (not `_state.roundNum`, which is cumulative). | `set(snapshot)`, `start(cb)`, `stop()`, `setMode('tenth'\|'whole')`, `_state` |
+| [west-scoreboard.js](../../v3/js/west-scoreboard.js) | Order-of-Go / Standby / Seen list renderers. Consumed by live (jog-order panel + standby list) and display (Seen list). | `renderJogOrder(cls, entries)`, `renderStandbyList(cls, entries)`, `renderOOG(cls, rosterEntries, { onCourseEntryNum, hideUpcoming, labels })` |
+| [west-live-strip.js](../../v3/js/west-live-strip.js) | Drop-in commentator/spectator "live ring" strip. Self-contained: own WS subscription per ring, consumes `snapshot.focus_preview`. Mount on any v3 page. | `WEST.liveStrip.mount({ container, slug, ringFilter })` |
 | [west-stats.js](../../v3/js/west-stats.js) | Live + history stats helpers (planned). | (currently minimal) |
 
 Module load order in pages: `west-api` → `west-status` → `west-format` → `west-rules` → `west-jumper-templates` → page glue.
@@ -37,12 +39,10 @@ Module load order in pages: `west-api` → `west-status` → `west-format` → `
 | [show.html](../../v3/pages/show.html) | `/show.html?slug=X` | format, api | Per-show landing — hero (name, dates, venue, location, status badge), ring cards with class counts |
 | [ring.html](../../v3/pages/ring.html) | `/ring.html?slug=X&ring=N` | format, api | Per-ring class list — 4-mode sort toggle (Scheduled / Class Name / Class Number / Unscheduled), day groupings, asc/desc on name + number |
 | [class.html](../../v3/pages/class.html) | `/class.html?slug=X&ring=N&class=C` | api, status, format, rules, jumper-templates | Per-class results — hero with method label, results table via jumper-templates module |
+| [live.html](../../v3/pages/live.html) | `/live.html?slug=X&ring_num=N` | api, format, status, rules, clock, ribbons, jumper-templates, hunter-templates, flat, scoreboard | Per-ring live scoreboard — WS transport, multi-class panels, on-course identity + clock, just-finished banner via worker's banner_slots, TA chips inline under class name |
+| [display.html](../../v3/pages/display.html) | `/display.html?slug=X&ring=N` | api, format, status, rules, clock, ribbons, jumper-templates, hunter-templates, flat, scoreboard | Kiosk / ring display — dark theme, no header chrome, 3-col grid: Seen list (left) / standings with sticky header + auto-cycling scroll (center) / on-course + previous + QR (right). Consumes `snapshot.focus_preview` for on-course. Per-region rendering shell — each region updates independently, hash-guarded. Add `?debug=1` for diagnostic strip. |
+| [stats.html](../../v3/pages/stats.html) | `/stats.html?slug=X&ring=N&class=C` | api, format, status, rules, jumper-templates, hunter-templates | Server-rendered jumper standings + history. |
 | [admin.html](../../v3/pages/admin.html) | `/admin.html` | format, status, rules (inline) | Operator UI — show/ring/class CRUD, entry table with per-round scoring drill-down |
-
-Future pages (planned, not built):
-- `live.html` — live scoreboard for currently-running class. Will load west-clock.
-- `display.html` — sponsor-wall display variant.
-- `stats.html` — show + season aggregates. Will reuse jumper/hunter templates for standings rows.
 
 ---
 
