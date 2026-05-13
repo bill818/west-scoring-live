@@ -895,10 +895,63 @@
     // scroll back to 0 and starving the cycling animation. Mid-scroll
     // rows may shift slightly when a score lands, but the cycle keeps
     // moving instead of snapping. Bill 2026-05-13.
-    if (sidebarTouched) wireClock();
+    if (sidebarTouched) {
+      wireClock();
+      // Fit on-course names to their container so long horse/rider names
+      // shrink instead of getting truncated with ellipsis. Bill 2026-05-13.
+      // Only fire when sidebar actually rebuilt (new identity / new card)
+      // — the clock callback runs 10Hz but identity changes much less often.
+      fitOnCourseCard();
+    }
     if (classDbId && classDbId !== autoScrollLastClassId) {
       autoScrollLastClassId = classDbId;
       wireAutoScroll();
+    }
+  }
+
+  // ── Fit-text: shrink font-size until the text fits its container ─────
+  // White-space:nowrap + overflow:hidden + ellipsis is the CSS fallback
+  // when JS can't or won't run. This function takes a one-shot pass over
+  // the on-course card's primary / secondary lines, measures rendered
+  // width against the container width, and reduces font-size in 1px
+  // steps until it fits. Cheap (~few reflows per call, only on sidebar
+  // rebuild). Kiosk-only — live.html has its own narrower box where
+  // ellipsis is more acceptable.
+  function fitOnCourseCard() {
+    var card = document.querySelector('.sb-card.is-current');
+    if (!card) return;
+    // Configurable max/min per element class. Match the CSS defaults
+    // so the result looks identical when content fits naturally.
+    fitTextEl(card.querySelector('.sb-primary'),   26, 14);
+    fitTextEl(card.querySelector('.sb-secondary'), 16, 11);
+    var prev = document.querySelector('.sb-card.is-previous');
+    if (prev) {
+      fitTextEl(prev.querySelector('.sb-primary'),   20, 12);
+      fitTextEl(prev.querySelector('.sb-secondary'), 14, 10);
+    }
+  }
+  function fitTextEl(el, maxSize, minSize) {
+    if (!el) return;
+    // Reset every run — clear prior inline overrides so a previous fit
+    // doesn't anchor us low or leave us in wrap mode.
+    el.style.fontSize = maxSize + 'px';
+    el.style.whiteSpace = '';
+    el.style.overflow = '';
+    el.style.textOverflow = '';
+    // Shrink until it fits or we hit the floor.
+    var size = maxSize;
+    while (el.scrollWidth > el.clientWidth && size > minSize) {
+      size -= 1;
+      el.style.fontSize = size + 'px';
+    }
+    // Floor reached but still overflowing — switch to multi-line wrap.
+    // Kiosk viewing distance + minSize means going smaller hurts more
+    // than wrapping does. Bill 2026-05-13.
+    if (el.scrollWidth > el.clientWidth) {
+      el.style.whiteSpace = 'normal';
+      el.style.overflow = 'visible';
+      el.style.textOverflow = 'clip';
+      el.style.lineHeight = '1.05';
     }
   }
   var autoScrollLastClassId = null;
