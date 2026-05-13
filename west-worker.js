@@ -1294,11 +1294,27 @@ export class RingStateDO {
     // (previous_entry cleared on timeout, classes filtered out of
     // snapshot.classes when not is_live/live_since/is_final).
     const ringHasLiveClass = liveClassIds.length > 0;
+    // Top-level scores reflect the FOCUSED class — same fix as class_meta
+    // (Bill 2026-05-06). body.jumper_scores / hunter_scores come from
+    // pullJumperScoresV3 / pullHunterScoresV3 for the LENS class (= last
+    // UDP event's class), which can differ from the focused class. Without
+    // this override, a Channel B click for a non-focused class lands as
+    // its (often empty) scores at top level — the focused-class panel
+    // then renders empty data + the focused class's name = looks like
+    // "standings cleared". byClass[focused].* holds the correct routed
+    // data via _updateByClass / pickScores already. Bill 2026 OSF Spring
+    // II class 424.
+    const focusedJumperScores = (focusedEntry && focusedEntry.jumper_scores) || null;
+    const focusedHunterScores = (focusedEntry && focusedEntry.hunter_scores) || null;
+    const focusedHunterSeen   = (focusedEntry && focusedEntry.hunter_seen)   || null;
     return {
       ...body,
       class_meta: ringHasLiveClass ? focusedClassMeta : null,
       class_kind: ringHasLiveClass ? focusedClassKind : null,
       focused_class_id: ringHasLiveClass ? focusedId : null,
+      jumper_scores: ringHasLiveClass ? focusedJumperScores : null,
+      hunter_scores: ringHasLiveClass ? focusedHunterScores : null,
+      hunter_seen:   ringHasLiveClass ? focusedHunterSeen   : null,
       // Identity/scoring/focus carry-forward — null when ring idle.
       last_identity: ringHasLiveClass ? body.last_identity : null,
       last_scoring:  ringHasLiveClass ? body.last_scoring  : null,
