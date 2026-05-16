@@ -391,8 +391,19 @@ function renderRings(rings, classes) {
     // "Live" pill — only rendered when the worker reports this ring has a
     // recent scoring frame (class_live, set by /v3/listRings's KV lookup).
     // event.stopPropagation prevents the row's outer link from firing too.
+    // The pill must NOT be an <a>: it sits INSIDE the ring-row <a>, and
+    // a nested anchor is invalid HTML — the browser auto-closes the
+    // outer .ring-row anchor before it, which kicks the "View Classes"
+    // CTA out of the link so it can't be clicked whenever a class is
+    // live. Render a span that navigates via JS instead (same look via
+    // .live-pill CSS; stopPropagation so it doesn't also fire the row
+    // link). Verified: nested <a> breaks the row; span does not. Bill
+    // 2026-05-16.
+    const liveHref = `live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}`;
     const livePill = r.class_live
-      ? `<a class="live-pill" href="live.html?slug=${encodeURIComponent(slug)}&ring_num=${r.ring_num}" onclick="event.stopPropagation();"><span class="dot"></span>Live</a>`
+      ? `<span class="live-pill" role="link" tabindex="0" title="Watch live"
+           onclick="event.stopPropagation();event.preventDefault();window.location.href='${liveHref}';"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.stopPropagation();event.preventDefault();window.location.href='${liveHref}';}"><span class="dot"></span>Live</span>`
       : '';
 
     // Live banner under the ring row when ring is live (Bill 2026-05-06).
