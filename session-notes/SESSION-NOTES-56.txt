@@ -1,0 +1,151 @@
+SESSION-NOTES-56 — UX dead-ends, last auth exposure, PR #2 merged
+Date: 2026-05-16 (continued from 52/53/54/55)
+Branch: claude/wonderful-boyd-33608f — PR #2 now MERGED → main
+Status: All deployed to the single shared prod worker + preview pages
+        while building. Worker af055724. main = 99b2050 (the PR #2
+        merge commit). Local + GitHub fully reconciled.
+
+═══════════════════════════════════════════════════════════════════════════
+ARC SINCE SESSION 55  (commits 9ccbe44 → a5ab506, then merged as 99b2050)
+═══════════════════════════════════════════════════════════════════════════
+
+1. show.html "View Classes" unclickable when live (9ccbe44)
+   The live pill was <a class="live-pill"> NESTED inside the
+   <a class="ring-row"> CTA link. Nested anchors are invalid HTML —
+   the browser auto-closes the outer .ring-row anchor before the
+   pill, kicking "View Classes ▸" out of the link, so it could not
+   be clicked whenever a class was live. Fix: render the pill as a
+   <span role="link"> that navigates via JS (same .live-pill look,
+   stopPropagation so it doesn't double-fire the row). Verified in
+   preview: with live markup the CTA resolves back inside .ring-row,
+   pill is a SPAN, no nested anchors. Bill follow-up confirmed the
+   intent — BOTH paths must coexist: pill → live, rest of row →
+   View Classes, plus the separate "Watch ▸" banner → live. All
+   three verified independent.
+
+2. AUTH — last client-source key exposure closed (fc84a10)
+   ── SECURITY, completes the session-55 redesign ──
+   The session-55 auth redesign fixed index/admin/vmix-sandbox but
+   MISSED v3/js/west-api.js — the shared module EVERY public
+   spectator page loads (show/class/live/ring/stats/display). It
+   still hardcoded the machine key 'west-scoring-2026' and sent it
+   as X-West-Key on every request. Since the machine key was
+   deliberately NOT rotated (watcher/engine safe), anyone could lift
+   it from View Source and pass requireAuth() on all ~57 write
+   endpoints. Bill chose: make the spectator read endpoints public.
+   - 8 endpoints had their requireAuth guard removed (kept the
+     isV3Enabled check), mirroring the existing /v3/listShowsWithRings
+     public pattern: getShow, getShowWeather, listClasses,
+     listEntries, listJudgeGrid, listJumperStats, listRings,
+     listShowJumperStats.
+   - Already-public (untouched): getRingState, getShowLiveStatus,
+     showLogo, /v3/live (WS), listShowsWithRings.
+   - west-api.js: removed WEST.api.AUTH + the X-West-Key header from
+     fetchJson AND fetchJsonEtag. No auth key now lives anywhere in
+     client/browser source.
+   - Engine (v3/engine/*) legitimately keeps the key in config.json
+     — runs on the operator's Windows box, NOT browser source. Left.
+   - Verified on prod worker: all 8 endpoints 200/ok keyless,
+     updateShow still 401 keyless, served west-api.js has zero key,
+     keyless fetch returns live data.
+   - Stale comment in west-live-strip.js ("listRings would require
+     X-West-Key") updated — no longer true.
+
+3. live.html breadcrumbs — page was a navigational dead-end (a5ab506)
+   Bill: "you get stuck on the live page … can't get out without
+   going all the way back to the index." Header only linked to
+   index. Added the SHARED .breadcrumbs component (same as
+   show/ring/class, styles already in west.css):
+     All shows / <Show> / Ring N / [Class #N] / Live
+   - Show + ring crumbs resolve from URL params instantly; show
+     crumb upgrades slug → friendly name when /v3/getShow returns.
+   - Class crumb hidden until a class is focused, then links to
+     class.html?slug=&ring=&class=<focused_class_id>; updated every
+     render() via updateClassCrumb() so it tracks focus rotation,
+     hidden again when the ring goes idle.
+   - Verified deployed preview: static crumbs render/link correctly
+     on the dark page; class-crumb show/hide + URL logic proven in
+     isolation against the live DOM.
+
+4. PR #2 MERGED → main + git reconciliation
+   Bill asked to reconcile everything. State found: PR #2 was the
+   ONLY branch with unmerged work (18 commits, MERGEABLE/CLEAN);
+   6 other worktree branches were all stale (tips already contained
+   in origin/main — incl. silly-gagarin whose "ahead 127" was vs
+   its own ancient remote, not main). Actions (Bill chose merge
+   commit + prune all 6):
+   - gh pr merge 2 --merge → main = 99b2050. Local main worktree
+     fast-forwarded to match origin/main.
+   - Removed the 6 stale worktree dirs, deleted their 6 local
+     branches + 3 stale remote branches (eloquent, silly-gagarin,
+     gifted-hertz; the others were local-only).
+   - End state: only 2 worktrees (main + active wonderful-boyd),
+     2 local branches, 1 remote claude branch (the active one,
+     0 commits ahead of main). Nothing branching off.
+
+═══════════════════════════════════════════════════════════════════════════
+MEMORY — updated this session
+═══════════════════════════════════════════════════════════════════════════
+NEW: feedback_auth_no_client_key.md (indexed in MEMORY.md) — the
+standing rule: no auth key in client source; spectator endpoints are
+public GETs; writes only via X-West-Admin token; how to add new
+endpoints. Everything else current — no other pending memory work.
+
+═══════════════════════════════════════════════════════════════════════════
+TO-DO BEFORE SUNDAY EVENING  (Devon = Monday, multi-ring FEI)
+═══════════════════════════════════════════════════════════════════════════
+✅ DONE THIS SESSION
+ 3. MERGE PR #2 → main — DONE (99b2050). main is now the
+    source-of-truth + rollback point; prod Pages deploy reads the
+    working tree and main now matches.
+
+🔴 BLOCKERS (remaining)
+ 1. ENGINE: v3/engine/main.js PUBLIC_PAGES_ORIGIN →
+    https://westscoring.live; rebuild + republish asar
+    (publish-engine-update.bat, Windows). Devon operators MUST run
+    that engine build. Only true build step left.
+ 2. MULTI-RING DRY RUN: everything validated single-ring
+    (osf-spring-ii). Devon runs concurrent rings. Validate ≥2
+    rings: opened_at focus (no cross-ring bleed), per-class flat
+    (505/1001-type), clock/countdown per ring, vMix per ring.
+
+🟡 CUTOVER (Mon AM per SESSION-NOTES-53 runbook — unchanged)
+ 4. git checkout main && pull → ./deploy-prod.sh (type "GO LIVE") →
+    smoke test westscoring.live (admin login, a live ring, display
+    kiosk per ring, results, vMix sandbox URL, QR, breadcrumbs).
+ 5. Rollback rehearsed: CF dashboard → westscoring → last v2
+    Production deployment → Rollback.
+
+🟢 OPERATIONAL (do before Devon, not code)
+ 6. Admin password (WEST_ADMIN_PASSWORD) known to whoever runs
+    admin at Devon (required in prod — single shared worker).
+ 7. Devon show row: set vmix_enabled=1 ONLY when broadcast is
+    producing (defaults 0). osf-spring-ii is 1 (test) — reset if
+    desired.
+ 8. Confirm Devon engine/watcher config.json still has the
+    unchanged machine key (NOT rotated — should just work).
+ 9. Confirm no D1 migrations beyond 039 land unapplied (manual; no
+    runner). 038/039 + clock_precision/vmix_enabled ALTERs live on
+    prod v3 D1.
+
+NOT BLOCKERS / deferred: jog_order+standby_list still global-blob
+(same per-class refactor as flat_results — post-Devon); full index
+show-tags backend aggregation; admin Migrations/Health/Raw-D1 stubs;
+vmix-debug.html viewer.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF
+═══════════════════════════════════════════════════════════════════════════
+- Single shared worker: every fix is already live in prod behavior;
+  Monday is a FRONTEND-ONLY v2→v3 Pages cutover (deploy-prod.sh).
+- main = 99b2050 = everything through PR #2. Git is fully
+  reconciled — only main + the active worktree remain.
+- AUTH model is now COMPLETE: no key in any client source. New
+  spectator endpoint ⇒ public GET (no requireAuth, keep
+  isV3Enabled), call via WEST.api.fetchJson. Writes ⇒ behind
+  requireAuth, reached only via X-West-Admin token on admin /
+  vmix-sandbox. See feedback_auth_no_client_key.md.
+- Clock/phase: still ONE place — _resolveClock → snapshot.clock.
+- Before touching protocol code: read memory + canon FIRST
+  (feedback_read_memory_and_canon_first.md).
+- .DS_Store stays uncommitted (junk).
