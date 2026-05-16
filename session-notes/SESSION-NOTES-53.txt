@@ -1,0 +1,118 @@
+SESSION-NOTES-53 — Focus-trigger fix + flag sizing + v2→v3 go-live prep
+Date: 2026-05-14 (continued from 52)
+Branch: claude/wonderful-boyd-33608f → main (PR #2)
+Status: Worker deployed faf28d46 (focus fix live in prod worker — single
+        shared worker, no env split). Frontend still on Pages preview
+        branch; PRODUCTION cutover is the Monday task (Devon).
+
+═══════════════════════════════════════════════════════════════════════════
+WHAT SHIPPED AFTER SESSION 52'S COMMIT (368ead7)
+═══════════════════════════════════════════════════════════════════════════
+
+1. Live-page flag sizing
+   - The on-course flag span had NO `flag` class, so the existing
+     `.live-rider .flag` CSS never applied — emoji rendered at full
+     rider-text size (visually heavy). Added class="flag" + scaled the
+     span to 0.68em with a baseline nudge. v3/pages/live.html.
+
+2. False class-focus fix (Bill's "Class Opened" theory — CONFIRMED)
+   Root cause: /v3/postCls → DO /scores-update ran a `cls_lock` block
+   that set is_live=true on ANY class's first .cls write with scores,
+   bypassing the B+intro pair gate. Ryegate writes the .cls on every
+   score post and grabs class context early → false openings + focus
+   theft before the operator's INTRO+31000 pair.
+
+   Fix (west-worker.js, all server-side — NO engine change):
+   • New `opened_at` field — canonical "Class Opened" timestamp. Set
+     ONLY by the B+intro pair in _processLiveTriggers (port 31000
+     Channel B + INTRO frame fr=1/11 within LIVE_PAIR_WINDOW_MS) and by
+     the flat-class .cls path. Sticky; mirrors finalized_at.
+   • cls_lock gated to FLAT classes only (hunter, class_mode===1) — the
+     one legit no-B-pair workflow Bill flagged. /v3/postCls now sends
+     class_type+class_mode in the /scores-update body so the DO can tell.
+     Non-flat .cls writes still STORE scores (standings pre-warm) but do
+     NOT open/surface/focus the class.
+   • Self-heal: a non-flat entry still live via the OLD cls_lock with no
+     opened_at gets is_live=false (unlive_reason='false_cls_lock_
+     corrected') on its next .cls write.
+   • classes[] filter tightened: was `is_live || live_since!=null ||
+     is_final`; now `opened_at!=null || is_final`. Backfill loop adopts
+     live_since→opened_at for legit intro+focus / flat_cls triggers so
+     the deploy didn't drop any genuinely-live class mid-show. cls_lock
+     entries are deliberately NOT backfilled → they drop immediately.
+   • _focusedClassId pair-loop keys off opened_at instead of is_live.
+
+   NOT changed (deliberately, mid-show risk): the _focusedClassId eager
+   fallbacks (last_focus/last_scoring/class_meta). They only fire when
+   NO class is opened (cold-start render) and can't surface a class
+   (classes[] now needs opened_at). Revisit only if focus-without-
+   surface still misbehaves.
+
+3. deploy-prod.sh (NEW) — production cutover script.
+
+═══════════════════════════════════════════════════════════════════════════
+GO-LIVE / CUTOVER FACTS (verified via Cloudflare API this session)
+═══════════════════════════════════════════════════════════════════════════
+
+- Pages project `westscoring`, Git Provider = None (direct uploads).
+  Domains: westscoring.pages.dev + westscoring.live (BOTH on this one
+  project). production_branch = "main".
+- westscoring.live currently serves v2 from the production deployment.
+  v3 has only ever been pushed to --branch=preview (preview alias).
+- Worker `west-worker` = SINGLE shared instance
+  (west-worker.bill-acb.workers.dev). No prod/preview split. So the
+  prod worker + prod v3 D1 are ALREADY running all of this session's
+  changes (vMix, clock_precision, focus fix) and migrations 038+039.
+- Therefore the Monday cutover is FRONTEND-ONLY:
+  `wrangler pages deploy --branch=main` (= deploy-prod.sh). Since Git
+  Provider=None, --branch=main is just CF's "this is production"
+  routing label; it publishes the staged _pages_dist, not a git pull.
+  Merging to main is for source-of-truth/rollback hygiene.
+- Rollback: Pages dashboard → westscoring → Deployments → last
+  Production (v2) row → "Rollback to this deployment". Near-instant.
+  Keep a v2 checkout handy as belt+suspenders.
+
+═══════════════════════════════════════════════════════════════════════════
+MONDAY CUTOVER RUNBOOK (Bill executes; everything pre-staged)
+═══════════════════════════════════════════════════════════════════════════
+
+PRE (Sun): merge PR #2 → main. Engine: set
+v3/engine/main.js PUBLIC_PAGES_ORIGIN to https://westscoring.live,
+rebuild + publish asar (publish-engine-update.bat). Operators must run
+that engine build at Devon.
+
+CUTOVER (Mon AM, daylight buffer before first class):
+  1. cd repo, `git checkout main && git pull`
+  2. `./deploy-prod.sh`  → type "GO LIVE" at the prompt
+  3. Smoke test on https://westscoring.live:
+       - /admin loads, shows list, ring rows (Live+Display links)
+       - open a Display kiosk per Devon ring (?slug&ring_num)
+       - a live ring renders on-course + standings
+       - results + public show page + QR
+       - vMix: /v3/vmixLive?slug=<devon>&ring_num=1 (set the show's
+         vmix_enabled=1 in admin first if broadcasting)
+  4. Multi-ring: open every Devon ring's Display + Live, confirm no
+     cross-ring focus bleed (the focus-fix is the safety net here).
+  5. If broken: dashboard rollback to v2 production deployment.
+
+WATCH DURING DEVON:
+  - First class per ring: does opened_at populate (B+intro pair)? A
+    class that should open but doesn't → engine may be dropping one
+    half of the pair (port 31000 OR the INTRO frame). That's an
+    engine/UDP-config check, not a worker bug.
+  - Flat classes: confirm they still surface (cls_lock flat path).
+  - Stale snapshot lulls evict via TTL — expected, not a bug.
+
+═══════════════════════════════════════════════════════════════════════════
+OUTSTANDING (not blockers unless noted)
+═══════════════════════════════════════════════════════════════════════════
+
+- BLOCKER: PR #2 merge to main + engine origin swap + asar republish.
+- BLOCKER: multi-ring dry run before Monday (only single-ring tested).
+- Verify no migration files land past 039 without being applied to
+  prod v3 D1 (manual; no runner).
+- admin "Migrations/Health/Raw D1 query (coming)" stubs — post-launch.
+- vmix-debug.html viewer — offered, deferred.
+- Focus fix not yet verified against a live multi-rider sequence
+  (ring was idle at session end). Re-arm the vmixLive/getRingState
+  poller next session to confirm opened_at on the next class open.

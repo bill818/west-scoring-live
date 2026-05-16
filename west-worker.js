@@ -1426,13 +1426,17 @@ export class RingStateDO {
     if (this.forcedFocusClassId && this.byClass[this.forcedFocusClassId]) {
       return this.forcedFocusClassId;
     }
-    // Pair-gated: most recently locked-live class.
+    // Pair-gated: most recently OPENED class (opened_at is set only by a
+    // real B+intro pair or a flat-class .cls — never by the old
+    // over-eager cls_lock). Keying off opened_at instead of is_live means
+    // a class that was never genuinely opened can't win focus from a
+    // stray .cls write. Bill 2026-05-14.
     let lockedId = null;
     let lockedTs = 0;
     for (const cid of Object.keys(this.byClass)) {
       const c = this.byClass[cid];
-      if (!c || !c.is_live) continue;
-      const ts = c.last_live_event_at || c.live_since || 0;
+      if (!c || !c.opened_at) continue;
+      const ts = c.last_live_event_at || c.live_since || c.opened_at || 0;
       if (ts > lockedTs) { lockedTs = ts; lockedId = c.class_id || cid; }
     }
     if (lockedId) return lockedId;
@@ -1505,16 +1509,34 @@ export class RingStateDO {
         c.lifecycle_state = 'full';
       }
     }
-    // Bill 2026-05-06: a class only earns a panel on the public live
-    // page once the LIVE trigger pair has fired (B+intro within 1s) at
-    // least once for it. Bare Channel B clicks (or any other lone UDP
-    // touch) populate byClass internally for tracking, but they do NOT
-    // surface on live.html. Filter:
-    //   • is_live  — currently live (pair fired and not yet un-lived)
-    //   • live_since — was live at some point (entry survived un-live)
-    //   • is_final — explicitly finalized (operator marked complete)
+    // Backfill opened_at for entries that went live via a legit B+intro
+    // pair BEFORE this field existed (in-memory entries that survive a
+    // deploy, or a race where live_since was set first). live_since on a
+    // 'intro+focus' / 'flat_cls' trigger IS a real open — adopt it as
+    // opened_at so the tightened filter below doesn't drop a genuinely
+    // live class mid-show. Entries opened by the OLD over-eager
+    // 'cls_lock' path are deliberately NOT backfilled — they have no
+    // real open and should drop. Bill 2026-05-14.
+    for (const id of Object.keys(this.byClass)) {
+      const c = this.byClass[id];
+      if (c && !c.opened_at
+          && (c.live_trigger === 'intro+focus' || c.live_trigger === 'flat_cls')
+          && c.live_since != null) {
+        c.opened_at = c.live_since;
+      }
+    }
+    // Bill 2026-05-06 / tightened 2026-05-14: a class only earns a panel
+    // once it has been genuinely OPENED — a B+intro pair (port 31000 +
+    // INTRO within 1s) OR a flat-class .cls, both of which set opened_at
+    // — OR it has been explicitly finalized. Bare Channel B clicks, the
+    // old over-eager .cls cls_lock, and any other lone UDP touch populate
+    // byClass internally for tracking but do NOT surface. The previous
+    // filter accepted `live_since != null`, which let a single stray
+    // early .cls write surface + steal focus before the class was live.
+    //   • opened_at  — a real B+intro pair (or flat .cls) fired
+    //   • is_final   — explicitly finalized (operator 3× Ctrl+A)
     const classes = Object.values(this.byClass)
-      .filter(c => c && (c.is_live || c.live_since != null || c.is_final))
+      .filter(c => c && (c.opened_at != null || c.is_final))
       .sort((a, b) =>
         String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')))
       .map(c => Object.assign({}, c, { pill: this._buildClassPill(c) }));
@@ -2141,6 +2163,15 @@ export class RingStateDO {
       const triggerAt = Math.max(p.focusAt, p.introAt);
       const cls = this.byClass[cid] || (this.byClass[cid] = { class_id: cid });
       cls.last_live_event_at = triggerAt;
+      // opened_at — the canonical "Class Opened" timestamp (Bill
+      // 2026-05-14). Set ONLY here (B+intro pair = INTRO frame + port
+      // 31000 Channel B within LIVE_PAIR_WINDOW_MS) and on the flat-class
+      // .cls path. Sticky: survives un-live so a paused/idle class that
+      // resumes is still "opened". Mirrors finalized_at (set only by the
+      // 3× Ctrl+A FINAL). A class with NO opened_at and NO finalized_at
+      // was never really opened — .cls writes for it are ignored for
+      // surfacing/focus.
+      if (!cls.opened_at) cls.opened_at = triggerAt;
       if (!cls.is_live) {
         cls.is_live = true;
         cls.live_since = triggerAt;
@@ -2862,14 +2893,45 @@ export class RingStateDO {
         if (scoresChanged) {
           let target = existing;
           if (!target) target = this.byClass[cidFromBody] = { class_id: cidFromBody };
-          if (!target.is_live && !target.is_final) {
+          // A .cls write is NOT a valid "class opened" signal for normal
+          // classes. Ryegate writes the .cls on every score post — and
+          // it grabs class context before the class is truly live, which
+          // was producing false class openings (a stray early .cls write
+          // flipped is_live, surfaced the class, and stole focus before
+          // the operator's B+intro pair). Bill 2026-05-14.
+          //
+          // The ONLY class type that legitimately goes live without a
+          // B+intro pair is a FLAT class (hunter lens, class_mode===1):
+          // judged en masse, no per-rider intro frame. Everything else
+          // MUST wait for _processLiveTriggers' B+intro pair (which sets
+          // opened_at). For non-flat classes the .cls write still STORES
+          // scores below (line ~2900) so standings are pre-warmed — it
+          // just doesn't OPEN / surface / focus the class.
+          const isFlatClass =
+            String(body.class_type || '').toUpperCase() === 'H'
+            && Number(body.class_mode) === 1;
+          if (isFlatClass && !target.is_live && !target.is_final) {
             const now = Date.now();
             target.is_live = true;
             target.live_since = now;
+            target.opened_at = target.opened_at || now;
             target.last_live_event_at = now;
-            target.live_trigger = 'cls_lock';
+            target.live_trigger = 'flat_cls';
             target.went_unlive_at = null;
             target.unlive_reason = null;
+          } else if (!isFlatClass
+                     && target.is_live
+                     && target.live_trigger === 'cls_lock'
+                     && !target.opened_at) {
+            // Self-heal: this entry was opened by the OLD over-eager
+            // cls_lock path (pre-fix, still in memory, or a race). It has
+            // no opened_at (no real B+intro pair ever fired). Retract the
+            // false live state so it stops surfacing / holding focus.
+            // Scores stay stored. If the operator really opens it, the
+            // B+intro pair will set opened_at + is_live properly.
+            target.is_live = false;
+            target.went_unlive_at = Date.now();
+            target.unlive_reason = 'false_cls_lock_corrected';
           }
         }
       }
@@ -5918,13 +5980,17 @@ export default {
       try {
         const id = env.RING_STATE.idFromName(`${slug}:${ringNum}`);
         const stub = env.RING_STATE.get(id);
+        // class_type + class_mode ride along so the DO can decide whether
+        // a .cls write is allowed to OPEN a class. Only flat classes
+        // (hunter, class_mode===1) legitimately go live without an
+        // operator B+intro pair — see /scores-update cls_lock gate.
         if (parsed.class_type === 'H') {
           const hs = await pullHunterScoresV3(env, classDbId);
           if (hs) {
             ctx.waitUntil(stub.fetch('https://do/scores-update', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ slug, ring_num: ringNum, class_id: classId, hunter_scores: hs }),
+              body: JSON.stringify({ slug, ring_num: ringNum, class_id: classId, hunter_scores: hs, class_type: parsed.class_type, class_mode: parsed.class_mode ?? null }),
             }));
           }
         } else if (parsed.class_type === 'J' || parsed.class_type === 'T') {
@@ -5933,7 +5999,7 @@ export default {
             ctx.waitUntil(stub.fetch('https://do/scores-update', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ slug, ring_num: ringNum, class_id: classId, jumper_scores: js }),
+              body: JSON.stringify({ slug, ring_num: ringNum, class_id: classId, jumper_scores: js, class_type: parsed.class_type, class_mode: parsed.class_mode ?? null }),
             }));
           }
         }

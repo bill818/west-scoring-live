@@ -423,7 +423,17 @@
     font-family: var(--font-body); font-weight: 500;
     font-size: 16px; color: var(--text-body);
   }
-  .live-rider .flag { color: var(--text-muted); margin-right: 6px; }
+  /* Flag sits inline before the rider name. Emoji glyphs render
+     visually heavier than text at the same font-size, so scale the
+     whole flag span down to read as a proportionate accent rather
+     than competing with the rider name. Bill 2026-05-14. */
+  .live-rider .flag {
+    color: var(--text-muted);
+    margin-right: 6px;
+    font-size: 0.68em;
+    letter-spacing: .04em;
+    vertical-align: 1px;
+  }
   /* Status / clock / faults / rank (right cell) */
   .live-status-line {
     font-family: var(--font-mono);
@@ -1876,7 +1886,7 @@
           var flagText = window.WEST.format.flagFor(
             currentClassMeta || {},
             { country_code: nat });
-          if (flagText) flagHtml = '<span style="margin-right:6px;">' +
+          if (flagText) flagHtml = '<span class="flag">' +
             window.WEST.format.escapeHtml(flagText) + '</span>';
         }
         $('idRider').innerHTML = flagHtml + (rider
