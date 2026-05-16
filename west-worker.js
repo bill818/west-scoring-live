@@ -1159,24 +1159,28 @@ function _deriveOcFromSnapshot(snapshot) {
   const cdNum   = (cdRaw != null && String(cdRaw).trim() !== '') ? Number(cdRaw) : NaN;
   const clkNum  = (clkRaw != null && String(clkRaw).trim() !== '') ? Number(clkRaw) : NaN;
   const cdPresent  = Number.isFinite(cdNum);            // {23} present at all
-  // NOTE: do NOT treat a decimal {17} as "stopped" — Farmtek timers
-  // emit decimals WHILE RUNNING (and on pause), so decimal-means-
-  // finished is invalid here. "Round over" is detected purely by
-  // staleness of the scoring frame below, not by the value's shape.
-  // Bill 2026-05-16.
   const clkRunning = Number.isFinite(clkNum) && clkNum > 0;
+  // JUMPER FINISH = presence of RANK ({8}) — the authoritative
+  // "round is placed / over" signal per Bill, and exactly what
+  // west-watcher.js does (`if (rankClean) phase='FINISH'`). Do NOT
+  // infer finish from the clock value's shape (Farmtek runs decimals)
+  // or from staleness — rank is the real signal. {8} arrives as
+  // ": 1st" / ": EL" / "RANK 1"; strip a leading ": "; ANY non-empty
+  // value (a place number OR a status like EL/WD) means finished.
+  // Bill 2026-05-16.
+  const rankStr = String((fp && fp.rank) || grab(sTags, '8') || '')
+    .replace(/^:\s*/, '').trim();
+  const rankPresent = rankStr !== '';
   if (isHunter) {
     if (fr === 14) phase = 'ONCOURSE';
     else if (fr === 12 || fr === 15) phase = 'RESULTS';
     else phase = 'INTRO';
   } else {
-    // Mirror west-watcher.js precedence EXACTLY (later assignment wins):
-    //   INTRO < CD < ONCOURSE.  In practice {23} and {17} don't overlap
-    //   (the clock only runs once the count-in ends), but matching the
-    //   canonical order means vMix never disagrees with the live page.
-    //   FINISH is handled by the pe.finished_at window above.
+    // west-watcher.js precedence EXACTLY (later assignment wins):
+    //   INTRO < CD < ONCOURSE(clock & no rank) < FINISH(rank present).
     if (cdPresent) phase = 'CD';
-    if (clkRunning) phase = 'ONCOURSE';
+    if (clkRunning && !rankPresent) phase = 'ONCOURSE';
+    if (rankPresent) phase = 'FINISH';
   }
 
   // Countdown — NO interpolation. Ryegate ticks {23} itself every
@@ -1186,16 +1190,16 @@ function _deriveOcFromSnapshot(snapshot) {
   // whole seconds, matching the schema's "seconds remaining" contract.
   const cdNow = cdPresent ? Math.abs(Math.round(cdNum)) : 0;
 
-  // ONCOURSE elapsed — DOES get the server-side 1Hz tick: {17} arrives
-  // sparsely but the clock must visibly run between frames. Interpolate
-  // from the last_scoring timestamp, whole seconds (Bill: no tenths on
-  // vMix at a 1s poll floor). FINISH is pre-formatted elsewhere.
-  // A live running clock feeds {17} ~once per second. If the most recent
-  // scoring frame is older than this, the timer has STOPPED feeding —
-  // the round ended and the operator is cycling awards/holding. Do NOT
-  // keep extrapolating wall-clock seconds onto the last value (that was
-  // the "time scrolled forever during awards" bug). Freeze at the last
-  // whole-second value instead. Bill 2026-05-16.
+  // Elapsed:
+  //  • FINISH (rank present) → NOT interpolated. elapsedNow stays
+  //    clkRaw, the precise final {17} Ryegate sent, frozen. This is
+  //    what stops the "time scrolled forever during awards" bug — once
+  //    the rank posts the round is over and the clock is final.
+  //  • ONCOURSE → 1Hz server tick ({17} arrives sparsely; the clock
+  //    must visibly run between frames), whole seconds (Bill: no tenths
+  //    on vMix at a 1s poll floor). Secondary safety: if the scoring
+  //    frame goes stale (>8s — feed stopped before a rank posted, e.g.
+  //    a pause/hold), freeze rather than extrapolate.
   const ELAPSED_FRESH_MS = 8000;
   const baseAt = ls && ls.at ? Date.parse(ls.at) : NaN;
   const sinceBase = Number.isFinite(baseAt) ? (Date.now() - baseAt) / 1000 : 0;
