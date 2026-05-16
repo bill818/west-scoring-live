@@ -1,0 +1,24 @@
+-- Migration 039: shows.vmix_enabled — admin gate for the vMix XML feeds.
+--
+-- /v3/vmixLive + /v3/vmixStandings serve broadcast graphics data for a
+-- show's rings. Operators don't want those endpoints active outside of a
+-- produced broadcast, so this is a per-show on/off switch.
+--
+-- Behavior (Bill 2026-05-14):
+--   • 0 (default) → both endpoints return idle XML regardless of live
+--     scoring state. vMix Title bindings stay valid (frame="IDLE",
+--     empty fields / <scoring/>), so vMix logs no errors.
+--   • 1 → endpoints serve real data.
+--   • The sandbox slug "vmix-sandbox" is ALWAYS exempt (isVmixEnabled
+--     returns true for it) so the graphics op can build/test Title
+--     bindings any time without touching admin.
+--   • isVmixEnabled() fails closed — a D1 lookup error → treated as off.
+--
+-- Toggled from the admin show edit dialog ("vMix XML feeds active"
+-- checkbox). Plumbed through /v3/updateShow, surfaced on /v3/listShows
+-- + /v3/getShow.
+--
+-- Default 0: existing shows are vMix-off until an operator explicitly
+-- enables them for a broadcast.
+
+ALTER TABLE shows ADD COLUMN vmix_enabled INTEGER DEFAULT 0;

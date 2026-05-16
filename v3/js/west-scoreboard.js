@@ -132,10 +132,16 @@
       if (entryIsGone(e)) gone.push(e);
       else upNext.push(e);
     });
-    // hideUpcoming collapses the panel to Seen-only regardless of whether
-    // ride_order is set — the kiosk decision per Bill 2026-05-13.
+    // Only fire OOG mode when at least one UPCOMING entry has a real
+    // ride_order. Ryegate uses col[13] with dual semantics: when a class
+    // has a curated/posted order of go, every entry is pre-populated
+    // (1..N); when there's no curated order, col[13]=0 for everyone and
+    // Ryegate auto-stamps it as each horse enters the ring. Testing on
+    // `rows.some(...)` would be fooled by the already-competed entries
+    // and render Up Next with meaningless sort order. Testing on `upNext`
+    // distinguishes the two cases cleanly. Bill 2026-05-14.
     var hasOOG = !opts.hideUpcoming
-              && rows.some(function (e) { return Number(e.ride_order) > 0; });
+              && upNext.some(function (e) { return Number(e.ride_order) > 0; });
 
     upNext.sort(function (a, b) {
       var oa = Number(a.ride_order) || 999, ob = Number(b.ride_order) || 999;
@@ -178,17 +184,31 @@
       return (Number(a.entry_num) || 0) - (Number(b.entry_num) || 0);
     });
 
+    // Up-Next label = entry.position_label, computed server-side in
+    // assignOOGPositionLabels (west-worker.js). Page just reads. Single
+    // source of truth so display.html OOG, live.html, and any future
+    // surface render the same labels at the same moment. Fallback to
+    // raw ride_order only when position_label hasn't been stamped yet
+    // (legacy data sources that don't pass through the snapshot builder).
     function rowHtml(e, kind) {
-      var orderText = kind === 'gone'
-        ? (e.overall_place || e.current_place || '')
-        : (e.ride_order || '');
+      var label = e && e.position_label || null;
+      var orderText;
+      if (kind === 'gone') {
+        orderText = e.overall_place || e.current_place || '';
+      } else {
+        orderText = label != null ? label : (e.ride_order || '');
+      }
       var isCurrent = (kind !== 'gone') && ocEntry && (String(e.entry_num) === ocEntry);
+      var isOnDeck  = (kind !== 'gone') && label === 'On Deck';
       var primary   = isEq ? e.rider_name : e.horse_name;
       var secondary = isEq ? e.horse_name : e.rider_name;
+      var orderCls  = 'oog-order'
+        + (isOnDeck ? ' is-on-deck' : '')
+        + (label === 'On Course' ? ' is-on-course' : '');
       return '<div class="oog-row'
         + (kind === 'gone' ? ' is-gone' : '')
         + (isCurrent ? ' is-current' : '') + '">'
-        + '<span class="oog-order">' + esc(orderText || '') + '</span>'
+        + '<span class="' + orderCls + '">' + esc(orderText || '') + '</span>'
         + '<div class="oog-info">'
         +   '<div class="oog-horse">' + esc(primary || '') + '</div>'
         +   '<div class="oog-rider">' + esc(secondary || '') + '</div>'

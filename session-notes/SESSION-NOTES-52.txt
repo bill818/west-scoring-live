@@ -1,0 +1,166 @@
+SESSION-NOTES-52 — vMix XML feeds + clock precision + Order-of-Go labels
+Date: 2026-05-14
+Branch: claude/wonderful-boyd-33608f → main
+Status: All work deployed to production worker + preview pages while building.
+        Branch committed + pushed this session. Worker version cce6a3d2
+        (final of several deploys). Migrations 038 + 039 applied to prod v3 D1.
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════════════════
+
+Goal coming in: give the broadcast graphics operator a way to test vMix
+Title bindings against the show data before/at Devon, then a string of
+live-show fixes that surfaced while testing against Old Salem Farm
+Spring II (slug osf-spring-ii, single ring 1).
+
+Shipped, in order:
+
+1. vMix XML data-source endpoints (NEW)
+   • GET /v3/vmixLive?slug&ring_num   — 1 row, on-course + frame state
+   • GET /v3/vmixStandings?slug&ring_num — top-10, ranked
+   • Public-read, application/xml. Column names/order ARE the contract.
+   • Frame state machine from watcher phase: INTRO/CD/ONCOURSE/FINISH
+     (jumper), INTRO/ONCOURSE/RESULTS (hunter), IDLE when nothing live.
+   • docs/vmix-xml-schema.md is the single source of truth for the
+     contract — URLs, columns, frame machine, update cadence, vMix
+     wiring steps, column-stability promise.
+
+2. Sandbox so graphics op can test without a live show
+   • POST /v3/vmixSandboxSet (auth) writes the SAME KV keys the real
+     pipeline uses under slug "vmix-sandbox" → vmixLive/Standings serve
+     synthetic data through the production code path, no special-casing.
+   • v3/pages/vmix-sandbox.html control page — jumper + hunter forms,
+     frame buttons, standings JSON editor, copy/open URL chips.
+
+3. clock_precision (migration 038) — Ryegate H[05] honored end-to-end
+   • v3 had dropped it at the v2 cutover; every surface hardcoded
+     toFixed(3) so FEI hundredths-classes rendered "47.210" not "47.21".
+   • parseClsHeaderV3 reads col[5]; /v3/postCls + /v3/reparseClassHeaders
+     write it; snapshot.class_meta.clock_precision surfaces it.
+   • WEST.format.time(sec, precision), worker jumper banner_slots,
+     west-clock.js FINISH frame, vmixStandings time column all honor it.
+   • Backfilled osf-spring-ii via /v3/reparseClassHeaders — class 711
+     (CSI 4*) = precision 1 (2 decimals), regular classes = 0 (3 dec),
+     hunters NULL.
+
+4. Order-of-Go: the JO vs col[13] distinction (IMPORTANT — see memory)
+   • Public results page gates on schedule_flag='JO' (tsked) — operator
+     publishes the order. The KIOSK is a live ring mirror and must NOT
+     use that gate — it shows whatever Ryegate has on .cls col[13] now.
+   • Removed display.html hideUpcoming:true (the 2026-05-13 decision
+     that conflated the two surfaces).
+   • Ryegate col[13] has DUAL semantics: curated class → pre-populated
+     1..N for whole roster (posted order); uncurated class → 0 for all,
+     Ryegate auto-stamps as each horse ENTERS the ring (a "has gone"
+     tracker, NOT a queue). Confirmed on class 711 (curated 1..47) vs
+     class 410 (only the 4 who'd gone had 1..4, rest 0).
+   • Correct detector: ANY UPCOMING entry has ride_order>0 — not "any
+     entry" (which the already-competed rows falsely satisfy).
+   • Smart position labels (server-side): On Deck / -1 / -2 / ...,
+     re-packs around the on-course entry, skips it in the count
+     (label "On Course"). Computed in assignOOGPositionLabels in
+     west-worker.js, stamped on focused jumper_scores/hunter_scores.
+     Pages just read entry.position_label — no client compute.
+
+5. vmixLive snapshot fallback (the "on-course not working" fix)
+   • v2 oncourse: KV is only written by the v2 watcher + the sandbox.
+     Real shows run the v3 engine pipeline → that KV is empty → vmixLive
+     was returning IDLE for every live class.
+   • _deriveOcFromSnapshot builds an oc-shaped object from
+     focus_preview + last_identity + last_scoring + previous_entry so
+     vmixLive serves live data for any v3 show. Sandbox + v2 watcher
+     paths preserved (KV checked first, snapshot fallback second).
+
+6. Server-side 1Hz clock tick for vMix
+   • Ryegate UDP cadence is sparse; vMix polls 1s. Without help the XML
+     freezes between UDP frames. _deriveOcFromSnapshot interpolates from
+     last_scoring.at: CD decrements (clamp 0), ONCOURSE increments.
+     BOTH whole seconds (Bill: vMix can't do tenths at 1s poll; real
+     running clock is a separate parked plan). FINISH untouched (already
+     pre-formatted at clock_precision).
+
+7. vmix_enabled per-show admin gate (migration 039)
+   • shows.vmix_enabled, default 0. /v3/vmixLive + /v3/vmixStandings
+     early-return idle XML when off. Sandbox slug always exempt.
+     isVmixEnabled() fails closed.
+   • Admin show dialog: "vMix XML feeds active" checkbox. Plumbed
+     /v3/updateShow + added to /v3/listShows + /v3/getShow SELECTs.
+   • osf-spring-ii set vmix_enabled=1 for live testing.
+
+8. Admin per-ring Display link + ring-row layout
+   • ▣ Display button next to ▶ Live, opens display.html?slug&ring_num.
+     Per-ring by URL → Devon opens one window per ring.
+   • Engine/heartbeat line moved INSIDE .ring-body (stacks under name /
+     created / last-cls) so the button column stops getting squeezed.
+
+═══════════════════════════════════════════════════════════════════════════
+DELIVERED FILES
+═══════════════════════════════════════════════════════════════════════════
+
+west-worker.js
+  • /v3/vmixLive, /v3/vmixStandings, /v3/vmixSandboxSet (new endpoints)
+  • isVmixEnabled(), _deriveOcFromSnapshot(), assignOOGPositionLabels()
+  • parseClsHeaderV3 reads clock_precision (col[5], J/T only)
+  • /v3/postCls + /v3/reparseClassHeaders write clock_precision
+  • snapshot class_meta gains clock_precision; jumper banner_slots
+    formats Time at precision
+  • /v3/updateShow accepts vmix_enabled; /v3/listShows + /v3/getShow
+    SELECT it
+  • assignOOGPositionLabels called in _buildSnapshot on focused scores
+v3/js/west-format.js       — time(sec, clockPrecision)
+v3/js/west-jumper-templates.js — pass cls.clock_precision
+v3/js/west-clock.js        — FINISH frame honors clock_precision
+v3/js/west-scoreboard.js   — read entry.position_label; hasOOG tests
+                             upNext (not all rows)
+v3/pages/display.html      — drop hideUpcoming; merge position_label
+                             from snapshot onto roster; fmtTime(t,cp)
+v3/pages/admin.html        — vMix checkbox, Display link, engine layout
+v3/pages/west.css          — .oog-order width + is-on-deck/is-on-course;
+                             .ring-engine margin-top
+docs/vmix-xml-schema.md    — NEW, the contract reference
+v3/pages/vmix-sandbox.html — NEW, sandbox control page
+v3/migrations/038_classes_clock_precision.sql — NEW
+v3/migrations/039_shows_vmix_enabled.sql      — NEW
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF NOTES FOR NEXT CLAUDE
+═══════════════════════════════════════════════════════════════════════════
+
+- Migrations 038 + 039 were applied DIRECTLY to prod v3 D1 via the
+  Cloudflare MCP during the session (not via a migration runner). The
+  .sql files exist for the repo record / fresh-DB replay. Don't re-apply.
+
+- vMix contract: docs/vmix-xml-schema.md. Column rename/remove is
+  BREAKING (vMix Title bindings pin names). Adding columns is safe.
+
+- vmixLive data source priority: oncourse: KV first (sandbox + v2
+  watcher), then _deriveOcFromSnapshot (v3 engine shows). focus_preview
+  is the preferred identity source inside the fallback — it's per-class
+  resolved + DO-carried; raw last_identity is per-batch and can be null
+  mid-quiet-window.
+
+- Order-of-Go col[13] dual semantics is the key mental model — see
+  memory feedback_oog_ride_order_dual.md. The kiosk uses col[13]
+  directly (live ring mirror); the public results page uses the JO
+  schedule_flag. Don't reconflate them.
+
+- position_label is server-computed (assignOOGPositionLabels) and only
+  set on the focused class's jumper_scores/hunter_scores. Other entry
+  surfaces (/v3/listEntries roster) don't carry it; display.html merges
+  it onto the roster by entry_num. If live.html later wants OOG it
+  should read snapshot scores' position_label the same way.
+
+- The 1Hz CD/ONCOURSE tick is server-side interpolation off
+  last_scoring.at. It's whole seconds ONLY by Bill's explicit ask. The
+  "real running clock" (sub-second, engine-pushed vMix TCP shortcuts)
+  is still the parked plan in project_engine_vmix_integration.md.
+
+- vmix_enabled defaults 0. osf-spring-ii is currently 1 (live test).
+  Turn shows off post-broadcast via admin edit dialog. Sandbox slug
+  "vmix-sandbox" bypasses the gate forever by design.
+
+- Not built (offered, declined / deferred): vmix-debug.html viewer
+  page (watch the XML tick at 1Hz in a browser). Re-offer if useful.
+
+- Engine unchanged this session.

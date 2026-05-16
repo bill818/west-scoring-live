@@ -103,6 +103,12 @@
       // S43 Chunk 12 split. snapshot.last_focus (Channel B) carries no
       // clock data so we never read it here.
       var last = snapshot && (snapshot.last_scoring || snapshot.last);
+      // Capture clock_precision off the focused class_meta. Drives the
+      // FINISH-frame decimal count (Ryegate H[05]: 0=.001, 1=.01, 2=whole).
+      // Null when meta hasn't arrived yet — falls back to 3 decimals.
+      state.clockPrecision = (snapshot && snapshot.class_meta && snapshot.class_meta.clock_precision != null)
+        ? snapshot.class_meta.clock_precision
+        : null;
       if (!snapshot || !last) {
         // Can happen at boot before any data arrives, or on idle DO.
         // Don't reset class state — class focus survives no-data windows.
@@ -234,11 +240,17 @@
         return;
       }
       if (phase === 'finished') {
-        // FINISH always shows the exact decimal Ryegate sent. 3 decimals
-        // matches the non-FEI default; FEI sends 2 already so toFixed(3)
-        // padding the trailing zero is harmless.
+        // FINISH renders the class's clock_precision (Ryegate H[05]):
+        //   0 → 3 decimals  (thousandths)
+        //   1 → 2 decimals  (hundredths — FEI default)
+        //   2 → 0 decimals  (whole seconds)
+        //   null → 3 decimals (legacy fallback)
+        // Previously this hardcoded toFixed(3), padding "32.75" → "32.750"
+        // even when Ryegate told us hundredths. Bill 2026-05-14.
+        var cp = state.clockPrecision;
+        var decimals = cp === 2 ? 0 : cp === 1 ? 2 : 3;
         var fv = (state.finalValue !== null)
-          ? state.finalValue.toFixed(3) : '—';
+          ? state.finalValue.toFixed(decimals) : '—';
         renderCallback(fv, 'finished');
         return;
       }

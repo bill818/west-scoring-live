@@ -119,7 +119,7 @@
       return '<span class="round-status">' + escapeHtml(label) + '</span>';
     }
     var faults = Number(rnd.total_faults) || 0;
-    var timeStr = WEST.format.time(rnd.time);
+    var timeStr = WEST.format.time(rnd.time, cls && cls.clock_precision);
     var cfg = configFor(cls);
     var faultsCls = 'round-faults'
       + (faults > 0 ? ' is-faulted' : '')

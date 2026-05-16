@@ -184,7 +184,24 @@
   .oog-row.is-current { background: var(--highlight); border-left: 3px solid var(--gold); padding-left: 9px; }
   .oog-order {
     font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
-    min-width: 20px; text-align: right; font-variant-numeric: tabular-nums;
+    min-width: 56px; text-align: right; font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+  }
+  /* On Deck — the next horse to enter the ring. Visually elevated so the
+     in-gate / TD can read it at a glance. */
+  .oog-order.is-on-deck {
+    color: var(--gold, #c8a04a);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.10em;
+  }
+  /* On Course — the entry actively competing (also gets the row-level
+     .is-current highlight, so this is just label coloring). */
+  .oog-order.is-on-course {
+    color: var(--gold, #c8a04a);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.10em;
   }
   .oog-info { flex: 1; min-width: 0; }
   .oog-horse {
@@ -534,11 +551,11 @@
   // ── Module shorthands ───────────────────────────────────────────────────
   var BASE   = WEST.api.BASE;
   var esc    = WEST.format.escapeHtml;
-  var fmtTime = function (t) {
+  var fmtTime = function (t, cp) {
     if (t == null || t === '') return '';
     var n = Number(t);
     if (!Number.isFinite(n)) return String(t);
-    return WEST.format.time ? WEST.format.time(n) : n.toFixed(3);
+    return WEST.format.time ? WEST.format.time(n, cp) : n.toFixed(3);
   };
 
   // ── Public-URL host for QR. Mirrors live.html's BASE convention.
@@ -1120,15 +1137,39 @@
     if (!WEST.scoreboard || !WEST.scoreboard.renderOOG) {
       return '<div class="oog"><div class="oog-section is-grow"><div class="oog-empty">scoreboard module unavailable</div></div></div>';
     }
-    // Kiosk decision (Bill 2026-05-13): the upcoming/remaining list is
-    // just whatever the .cls had left over and rarely reflects an
-    // operator-curated order. For the public display surface, only show
-    // the Seen (already-competed) list. Pass hideUpcoming through to the
-    // central renderer; other consumers can still get the full OOG.
+    // Merge server-computed position_label from snapshot.jumper_scores /
+    // hunter_scores onto the static roster. The labels ("On Deck", "-1",
+    // "-2", ...) are stamped server-side by assignOOGPositionLabels in
+    // west-worker.js — single source of truth so display.html, future
+    // live.html, and any other ring surface see the same labels at the
+    // same moment. Roster supplies stable identity; snapshot supplies
+    // dynamic position relative to the on-course rider.
+    var liveScores = (snap && (snap.jumper_scores || snap.hunter_scores)) || null;
+    var labelByEntry = {};
+    if (Array.isArray(liveScores)) {
+      for (var i = 0; i < liveScores.length; i++) {
+        var s = liveScores[i];
+        if (s && s.entry_num != null && s.position_label != null) {
+          labelByEntry[String(s.entry_num)] = s.position_label;
+        }
+      }
+    }
+    var enriched = roster.map(function (e) {
+      var lbl = labelByEntry[String(e.entry_num)];
+      return lbl ? Object.assign({}, e, { position_label: lbl }) : e;
+    });
+
+    // Kiosk policy (Bill 2026-05-14): the ring display is a live ring
+    // mirror — it should reflect whatever order Ryegate has on .cls col[13]
+    // right now, regardless of whether the operator has flipped JO in
+    // tsked.csv to publish the order publicly. The JO/schedule_flag gate
+    // applies to the public results page, not to the kiosk. Let renderOOG
+    // auto-detect: when any entry has ride_order > 0 it shows Up Next;
+    // when none do (catch-all warm-ups, .cls with no curated order) it
+    // falls through to the Seen-only layout.
     return '<div class="oog">'
-      + WEST.scoreboard.renderOOG(meta, roster, {
+      + WEST.scoreboard.renderOOG(meta, enriched, {
           onCourseEntryNum: ocEntryNum,
-          hideUpcoming: true,
         })
       + '</div>';
   }

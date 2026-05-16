@@ -266,6 +266,10 @@
       <div class="form-hint">Hidden from the public homepage. Engine skips the start/end date gate so you can test anytime with any folder contents. Reachable by direct URL — operator pages still work normally.</div>
     </div>
     <div class="form-group">
+      <label><input type="checkbox" id="f_showVmixEnabled"> vMix XML feeds active</label>
+      <div class="form-hint">Turn ON only when a broadcast is producing. While off, <code>/v3/vmixLive</code> + <code>/v3/vmixStandings</code> return empty/idle XML for every ring of this show, even if scoring is live. The graphics-op sandbox slug stays on regardless.</div>
+    </div>
+    <div class="form-group">
       <label for="f_showLockOverride">Engine lock</label>
       <select id="f_showLockOverride">
         <option value="auto">Auto — locks after end date (recommended)</option>
@@ -1103,19 +1107,23 @@ function renderRings() {
     li.className = 'ring-row';
     const displayName = r.name || `Ring ${r.ring_num}`;
     const placeholderUsed = !r.name;
-    // Operator-only Live link — always rendered regardless of class_live
-    // so an operator can pop the live page in a new tab to verify the
-    // spectator view at any time. Public pages gate the link on liveness.
-    const liveUrl = `live.html?slug=${encodeURIComponent(state.selectedSlug)}&ring_num=${r.ring_num}`;
+    // Operator-only Live + Display links — always rendered regardless of
+    // class_live so an operator can pop either surface in a new tab any
+    // time. Public pages gate liveness; these are admin shortcuts.
+    // Display is per-ring (slug+ring_num in the URL) so Devon can open
+    // one tab per ring on different monitors and run them simultaneously.
+    const liveUrl    = `live.html?slug=${encodeURIComponent(state.selectedSlug)}&ring_num=${r.ring_num}`;
+    const displayUrl = `display.html?slug=${encodeURIComponent(state.selectedSlug)}&ring_num=${r.ring_num}`;
     li.innerHTML = `
       <div class="ring-num">${r.ring_num}</div>
       <div class="ring-body">
         <div class="ring-name${placeholderUsed ? ' ring-name-placeholder' : ''}">${escapeHtml(displayName)}</div>
         <div class="ring-meta">created ${(r.created_at || '').slice(0,10)}</div>
         ${clsHtml}
+        <div class="ring-engine">${engineHtml}</div>
       </div>
-      <div class="ring-engine">${engineHtml}</div>
       <a class="btn-secondary" href="${liveUrl}" target="_blank" rel="noopener" title="Open the spectator live page in a new tab">▶ Live</a>
+      <a class="btn-secondary" href="${displayUrl}" target="_blank" rel="noopener" title="Open the ring kiosk display in a new tab (one per ring — open in multiple windows for multi-ring shows)">▣ Display</a>
       <button class="btn-secondary btn-ring-edit" data-ring-num="${r.ring_num}" title="Edit ring">Edit</button>
       <button class="btn-danger btn-ring-flush" data-ring-num="${r.ring_num}" title="Wipe all classes, entries, .cls archives, and live state for this ring. Show + ring config preserved. Stop the engine first.">🗑 Flush</button>`;
     ul.appendChild(li);
@@ -1174,6 +1182,7 @@ function openShowDialog(mode, show) {
   document.getElementById('f_showStatus').value        = s.status        || 'pending';
   document.getElementById('f_showStatsEligible').checked = s.stats_eligible === 0 ? false : true;
   document.getElementById('f_showIsTest').checked      = !!s.is_test;
+  document.getElementById('f_showVmixEnabled').checked  = !!s.vmix_enabled;
   document.getElementById('f_showLockOverride').value  = s.lock_override || 'auto';
   document.getElementById('f_showError').classList.remove('visible');
 
@@ -1312,6 +1321,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
   const status   = document.getElementById('f_showStatus').value;
   const stats_eligible = document.getElementById('f_showStatsEligible').checked ? 1 : 0;
   const is_test = document.getElementById('f_showIsTest').checked ? 1 : 0;
+  const vmix_enabled = document.getElementById('f_showVmixEnabled').checked ? 1 : 0;
   const errEl = document.getElementById('f_showError');
   errEl.classList.remove('visible');
   if (!name) { errEl.textContent = 'Name is required.'; errEl.classList.add('visible'); return; }
@@ -1321,7 +1331,7 @@ document.getElementById('btnShowSubmit').addEventListener('click', async () => {
   }
   try {
     const lock_override = document.getElementById('f_showLockOverride').value;
-    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible, lock_override, is_test };
+    const payload = { slug, name, start_date, end_date, venue, location, timezone, results_layout, status, stats_eligible, lock_override, is_test, vmix_enabled };
     if (showDialogMode === 'edit') {
       await api('POST', '/v3/updateShow', payload);
       WEST.drawer.close('dlgShow');

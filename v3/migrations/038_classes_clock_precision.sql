@@ -1,0 +1,27 @@
+-- Migration 038: classes.clock_precision — Ryegate jumper header H[05].
+--
+-- H[05] tells how many decimal places Ryegate uses for jumper times:
+--   0 → thousandths (.001)  → render 3 decimals
+--   1 → hundredths  (.01)   → render 2 decimals  (FEI norm)
+--   2 → whole seconds (1)   → render 0 decimals
+--
+-- v2 had a clock_precision column (default 2) but v3 dropped it at the
+-- cutover — every v3 surface hardcoded toFixed(3), so FEI classes that
+-- scored to hundredths rendered padded "47.210" instead of "47.21". This
+-- column restores it for v3.
+--
+-- Plumbing (Bill 2026-05-14):
+--   • parseClsHeaderV3 reads col[5] on J/T classes → parsed.clock_precision
+--   • /v3/postCls + /v3/reparseClassHeaders write it
+--   • snapshot.class_meta.clock_precision surfaces it
+--   • WEST.format.time(sec, precision) + worker banner_slots + west-clock.js
+--     FINISH frame + vmixStandings time column all honor it
+--
+-- NULL-tolerant: hunter classes (no clock) and legacy rows stay NULL;
+-- consumers treat NULL as 3-decimal (the pre-migration default behavior,
+-- so nothing visibly regresses).
+--
+-- Backfill: POST /v3/reparseClassHeaders {"slug":"<show>"} re-parses each
+-- class's archived .cls in R2 and populates the column.
+
+ALTER TABLE classes ADD COLUMN clock_precision INTEGER;

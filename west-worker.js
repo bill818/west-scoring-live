@@ -840,11 +840,15 @@ function parseClsHeaderV3(bytes) {
   }
 
   // J or T — jumper lens. col[2] = scoring_method, col[3] = scoring_modifier.
+  // col[5]  = ClockPrecision (0=thousandths/.001, 1=hundredths/.01, 2=whole).
+  //           Jumper-only — hunters carry no clock. Confirmed against
+  //           Ryegate header layout (CLS-FORMAT.md H[05]).
   // col[26] = ShowFlags (jumper lens only — hunter's H[26] is Phase2Label).
   // col[8/11/14] = per-round time_allowed (seconds, jumper-only — see
   // migration 019). 0 / blank → null (no TA on that round).
   const n = parseInt(cols[2], 10);
   const mod = parseInt(cols[3], 10);
+  const cp = parseInt(cols[5], 10);
   const flagsRaw = (cols[26] || '').trim().toLowerCase();
   const showFlags = flagsRaw === 'true' ? 1 : 0;
   const taOf = (raw) => {
@@ -856,6 +860,7 @@ function parseClsHeaderV3(bytes) {
     class_name: className,
     scoring_method: Number.isFinite(n) ? n : null,
     scoring_modifier: Number.isFinite(mod) ? mod : null,
+    clock_precision: Number.isFinite(cp) && cp >= 0 && cp <= 2 ? cp : null,
     show_flags: showFlags,
     r1_time_allowed: taOf(cols[8]),
     r2_time_allowed: taOf(cols[11]),
@@ -906,6 +911,30 @@ function err(msg, status = 400) {
   return json({ ok: false, error: msg }, status);
 }
 
+// ── XML response helpers (vMix Data Source endpoints) ───────────────────────
+// vMix Data Sources pull XML on a 1s+ poll loop. Keep escaping strict so
+// names/text with & < > " ' don't break the parser. See docs/vmix-xml-schema.md.
+function xmlResponse(body, status = 200) {
+  return new Response('<?xml version="1.0" encoding="UTF-8"?>\n' + body, {
+    status,
+    headers: { 'Content-Type': 'application/xml; charset=utf-8', ...CORS },
+  });
+}
+function escapeXmlAttr(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+function xmlAttrs(obj) {
+  // Stable column order = stable bindings in vMix. Caller passes an array
+  // of [key, value] pairs (not a plain object) so the order is explicit.
+  return obj.map(([k, v]) => `${k}="${escapeXmlAttr(v)}"`).join(' ');
+}
+
 function isAuthed(request, env) {
   const key = request.headers.get(AUTH_KEY_NAME);
   return key && key === env.WEST_AUTH_KEY;
@@ -944,6 +973,237 @@ const STATUS_CODES = {
   DNS: { label: 'DNS', full: 'Did Not Start',  category: 'DNS'     },
   NS:  { label: 'DNS', full: 'No Show',        category: 'DNS'     },
 };
+
+// ── vMix gate (admin checkbox) ─────────────────────────────────────────────
+// Returns true when the slug's show has vmix_enabled=1 in D1, OR when the
+// slug is the sandbox (which is always on so the graphics op can test
+// bindings any time without touching admin). Returns false on lookup
+// errors so the default state is "off" — fail closed.
+async function isVmixEnabled(env, slug) {
+  if (slug === 'vmix-sandbox') return true;
+  try {
+    const row = await env.WEST_DB_V3.prepare(
+      'SELECT vmix_enabled FROM shows WHERE slug = ?'
+    ).bind(slug).first();
+    return !!(row && row.vmix_enabled);
+  } catch (e) {
+    console.log(`[isVmixEnabled] lookup failed for ${slug}: ${e.message}`);
+    return false;
+  }
+}
+
+// ── vMix on-course state from v3 snapshot ──────────────────────────────────
+// The v2 oncourse: KV is only written by the v2 watcher's /postClassEvent
+// and by /v3/vmixSandboxSet. Real shows on the v3 engine pipeline don't
+// touch it — they write the full snapshot via /v3/event. This helper
+// derives an oc-shaped object (same field names as the v2 KV) so vmixLive
+// can serve live data for any v3 show without depending on the watcher.
+//
+// Phase decoding from UDP frame + tag presence:
+//   Jumper (frame=1)
+//     - countdown tag {23} > 0     → CD
+//     - clock tag {17} > 0         → ONCOURSE
+//     - else                       → INTRO
+//   Hunter
+//     - frame=11                   → INTRO
+//     - frame=14                   → ONCOURSE
+//     - frame=12 or 15             → RESULTS (Display Scores / scoreboard)
+//   FINISH (either lens) — when previous_entry was promoted within the
+//   last 10 seconds (sticky just-finished window). Wins over the next
+//   rider's INTRO so the finish slate stays up briefly.
+//
+// Returns null when nothing is live (so vmixLive emits frame="IDLE").
+function _deriveOcFromSnapshot(snapshot) {
+  if (!snapshot) return null;
+  const pe = snapshot.previous_entry || null;
+  const ls = snapshot.last_scoring   || null;
+  const li = snapshot.last_identity  || null;
+  const fp = snapshot.focus_preview  || null;
+  const isHunter = snapshot.class_kind === 'hunter';
+
+  const grab = (tags, k) => {
+    if (!tags) return null;
+    const v = tags[k];
+    if (v == null) return null;
+    return String(v).replace(/[\r\n]/g, '').trim() || null;
+  };
+  // "JUMP 0" → "0", "JUMP 4" → "4", "TIME 0.25" → "0.25", "" → ""
+  const stripNumberFromLabel = (v) => {
+    if (!v) return '';
+    const m = String(v).match(/-?\d+(\.\d+)?/);
+    return m ? m[0] : '';
+  };
+
+  // FINISH window — pe.finished_at is when the rider was first promoted.
+  // 10s is enough to land the FINISH cue at vMix's 1s poll cadence even
+  // if a couple of polls drop, and short enough that the next rider's
+  // INTRO/CD/ONCOURSE takes over cleanly.
+  const FINISH_WINDOW_MS = 10000;
+  if (pe && pe.finished_at) {
+    const finishedAtMs = Date.parse(pe.finished_at);
+    if (Number.isFinite(finishedAtMs) && (Date.now() - finishedAtMs) <= FINISH_WINDOW_MS) {
+      return {
+        phase: 'FINISH',
+        isHunter,
+        entry: pe.entry_num || '',
+        horse: pe.horse_name || '',
+        rider: pe.rider_name || '',
+        owner: pe.owner_name || '',
+        round: pe.round || 1,
+        label: pe.displayed_round_label || '',
+        elapsed:    pe.time != null ? String(pe.time) : '',
+        jumpFaults: pe.jump_faults != null ? String(pe.jump_faults) : '',
+        timeFaults: pe.time_faults != null ? String(pe.time_faults) : '',
+        rank: pe.overall_place != null ? String(pe.overall_place)
+            : pe.current_place != null ? String(pe.current_place) : '',
+        hunterScore: pe.displayed_score != null ? String(pe.displayed_score)
+                   : pe.combined_total  != null ? String(pe.combined_total) : '',
+        place: '',
+        countdown: 0,
+        ta: '', city: '', state: '',
+        fpi: null, ti: null, ps: null,
+      };
+    }
+  }
+
+  // Active rider — prefer focus_preview (per-class resolved + carried forward
+  // by the DO) over raw last_identity (which is per-batch and can be null
+  // during quiet UDP windows). Either source is OK as long as we get
+  // identity tags.
+  if (!snapshot.is_live) return null;
+  const iTags = (li && li.tags) || {};
+  const sTags = (ls && ls.tags) || {};
+  const fr = ls ? ls.frame : (fp && fp.last_frame) || null;
+  const entry = (fp && fp.entry_num)
+             || grab(iTags, '1')
+             || grab(sTags, '1');
+  if (!entry) return null;
+
+  // Phase decoding. CD takes priority — when Ryegate is emitting the
+  // countdown clock, the operator hasn't released the horse yet.
+  let phase = 'INTRO';
+  const cdRaw   = (fp && fp.countdown) || grab(sTags, '23');
+  const clkRaw  = (fp && fp.clock)     || grab(sTags, '17');
+  const cdNum   = cdRaw != null ? Number(cdRaw) : null;
+  const clkNum  = clkRaw != null ? Number(clkRaw) : null;
+  if (isHunter) {
+    if (fr === 14) phase = 'ONCOURSE';
+    else if (fr === 12 || fr === 15) phase = 'RESULTS';
+    else phase = 'INTRO';
+  } else {
+    if (Number.isFinite(cdNum) && cdNum > 0) phase = 'CD';
+    else if (Number.isFinite(clkNum) && clkNum > 0) phase = 'ONCOURSE';
+    else phase = 'INTRO';
+  }
+
+  // Server-side 1Hz tick — Ryegate's UDP cadence is sparse (often one
+  // frame per phase boundary, nothing in between), but vMix polls at 1s.
+  // Without interpolation the XML would freeze on the last UDP value.
+  // Compute "seconds since the last_scoring frame" and apply:
+  //   CD       → decrement, clamp at 0
+  //   ONCOURSE → increment (counting up from the clock value Ryegate sent)
+  // Both round to whole seconds — vMix can't reliably render tenths at
+  // its 1s poll floor, and Bill explicitly doesn't want tenth-precision
+  // for on-course running clocks. FINISH already pre-formats at class
+  // clock_precision, so it's untouched here. Bill 2026-05-14.
+  const baseAt = ls && ls.at ? Date.parse(ls.at) : NaN;
+  const sinceBase = Number.isFinite(baseAt) ? (Date.now() - baseAt) / 1000 : 0;
+  let cdNow = cdNum;
+  let elapsedNow = clkRaw;
+  if (phase === 'CD' && Number.isFinite(cdNum)) {
+    cdNow = Math.max(0, Math.round(cdNum - sinceBase));
+  }
+  if (phase === 'ONCOURSE' && Number.isFinite(clkNum)) {
+    elapsedNow = String(Math.max(0, Math.floor(clkNum + sinceBase)));
+  }
+
+  // Identity tags (UDP convention): {1}=entry, {2}=horse, {3}=rider,
+  // {4}=owner, {5}=country. Faults come from {14}/{15} as "JUMP N"/"TIME N".
+  const horse = (fp && fp.horse) || grab(iTags, '2') || '';
+  const rider = (fp && fp.rider) || grab(iTags, '3') || '';
+  const owner = grab(iTags, '4') || '';
+  const taLabel = (fp && fp.label_or_ta) || grab(sTags, '13') || '';
+  const taNum   = stripNumberFromLabel(taLabel);
+  const jf      = stripNumberFromLabel((fp && fp.jump_faults) || grab(sTags, '14'));
+  const tf      = stripNumberFromLabel((fp && fp.time_faults) || grab(sTags, '15'));
+  const rank    = stripNumberFromLabel((fp && fp.rank) || grab(sTags, '8'));
+
+  return {
+    phase,
+    isHunter,
+    entry,
+    horse,
+    rider,
+    owner,
+    round: (fp && fp.round) || 1,
+    label: '',
+    ta: taNum,
+    elapsed:    phase === 'CD' ? '' : (elapsedNow || ''),
+    countdown:  phase === 'CD' ? cdNow : 0,
+    jumpFaults: jf,
+    timeFaults: tf,
+    rank,
+    hunterScore: '',
+    place: '',
+    city: '', state: '',
+    fpi: null, ti: null, ps: null,
+  };
+}
+
+// ── Order-of-Go position labels (server-side, shared by all surfaces) ──────
+// Walks an entries array and stamps a `position_label` field on each row:
+//   "On Course"  — the entry currently in the ring (matches onCourseEntryNum)
+//   "On Deck"    — first up-next, position-from-now
+//   "-1" / "-2"  — subsequent up-next entries, in ride_order sequence
+//   null         — entries that have already competed, or have no ride_order
+//
+// Labels re-pack automatically when entries go out of order or get scratched
+// — the counter only increments on actual upcoming rides, skipping the
+// on-course entry. Used by display.html OOG today, will feed live.html and
+// any future ring-side surface. Computing here (not on the client) means
+// every consumer sees the same labels at the same moment and pages stay thin.
+//
+// `gone` detection mirrors west-scoreboard.js entryIsGone(): an entry that
+// has any place / status / scored round counts as competed.
+function assignOOGPositionLabels(entries, onCourseEntryNum) {
+  if (!Array.isArray(entries) || !entries.length) return;
+  const ocStr = onCourseEntryNum != null ? String(onCourseEntryNum) : '';
+
+  const isGone = (e) => {
+    if (!e) return true;
+    if (e.overall_place != null) return true;
+    if (e.current_place != null) return true;
+    if (e.r1_status || e.r2_status || e.r3_status) return true;
+    if (e.r1_h_status || e.r2_h_status || e.r3_h_status) return true;
+    if (e.r1_time || e.r2_time || e.r3_time) return true;
+    if (e.combined_total != null) return true;
+    if (e.r1_score_total != null || e.r2_score_total != null || e.r3_score_total != null) return true;
+    return false;
+  };
+
+  // Up-next pool: not yet competed, has a real ride_order. Sorted by
+  // ride_order so "On Deck" is the smallest remaining number.
+  const upNext = entries
+    .filter(e => e && !isGone(e) && Number(e.ride_order) > 0)
+    .sort((a, b) => (Number(a.ride_order) || 999) - (Number(b.ride_order) || 999));
+
+  const labelMap = new Map();
+  let counter = 0;
+  for (const e of upNext) {
+    const key = String(e.entry_num);
+    if (ocStr && key === ocStr) {
+      labelMap.set(key, 'On Course');
+      continue;
+    }
+    labelMap.set(key, counter === 0 ? 'On Deck' : '-' + counter);
+    counter++;
+  }
+
+  for (const e of entries) {
+    if (!e) continue;
+    e.position_label = labelMap.get(String(e.entry_num)) || null;
+  }
+}
 
 // Pick the scores array to write onto byClass[focusedClassId]. Body
 // scores belong to lensClassId (last UDP event's class), which can
@@ -1310,6 +1570,17 @@ export class RingStateDO {
     const focusedJumperScores = (focusedEntry && focusedEntry.jumper_scores) || null;
     const focusedHunterScores = (focusedEntry && focusedEntry.hunter_scores) || null;
     const focusedHunterSeen   = (focusedEntry && focusedEntry.hunter_seen)   || null;
+    // Stamp Order-of-Go position labels on every entry in the focused
+    // class's standings. Single source of truth — display.html OOG,
+    // live.html, and any future surface read e.position_label rather
+    // than recomputing client-side. On-course entry is derived from the
+    // latest identity frame (UDP tag {1}). Bill 2026-05-14.
+    const ocEntryForOOG =
+         (body.last_identity && body.last_identity.tags && body.last_identity.tags['1'])
+      || (body.last_scoring  && body.last_scoring.tags  && body.last_scoring.tags['1'])
+      || null;
+    if (focusedJumperScores) assignOOGPositionLabels(focusedJumperScores, ocEntryForOOG);
+    if (focusedHunterScores) assignOOGPositionLabels(focusedHunterScores, ocEntryForOOG);
     return {
       ...body,
       class_meta: ringHasLiveClass ? focusedClassMeta : null,
@@ -1582,12 +1853,17 @@ export class RingStateDO {
         bannerSlots.push({ label: 'Rank', value: rankFor() });
       }
     } else {
-      // Jumper / equitation
+      // Jumper / equitation. Time formatted per class clock_precision
+      // (Ryegate H[05]): 0=thousandths, 1=hundredths, 2=whole. null →
+      // 3-decimal fallback so legacy class rows pre-migration still
+      // render exactly as they did.
       const tf = row['r' + r + '_total_faults'];
       const tt = row['r' + r + '_total_time'];
+      const cp = (classMeta || {}).clock_precision;
+      const timeDecimals = cp === 2 ? 0 : cp === 1 ? 2 : 3;
       bannerSlots = [
         { label: 'F',    value: tf != null ? String(tf) : '—' },
-        { label: 'Time', value: tt != null ? Number(tt).toFixed(3) : '—' },
+        { label: 'Time', value: tt != null ? Number(tt).toFixed(timeDecimals) : '—' },
         { label: 'Rank', value: rankFor() },
       ];
     }
@@ -4864,7 +5140,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       try {
         const { results } = await env.WEST_DB_V3.prepare(
-          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, is_test, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
+          'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, is_test, vmix_enabled, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
         ).all();
         const shows = results || [];
         // Computed lock state — admin sidebar reads is_locked directly,
@@ -4972,7 +5248,7 @@ export default {
       if (!isAuthed(request, env)) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
-      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config, split_decision_top_n, lock_override, is_test } = body;
+      const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config, split_decision_top_n, lock_override, is_test, vmix_enabled } = body;
       if (!slug) return err('Missing slug');
       const updates = [];
       const binds = [];
@@ -5031,6 +5307,15 @@ export default {
       if (is_test !== undefined) {
         updates.push('is_test = ?');
         binds.push((is_test === true || is_test === 1) ? 1 : 0);
+      }
+      if (vmix_enabled !== undefined) {
+        // Gates /v3/vmixLive + /v3/vmixStandings for this show's slug.
+        // When 0, both endpoints emit idle XML regardless of live state
+        // so vMix Title bindings stay valid but show nothing. Sandbox
+        // slug "vmix-sandbox" is always exempt — bypasses this gate.
+        // Bill 2026-05-14.
+        updates.push('vmix_enabled = ?');
+        binds.push((vmix_enabled === true || vmix_enabled === 1) ? 1 : 0);
       }
       if (!updates.length) return err('No fields to update');
       updates.push("updated_at = datetime('now')");
@@ -5184,13 +5469,13 @@ export default {
                                scoring_type, num_judges, is_equitation,
                                num_rounds, score_method, ribbon_count,
                                is_championship, sponsor, ihsa, derby_type,
-                               show_flags,
+                               show_flags, clock_precision,
                                is_jogged, print_judge_scores, reverse_rank,
                                is_team, show_all_rounds, ribbons_only,
                                r1_time_allowed, r2_time_allowed, r3_time_allowed,
                                parse_status, parse_notes,
                                r2_key, is_test, first_seen_at, parsed_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           ON CONFLICT(show_id, ring_id, class_id) DO UPDATE SET
             class_name         = excluded.class_name,
             class_type         = excluded.class_type,
@@ -5208,6 +5493,7 @@ export default {
             ihsa               = excluded.ihsa,
             derby_type         = excluded.derby_type,
             show_flags         = excluded.show_flags,
+            clock_precision    = excluded.clock_precision,
             is_jogged          = excluded.is_jogged,
             print_judge_scores = excluded.print_judge_scores,
             reverse_rank       = excluded.reverse_rank,
@@ -5241,6 +5527,7 @@ export default {
           parsed.ihsa ?? null,
           parsed.derby_type ?? null,
           parsed.show_flags ?? 0,
+          parsed.clock_precision ?? null,
           parsed.is_jogged ?? 0,
           parsed.print_judge_scores ?? 0,
           parsed.reverse_rank ?? 0,
@@ -7028,12 +7315,14 @@ export default {
                 r1_time_allowed = ?,
                 r2_time_allowed = ?,
                 r3_time_allowed = ?,
+                clock_precision = ?,
                 prize_money = ?
               WHERE id = ?
             `).bind(
               parsed.r1_time_allowed ?? null,
               parsed.r2_time_allowed ?? null,
               parsed.r3_time_allowed ?? null,
+              parsed.clock_precision ?? null,
               money ? JSON.stringify(money) : null,
               row.id
             ).run();
@@ -7145,7 +7434,8 @@ export default {
                  c.scoring_modifier, c.class_name, c.class_mode,
                  c.scoring_type, c.is_equitation, c.is_championship,
                  c.num_rounds, c.num_judges, c.derby_type,
-                 c.show_flags, c.r1_time_allowed, c.r2_time_allowed,
+                 c.show_flags, c.clock_precision,
+                 c.r1_time_allowed, c.r2_time_allowed,
                  c.r3_time_allowed, c.prize_money
           FROM rings r
           JOIN shows s ON s.id = r.show_id
@@ -7260,6 +7550,12 @@ export default {
           // render the FEI 3-letter country flag next to the rider/horse.
           // Hunter's H[26] is Phase2Label so this only fires for J/T classes.
           show_flags: row.show_flags === 1 ? 1 : 0,
+          // ClockPrecision = jumper class header H[05]. 0=thousandths (.001),
+          // 1=hundredths (.01), 2=whole seconds. Drives WEST.format.time()
+          // so the displayed decimal count matches what Ryegate said.
+          // Null for hunter classes (no clock) and for legacy rows that
+          // predate the parser change.
+          clock_precision: row.clock_precision != null ? row.clock_precision : null,
           r1_time_allowed: row.r1_time_allowed != null ? row.r1_time_allowed : null,
           r2_time_allowed: row.r2_time_allowed != null ? row.r2_time_allowed : null,
           r3_time_allowed: row.r3_time_allowed != null ? row.r3_time_allowed : null,
@@ -7407,6 +7703,345 @@ export default {
         return err('KV error: ' + e.message);
       }
       return json({ ok: true, snapshot });
+    }
+
+    // ── POST /v3/vmixSandboxSet ──────────────────────────────────────────────
+    // Drive the vMix XML feeds with synthetic state so the graphics op can
+    // bind Title fields without waiting for a live show. Writes to the
+    // SAME KV keys the real pipeline uses, under the fixed slug
+    // "vmix-sandbox" / ring 1. Then /v3/vmixLive?slug=vmix-sandbox&ring_num=1
+    // and /v3/vmixStandings?slug=vmix-sandbox&ring_num=1 serve the synthetic
+    // data through the production code path — no special-casing.
+    //
+    // Auth-gated. body.phase === 'IDLE' clears both KV keys (returns the
+    // sandbox to the idle/empty state). See v3/pages/vmix-sandbox.html.
+    if (method === 'POST' && path === '/v3/vmixSandboxSet') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+
+      const SLUG = 'vmix-sandbox';
+      const RING = '1';
+      const OC_KEY    = `oncourse:${SLUG}:${RING}`;
+      const SNAP_KEY  = `ring-state:${SLUG}:1`;
+      const SEL_KEY   = `selected:${SLUG}:${RING}`;
+
+      // IDLE: clear everything so the live XML returns frame="IDLE" and
+      // standings returns <scoring/>.
+      const phase = String(body.phase || '').toUpperCase();
+      if (phase === 'IDLE' || phase === '') {
+        await Promise.all([
+          env.WEST_LIVE.delete(OC_KEY),
+          env.WEST_LIVE.delete(SNAP_KEY),
+          env.WEST_LIVE.delete(SEL_KEY),
+        ]);
+        return json({ ok: true, cleared: true });
+      }
+
+      const VALID = ['INTRO', 'CD', 'ONCOURSE', 'FINISH', 'RESULTS'];
+      if (VALID.indexOf(phase) < 0) {
+        return err(`Invalid phase (expected one of ${VALID.join(', ')} or IDLE)`);
+      }
+      const isHunter = !!body.isHunter;
+
+      // oncourse: KV — what the watcher writes from UDP-derived events.
+      // Field names match /postClassEvent payloads so the live endpoint's
+      // existing reader works unchanged.
+      const oc = {
+        entry:      body.entry      || '',
+        horse:      body.horse      || '',
+        rider:      body.rider      || '',
+        owner:      body.owner      || '',
+        city:       body.city       || '',
+        state:      body.state      || '',
+        phase,
+        round:      body.round      != null ? body.round : 1,
+        label:      body.label      || '',
+        ta:         body.ta         || '',
+        fpi:        body.fpi        != null ? body.fpi : 1,
+        ti:         body.ti         != null ? body.ti  : 1,
+        ps:         body.ps         != null ? body.ps  : 6,
+        elapsed:    body.elapsed    || '',
+        jumpFaults: body.jumpFaults || '0',
+        timeFaults: body.timeFaults || '0',
+        countdown:  body.countdown  != null ? body.countdown : 0,
+        rank:       body.rank       || '',
+        hunterScore: body.hunterScore || '',
+        place:      body.place      || '',
+        isHunter,
+        ts: new Date().toISOString(),
+      };
+
+      // ring-state: snapshot — needs just enough for vmixLive to look up
+      // country_code (jumper) + hunter round breakdown, and for
+      // vmixStandings to render the top-10 leaderboard.
+      const standings = Array.isArray(body.standings) ? body.standings : [];
+      const snapshot = {
+        class_kind: isHunter ? 'hunter' : 'jumper',
+        class_meta: {
+          class_id: body.class_num || null,
+          class_name: body.class_name || '',
+        },
+        jumper_scores: isHunter ? null : standings,
+        hunter_scores: isHunter ? standings : null,
+        is_live: true,
+        is_final: false,
+      };
+
+      // selected: KV — class_num + class_name, used by vmixLive to populate
+      // the class_num column (which class_meta doesn't carry).
+      const selected = {
+        classNum: body.class_num || '',
+        className: body.class_name || '',
+        ts: new Date().toISOString(),
+      };
+
+      await Promise.all([
+        env.WEST_LIVE.put(OC_KEY,   JSON.stringify(oc),       { expirationTtl: 600 }),
+        env.WEST_LIVE.put(SNAP_KEY, JSON.stringify(snapshot), { expirationTtl: 600 }),
+        env.WEST_LIVE.put(SEL_KEY,  JSON.stringify(selected), { expirationTtl: 600 }),
+      ]);
+      return json({ ok: true, phase, slug: SLUG, ring: RING });
+    }
+
+    // ── GET /v3/vmixLive ─────────────────────────────────────────────────────
+    // XML feed for vMix Title Data Sources. Single <row> describing the
+    // active rider + frame state (INTRO / CD / ONCOURSE / FINISH / RESULTS
+    // / IDLE). Public read — no auth, vMix isn't a browser so CORS is moot.
+    // Contract lives in docs/vmix-xml-schema.md; column names/order ARE the
+    // contract (vMix Title bindings pin against them).
+    if (method === 'GET' && path === '/v3/vmixLive') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      const slug = url.searchParams.get('slug');
+      const ringNumRaw = url.searchParams.get('ring_num');
+      if (!slug) return err('Missing slug');
+      if (ringNumRaw === null || ringNumRaw === '') return err('Missing ring_num');
+      const ringNumInt = parseInt(ringNumRaw, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      // Admin gate: shows.vmix_enabled must be 1 (sandbox is exempt).
+      // Disabled shows still get a valid IDLE row so vMix Title bindings
+      // stay valid — vMix won't log errors, just renders empty fields.
+      if (!(await isVmixEnabled(env, slug))) {
+        const idleColumns = [
+          ['frame', 'IDLE'], ['discipline', 'jumper'], ['ring', ringNumInt],
+          ['class_num', ''], ['class_name', ''], ['round', ''], ['round_label', ''],
+          ['entry_num', ''], ['horse', ''], ['rider', ''], ['owner', ''],
+          ['country', ''], ['city', ''], ['state', ''],
+          ['ta', ''], ['countdown', ''], ['elapsed', ''],
+          ['jump_faults', ''], ['time_faults', ''], ['total_faults', ''],
+          ['rank', ''], ['fpi', ''], ['ti', ''], ['ps', ''],
+          ['hunter_score', ''], ['hunter_place', ''],
+          ['round1_score', ''], ['round2_score', ''], ['round3_score', ''],
+          ['combined_score', ''],
+        ];
+        return xmlResponse(`<scoring>\n  <row ${xmlAttrs(idleColumns)}/>\n</scoring>\n`);
+      }
+      const ringStr = String(ringNumInt);
+      let snapshot = null, oc = null, sel = null;
+      try {
+        const [snapRaw, ocRaw, selRaw] = await Promise.all([
+          env.WEST_LIVE.get(`ring-state:${slug}:${ringNumInt}`),
+          env.WEST_LIVE.get(`oncourse:${slug}:${ringStr}`),
+          env.WEST_LIVE.get(`selected:${slug}:${ringStr}`),
+        ]);
+        if (snapRaw) snapshot = JSON.parse(snapRaw);
+        if (ocRaw)   oc       = JSON.parse(ocRaw);
+        if (selRaw)  sel      = JSON.parse(selRaw);
+      } catch (e) {
+        return err('KV error: ' + e.message);
+      }
+
+      // ── Snapshot-derived fallback (Bill 2026-05-14) ─────────────────────────
+      // Real shows on the v3 engine pipeline don't populate the v2 oncourse:
+      // KV — that key is only written by the v2 watcher's /postClassEvent and
+      // by the sandbox /v3/vmixSandboxSet. Without this fallback, vmixLive
+      // returns frame="IDLE" for every live osf-spring-ii / Devon / etc class.
+      // Derive an oc-shaped object from snapshot.last_identity + last_scoring +
+      // previous_entry so the rest of the column construction below works
+      // unchanged. Keeps the v2 watcher path AND sandbox AND v3 engine all
+      // working through the same code.
+      if (!oc && snapshot) {
+        oc = _deriveOcFromSnapshot(snapshot);
+      }
+
+      // Discipline: prefer oncourse.isHunter when present (set by watcher
+      // on the ON_COURSE event), fall back to snapshot.class_kind. When
+      // nothing is live we still want a valid IDLE row so vMix bindings
+      // don't break.
+      const isHunter = oc ? !!oc.isHunter : (snapshot && snapshot.class_kind === 'hunter');
+      const discipline = isHunter ? 'hunter' : 'jumper';
+      const frame = (oc && oc.phase) ? String(oc.phase) : 'IDLE';
+
+      // Look up the on-course entry in the standings array for fields
+      // the oncourse: KV doesn't carry (country_code, hunter round
+      // totals). The watcher only writes entry/horse/rider/owner/city/
+      // state on phase events — country lives on the entry row.
+      let entryRow = null;
+      if (oc && oc.entry && snapshot) {
+        const scoresArr = isHunter
+          ? (snapshot.hunter_scores || [])
+          : (snapshot.jumper_scores || []);
+        entryRow = scoresArr.find(r => String(r.entry_num) === String(oc.entry)) || null;
+      }
+      const country = (!isHunter && entryRow && entryRow.country_code) ? entryRow.country_code : '';
+
+      // total_faults — sum on FINISH only; otherwise blank so vMix can
+      // tell the difference between "round complete with 0 faults" and
+      // "not finished yet."
+      let totalFaults = '';
+      if (oc && oc.phase === 'FINISH') {
+        const jf = parseFloat(oc.jumpFaults) || 0;
+        const tf = parseFloat(oc.timeFaults) || 0;
+        totalFaults = String(jf + tf);
+      }
+
+      // Hunter round breakdown — pulled from the entry row, not the
+      // oncourse event. Blank for jumpers and when no entry match.
+      const rs = (k) => (isHunter && entryRow && entryRow[k] != null) ? String(entryRow[k]) : '';
+      const round1 = rs('r1_score_total');
+      const round2 = rs('r2_score_total');
+      const round3 = rs('r3_score_total');
+      const combined = rs('combined_total');
+
+      const className = (sel && sel.className)
+        || (snapshot && snapshot.class_meta && snapshot.class_meta.class_name)
+        || '';
+      const classNum = (sel && sel.classNum) ? String(sel.classNum) : '';
+
+      // Column order matters — vMix bindings reference column names, but a
+      // stable order keeps the wire format readable and consistent.
+      const columns = [
+        ['frame',          frame],
+        ['discipline',     discipline],
+        ['ring',           ringNumInt],
+        ['class_num',      classNum],
+        ['class_name',     className],
+        ['round',          (oc && oc.round != null) ? oc.round : ''],
+        ['round_label',    (oc && oc.label) ? oc.label : ''],
+        ['entry_num',      (oc && oc.entry) ? oc.entry : ''],
+        ['horse',          (oc && oc.horse) ? oc.horse : ''],
+        ['rider',          (oc && oc.rider) ? oc.rider : ''],
+        ['owner',          (oc && oc.owner) ? oc.owner : ''],
+        ['country',        country],
+        ['city',           (oc && oc.city)  ? oc.city  : ''],
+        ['state',          (oc && oc.state) ? oc.state : ''],
+        ['ta',             (oc && oc.ta != null) ? oc.ta : ''],
+        ['countdown',      (oc && oc.phase === 'CD' && oc.countdown != null) ? oc.countdown : ''],
+        ['elapsed',        (oc && oc.elapsed != null) ? oc.elapsed : ''],
+        ['jump_faults',    (oc && oc.jumpFaults != null) ? oc.jumpFaults : ''],
+        ['time_faults',    (oc && oc.timeFaults != null) ? oc.timeFaults : ''],
+        ['total_faults',   totalFaults],
+        ['rank',           (oc && oc.rank) ? oc.rank : ''],
+        ['fpi',            (oc && oc.fpi != null) ? oc.fpi : ''],
+        ['ti',             (oc && oc.ti  != null) ? oc.ti  : ''],
+        ['ps',             (oc && oc.ps  != null) ? oc.ps  : ''],
+        ['hunter_score',   (oc && oc.hunterScore) ? oc.hunterScore : ''],
+        ['hunter_place',   (oc && oc.place) ? oc.place : ''],
+        ['round1_score',   round1],
+        ['round2_score',   round2],
+        ['round3_score',   round3],
+        ['combined_score', combined],
+      ];
+      const xml = `<scoring>\n  <row ${xmlAttrs(columns)}/>\n</scoring>\n`;
+      return xmlResponse(xml);
+    }
+
+    // ── GET /v3/vmixStandings ────────────────────────────────────────────────
+    // XML feed for vMix Title Data Sources. Up to 10 <row> elements for the
+    // focused class, sorted by rank ascending. Same column superset across
+    // jumper + hunter; blanks where N/A. See docs/vmix-xml-schema.md.
+    if (method === 'GET' && path === '/v3/vmixStandings') {
+      if (!isV3Enabled(env)) return err('v3 disabled', 404);
+      const slug = url.searchParams.get('slug');
+      const ringNumRaw = url.searchParams.get('ring_num');
+      if (!slug) return err('Missing slug');
+      if (ringNumRaw === null || ringNumRaw === '') return err('Missing ring_num');
+      const ringNumInt = parseInt(ringNumRaw, 10);
+      if (!Number.isFinite(ringNumInt)) return err('Invalid ring_num');
+      // Admin gate: same as vmixLive — empty <scoring/> when disabled.
+      if (!(await isVmixEnabled(env, slug))) {
+        return xmlResponse('<scoring/>\n');
+      }
+      let snapshot = null;
+      try {
+        const raw = await env.WEST_LIVE.get(`ring-state:${slug}:${ringNumInt}`);
+        if (raw) snapshot = JSON.parse(raw);
+      } catch (e) {
+        return err('KV error: ' + e.message);
+      }
+
+      // No focused class => empty doc. vMix renders no rows, Titles bound
+      // to row indices stay blank cleanly.
+      if (!snapshot || !snapshot.class_kind) {
+        return xmlResponse('<scoring/>\n');
+      }
+      const isHunter = snapshot.class_kind === 'hunter';
+      const scores = isHunter
+        ? (snapshot.hunter_scores || [])
+        : (snapshot.jumper_scores || []);
+
+      // Active round detection — pick the highest round with any non-null
+      // total. Used to surface the "current" time/faults/status pair on
+      // jumper standings, and the active round status on hunter standings.
+      // (round_scores are emitted separately so this only matters for the
+      // top-line time/faults/score columns.)
+      const activeRound = (() => {
+        for (const k of [3, 2, 1]) {
+          const tKey = isHunter ? `r${k}_score_total` : `r${k}_total_time`;
+          const fKey = isHunter ? null : `r${k}_total_faults`;
+          if (scores.some(r => r && (r[tKey] != null || (fKey && r[fKey] != null)))) return k;
+        }
+        return 1;
+      })();
+
+      // Time formatting per class clock_precision (Ryegate H[05]):
+      //   0=thousandths (.001), 1=hundredths (.01), 2=whole. null → 3
+      //   decimals fallback (legacy classes pre-migration).
+      const cp = snapshot.class_meta && snapshot.class_meta.clock_precision != null
+        ? snapshot.class_meta.clock_precision : null;
+      const timeDecimals = cp === 2 ? 0 : cp === 1 ? 2 : 3;
+      const fmtTime = (v) => {
+        if (v == null || v === '') return '';
+        const n = Number(v);
+        return Number.isFinite(n) ? n.toFixed(timeDecimals) : '';
+      };
+
+      const rankKey = isHunter ? 'current_place' : 'overall_place';
+      const ranked = scores
+        .filter(r => r && r.entry_num != null && r[rankKey] != null && Number(r[rankKey]) > 0)
+        .sort((a, b) => Number(a[rankKey]) - Number(b[rankKey]))
+        .slice(0, 10);
+
+      const rows = ranked.map(r => {
+        const time   = !isHunter ? fmtTime(r[`r${activeRound}_total_time`]) : '';
+        const faults = (!isHunter && r[`r${activeRound}_total_faults`] != null) ? r[`r${activeRound}_total_faults`] : '';
+        const status = isHunter
+          ? (r[`r${activeRound}_h_status`] || '')
+          : (r[`r${activeRound}_status`]   || '');
+        const score = isHunter && r.combined_total != null ? r.combined_total : '';
+        return [
+          ['rank',           r[rankKey]],
+          ['entry_num',      r.entry_num],
+          ['horse',          r.horse_name || ''],
+          ['rider',          r.rider_name || ''],
+          ['owner',          r.owner_name || ''],
+          ['country',        !isHunter && r.country_code ? r.country_code : ''],
+          ['discipline',     isHunter ? 'hunter' : 'jumper'],
+          ['time',           time],
+          ['faults',         faults],
+          ['status',         status],
+          ['score',          score],
+          ['round1_score',   isHunter && r.r1_score_total != null ? r.r1_score_total : ''],
+          ['round2_score',   isHunter && r.r2_score_total != null ? r.r2_score_total : ''],
+          ['round3_score',   isHunter && r.r3_score_total != null ? r.r3_score_total : ''],
+          ['combined_score', isHunter && r.combined_total != null ? r.combined_total : ''],
+        ];
+      });
+
+      if (rows.length === 0) return xmlResponse('<scoring/>\n');
+      const body = `<scoring>\n${rows.map(r => `  <row ${xmlAttrs(r)}/>`).join('\n')}\n</scoring>\n`;
+      return xmlResponse(body);
     }
 
     // ── POST /v3/setClassLiveState ───────────────────────────────────────────
