@@ -1159,7 +1159,13 @@ function _deriveOcFromSnapshot(snapshot) {
   const cdNum   = (cdRaw != null && String(cdRaw).trim() !== '') ? Number(cdRaw) : NaN;
   const clkNum  = (clkRaw != null && String(clkRaw).trim() !== '') ? Number(clkRaw) : NaN;
   const cdPresent  = Number.isFinite(cdNum);            // {23} present at all
-  const clkRunning = Number.isFinite(clkNum) && clkNum > 0;
+  // Ryegate protocol: a RUNNING clock ticks {17} in WHOLE seconds
+  // (8,9,10…). When the timer STOPS it snaps to a precise DECIMAL
+  // (28.990) — that decimal IS the final time, the clock is NOT running.
+  // So a decimal {17} must not count as "running" (west-watcher.js uses
+  // the same decimal-means-stopped rule). Bill 2026-05-16.
+  const clkIsFinalDecimal = String(clkRaw == null ? '' : clkRaw).includes('.');
+  const clkRunning = Number.isFinite(clkNum) && clkNum > 0 && !clkIsFinalDecimal;
   if (isHunter) {
     if (fr === 14) phase = 'ONCOURSE';
     else if (fr === 12 || fr === 15) phase = 'RESULTS';
@@ -1185,11 +1191,21 @@ function _deriveOcFromSnapshot(snapshot) {
   // sparsely but the clock must visibly run between frames. Interpolate
   // from the last_scoring timestamp, whole seconds (Bill: no tenths on
   // vMix at a 1s poll floor). FINISH is pre-formatted elsewhere.
+  // A live running clock feeds {17} ~once per second. If the most recent
+  // scoring frame is older than this, the timer has STOPPED feeding —
+  // the round ended and the operator is cycling awards/holding. Do NOT
+  // keep extrapolating wall-clock seconds onto the last value (that was
+  // the "time scrolled forever during awards" bug). Freeze at the last
+  // whole-second value instead. Bill 2026-05-16.
+  const ELAPSED_FRESH_MS = 8000;
   const baseAt = ls && ls.at ? Date.parse(ls.at) : NaN;
   const sinceBase = Number.isFinite(baseAt) ? (Date.now() - baseAt) / 1000 : 0;
+  const clockFresh = Number.isFinite(baseAt) && (Date.now() - baseAt) <= ELAPSED_FRESH_MS;
   let elapsedNow = clkRaw;
   if (phase === 'ONCOURSE' && Number.isFinite(clkNum)) {
-    elapsedNow = String(Math.max(0, Math.floor(clkNum + sinceBase)));
+    elapsedNow = clockFresh
+      ? String(Math.max(0, Math.floor(clkNum + sinceBase)))  // live → tick 1Hz
+      : String(Math.max(0, Math.floor(clkNum)));              // stale → frozen, no runaway
   }
 
   // Identity tags (UDP convention): {1}=entry, {2}=horse, {3}=rider,
