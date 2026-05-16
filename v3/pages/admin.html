@@ -477,35 +477,85 @@ const BASE = 'https://west-worker.bill-acb.workers.dev';
 const ADMIN_TOKEN_KEY = 'v3admin.token';
 let ADMIN_TOKEN = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 
-async function adminLogin(promptMsg) {
-  const pw = window.prompt(promptMsg || 'WEST admin password:');
-  if (pw == null || pw === '') return false;   // cancelled / empty
-  try {
-    const res = await fetch(BASE + '/v3/adminLogin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.ok && data.token) {
-      ADMIN_TOKEN = data.token;
-      localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
-      return true;
-    }
-  } catch (e) { /* fall through to false */ }
-  return false;
+// Inline login gate. Replaces window.prompt — which looped/spammed and
+// bricked the page on cancel + collided with the auto-refresh timers.
+// Singleton overlay: concurrent callers (bootstrap + a 401 from an
+// interval) share ONE pending promise so there's never a prompt storm.
+// Bill 2026-05-16.
+let _loginPromise = null;
+
+function _ensureLoginOverlay() {
+  let ov = document.getElementById('adminLoginOverlay');
+  if (ov) return ov;
+  ov = document.createElement('div');
+  ov.id = 'adminLoginOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--navy,#0a0a0a);'
+    + 'display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML =
+    '<form id="adminLoginForm" style="background:#fff;padding:28px 26px;border-radius:10px;'
+    +   'width:320px;max-width:90vw;box-shadow:0 12px 44px rgba(0,0,0,.45);'
+    +   'font-family:var(--font-body,system-ui),sans-serif;">'
+    + '<div style="font-family:var(--font-display,sans-serif);font-weight:800;font-size:22px;'
+    +   'color:var(--navy,#0a0a0a);letter-spacing:.03em;">WEST ADMIN</div>'
+    + '<div style="font-family:var(--font-mono,monospace);font-size:10px;letter-spacing:.14em;'
+    +   'text-transform:uppercase;color:var(--text-muted,#6b7280);margin:4px 0 18px;">Enter admin password</div>'
+    + '<input id="adminLoginPw" type="password" autocomplete="current-password" '
+    +   'style="width:100%;box-sizing:border-box;padding:11px 12px;'
+    +   'border:1px solid var(--border-strong,#cdd2d9);border-radius:6px;font-size:15px;outline:none;">'
+    + '<div id="adminLoginErr" style="color:var(--red,#b82025);font-size:12px;'
+    +   'min-height:16px;margin:8px 2px 0;"></div>'
+    + '<button type="submit" id="adminLoginBtn" style="margin-top:14px;width:100%;padding:11px;'
+    +   'border:0;border-radius:6px;background:var(--navy,#0a0a0a);color:#fff;font-weight:600;'
+    +   'font-size:14px;cursor:pointer;">Sign in</button>'
+    + '</form>';
+  document.body.appendChild(ov);
+  return ov;
 }
 
-// Block initial load until a token exists. Re-prompts on wrong password.
-async function ensureLogin() {
-  let tries = 0;
-  while (!ADMIN_TOKEN) {
-    const ok = await adminLogin(tries === 0
-      ? 'WEST admin password:'
-      : 'Incorrect — try again:');
-    tries++;
-    if (!ok) await new Promise(r => setTimeout(r, 300));
-  }
+// Resolves when a valid token exists. Never loops, never spams; on a
+// bad password it shows an inline error and waits for the next submit.
+function ensureLogin() {
+  if (ADMIN_TOKEN) return Promise.resolve();
+  if (_loginPromise) return _loginPromise;
+  _loginPromise = new Promise(function (resolve) {
+    const ov = _ensureLoginOverlay();
+    ov.style.display = 'flex';
+    const form  = document.getElementById('adminLoginForm');
+    const pwEl  = document.getElementById('adminLoginPw');
+    const errEl = document.getElementById('adminLoginErr');
+    const btn   = document.getElementById('adminLoginBtn');
+    pwEl.value = '';
+    setTimeout(function () { try { pwEl.focus(); } catch (e) {} }, 50);
+    form.onsubmit = async function (ev) {
+      ev.preventDefault();
+      const pw = pwEl.value;
+      if (!pw) { errEl.textContent = 'Password required.'; return; }
+      btn.disabled = true; btn.textContent = 'Signing in…'; errEl.textContent = '';
+      try {
+        const res = await fetch(BASE + '/v3/adminLogin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pw }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok && data.token) {
+          ADMIN_TOKEN = data.token;
+          localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
+          ov.style.display = 'none';
+          _loginPromise = null;
+          resolve();
+          return;
+        }
+        errEl.textContent = (data && data.error) ? data.error
+          : ('Login failed (' + res.status + ')');
+      } catch (e) {
+        errEl.textContent = 'Network error — try again.';
+      }
+      btn.disabled = false; btn.textContent = 'Sign in';
+      pwEl.value = ''; pwEl.focus();
+    };
+  });
+  return _loginPromise;
 }
 
 const SELECTED_SHOW_KEY = 'v3admin.selectedSlug';
@@ -537,12 +587,13 @@ async function api(method, path, body) {
   };
   let res = await doFetch();
   if (res.status === 401) {
-    // Token missing/expired/rotated — clear, re-prompt, retry once.
+    // Token missing/expired/rotated — clear, show the login gate
+    // (shared singleton — parallel 401s from the auto-refresh timers
+    // all await the SAME overlay), then retry once.
     ADMIN_TOKEN = '';
     localStorage.removeItem(ADMIN_TOKEN_KEY);
-    if (await adminLogin('Session expired — re-enter admin password:')) {
-      res = await doFetch();
-    }
+    await ensureLogin();
+    res = await doFetch();
   }
   let data;
   try { data = await res.json(); } catch (e) { data = { ok: false, error: 'Bad response' }; }

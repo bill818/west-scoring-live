@@ -873,7 +873,7 @@ function parseClsHeaderV3(bytes) {
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-West-Key, If-None-Match',
+  'Access-Control-Allow-Headers': 'Content-Type, X-West-Key, X-West-Admin, If-None-Match',
   'Access-Control-Expose-Headers': 'ETag',
 };
 
