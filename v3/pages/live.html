@@ -1017,6 +1017,23 @@
   </nav>
 </header>
 
+<!-- Breadcrumbs — the live page is a dead-end without these (Bill
+     2026-05-16: "you get stuck on the live page"). Same shared
+     .breadcrumbs styles as show/ring/class. The class crumb is
+     hidden until a class is focused, then links straight to that
+     class's results page; it updates as live focus rotates. -->
+<nav class="breadcrumbs">
+  <a class="bc-link" href="index.html">All shows</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcShow" href="#">…</a>
+  <span class="bc-sep">/</span>
+  <a class="bc-link" id="bcRing" href="#">…</a>
+  <span class="bc-sep" id="bcClassSep" hidden>/</span>
+  <a class="bc-link" id="bcClass" href="#" hidden>…</a>
+  <span class="bc-sep">/</span>
+  <span class="bc-current">Live</span>
+</nav>
+
 <!-- Live-page production layout — pinned live box at top, class panel(s)
      below. All existing IDs preserved (placed in new wrappers) so the
      existing render() + clock callback drive the new visual without a
@@ -1274,6 +1291,23 @@
   document.getElementById('ringSlug').textContent = MOCK_MODE ? 'MOCK · ' + slug : slug;
   document.getElementById('ringNum').textContent  = ringNum;
 
+  // Breadcrumbs — show/ring crumbs resolve from the URL params alone
+  // (no fetch needed). Show name upgrades from slug → friendly name
+  // once /v3/getShow returns (below); the class crumb is wired in
+  // render() because the focused class only exists in the snapshot.
+  (function () {
+    var bcShow = document.getElementById('bcShow');
+    var bcRing = document.getElementById('bcRing');
+    if (bcShow) {
+      bcShow.textContent = slug;
+      bcShow.href = 'show.html?slug=' + encodeURIComponent(slug);
+    }
+    if (bcRing) {
+      bcRing.textContent = 'Ring ' + ringNum;
+      bcRing.href = 'ring.html?slug=' + encodeURIComponent(slug) + '&ring=' + encodeURIComponent(ringNum);
+    }
+  })();
+
   // Bill 2026-05-06: header shouldn't show the raw slug — swap to the
   // friendly show name once /v3/getShow returns. Slug is the fallback
   // until the fetch completes (or if it fails). Skipped in mock mode
@@ -1286,6 +1320,8 @@
         if (data && data.show && data.show.name) {
           document.getElementById('ringSlug').textContent = data.show.name;
           document.title = data.show.name + ' — Ring ' + ringNum + ' Live';
+          var bcShow = document.getElementById('bcShow');
+          if (bcShow) bcShow.textContent = data.show.name;
         }
       })
       .catch(function () { /* leave slug fallback in place */ });
@@ -1715,8 +1751,30 @@
   // Cached snapshot so timers (e.g. the 60s FINAL collapse) can re-invoke
   // render() without needing the WS handler to re-deliver a snapshot.
   var _lastSnapshot = null;
+  // Breadcrumb class crumb — shown only when a class is focused, links
+  // to that class's results page. Updates every render so it tracks
+  // live focus rotation; hides when the ring goes idle.
+  function updateClassCrumb(snapshot) {
+    var sep = document.getElementById('bcClassSep');
+    var crumb = document.getElementById('bcClass');
+    if (!sep || !crumb) return;
+    var cid = snapshot && snapshot.focused_class_id;
+    if (cid) {
+      crumb.textContent = 'Class #' + cid;
+      crumb.href = 'class.html?slug=' + encodeURIComponent(snapshot.slug || slug)
+        + '&ring=' + encodeURIComponent(snapshot.ring_num != null ? String(snapshot.ring_num) : ringNum)
+        + '&class=' + encodeURIComponent(cid);
+      sep.hidden = false;
+      crumb.hidden = false;
+    } else {
+      sep.hidden = true;
+      crumb.hidden = true;
+    }
+  }
+
   function render(snapshot) {
     if (snapshot) _lastSnapshot = snapshot;
+    updateClassCrumb(snapshot);
     if (window.WEST && window.WEST.clock) {
       if (snapshot && window.WEST.clock.setMode) {
         window.WEST.clock.setMode(snapshot.live_running_tenth === false ? 'whole' : 'tenth');
