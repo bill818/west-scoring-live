@@ -1193,8 +1193,17 @@ function _deriveOcFromSnapshot(snapshot) {
         // so this is belt-and-suspenders against a leaked {14} value).
         jumpFaults: (!isHunter && pe.jump_faults != null) ? String(pe.jump_faults) : '',
         timeFaults: (!isHunter && pe.time_faults != null) ? String(pe.time_faults) : '',
+        // Rank: prefer pe's computed place, but during the sticky
+        // just-finished window pe.overall_place is often null for a few
+        // seconds (placement not posted yet) while Ryegate's {8}
+        // ALREADY carries "RANK 21". Fall back to the live {8} (same
+        // source the active path uses) so rank doesn't blank at the
+        // finish moment. Bill 2026-05-16.
         rank: pe.overall_place != null ? String(pe.overall_place)
-            : pe.current_place != null ? String(pe.current_place) : '',
+            : pe.current_place != null ? String(pe.current_place)
+            : (stripNumberFromLabel(
+                 (fp && fp.rank) || ((ls && ls.tags && ls.tags['8']) || '')
+               ) || ''),
         hunterScore: pe.displayed_score != null ? String(pe.displayed_score)
                    : pe.combined_total  != null ? String(pe.combined_total) : '',
         place: '',
@@ -8233,6 +8242,31 @@ export default {
         || '';
       const classNum = (sel && sel.classNum) ? String(sel.classNum) : '';
 
+      // ── Rank column, with jump-off qualifier ("JO") ───────────────────
+      // In a jump-off class a CLEAR Round-1 finisher QUALIFIES for the
+      // jump-off — Ryegate withholds a scoreboard rank ({8} empty) for
+      // them, while faulted riders get an immediate number and
+      // eliminated riders carry a status ("EL"/"WD"). Bill's
+      // discriminator: live rank blank BUT the D1 standings already
+      // gave this finished jumper a place ⇒ jump-off qualifier ⇒ "JO".
+      // A status finish ({8} non-numeric) is NOT a qualifier → stays
+      // blank. Gated to FINISH + jumper so "JO" can't leak into
+      // on-course/intro. Bill 2026-05-16.
+      let rankCol = (oc && oc.rank) ? String(oc.rank) : '';
+      if (!rankCol && !isHunter && oc && oc.phase === 'FINISH') {
+        const rawRk = String(
+          (snapshot && snapshot.focus_preview && snapshot.focus_preview.rank) ||
+          (snapshot && snapshot.last_scoring && snapshot.last_scoring.tags
+            && snapshot.last_scoring.tags['8']) ||
+          (snapshot && snapshot.last && snapshot.last.tags
+            && snapshot.last.tags['8']) || ''
+        ).replace(/[\r\n]/g, '').replace(/^:\s*/, '').trim();
+        const isStatusFinish = rawRk !== '' && !/\d/.test(rawRk); // EL/WD/RT…
+        const d1Place = (entryRow && entryRow.overall_place != null)
+          ? entryRow.overall_place : null;
+        if (!isStatusFinish && d1Place != null) rankCol = 'JO';
+      }
+
       // Column order matters — vMix bindings reference column names, but a
       // stable order keeps the wire format readable and consistent.
       const columns = [
@@ -8256,7 +8290,7 @@ export default {
         ['jump_faults',    (oc && oc.jumpFaults != null) ? oc.jumpFaults : ''],
         ['time_faults',    (oc && oc.timeFaults != null) ? oc.timeFaults : ''],
         ['total_faults',   totalFaults],
-        ['rank',           (oc && oc.rank) ? oc.rank : ''],
+        ['rank',           rankCol],
         ['fpi',            (oc && oc.fpi != null) ? oc.fpi : ''],
         ['ti',             (oc && oc.ti  != null) ? oc.ti  : ''],
         ['ps',             (oc && oc.ps  != null) ? oc.ps  : ''],
