@@ -4,7 +4,17 @@
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Live · WEST Scoring v3</title>
+<title>WEST Timing &amp; Scoring — Live Ring</title>
+<meta name="description" content="Live ring scoring for the hunter/jumper circuit — on-course, clock, and standings in real time.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WEST Timing &amp; Scoring">
+<meta property="og:title" content="WEST Timing &amp; Scoring — Live Ring">
+<meta property="og:description" content="Live ring scoring for the hunter/jumper circuit — on-course, clock, and standings in real time.">
+<meta property="og:image" content="https://westscoring.live/assets/logo.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="WEST Timing &amp; Scoring — Live Ring">
+<meta name="twitter:image" content="https://westscoring.live/assets/logo.png">
+<meta name="theme-color" content="#0a0a0a">
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -608,6 +618,26 @@
     padding: 18px 24px 22px;
     background: var(--row-bg);
   }
+  /* Class identity on the flat / champion box — sourced from the
+     worker's focused projection or Channel B (atomic 27+28). Gives the
+     champion banner context when class_meta is missing (no INTRO+31000
+     pair fired). Hidden when we have nothing to show. Bill 2026-05-16. */
+  .live-box-flat-class {
+    display: flex; align-items: baseline; gap: 10px;
+    margin-bottom: 12px; padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .live-box-flat-class:empty { display: none; }
+  .live-box-flat-class .lfc-num {
+    font-family: var(--font-mono); font-weight: 700;
+    font-size: 13px; color: var(--red); letter-spacing: .04em;
+    flex-shrink: 0;
+  }
+  .live-box-flat-class .lfc-name {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: 16px; color: var(--navy);
+    letter-spacing: -.005em; line-height: 1.2; min-width: 0;
+  }
   .live-box-flat-count {
     font-family: var(--font-mono);
     font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
@@ -636,6 +666,18 @@
     font-size: 13px; color: var(--red); font-weight: 600;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  /* Championship / text place (no 1-12 ribbon). Let the place column
+     auto-size so "CHAMPION"/"RESERVE" can't overflow the 44px ribbon
+     slot and collide with the horse name. Gold = the design-system
+     Champion token. */
+  .flat-entry.is-text-place { grid-template-columns: auto 1fr; }
+  .flat-entry.is-text-place .num { text-align: left; }
+  .flat-place-text {
+    font-family: var(--font-mono);
+    font-size: 10px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--gold); white-space: nowrap;
   }
   .flat-entry .horse {
     font-family: var(--font-display);
@@ -1030,6 +1072,7 @@
     <!-- Flat-class mode (hunter rotation / pinned ribbons) — renders
          when renderFlatClass() decides. Independent of the m4 bar. -->
     <div class="live-box-flat" id="liveBoxFlat" style="display:none;">
+      <div class="live-box-flat-class" id="liveFlatClass"></div>
       <div class="live-box-flat-count">
         <span class="num" id="liveFlatCount">—</span>
         <span id="liveFlatCountLabel">entries in the ring</span>
@@ -1353,6 +1396,18 @@
       (snapshot.last_focus    && snapshot.last_focus.class_id) ||
       (snapshot.last_scoring  && snapshot.last_scoring.class_id) || null
     );
+    // Defense-in-depth (Bill 2026-05-16): the worker now emits only the
+    // focused class's flat_*, but if a stale/foreign blob ever slips
+    // through (older snapshot mid-deploy, body-spread leak), don't paint
+    // class A's ribbons under class B's header. When flat_class_id and
+    // the focused class disagree, drop the foreign flat payload — the
+    // class renders its normal standings instead of a wrong champion.
+    var fMeta = meta && meta.class_id != null ? String(meta.class_id) : null;
+    var fFlat = snapshot && snapshot.flat_class_id != null ? String(snapshot.flat_class_id) : null;
+    if (fMeta && fFlat && fMeta !== fFlat) {
+      results = [];
+      entriesSeen = [];
+    }
     var isFlat = window.WEST.flat.shouldRender(meta, snapshot, flatCadenceTracker);
 
     if (!isFlat) {
@@ -1364,6 +1419,39 @@
 
     grid.style.display = 'none';
     flatEl.style.display = '';
+
+    // Class identity line. Priority mirrors the class-bar header:
+    //   1. worker focused projection (class_meta — rebuilt atomically)
+    //   2. Channel B tags 27+28 (atomic pair from one focus event)
+    //   3. whatever class id we resolved for flat (number only)
+    // Number+name are only paired when they come from the SAME source,
+    // never mixed (avoids the stale "old num / new name" desync). When
+    // the INTRO+31000 pair never fired and class_meta is absent, this
+    // still surfaces the Channel B number so the champion banner isn't
+    // contextless. Bill 2026-05-16.
+    // Local escaper — `esc` at line ~1491 is scoped to
+    // renderOtherClassPanels, not this function.
+    var fesc = (window.WEST && window.WEST.format && window.WEST.format.escapeHtml)
+      || function (s) { return String(s == null ? '' : s); };
+    var bTags = (snapshot.last_focus && snapshot.last_focus.tags) || {};
+    var lfcId = '', lfcName = '';
+    if (meta && meta.class_id != null) {
+      lfcId = String(meta.class_id);
+      lfcName = meta.class_name || '';
+    }
+    if (!lfcId && bTags['27']) {
+      lfcId = String(bTags['27']);
+      lfcName = bTags['28'] || '';
+    }
+    if (!lfcId && classId) lfcId = String(classId);
+    var clsEl = document.getElementById('liveFlatClass');
+    if (clsEl) {
+      clsEl.innerHTML = lfcId
+        ? '<span class="lfc-num">' + fesc(clean(lfcId)) + '</span>'
+          + (lfcName ? '<span class="lfc-name">' + fesc(clean(lfcName)) + '</span>' : '')
+        : '';
+    }
+
     var countEl = document.getElementById('liveFlatCount');
     var listEl  = document.getElementById('liveFlatList');
     var countLabelEl = document.getElementById('liveFlatCountLabel');
@@ -1864,33 +1952,65 @@
     if (identityFrame && identityFrame.channel === 'A') {
       var t = identityFrame.tags || {};
       var entryNum = clean(t['1']);
-      var horse    = clean(t['2']);
-      var rider    = clean(t['3']);
-      var owner    = clean(t['4']);
-      if (lens === 'equitation' && identityFrame.frame === 11) {
-        var eqRider = clean(t['7']);
-        if (eqRider) rider = eqRider;
+      var t3 = clean(t['3']);
+      var t7 = clean(t['7']);
+      // Equitation card = the class flag (authoritative) OR the UDP tag
+      // pattern (rider in {7}, no {3}). A Hunter Eq is a HUNTER file with
+      // is_equitation checked: it stays hunter-SCORED (class_kind=hunter,
+      // hunter_scores — do NOT reclassify the lens, that routes scoring
+      // to the wrong pull), but the judged athlete is the RIDER, there's
+      // no horse, and city/state is the meaningful identity. Bill
+      // 2026-05-16.
+      var isEqCard = !!(currentClassMeta && currentClassMeta.is_equitation)
+                  || (!t3 && !!t7);
+      // Lens-appropriate scored row — backfills rider/horse/city/state
+      // the UDP intro frame may omit.
+      var idRow = null;
+      if (entryNum) {
+        var idScores = lens === 'jumper' ? snapshot.jumper_scores
+                     : lens === 'hunter' ? snapshot.hunter_scores
+                     : (snapshot.hunter_scores || snapshot.jumper_scores);
+        if (Array.isArray(idScores)) {
+          idRow = idScores.find(function (r) {
+            return String(r.entry_num) === String(entryNum);
+          }) || null;
+        }
+      }
+      var horse = clean(t['2']) || (idRow && clean(idRow.horse_name)) || '';
+      var rider = t3 || t7 || (idRow && clean(idRow.rider_name)) || '';
+      var owner = clean(t['4']) || (idRow && clean(idRow.owner_name)) || '';
+      // City/State: UDP {6} is the live "CITY, ST" string; fall back to
+      // the scored row's city/state columns.
+      var cityState = clean(t['6']);
+      if (!cityState && idRow && (idRow.city || idRow.state)) {
+        cityState = [clean(idRow.city), clean(idRow.state)]
+          .filter(Boolean).join(', ');
       }
       if (entryNum || horse || rider) {
         $('ocIdentity').style.display = '';
         $('ocNoRider').style.display = 'none';
         $('idEntry').textContent = entryNum || '—';
-        $('idHorse').textContent = horse || '—';
-        // NAT flag rendering — UDP {5} carries the 3-letter country code
-        // for jumper classes; only display when class.show_flags is set
-        // (operator-controlled in Ryegate H[26]). flagFor returns
-        // empty when policy says no, so this is safe for hunter too.
-        var nat = clean(t['5']);
-        var flagHtml = '';
-        if (window.WEST && window.WEST.format && window.WEST.format.flagFor) {
-          var flagText = window.WEST.format.flagFor(
-            currentClassMeta || {},
-            { country_code: nat });
-          if (flagText) flagHtml = '<span class="flag">' +
-            window.WEST.format.escapeHtml(flagText) + '</span>';
+        if (isEqCard) {
+          // Rider is the athlete being judged → primary line.
+          // City/State → secondary line. No horse, no FEI flag.
+          $('idHorse').textContent = rider || '—';
+          $('idRider').textContent = cityState || '—';
+        } else {
+          $('idHorse').textContent = horse || '—';
+          // NAT flag — UDP {5} = 3-letter country code; flagFor honors
+          // the operator-set show_flags policy (empty when off).
+          var nat = clean(t['5']);
+          var flagHtml = '';
+          if (window.WEST && window.WEST.format && window.WEST.format.flagFor) {
+            var flagText = window.WEST.format.flagFor(
+              currentClassMeta || {},
+              { country_code: nat });
+            if (flagText) flagHtml = '<span class="flag">' +
+              window.WEST.format.escapeHtml(flagText) + '</span>';
+          }
+          $('idRider').innerHTML = flagHtml + (rider
+            ? window.WEST.format.escapeHtml(rider) : '—');
         }
-        $('idRider').innerHTML = flagHtml + (rider
-          ? window.WEST.format.escapeHtml(rider) : '—');
       } else {
         $('ocIdentity').style.display = 'none';
         $('ocNoRider').style.display = '';

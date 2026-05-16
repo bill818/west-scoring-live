@@ -97,7 +97,7 @@ async function pullHunterScoresV3(env, classPk) {
   try {
     const r = await env.WEST_DB_V3.prepare(`
       SELECT e.id, e.entry_num, e.horse_name, e.rider_name, e.owner_name,
-             e.country_code, e.sire, e.dam,
+             e.country_code, e.sire, e.dam, e.city, e.state,
              ehs.current_place, ehs.combined_total,
              r1.total              AS r1_score_total,
              r1.status             AS r1_h_status,
@@ -1592,6 +1592,13 @@ export class RingStateDO {
     const focusedJumperScores = (focusedEntry && focusedEntry.jumper_scores) || null;
     const focusedHunterScores = (focusedEntry && focusedEntry.hunter_scores) || null;
     const focusedHunterSeen   = (focusedEntry && focusedEntry.hunter_seen)   || null;
+    // Flat data is per-class (byClass[X].flat_*). Emit ONLY the focused
+    // class's — same gating as jumper/hunter scores. A jumper classic
+    // (505) with no flat_* in its byClass entry emits null and renders
+    // normal standings, even if a co-active championship (1001) just
+    // accumulated ribbons in ITS byClass entry. Bill 2026-05-16.
+    const focusedFlatResults = (focusedEntry && focusedEntry.flat_results)      || null;
+    const focusedFlatSeen    = (focusedEntry && focusedEntry.flat_entries_seen) || null;
     // Stamp Order-of-Go position labels on every entry in the focused
     // class's standings. Single source of truth — display.html OOG,
     // live.html, and any future surface read e.position_label rather
@@ -1611,6 +1618,12 @@ export class RingStateDO {
       jumper_scores: ringHasLiveClass ? focusedJumperScores : null,
       hunter_scores: ringHasLiveClass ? focusedHunterScores : null,
       hunter_seen:   ringHasLiveClass ? focusedHunterSeen   : null,
+      // Override the body spread's global flat_* with the FOCUSED
+      // class's per-class store. flat_class_id == focused_class_id by
+      // construction here, so the frontend guard (Part A) holds.
+      flat_results:      (ringHasLiveClass && focusedFlatResults) ? focusedFlatResults : null,
+      flat_entries_seen: (ringHasLiveClass && focusedFlatSeen)    ? focusedFlatSeen    : null,
+      flat_class_id:     ringHasLiveClass ? focusedId : null,
       // Identity/scoring/focus carry-forward — null when ring idle.
       last_identity: ringHasLiveClass ? body.last_identity : null,
       last_scoring:  ringHasLiveClass ? body.last_scoring  : null,
@@ -2602,10 +2615,22 @@ export class RingStateDO {
           (body.last_scoring && body.last_scoring.class_id) || null;
         const priorFlatClassId = (this.snapshot && this.snapshot.flat_class_id) || null;
         const classChanged = !!(priorFlatClassId && flatFocusClassId && priorFlatClassId !== flatFocusClassId);
-        const entriesSeen = classChanged ? [] :
-          ((this.snapshot && this.snapshot.flat_entries_seen) || []).slice();
-        const results = classChanged ? [] :
-          ((this.snapshot && this.snapshot.flat_results) || []).slice();
+        // Per-class flat store (Bill 2026-05-16). flat_results /
+        // flat_entries_seen used to be a single global blob on the
+        // snapshot keyed off whichever class last fired a flat frame.
+        // When a classic (e.g. 505, jumper) and its championship (1001,
+        // hunter-lens, fires fr=14 ribbons) co-run and share entries,
+        // 1001's championship ribbons leaked onto a 505 render. Restore
+        // from / persist to byClass[flatFocusClassId] so each class keeps
+        // its own flat accumulator — same scoping jumper_scores /
+        // hunter_scores already have. jog_order / standby_list keep the
+        // older snapshot-restore (ceremony displays, not the reported
+        // bug — left untouched to limit mid-show blast radius).
+        const flatClsPrior = flatFocusClassId ? this.byClass[flatFocusClassId] : null;
+        const entriesSeen = (flatClsPrior && Array.isArray(flatClsPrior.flat_entries_seen))
+          ? flatClsPrior.flat_entries_seen.slice() : [];
+        const results = (flatClsPrior && Array.isArray(flatClsPrior.flat_results))
+          ? flatClsPrior.flat_results.slice() : [];
         const seenIdx = new Map(entriesSeen.map((r, i) => [r.entry_num, i]));
         const resIdx  = new Map(results.map((r, i)      => [r.entry_num, i]));
         // upsertSeen — dedupe by entry_num, refresh fields on repeat
@@ -2738,6 +2763,17 @@ export class RingStateDO {
         body.flat_class_id     = flatFocusClassId;
         body.jog_order         = jogOrder;
         body.standby_list      = standbyList;
+        // Persist per-class. Store-only: does NOT set is_live / opened_at
+        // — flat data warming a byClass entry must not open/surface/focus
+        // the class (same principle as the cls_lock gate). _buildSnapshot
+        // emits ONLY the focused class's flat_*, so a co-active class
+        // can't bleed its ribbons onto the displayed class.
+        if (flatFocusClassId) {
+          const fc = this.byClass[flatFocusClassId]
+            || (this.byClass[flatFocusClassId] = { class_id: flatFocusClassId });
+          fc.flat_entries_seen = entriesSeen;
+          fc.flat_results      = results;
+        }
       }
 
       // Manual focus auto-release (Bill 2026-05-06): if the operator
