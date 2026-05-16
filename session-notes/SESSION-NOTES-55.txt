@@ -1,0 +1,129 @@
+SESSION-NOTES-55 — vMix hardening, auth redesign, clock consolidation
+Date: 2026-05-16 (continued from 52/53/54)
+Branch: claude/wonderful-boyd-33608f → main (PR #2), 12 commits ahead
+Status: All deployed to the single shared prod worker + preview pages
+        while building. Worker af0e6c74. Migrations 038/039 (+ the two
+        ALTERs) live on prod v3 D1. osf-spring-ii = test show.
+
+═══════════════════════════════════════════════════════════════════════════
+ARC SINCE SESSION 54  (commits 234170f → 324815b)
+═══════════════════════════════════════════════════════════════════════════
+
+1. vMix hunter scores → structured columns (234170f)
+   Ryegate overloads {14}: jump-faults (jumper) vs judged SCORE
+   "H:90.000" (hunter). Was dumping hunter scores in jump_faults.
+   Now: hunter scores come from the D1 entry row — round1/2/3_score
+   + combined_score + hunter_score(=combined); faults stay empty for
+   hunters. pullHunterScoresV3 SELECT gained e.city, e.state.
+
+2. AUTH redesign (2799f33, c3cf91b)  ── SECURITY, now LIVE in prod ──
+   - The shared key 'west-scoring-2026' was hard-coded in index.html
+     (PUBLIC), admin.html, vmix-sandbox.html — readable in View Source,
+     gated every admin write + the watcher.
+   - Machine key (WEST_AUTH_KEY): UNCHANGED, server-to-server only
+     (watcher/engine via config.json). NOT rotated → watcher safe.
+   - /v3/listShowsWithRings made PUBLIC (public show metadata). index
+     ships no key.
+   - New POST /v3/adminLogin: checks WEST_ADMIN_PASSWORD secret
+     (separate, memorable, operator-set) → 30-day HMAC token; signing
+     key = the password (rotating it logs everyone out).
+   - requireAuth() = machine key OR admin token; all 57 isAuthed
+     guards converted (superset — watcher still passes via key branch).
+   - admin.html + vmix-sandbox.html: inline login overlay (NOT
+     window.prompt — that looped/bricked the page), token in
+     localStorage, transparent 401 re-login.
+   - CORS bug fixed: X-West-Admin was missing from
+     Access-Control-Allow-Headers → every admin fetch failed preflight
+     ("admin failed to load"). Added it.
+   - WEST_ADMIN_PASSWORD secret: Bill set it via `wrangler secret put`
+     (verified — adminLogin returns 401 on wrong pw, not 503).
+
+3. vMix countdown fixed (93f10c2, e1f0527)
+   CD never triggered: code required cdNum>0 but {23} is NEGATIVE.
+   Now: CD on {23} presence; countdown=abs whole secs, no interp
+   (Ryegate ticks it); source = last_scoring || last (mirror
+   west-clock). Verified live: frame="CD" countdown="28".
+
+4. vMix elapsed runaway fixed (b53f52f, 5cc3b29, a167fb4)
+   "Time scrolled forever during awards." Tried decimal=stopped —
+   Bill: INVALID (Farmtek runs decimals while running). Authoritative
+   rule: JUMPER FINISH = presence of RANK {8} (mirrors
+   west-watcher.js). ONCOURSE requires no rank → interp can't run
+   after placing. Staleness (>8s) kept only as secondary safety.
+
+5. CLOCK DECODE CONSOLIDATION (324815b)  ── the structural fix ──
+   Phase/clock was decoded in 3 disagreeing places (west-clock.js had
+   the Farmtek decimal bug). New _resolveClock() in west-worker.js is
+   THE decode; attached as snapshot.clock. west-clock.js + vmixLive
+   READ it (legacy decode kept only as mid-deploy fallback). Client
+   keeps just the dumb 10Hz interpolation → smooth clock preserved.
+   Verified: 11 protocol unit cases + live-page render (CD -28,
+   on_course smooth sweep, finish 2dp, intro -45, idle). west-watcher
+   .js is legacy/retired — deliberately out of scope.
+
+Plus session 54 recap (committed d756c92): index cleanup (footer
+token, --font-wordmark, catchphrase, OG/link-previews, Powered by
+Ryegate), champion-banner overlap + Channel-B identity line, 505/1001
+per-class flat store (A+B), Hunter Eq display modifier.
+
+═══════════════════════════════════════════════════════════════════════════
+MEMORY — updated this session (all indexed in MEMORY.md)
+═══════════════════════════════════════════════════════════════════════════
+feedback_read_memory_and_canon_first · feedback_class_opened_at ·
+feedback_flat_results_per_class · feedback_hunter_eq_lens_trap ·
+feedback_ryegate_time_protocol · reference_clock_resolver ·
+reference_vmix_xml_feeds · reference_clock_precision · v2→v3 cutover
+facts. Memory is current — no pending memory work.
+
+═══════════════════════════════════════════════════════════════════════════
+TO-DO BEFORE SUNDAY EVENING  (Devon = Monday, multi-ring FEI)
+═══════════════════════════════════════════════════════════════════════════
+🔴 BLOCKERS
+ 1. ENGINE: v3/engine/main.js PUBLIC_PAGES_ORIGIN → https://westscoring.live;
+    rebuild + republish asar (publish-engine-update.bat, Windows). Devon
+    operators MUST run that engine build. (Only true build step left.)
+ 2. MULTI-RING DRY RUN: everything was validated single-ring
+    (osf-spring-ii). Devon runs concurrent rings. Validate with ≥2
+    rings: opened_at focus (no cross-ring bleed), per-class flat
+    (505/1001-type), clock/countdown per ring, vMix per ring.
+ 3. MERGE PR #2 → main (12 commits). Source-of-truth + rollback point;
+    Pages prod deploy reads the working tree but main must match.
+
+🟡 CUTOVER (Mon AM per SESSION-NOTES-53 runbook — unchanged)
+ 4. git checkout main && pull → ./deploy-prod.sh (type "GO LIVE") →
+    smoke test westscoring.live (admin login, a live ring, display
+    kiosk per ring, results, vMix sandbox URL, QR).
+ 5. Rollback rehearsed: CF dashboard → westscoring → last v2
+    Production deployment → Rollback. (Pages prod branch = main,
+    Git Provider = None, single shared worker already current.)
+
+🟢 OPERATIONAL (do before Devon, not code)
+ 6. Admin password: confirm the WEST_ADMIN_PASSWORD is known to
+    whoever runs admin at Devon (it's now required in prod — single
+    shared worker, the auth change is already live).
+ 7. Devon show row: set vmix_enabled=1 in admin ONLY when broadcast
+    is producing (defaults 0). osf-spring-ii is currently 1 (test) —
+    reset if desired.
+ 8. Confirm Devon engine/watcher config.json still has the unchanged
+    machine key (we did NOT rotate it — should just work).
+ 9. Confirm no new D1 migrations beyond 039 land unapplied (manual;
+    no runner). Currently 038/039 + clock_precision/vmix_enabled
+    ALTERs are live on prod v3 D1.
+
+NOT BLOCKERS / deferred: jog_order+standby_list still global-blob
+(same per-class refactor as flat_results — post-Devon); full index
+show-tags backend aggregation; admin Migrations/Health/Raw-D1 stubs;
+vmix-debug.html viewer.
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF
+═══════════════════════════════════════════════════════════════════════════
+- Single shared worker: every fix is already live in prod behavior;
+  Monday is a FRONTEND-ONLY v2→v3 Pages cutover (deploy-prod.sh).
+- Clock/phase: ONE place now — _resolveClock in west-worker.js →
+  snapshot.clock. Never add a second decoder; new consumers READ it
+  (reference_clock_resolver.md).
+- Before touching protocol code: read memory + canon FIRST
+  (feedback_read_memory_and_canon_first.md). Most of this session's
+  churn was re-deriving documented facts.
+- .DS_Store stays uncommitted (junk).
