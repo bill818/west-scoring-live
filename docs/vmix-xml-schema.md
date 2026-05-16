@@ -136,7 +136,7 @@ current `frame` or `discipline`.
 | `jump_faults` | string | `oncourse.jumpFaults` | |
 | `time_faults` | string | `oncourse.timeFaults` | |
 | `total_faults` | string | derived | `jump_faults + time_faults`, **only on FINISH** |
-| `rank` | string | `oncourse.rank` | **only on FINISH** |
+| `rank` | string | `oncourse.rank` | **only on FINISH**. Usually a place number. In a **jump-off class**, a clear Round-1 finisher who has qualified for the jump-off emits the literal text **`JO`** (Ryegate withholds a scoreboard rank for clears; they're "in the jump-off"). Bind this field as **text**, not numeric — it can be `12`, `JO`, or empty. |
 | `fpi` | int | `oncourse.fpi` | Faults per interval (jumper config) |
 | `ti` | int | `oncourse.ti` | Time interval (jumper config) |
 | `ps` | int | `oncourse.ps` | Penalty seconds (jumper config) |
