@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEST · vMix Sandbox</title>
+<link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
+<link rel="stylesheet" href="west.css">
+<style>
+  body { background: var(--off-white); color: var(--text-body); font-family: var(--font-body); margin: 0; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 24px 80px; }
+  h1 { font-family: var(--font-display); font-size: 28px; letter-spacing: .04em; margin: 0 0 6px; color: var(--navy); }
+  .sub { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 22px; }
+  a { color: var(--navy); }
+
+  /* URL chips — what to point vMix at */
+  .urls { display: grid; gap: 8px; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; margin-bottom: 24px; }
+  .urls h2 { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 4px; font-weight: 700; }
+  .url-row { display: flex; gap: 10px; align-items: center; font-family: var(--font-mono); font-size: 12px; }
+  .url-row label { min-width: 90px; color: var(--text-muted); }
+  .url-row input { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; background: var(--off-white); }
+  .url-row button { padding: 6px 12px; border: 1px solid var(--border); background: #fff; border-radius: 4px; font-size: 12px; cursor: pointer; }
+  .url-row button:hover { background: var(--off-white); }
+
+  /* Status pill */
+  .status { display: inline-block; font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; padding: 4px 10px; border-radius: 12px; background: var(--off-white); border: 1px solid var(--border); color: var(--text-muted); }
+  .status.ok    { background: rgba(46,125,50,.10); color: #2e7d32; border-color: rgba(46,125,50,.30); }
+  .status.err   { background: rgba(198,40,40,.10); color: #c62828; border-color: rgba(198,40,40,.30); }
+
+  /* Two columns: jumper + hunter */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  .panel { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+  .panel h2 { font-family: var(--font-display); font-size: 18px; letter-spacing: .04em; margin: 0 0 14px; color: var(--navy); }
+  .panel h3 { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin: 16px 0 8px; font-weight: 700; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .grid label { display: flex; flex-direction: column; font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); gap: 3px; }
+  .grid input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-body); font-size: 13px; background: #fff; }
+  .grid input:focus { outline: 2px solid var(--navy); outline-offset: -1px; }
+  .span2 { grid-column: span 2; }
+
+  /* Action buttons — frame triggers */
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .actions button { padding: 10px 16px; border: 1px solid var(--border-strong); background: #fff; border-radius: 6px; font-family: var(--font-mono); font-size: 12px; letter-spacing: .10em; text-transform: uppercase; cursor: pointer; font-weight: 600; color: var(--navy); }
+  .actions button:hover { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .actions button.danger { color: #c62828; }
+  .actions button.danger:hover { background: #c62828; color: #fff; border-color: #c62828; }
+
+  /* Standings editor */
+  .full { grid-column: 1 / -1; }
+  .standings-panel { margin-top: 20px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+  .standings-panel h2 { font-family: var(--font-display); font-size: 18px; letter-spacing: .04em; margin: 0 0 14px; color: var(--navy); }
+  .standings-panel textarea { width: 100%; min-height: 220px; padding: 10px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; box-sizing: border-box; background: var(--off-white); }
+  .help { font-family: var(--font-body); font-size: 12px; color: var(--text-muted); margin: 6px 0 0; }
+
+  .last { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>vMix Sandbox</h1>
+  <div class="sub">Drives the live + standings XML feeds with synthetic data so vMix Title bindings can be built before a live show.</div>
+
+  <div class="urls">
+    <h2>Point vMix Data Sources at these URLs</h2>
+    <div class="url-row">
+      <label>live.xml</label>
+      <input id="urlLive" readonly>
+      <button onclick="copyUrl('urlLive')">Copy</button>
+      <button onclick="openUrl('urlLive')">Open</button>
+    </div>
+    <div class="url-row">
+      <label>standings.xml</label>
+      <input id="urlStand" readonly>
+      <button onclick="copyUrl('urlStand')">Copy</button>
+      <button onclick="openUrl('urlStand')">Open</button>
+    </div>
+    <div class="url-row">
+      <label></label>
+      <span class="help">Schema reference: <a href="../docs/vmix-xml-schema.md" target="_blank">docs/vmix-xml-schema.md</a> &middot; columns/frame values are stable and case-sensitive.</span>
+    </div>
+  </div>
+
+  <div class="cols">
+    <!-- ── JUMPER PANEL ─────────────────────────────────────────────────── -->
+    <div class="panel">
+      <h2>Jumper</h2>
+      <div class="grid" id="jForm">
+        <label>Class number<input data-k="class_num" value="501"></label>
+        <label>Class name<input data-k="class_name" value="$50,000 Old Salem Farm Grand Prix"></label>
+        <label>Entry<input data-k="entry" value="42"></label>
+        <label>Country (3-letter)<input data-k="country" value="USA"></label>
+        <label class="span2">Horse<input data-k="horse" value="Indigo de Reve"></label>
+        <label class="span2">Rider<input data-k="rider" value="J. Smith"></label>
+        <label class="span2">Owner<input data-k="owner" value="Doe Farm LLC"></label>
+        <label>City<input data-k="city" value="Wellington"></label>
+        <label>State<input data-k="state" value="FL"></label>
+        <label>Round<input data-k="round" value="1"></label>
+        <label>Round label<input data-k="label" value="Round 1"></label>
+        <label>Time allowed (ta)<input data-k="ta" value="82.00"></label>
+        <label>Countdown (CD only)<input data-k="countdown" value="5"></label>
+        <label>Elapsed<input data-k="elapsed" value="48.21"></label>
+        <label>Jump faults<input data-k="jumpFaults" value="0"></label>
+        <label>Time faults<input data-k="timeFaults" value="0"></label>
+        <label>Rank (FINISH only)<input data-k="rank" value="1"></label>
+      </div>
+      <div class="actions">
+        <button onclick="fire('jumper','INTRO')">INTRO</button>
+        <button onclick="fire('jumper','CD')">CD</button>
+        <button onclick="fire('jumper','ONCOURSE')">ONCOURSE</button>
+        <button onclick="fire('jumper','FINISH')">FINISH</button>
+        <button class="danger" onclick="clearSandbox()">Clear → IDLE</button>
+      </div>
+    </div>
+
+    <!-- ── HUNTER PANEL ─────────────────────────────────────────────────── -->
+    <div class="panel">
+      <h2>Hunter</h2>
+      <div class="grid" id="hForm">
+        <label>Class number<input data-k="class_num" value="304"></label>
+        <label>Class name<input data-k="class_name" value="Old Salem Hunter Derby"></label>
+        <label>Entry<input data-k="entry" value="118"></label>
+        <label>Place (RESULTS)<input data-k="place" value="1"></label>
+        <label class="span2">Horse<input data-k="horse" value="Catch The Sun"></label>
+        <label class="span2">Rider<input data-k="rider" value="A. Brown"></label>
+        <label class="span2">Owner<input data-k="owner" value="Sunfield Stable"></label>
+        <label>City<input data-k="city" value="Saugerties"></label>
+        <label>State<input data-k="state" value="NY"></label>
+        <label>Round<input data-k="round" value="1"></label>
+        <label>Round label<input data-k="label" value="Round 1"></label>
+        <label>Hunter score<input data-k="hunterScore" value="88.5"></label>
+        <label>Rank<input data-k="rank" value="1"></label>
+      </div>
+      <div class="actions">
+        <button onclick="fire('hunter','INTRO')">INTRO</button>
+        <button onclick="fire('hunter','ONCOURSE')">ONCOURSE</button>
+        <button onclick="fire('hunter','RESULTS')">RESULTS</button>
+        <button class="danger" onclick="clearSandbox()">Clear → IDLE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STANDINGS ─────────────────────────────────────────────────────── -->
+  <div class="standings-panel">
+    <h2>Standings (sent on every frame)</h2>
+    <p class="help">Top-10 leaderboard rows. Edit the JSON to match the discipline you're testing &mdash; jumper uses <code>r1_total_time</code> / <code>r1_total_faults</code> / <code>country_code</code>, hunter uses <code>r1_score_total</code> / <code>combined_total</code> / <code>current_place</code>. The standings get written every time you fire a frame.</p>
+    <textarea id="standings">[
+  {"entry_num":"42","horse_name":"Indigo de Reve","rider_name":"J. Smith","owner_name":"Doe Farm LLC","country_code":"USA","overall_place":1,"r1_total_time":"48.21","r1_total_faults":"0","r1_status":""},
+  {"entry_num":"17","horse_name":"Storm Front","rider_name":"M. Garcia","owner_name":"Garcia Sport Horses","country_code":"MEX","overall_place":2,"r1_total_time":"49.05","r1_total_faults":"0","r1_status":""},
+  {"entry_num":"88","horse_name":"Vesper","rider_name":"K. Larsen","owner_name":"Nordic Equestrian","country_code":"DEN","overall_place":3,"r1_total_time":"49.84","r1_total_faults":"0","r1_status":""},
+  {"entry_num":"23","horse_name":"Quicksilver","rider_name":"L. Chen","owner_name":"Pacific Stables","country_code":"USA","overall_place":4,"r1_total_time":"50.12","r1_total_faults":"0","r1_status":""},
+  {"entry_num":"61","horse_name":"Calypso","rider_name":"R. Mueller","owner_name":"Mueller Show Stables","country_code":"GER","overall_place":5,"r1_total_time":"52.30","r1_total_faults":"4","r1_status":""},
+  {"entry_num":"4","horse_name":"Big Ben Jr","rider_name":"T. Nakamura","owner_name":"Sakura Farm","country_code":"JPN","overall_place":6,"r1_total_time":"53.88","r1_total_faults":"4","r1_status":""},
+  {"entry_num":"95","horse_name":"Bandit","rider_name":"P. Dubois","owner_name":"Dubois Equestrian","country_code":"FRA","overall_place":7,"r1_total_time":"54.10","r1_total_faults":"4","r1_status":""},
+  {"entry_num":"33","horse_name":"Cassiopeia","rider_name":"S. O'Connor","owner_name":"Galway Sport Horses","country_code":"IRL","overall_place":8,"r1_total_time":"55.42","r1_total_faults":"4","r1_status":""},
+  {"entry_num":"77","horse_name":"Avalon","rider_name":"H. van Dijk","owner_name":"Dutch Equine","country_code":"NED","overall_place":9,"r1_total_time":"56.18","r1_total_faults":"8","r1_status":""},
+  {"entry_num":"12","horse_name":"Ember","rider_name":"D. Patel","owner_name":"Patel Show Jumping","country_code":"GBR","overall_place":10,"r1_total_time":"","r1_total_faults":"","r1_status":"EL"}
+]</textarea>
+    <p class="help">A hunter-shaped sample (toggle this when running hunter tests): <button id="useHunterPreset" type="button" style="padding:4px 10px;border:1px solid var(--border);background:#fff;border-radius:4px;font-size:11px;cursor:pointer;">Load hunter preset</button></p>
+  </div>
+
+  <div class="last">
+    <span class="status" id="status">Idle</span>
+    <span id="lastFire"></span>
+  </div>
+</div>
+
+<script>
+const WORKER = 'https://west-worker.bill-acb.workers.dev';
+const SLUG   = 'vmix-sandbox';
+const RING   = 1;
+
+// Admin session — same memorable password + token as admin.html (shared
+// localStorage key, so one login covers both). No machine key in source.
+// Bill 2026-05-16.
+const ADMIN_TOKEN_KEY = 'v3admin.token';
+let ADMIN_TOKEN = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+async function adminLogin(msg) {
+  const pw = window.prompt(msg || 'WEST admin password:');
+  if (pw == null || pw === '') return false;
+  try {
+    const r = await fetch(`${WORKER}/v3/adminLogin`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok && d.token) {
+      ADMIN_TOKEN = d.token;
+      localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+  return false;
+}
+// POST helper: ensures a token, sends X-West-Admin, re-logs on 401.
+async function sandboxPost(body) {
+  while (!ADMIN_TOKEN) {
+    if (!(await adminLogin())) await new Promise(r => setTimeout(r, 300));
+  }
+  const doIt = () => fetch(`${WORKER}/v3/vmixSandboxSet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-West-Admin': ADMIN_TOKEN },
+    body: JSON.stringify(body),
+  });
+  let r = await doIt();
+  if (r.status === 401) {
+    ADMIN_TOKEN = '';
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    if (await adminLogin('Session expired — re-enter admin password:')) r = await doIt();
+  }
+  return r;
+}
+
+document.getElementById('urlLive').value  = `${WORKER}/v3/vmixLive?slug=${SLUG}&ring_num=${RING}`;
+document.getElementById('urlStand').value = `${WORKER}/v3/vmixStandings?slug=${SLUG}&ring_num=${RING}`;
+
+function copyUrl(id) {
+  const el = document.getElementById(id);
+  el.select();
+  navigator.clipboard.writeText(el.value).then(() => setStatus('ok', `Copied: ${el.value}`));
+}
+function openUrl(id) { window.open(document.getElementById(id).value, '_blank'); }
+
+function readForm(panelId) {
+  const out = {};
+  document.querySelectorAll(`#${panelId} input[data-k]`).forEach(inp => {
+    const v = inp.value.trim();
+    if (v !== '') out[inp.dataset.k] = v;
+  });
+  return out;
+}
+
+function readStandings() {
+  try {
+    const arr = JSON.parse(document.getElementById('standings').value);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    setStatus('err', 'Standings JSON parse error: ' + e.message);
+    return null;
+  }
+}
+
+async function fire(discipline, phase) {
+  const formId = discipline === 'jumper' ? 'jForm' : 'hForm';
+  const fields = readForm(formId);
+  const standings = readStandings();
+  if (standings === null) return;
+  const body = {
+    phase,
+    isHunter: discipline === 'hunter',
+    ...fields,
+    standings,
+  };
+  setStatus('', `Sending ${discipline.toUpperCase()} ${phase}…`);
+  try {
+    const r = await sandboxPost(body);
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      setStatus('err', `Failed: ${data.error || r.status}`);
+      return;
+    }
+    setStatus('ok', `${discipline.toUpperCase()} ${phase} live — vMix will pick it up on its next poll.`);
+    document.getElementById('lastFire').textContent = ` · last: ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    setStatus('err', 'Network error: ' + e.message);
+  }
+}
+
+async function clearSandbox() {
+  setStatus('', 'Clearing…');
+  try {
+    const r = await sandboxPost({ phase: 'IDLE' });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      setStatus('err', `Failed: ${data.error || r.status}`);
+      return;
+    }
+    setStatus('ok', 'Cleared — frame is IDLE, standings empty.');
+  } catch (e) {
+    setStatus('err', 'Network error: ' + e.message);
+  }
+}
+
+function setStatus(kind, msg) {
+  const el = document.getElementById('status');
+  el.className = 'status' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+}
+
+// Hunter preset — fields differ enough that paste-friendly defaults matter.
+document.getElementById('useHunterPreset').addEventListener('click', () => {
+  document.getElementById('standings').value = JSON.stringify([
+    {"entry_num":"118","horse_name":"Catch The Sun","rider_name":"A. Brown","owner_name":"Sunfield Stable","current_place":1,"combined_total":177.5,"r1_score_total":88.5,"r2_score_total":89.0,"r1_h_status":""},
+    {"entry_num":"206","horse_name":"Skylight","rider_name":"E. Wong","owner_name":"Wong Show Stables","current_place":2,"combined_total":172.0,"r1_score_total":85.0,"r2_score_total":87.0,"r1_h_status":""},
+    {"entry_num":"55","horse_name":"Heritage","rider_name":"B. Castillo","owner_name":"Castillo Sport Horses","current_place":3,"combined_total":169.5,"r1_score_total":84.5,"r2_score_total":85.0,"r1_h_status":""},
+    {"entry_num":"71","horse_name":"Brigadoon","rider_name":"M. O'Hara","owner_name":"O'Hara Farm","current_place":4,"combined_total":165.0,"r1_score_total":82.0,"r2_score_total":83.0,"r1_h_status":""},
+    {"entry_num":"189","horse_name":"Foxglove","rider_name":"C. Andersen","owner_name":"Andersen Hunters","current_place":5,"combined_total":162.5,"r1_score_total":81.5,"r2_score_total":81.0,"r1_h_status":""}
+  ], null, 2);
+  setStatus('ok', 'Hunter preset loaded into standings.');
+});
+</script>
+</body>
+</html>

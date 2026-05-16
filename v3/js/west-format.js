@@ -407,12 +407,23 @@
   // Used by jumper round cells, place columns, etc. Cross-lens: hunter
   // judge scores reuse the same fault/score primitives where applicable.
 
-  // Time: 3-decimal seconds, Ryegate convention. null/0 → "—".
-  WEST.format.time = function (sec) {
+  // Time: decimal-seconds, formatted to match the class's clock precision.
+  // The second arg is class_meta.clock_precision (Ryegate H[05]):
+  //   0 → thousandths  (.001 → 3 decimals)
+  //   1 → hundredths   (.01  → 2 decimals)
+  //   2 → whole seconds (1   → 0 decimals)
+  //   null/undefined   → 3 decimals (legacy fallback — pre-clock_precision
+  //                                   classes always rendered .001)
+  // null/0 sec → "—".
+  WEST.format.time = function (sec, clockPrecision) {
     if (sec == null) return '—';
     const n = Number(sec);
     if (!Number.isFinite(n) || n === 0) return '—';
-    return n.toFixed(3);
+    const decimals = clockPrecision === 2 ? 0
+                   : clockPrecision === 1 ? 2
+                   : clockPrecision === 0 ? 3
+                   : 3;
+    return n.toFixed(decimals);
   };
 
   // Faults: integer display. null → "—". 0 stays "0" (caller decides

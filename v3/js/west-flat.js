@@ -102,11 +102,22 @@
       && (classMeta.scoring_type === 1 || classMeta.scoring_type === '1'
        || classMeta.scoring_type === 2 || classMeta.scoring_type === '2');
     if (isParsedScoredOverFences) return false;
+    // Cross-class guard (Bill 2026-05-16). flat_results / flat_entries_seen
+    // are per-class in the worker now, but defend in depth here too: if
+    // the flat data's class_id doesn't match the class we're evaluating,
+    // it's a co-active class's data (e.g. championship 1001's ribbons
+    // while we're rendering classic 505) — must NOT flip this class into
+    // flat mode off foreign ribbons. Only the results/entriesSeen
+    // heuristics are gated; isFlatMode (metadata, class_mode=1) above is
+    // authoritative and unaffected.
+    var metaCid = (classMeta && classMeta.class_id != null) ? String(classMeta.class_id) : null;
+    var flatCid = (snapshot && snapshot.flat_class_id != null) ? String(snapshot.flat_class_id) : null;
+    var flatMatchesClass = !flatCid || !metaCid || flatCid === metaCid;
     // Heuristic fallback — U-class hunters where metadata hasn't
     // resolved yet, or rotation is observed before the .cls parses.
-    const results = (snapshot && snapshot.flat_results) || [];
+    const results = (flatMatchesClass && snapshot && snapshot.flat_results) || [];
     if (results.length > 0) return true;
-    const entriesSeen = (snapshot && snapshot.flat_entries_seen) || [];
+    const entriesSeen = (flatMatchesClass && snapshot && snapshot.flat_entries_seen) || [];
     if (entriesSeen.length > 1) return true;
     const focusId = snapshot && (
       (snapshot.last_focus    && snapshot.last_focus.class_id) ||
@@ -159,12 +170,21 @@
       const sub     = rowEqu ? (r.horse || '') : (r.rider || '');
       const isNew   = !animated[r.entry_num];
       if (markAnimated) animated[r.entry_num] = true;
-      const ribbon = ribbonSvg(r.place_num) ||
+      // Places 1-12 get a ribbon SVG (fits the fixed narrow column).
+      // Anything else (championship "CHAMPION"/"RESERVE", or a raw text
+      // place Ryegate sends without a 1-12 number) has no ribbon — fall
+      // back to a text chip AND flag the row so the layout lets that
+      // column auto-size instead of overflowing the 44px ribbon slot.
+      const svg = ribbonSvg(r.place_num);
+      const isTextPlace = !svg;
+      const ribbon = svg ||
         ('<span class="flat-place-text">' + esc(r.place_text || '') + '</span>');
       const horseLine = '<span class="flat-entry-num">#' + esc(r.entry_num || '') + '</span> ' + esc(primary || '—');
       let subLine = sub ? esc(sub) : '';
       if (r.score) subLine += (subLine ? ' · ' : '') + esc(r.score);
-      return '<li class="flat-entry flat-result' + (isNew ? ' is-new' : '') + '">'
+      return '<li class="flat-entry flat-result'
+        + (isNew ? ' is-new' : '')
+        + (isTextPlace ? ' is-text-place' : '') + '">'
         + '<span class="num">' + ribbon + '</span>'
         + '<span>'
         +   '<div class="horse">' + horseLine + '</div>'

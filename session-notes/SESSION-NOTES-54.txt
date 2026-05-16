@@ -1,0 +1,102 @@
+SESSION-NOTES-54 — Site cleanup + 505/1001 flat cross-wire + Hunter Eq card
+Date: 2026-05-16 (continued from 52/53)
+Branch: claude/wonderful-boyd-33608f → main (PR #2)
+Status: Worker 881c17ae deployed. Preview pages current. Single shared
+        worker so prod behavior already live. osf-spring-ii = test show
+        (no spectators) — fixes done properly, not defensively.
+
+═══════════════════════════════════════════════════════════════════════════
+SHIPPED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════
+
+1. Index page cleanup (design-critic pass, preview)
+   - P1: footer link --blue→--red; brand wordmark hard-coded font →
+     new --font-wordmark token (west.css). Index phone breakpoint
+     600→640 (documented standard).
+   - P2 lite: show rows show "· N-day" (client-derived). Full lab tags
+     (country/discipline/entries) deferred — needs backend aggregation.
+   - Catchphrase: "Live scoring across the East Coast hunter/jumper
+     circuit" → "Live timing & scoring for the hunter/jumper circuit".
+   - Footer across index/show/class/stats: "· Powered by Ryegate ·",
+     dropped redundant Admin link.
+   - Link previews: brand-level OG/twitter/theme-color + real <title>
+     (no more "v3 then nothing") on index/show/class/stats/live.
+     Dynamic document.title still loads after JS; static tags are what
+     link-preview bots see.
+
+2. Champion/flat box (live.html)
+   - Fixed text overlap on the champion banner.
+   - Added a Channel-B class-identity line to the flat/champion box
+     (#liveFlatClass): worker focused projection → Channel B {27}+{28}
+     atomic pair → resolved flat class id. Gives the champion banner
+     context when class_meta is absent (no INTRO+31000 pair).
+
+3. 505 / 1001 flat cross-contamination (THE big one)
+   - 505 = "1.15M AMATEUR JUMPER CLASSIC" (T, method 13). 1001 =
+     "1.15M AMATEUR JUMPER CHAMPIONSHIP" (H, championship). Shared
+     entries (IDEAL S). 505 rendered a CHAMPION/12.000 flat banner that
+     was actually 1001's championship data.
+   - Root cause: flat_results/flat_entries_seen/flat_class_id were a
+     single GLOBAL blob on the snapshot keyed off whichever class last
+     fired a flat frame — NOT per-class like jumper/hunter_scores.
+   - Fix B (worker): per-class flat store. Restore from / persist to
+     byClass[flatFocusClassId].flat_*. _buildSnapshot emits ONLY the
+     focused class's flat_* (same gating as jumper/hunter scores).
+     Store-only — does NOT set is_live/opened_at (same principle as
+     the cls_lock gate). flat_class_id == focused_class_id by
+     construction. jog_order/standby_list left on the old global path
+     (ceremony displays, not the bug — scoped tight).
+   - Fix A (frontend, defense-in-depth): west-flat.js shouldRender +
+     live.html renderFlatClass drop the flat payload when
+     flat_class_id ≠ the displayed class. shouldRender's
+     `results.length>0 → true` was what flipped 505 (a jumper that the
+     isParsedScoredOverFences guard doesn't cover) into flat off 1001's
+     global ribbons.
+
+4. Hunter Eq on-course card (318 "$100K Governor's Hunt Seat Cup")
+   - 318 = HUNTER file (class_type=H) with is_equitation=1 → hunter-
+     SCORED but rider-judged, no horse, city/state matters.
+   - Did NOT change deriveClassKindV3: making type-H Eq lens
+     'equitation' would route it through the JUMPER pull (line ~3090
+     isJumper = lens==='jumper'||'equitation') and break hunter
+     standings. is_equitation is a DISPLAY modifier, not a lens.
+   - live.html identity card now equitation-aware: when
+     class_meta.is_equitation OR the {7}-rider/no-{3} tag pattern →
+     Rider = primary line, City/State = secondary (live UDP {6} =
+     "CITY, ST", fallback to scored row), no horse, no FEI flag.
+     Normal hunter/jumper cards unchanged.
+   - Worker: pullHunterScoresV3 SELECT now includes e.city, e.state
+     (jumper pull already had them) — card fallback + any surface.
+
+═══════════════════════════════════════════════════════════════════════════
+DEFERRED / FOLLOW-UPS (not blockers; test show, no spectators)
+═══════════════════════════════════════════════════════════════════════════
+
+- Full index show-tags line (country / discipline / entry-count):
+  needs a /v3/listShowsWithRings aggregation pass (entry counts per
+  show on a 60s public endpoint — perf consideration). Scoped post-Devon.
+- jog_order / standby_list have the same legacy global-blob shape as
+  flat_results did. Same cross-class risk for ceremony displays. Move
+  to per-class byClass store in the post-Devon cleanup.
+- Lens taxonomy: 'equitation' lens currently means jumper-protocol
+  (timed, method 7). Hunt-seat Eq (H + is_equitation) is hunter-
+  protocol and is correctly handled as a display modifier. If a future
+  refactor wants a true Eq lens it must split scoring-protocol from
+  display-style — do NOT just make deriveClassKindV3 return equitation.
+- Monday cutover runbook still in SESSION-NOTES-53 (unchanged).
+
+═══════════════════════════════════════════════════════════════════════════
+HANDOFF
+═══════════════════════════════════════════════════════════════════════════
+
+- Single shared worker (west-worker.bill-acb.workers.dev): every deploy
+  this session is already live in prod behavior; PR #2 / main is
+  source-of-truth + rollback only. Pages still preview-branch; Monday
+  is the frontend-only v2→v3 cutover via deploy-prod.sh (--branch=main).
+- flat_results is now per-class. If a flat/championship class shows
+  wrong data again, check byClass[X].flat_* + that _buildSnapshot
+  emits the FOCUSED class's, not the body spread's.
+- Hunter Eq: lens stays 'hunter'. Display-side EQ detection =
+  class_meta.is_equitation OR tag pattern (!{3} && {7}). Mirror that,
+  never reclassify the lens.
+- Engine unchanged all session. Migrations still at 039.

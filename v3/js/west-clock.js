@@ -97,12 +97,61 @@
       return { value: v, isDecimal: s.indexOf('.') > -1 };
     }
 
+    // ── Canonical path (Bill 2026-05-16) ────────────────────────────
+    // The worker now resolves phase + clock ONCE into snapshot.clock
+    // (_resolveClock). When present we just READ it — zero tag decode
+    // here — and keep only the dumb 10Hz interpolation for smoothness.
+    // This module's old inline decode (below) is retained ONLY as a
+    // fallback for snapshots that predate the field (mid worker deploy).
+    // Single source of truth = the worker; the page is a thin renderer.
+    function applyResolvedClock(rc) {
+      // Re-anchor the interpolation clock whenever the server's base
+      // value changes (new rider / new tick) or the phase changes.
+      var changed = (rc.base_value !== state.baseValue)
+                 || (state._rcPhase !== rc.phase);
+      state._rcPhase = rc.phase;
+      state.precisionFromRc = true;
+      state.clockPrecision = rc.precision;
+      if (rc.phase === 'IDLE') { state.phase = 'idle'; return; }
+      if (rc.phase === 'INTRO') { state.phase = 'intro'; return; }
+      if (rc.phase === 'CD') {
+        state.phase = 'countdown';
+        state.baseValue = rc.base_value;   // positive whole seconds
+        return;
+      }
+      if (rc.phase === 'FINISH') {
+        state.phase = 'finished';
+        state.finalValue = (rc.base_value != null) ? rc.base_value : null;
+        state.finalText = rc.final_text || null;  // server pre-formatted
+        return;
+      }
+      // ONCOURSE — running clock. base_value + local anchor; tick()
+      // interpolates baseValue + (now − baseAt) for the smooth sweep.
+      state.phase = 'on_course';
+      if (changed) {
+        state.baseValue = rc.base_value;
+        state.baseAt = Date.now();
+      }
+    }
+
     function set(snapshot) {
+      // CANONICAL: worker-resolved clock. No decoding here.
+      if (snapshot && snapshot.clock && snapshot.clock.phase) {
+        applyResolvedClock(snapshot.clock);
+        return;
+      }
+      // ── LEGACY FALLBACK (snapshot.clock absent) ───────────────────
       // Prefer last_scoring (Channel A) — that's where clock tags live.
       // Fall back to snapshot.last for legacy snapshots that predate the
       // S43 Chunk 12 split. snapshot.last_focus (Channel B) carries no
       // clock data so we never read it here.
       var last = snapshot && (snapshot.last_scoring || snapshot.last);
+      // Capture clock_precision off the focused class_meta. Drives the
+      // FINISH-frame decimal count (Ryegate H[05]: 0=.001, 1=.01, 2=whole).
+      // Null when meta hasn't arrived yet — falls back to 3 decimals.
+      state.clockPrecision = (snapshot && snapshot.class_meta && snapshot.class_meta.clock_precision != null)
+        ? snapshot.class_meta.clock_precision
+        : null;
       if (!snapshot || !last) {
         // Can happen at boot before any data arrives, or on idle DO.
         // Don't reset class state — class focus survives no-data windows.
@@ -234,11 +283,24 @@
         return;
       }
       if (phase === 'finished') {
-        // FINISH always shows the exact decimal Ryegate sent. 3 decimals
-        // matches the non-FEI default; FEI sends 2 already so toFixed(3)
-        // padding the trailing zero is harmless.
+        // FINISH renders the class's clock_precision (Ryegate H[05]):
+        //   0 → 3 decimals  (thousandths)
+        //   1 → 2 decimals  (hundredths — FEI default)
+        //   2 → 0 decimals  (whole seconds)
+        //   null → 3 decimals (legacy fallback)
+        // Previously this hardcoded toFixed(3), padding "32.75" → "32.750"
+        // even when Ryegate told us hundredths. Bill 2026-05-14.
+        // Canonical path: the worker already formatted final_text at
+        // the class precision — render it verbatim (one formatting
+        // place). Legacy path: format finalValue here as before.
+        if (state.finalText) {
+          renderCallback(state.finalText, 'finished');
+          return;
+        }
+        var cp = state.clockPrecision;
+        var decimals = cp === 2 ? 0 : cp === 1 ? 2 : 3;
         var fv = (state.finalValue !== null)
-          ? state.finalValue.toFixed(3) : '—';
+          ? state.finalValue.toFixed(decimals) : '—';
         renderCallback(fv, 'finished');
         return;
       }
@@ -250,7 +312,12 @@
       // tenths on the countdown read as noise, the value's only meaningful
       // at the integer-second boundary anyway.
       if (phase === 'countdown') {
-        renderCallback(state.baseValue.toFixed(0), 'countdown');
+        // Live page shows the count-in as a NEGATIVE whole second
+        // ("-28" → "0"), preserved for both paths: legacy baseValue is
+        // the raw negative {23}; canonical baseValue is positive
+        // seconds-remaining. Normalize to -|n| (0 → "0").
+        var cn = Math.abs(Math.round(state.baseValue));
+        renderCallback(cn ? '-' + cn : '0', 'countdown');
         return;
       }
       // on_course — mode-dependent. 'tenth' interpolates from baseValue

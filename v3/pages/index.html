@@ -6,7 +6,22 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WEST Scoring — v3</title>
+<title>WEST Timing &amp; Scoring — Live Results</title>
+<meta name="description" content="Live timing and scoring for the hunter/jumper circuit. Real-time results, ring by ring.">
+<!-- Link-preview / social cards. Brand-level (static) — page is a SPA
+     directory so we don't per-show these. og:image is an absolute prod
+     URL so it resolves when the link is shared off-domain. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WEST Timing &amp; Scoring">
+<meta property="og:title" content="WEST Timing &amp; Scoring — Live Results">
+<meta property="og:description" content="Live timing and scoring for the hunter/jumper circuit. Real-time results, ring by ring.">
+<meta property="og:image" content="https://westscoring.live/assets/logo.png">
+<meta property="og:url" content="https://westscoring.live/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="WEST Timing &amp; Scoring — Live Results">
+<meta name="twitter:description" content="Live timing and scoring for the hunter/jumper circuit.">
+<meta name="twitter:image" content="https://westscoring.live/assets/logo.png">
+<meta name="theme-color" content="#0a0a0a">
 <link rel="icon" type="image/x-icon" href="../../assets/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,7 +43,7 @@
 
 <div class="idx-page-head">
   <h1 class="idx-page-title">Shows</h1>
-  <div class="idx-page-sub">Live scoring across the East Coast hunter/jumper circuit</div>
+  <div class="idx-page-sub">Live timing &amp; scoring for the hunter/jumper circuit</div>
   <div class="idx-toolbar">
     <input type="search" id="searchInput" class="idx-filter" placeholder="Filter by name, venue, or location…" oninput="filter()" autocomplete="off" autocorrect="off" spellcheck="false">
     <div class="idx-tabs" role="tablist">
@@ -46,11 +61,13 @@
 </div>
 
 <footer>
-  WEST Timing and Scoring · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a> · <a href="admin.html" target="_blank" rel="noopener">Admin</a>
+  WEST Timing and Scoring · Powered by Ryegate · <a href="https://www.west-solutions.com" target="_blank" rel="noopener">west-solutions.com</a>
 </footer>
 
 <script>
-const AUTH = 'west-scoring-2026';
+// No auth key here — the spectator landing page only reads the public
+// show directory (/v3/listShowsWithRings is public). The machine key no
+// longer ships in any browser page. Bill 2026-05-16.
 const BASE = 'https://west-worker.bill-acb.workers.dev';
 
 let SHOWS = [];
@@ -162,7 +179,14 @@ function renderShowRow(s, key, expandRings) {
     pill = `<span class="past-pill">${escapeHtml(endedAgoLabel(s))}</span>`;
   }
 
-  const dateLine = fmtDateRange(s);
+  // Date line + a cheap day-count cue (real data, client-derived — the
+  // fuller lab tags line of country/discipline/entries needs a backend
+  // aggregation pass, tracked separately). Single-day shows omit it.
+  let dateLine = fmtDateRange(s);
+  if (s.start_date && s.end_date && s.start_date !== s.end_date) {
+    const span = daysBetween(s.start_date, s.end_date) + 1;
+    if (span > 1) dateLine += ` · ${span}-day`;
+  }
   const locLine  = escapeHtml(s.location || s.venue || '');
 
   // Build the (optional) ring preview as a sibling block — keeps the show
@@ -282,7 +306,7 @@ function render() {
 async function loadShows() {
   const content = document.getElementById('content');
   try {
-    const res = await fetch(BASE + '/v3/listShowsWithRings', { headers: { 'X-West-Key': AUTH } });
+    const res = await fetch(BASE + '/v3/listShowsWithRings');
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Failed');
     SHOWS = data.shows || [];

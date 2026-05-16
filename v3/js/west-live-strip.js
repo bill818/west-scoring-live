@@ -172,8 +172,8 @@
       ws.addEventListener('error', function () { /* close handler reconnects */ });
     }
 
-    // Discover rings via /v3/getShowLiveStatus (public, no auth).
-    // /v3/listRings would require X-West-Key. Same data either way.
+    // Discover rings via /v3/getShowLiveStatus — lightest public
+    // endpoint for ring discovery (listRings returns the same set).
     WEST.api.fetchJson('/v3/getShowLiveStatus?slug=' + encodeURIComponent(slug))
       .then(function (data) {
         if (destroyed) return;
