@@ -467,9 +467,46 @@
 
 <script>
 // v3 admin page — Phase 1.
-// Auth key hardcoded here temporarily; extract to runtime config later.
-const AUTH = 'west-scoring-2026';
 const BASE = 'https://west-worker.bill-acb.workers.dev';
+
+// ── Admin auth (Bill 2026-05-16) ─────────────────────────────────────
+// No machine key in page source anymore. The operator logs in with the
+// memorable WEST_ADMIN_PASSWORD; the worker returns a 30-day HMAC-signed
+// token stored here + sent as X-West-Admin. The password itself is
+// never stored. Token expiry → api() transparently re-prompts + retries.
+const ADMIN_TOKEN_KEY = 'v3admin.token';
+let ADMIN_TOKEN = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+
+async function adminLogin(promptMsg) {
+  const pw = window.prompt(promptMsg || 'WEST admin password:');
+  if (pw == null || pw === '') return false;   // cancelled / empty
+  try {
+    const res = await fetch(BASE + '/v3/adminLogin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok && data.token) {
+      ADMIN_TOKEN = data.token;
+      localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
+      return true;
+    }
+  } catch (e) { /* fall through to false */ }
+  return false;
+}
+
+// Block initial load until a token exists. Re-prompts on wrong password.
+async function ensureLogin() {
+  let tries = 0;
+  while (!ADMIN_TOKEN) {
+    const ok = await adminLogin(tries === 0
+      ? 'WEST admin password:'
+      : 'Incorrect — try again:');
+    tries++;
+    if (!ok) await new Promise(r => setTimeout(r, 300));
+  }
+}
 
 const SELECTED_SHOW_KEY = 'v3admin.selectedSlug';
 const CLASS_SORT_KEY = 'v3admin.classSort';
@@ -490,15 +527,23 @@ const state = {
 
 // ── fetch helpers ────────────────────────────────────────────────────
 async function api(method, path, body) {
-  const opts = {
-    method,
-    headers: { 'X-West-Key': AUTH },
+  const doFetch = () => {
+    const opts = { method, headers: { 'X-West-Admin': ADMIN_TOKEN } };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(BASE + path, opts);
   };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
+  let res = await doFetch();
+  if (res.status === 401) {
+    // Token missing/expired/rotated — clear, re-prompt, retry once.
+    ADMIN_TOKEN = '';
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    if (await adminLogin('Session expired — re-enter admin password:')) {
+      res = await doFetch();
+    }
   }
-  const res = await fetch(BASE + path, opts);
   let data;
   try { data = await res.json(); } catch (e) { data = { ok: false, error: 'Bad response' }; }
   if (!res.ok || !data.ok) {
@@ -907,7 +952,7 @@ async function downloadCls(slug, ring, classId) {
   try {
     const res = await fetch(
       `${BASE}/v3/downloadCls?slug=${encodeURIComponent(slug)}&ring=${encodeURIComponent(ring)}&class=${encodeURIComponent(classId)}`,
-      { headers: { 'X-West-Key': AUTH } }
+      { headers: { 'X-West-Admin': ADMIN_TOKEN } }
     );
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -1246,7 +1291,7 @@ document.getElementById('f_showLogoFile').addEventListener('change', async (e) =
     fd.append('slug', slug);
     const res = await fetch(`${BASE}/v3/uploadShowLogo`, {
       method: 'POST',
-      headers: { 'X-West-Key': AUTH },
+      headers: { 'X-West-Admin': ADMIN_TOKEN },
       body: fd,
     });
     const data = await res.json();
@@ -1276,7 +1321,7 @@ document.getElementById('btnRemoveLogo').addEventListener('click', async () => {
   try {
     const res = await fetch(`${BASE}/v3/uploadShowLogo?slug=${encodeURIComponent(slug)}`, {
       method: 'DELETE',
-      headers: { 'X-West-Key': AUTH },
+      headers: { 'X-West-Admin': ADMIN_TOKEN },
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -1684,7 +1729,9 @@ document.getElementById('showSearch').addEventListener('input', renderSidebar);
 document.getElementById('ringSearch').addEventListener('input', renderRings);
 
 // ── init ─────────────────────────────────────────────────────────────
-loadShows();
+// Block first load until the operator is authenticated. Re-prompts on
+// wrong password; api() handles mid-session token expiry transparently.
+ensureLogin().then(loadShows);
 
 // Auto-refresh shows list every 30s (will become WebSocket later)
 setInterval(loadShows, 30000);

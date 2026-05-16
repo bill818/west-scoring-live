@@ -65,7 +65,9 @@
 </footer>
 
 <script>
-const AUTH = 'west-scoring-2026';
+// No auth key here — the spectator landing page only reads the public
+// show directory (/v3/listShowsWithRings is public). The machine key no
+// longer ships in any browser page. Bill 2026-05-16.
 const BASE = 'https://west-worker.bill-acb.workers.dev';
 
 let SHOWS = [];
@@ -304,7 +306,7 @@ function render() {
 async function loadShows() {
   const content = document.getElementById('content');
   try {
-    const res = await fetch(BASE + '/v3/listShowsWithRings', { headers: { 'X-West-Key': AUTH } });
+    const res = await fetch(BASE + '/v3/listShowsWithRings');
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Failed');
     SHOWS = data.shows || [];

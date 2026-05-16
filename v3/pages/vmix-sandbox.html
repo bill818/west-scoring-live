@@ -170,9 +170,49 @@
 
 <script>
 const WORKER = 'https://west-worker.bill-acb.workers.dev';
-const AUTH   = 'west-scoring-2026';
 const SLUG   = 'vmix-sandbox';
 const RING   = 1;
+
+// Admin session — same memorable password + token as admin.html (shared
+// localStorage key, so one login covers both). No machine key in source.
+// Bill 2026-05-16.
+const ADMIN_TOKEN_KEY = 'v3admin.token';
+let ADMIN_TOKEN = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+async function adminLogin(msg) {
+  const pw = window.prompt(msg || 'WEST admin password:');
+  if (pw == null || pw === '') return false;
+  try {
+    const r = await fetch(`${WORKER}/v3/adminLogin`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok && d.token) {
+      ADMIN_TOKEN = d.token;
+      localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+  return false;
+}
+// POST helper: ensures a token, sends X-West-Admin, re-logs on 401.
+async function sandboxPost(body) {
+  while (!ADMIN_TOKEN) {
+    if (!(await adminLogin())) await new Promise(r => setTimeout(r, 300));
+  }
+  const doIt = () => fetch(`${WORKER}/v3/vmixSandboxSet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-West-Admin': ADMIN_TOKEN },
+    body: JSON.stringify(body),
+  });
+  let r = await doIt();
+  if (r.status === 401) {
+    ADMIN_TOKEN = '';
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    if (await adminLogin('Session expired — re-enter admin password:')) r = await doIt();
+  }
+  return r;
+}
 
 document.getElementById('urlLive').value  = `${WORKER}/v3/vmixLive?slug=${SLUG}&ring_num=${RING}`;
 document.getElementById('urlStand').value = `${WORKER}/v3/vmixStandings?slug=${SLUG}&ring_num=${RING}`;
@@ -216,11 +256,7 @@ async function fire(discipline, phase) {
   };
   setStatus('', `Sending ${discipline.toUpperCase()} ${phase}…`);
   try {
-    const r = await fetch(`${WORKER}/v3/vmixSandboxSet`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-West-Key': AUTH },
-      body: JSON.stringify(body),
-    });
+    const r = await sandboxPost(body);
     const data = await r.json();
     if (!r.ok || !data.ok) {
       setStatus('err', `Failed: ${data.error || r.status}`);
@@ -236,11 +272,7 @@ async function fire(discipline, phase) {
 async function clearSandbox() {
   setStatus('', 'Clearing…');
   try {
-    const r = await fetch(`${WORKER}/v3/vmixSandboxSet`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-West-Key': AUTH },
-      body: JSON.stringify({ phase: 'IDLE' }),
-    });
+    const r = await sandboxPost({ phase: 'IDLE' });
     const data = await r.json();
     if (!r.ok || !data.ok) {
       setStatus('err', `Failed: ${data.error || r.status}`);

@@ -935,9 +935,63 @@ function xmlAttrs(obj) {
   return obj.map(([k, v]) => `${k}="${escapeXmlAttr(v)}"`).join(' ');
 }
 
+// Machine key — server-to-server (watcher/engine). Read from the
+// operator's config.json on their PC and sent as X-West-Key. NEVER
+// shipped in any browser page anymore (was the index.html exposure).
 function isAuthed(request, env) {
   const key = request.headers.get(AUTH_KEY_NAME);
   return key && key === env.WEST_AUTH_KEY;
+}
+
+// ── Admin password session (Bill 2026-05-16) ───────────────────────────────
+// Separate from the machine key: a memorable password the operator sets
+// as the WEST_ADMIN_PASSWORD secret. adminLogin checks it and mints a
+// stateless HMAC-signed token (30-day expiry) the admin browser stores
+// in localStorage and sends as X-West-Admin. The password itself is
+// never stored client-side and never appears in page source. Signing
+// key = the password, so rotating it instantly invalidates all tokens.
+function _b64url(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _b64urlToStr(b64) {
+  let s = b64.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return atob(s);
+}
+async function _hmacB64url(keyStr, msg) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(keyStr), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(msg));
+  return _b64url(new Uint8Array(sig));
+}
+async function mintAdminToken(env, days) {
+  const exp = Date.now() + (days || 30) * 86400000;
+  const payload = _b64url(new TextEncoder().encode(JSON.stringify({ exp })));
+  const sig = await _hmacB64url(env.WEST_ADMIN_PASSWORD || '', payload);
+  return payload + '.' + sig;
+}
+async function verifyAdminToken(request, env) {
+  if (!env.WEST_ADMIN_PASSWORD) return false;
+  const tok = request.headers.get('X-West-Admin');
+  if (!tok || tok.indexOf('.') < 0) return false;
+  const [payload, sig] = tok.split('.');
+  if (!payload || !sig) return false;
+  const expect = await _hmacB64url(env.WEST_ADMIN_PASSWORD, payload);
+  if (sig !== expect) return false;
+  try {
+    const p = JSON.parse(_b64urlToStr(payload));
+    return !!(p && p.exp && Date.now() < p.exp);
+  } catch (e) { return false; }
+}
+// Unified gate for admin/browser endpoints: the machine key (watcher,
+// back-compat) OR a valid admin session. Server-to-server endpoints
+// still use isAuthed() directly (machine-key only).
+async function requireAuth(request, env) {
+  if (isAuthed(request, env)) return true;
+  return await verifyAdminToken(request, env);
 }
 
 // ── RING STATE DURABLE OBJECT (Phase 3b Chunk 6) ────────────────────────────
@@ -3425,10 +3479,27 @@ export default {
       return json({ ok: true, ts: new Date().toISOString(), version: '2.2' });
     }
 
+    // ── POST /v3/adminLogin ───────────────────────────────────────────────────
+    // Unauthenticated by design — this IS the auth. Body { password }.
+    // Checks the WEST_ADMIN_PASSWORD secret (separate from the machine
+    // key) and returns a 30-day HMAC-signed session token. The admin
+    // page stores the TOKEN (not the password) and sends it as
+    // X-West-Admin. Bill 2026-05-16.
+    if (method === 'POST' && path === '/v3/adminLogin') {
+      if (!env.WEST_ADMIN_PASSWORD) return err('Admin password not configured on the worker', 503);
+      let body;
+      try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
+      const pw = body && body.password != null ? String(body.password) : '';
+      if (!pw || pw !== env.WEST_ADMIN_PASSWORD) return err('Incorrect password', 401);
+      const days = 30;
+      const token = await mintAdminToken(env, days);
+      return json({ ok: true, token, exp: Date.now() + days * 86400000 });
+    }
+
     // ── POST /postClassData ───────────────────────────────────────────────────
     // Watcher posts on every .cls file change — fire and forget from watcher
     if (method === 'POST' && path === '/postClassData') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -3506,7 +3577,7 @@ export default {
     // ── POST /postUdpEvent ────────────────────────────────────────────────────
     // Watcher posts UDP events (INTRO, RIDE_START, FINISH, FAULT etc)
     if (method === 'POST' && path === '/postUdpEvent') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -3522,7 +3593,7 @@ export default {
     // ── POST /postClassEvent ──────────────────────────────────────────────────
     // Watcher posts CLASS_SELECTED (1x Ctrl+A) and CLASS_COMPLETE (3x Ctrl+A)
     if (method === 'POST' && path === '/postClassEvent') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -3783,7 +3854,7 @@ export default {
     // ── POST /postSchedule ──────────────────────────────────────────────────
     // Watcher posts tsked.csv data — updates scheduled_date, schedule_order, schedule_flag
     if (method === 'POST' && path === '/postSchedule') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -3798,7 +3869,7 @@ export default {
     // ── POST /heartbeat ───────────────────────────────────────────────────────
     // Watcher posts every 60s to signal it is alive
     if (method === 'POST' && path === '/heartbeat') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { body = {}; }
@@ -4266,7 +4337,8 @@ export default {
         const params = [show.id];
         if (ring) { sql += ' AND c.ring = ?'; params.push(ring); }
         // Public requests (no auth) hide hidden classes; admin sees all
-        const isAdmin = isAuthed(request, env);
+        // (machine key OR admin session).
+        const isAdmin = await requireAuth(request, env);
         if (!isAdmin) { sql += ' AND (c.hidden = 0 OR c.hidden IS NULL)'; }
         sql += ' GROUP BY c.id ORDER BY c.scheduled_date ASC, c.schedule_order ASC, CAST(c.class_num AS INTEGER) ASC';
 
@@ -4424,7 +4496,7 @@ export default {
 
     // ── GET /admin/shows ──────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/shows') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const year   = url.searchParams.get('year')   || null;
       const status = url.searchParams.get('status') || null;
       let sql = 'SELECT * FROM shows', params = [], where = [];
@@ -4450,7 +4522,7 @@ export default {
 
     // ── GET /admin/showData ───────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/showData') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -4468,7 +4540,7 @@ export default {
     // ── POST /admin/createShow ────────────────────────────────────────────────
     // Admin page creates a show before the watcher runs
     if (method === 'POST' && path === '/admin/createShow') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -4526,7 +4598,7 @@ export default {
     // ── POST /admin/updateShow ────────────────────────────────────────────────
     // Admin page updates show fields (name, stats_eligible, status etc)
     if (method === 'POST' && path === '/admin/updateShow') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -4571,7 +4643,7 @@ export default {
     // return a preview of what would be deleted so the admin UI can show
     // the user a count before they pull the trigger.
     if (method === 'POST' && path === '/admin/deleteShow') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
       const slug = body.slug;
@@ -4610,7 +4682,7 @@ export default {
 
     // ── POST /admin/migrate — run schema migrations ───────────────────────────
     if (method === 'POST' && path === '/admin/migrate') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const results = [];
       const migrations = [
         "ALTER TABLE classes ADD COLUMN clock_precision INTEGER DEFAULT 2",
@@ -4634,7 +4706,7 @@ export default {
 
     // ── POST /admin/removeLiveClass — remove a class from active array ────────
     if (method === 'POST' && path === '/admin/removeLiveClass') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
       const { slug, ring, classNum } = body;
@@ -4650,7 +4722,7 @@ export default {
 
     // ── GET /admin/rings — get rings for a show ────────────────────────────────
     if (method === 'GET' && path === '/admin/rings') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -4665,7 +4737,7 @@ export default {
 
     // ── POST /admin/upsertRing — add or update a ring ────────────────────────
     if (method === 'POST' && path === '/admin/upsertRing') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
       const { slug, ring_num, ring_name, sort_order } = body;
@@ -4690,7 +4762,7 @@ export default {
 
     // ── DELETE /admin/deleteRing — remove a ring ─────────────────────────────
     if (method === 'DELETE' && path === '/admin/deleteRing') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       const ring_num = url.searchParams.get('ring_num');
       if (!slug || !ring_num) return err('Missing slug or ring_num');
@@ -4708,7 +4780,7 @@ export default {
 
     // ── POST /admin/uploadCls — manual cls file upload, bypasses show lock ────
     if (method === 'POST' && path === '/admin/uploadCls') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -4738,7 +4810,7 @@ export default {
 
     // ── POST /admin/updateClass — toggle hidden, stats_exclude, status ────────
     if (method === 'POST' && path === '/admin/updateClass') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
       const { slug, ring, classNum } = body;
@@ -4765,7 +4837,7 @@ export default {
     // ── POST /admin/completeClass ─────────────────────────────────────────────
     // Watcher posts on 3x Ctrl+A — marks class complete in D1
     if (method === 'POST' && path === '/admin/completeClass') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); }
       catch(e) { return err('Invalid JSON'); }
@@ -4788,7 +4860,7 @@ export default {
 
     // ── DELETE /admin/clearShow ───────────────────────────────────────────────
     if (method === 'DELETE' && path === '/admin/clearShow') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -4803,7 +4875,7 @@ export default {
 
     // ── DELETE /admin/clearAll ────────────────────────────────────────────────
     if (method === 'DELETE' && path === '/admin/clearAll') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       try {
         await env.WEST_DB.prepare('PRAGMA foreign_keys = ON').run();
         await env.WEST_DB.prepare('DELETE FROM shows').run();
@@ -4819,7 +4891,7 @@ export default {
     // and deleting it blanks the live page until the watcher re-posts, which
     // is unsafe on a spotty scoring-PC network.
     if (method === 'DELETE' && path === '/admin/clearClassCache') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug     = url.searchParams.get('slug');
       const ring     = url.searchParams.get('ring') || '1';
       const classNum = url.searchParams.get('classNum');
@@ -4831,7 +4903,7 @@ export default {
 
     // ── DELETE /admin/clearLive ───────────────────────────────────────────────
     if (method === 'DELETE' && path === '/admin/clearLive') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       const ring = url.searchParams.get('ring') || '1';
       if (!slug) return err('Missing slug');
@@ -4850,7 +4922,7 @@ export default {
 
     // ── GET /admin/dbStats ─────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/dbStats') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       try {
         const [shows, classes, entries, results] = await Promise.all([
           env.WEST_DB.prepare('SELECT COUNT(*) as c FROM shows').first(),
@@ -4870,7 +4942,7 @@ export default {
 
     // ── POST /admin/settings ───────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/settings') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch(e) { return err('Invalid JSON'); }
       const raw = await env.WEST_LIVE.get('settings');
@@ -4902,7 +4974,7 @@ export default {
     // The hardcoded constant pattern keeps the release flow simple — no
     // KV/D1 dependency. When the release cadence picks up, swap to KV.
     if (method === 'GET' && path === '/v3/engineLatest') {
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const ENGINE_LATEST = {
               version: '3.2.2',
               asarUrl: 'https://preview.westscoring.pages.dev/engine/3.2.2.asar',
@@ -4920,7 +4992,11 @@ export default {
     // each show card. One round-trip instead of 3-per-show.
     if (method === 'GET' && path === '/v3/listShowsWithRings') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      // PUBLIC — the spectator landing page (index.html) calls this for
+      // the show directory. Returns only is_test=0 shows + public
+      // metadata (name/dates/venue/rings/live status) — same sensitivity
+      // as the already-public getRingState. No key required, so the
+      // machine key no longer ships in any browser page. Bill 2026-05-16.
       try {
         // Public index endpoint — TEST shows are filtered out. They're still
         // reachable by direct slug URL so operators can verify scoreboards,
@@ -5030,7 +5106,7 @@ export default {
     // Replaces existing logo for the same slug (R2 put overwrites).
     if (method === 'POST' && path === '/v3/uploadShowLogo') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       try {
         const form = await request.formData();
         const file = form.get('logo');
@@ -5084,7 +5160,7 @@ export default {
     // Admin removes a show's logo. R2 object deleted, logo_url cleared.
     if (method === 'DELETE' && path === '/v3/uploadShowLogo') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -5133,7 +5209,7 @@ export default {
     // Ported from v2's /getShowWeather — same logic against WEST_DB_V3.
     if (method === 'GET' && path === '/v3/getShowWeather') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -5251,7 +5327,7 @@ export default {
     // to the gray Past dot.
     if (method === 'GET' && path === '/v3/listShows') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       try {
         const { results } = await env.WEST_DB_V3.prepare(
           'SELECT id, slug, name, start_date, end_date, venue, location, status, stats_eligible, lock_override, logo_url, is_test, vmix_enabled, created_at, updated_at FROM shows ORDER BY start_date DESC, id DESC'
@@ -5289,7 +5365,7 @@ export default {
     // ── POST /v3/createShow ───────────────────────────────────────────────────
     if (method === 'POST' && path === '/v3/createShow') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, is_test } = body;
@@ -5340,7 +5416,7 @@ export default {
     // ── GET /v3/getShow?slug=X ────────────────────────────────────────────────
     if (method === 'GET' && path === '/v3/getShow') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -5359,7 +5435,7 @@ export default {
     // that's its own future feature.
     if (method === 'POST' && path === '/v3/updateShow') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, name, start_date, end_date, venue, location, status, stats_eligible, timezone, results_layout, stats_config, split_decision_top_n, lock_override, is_test, vmix_enabled } = body;
@@ -5453,7 +5529,7 @@ export default {
     // last_cls (if any) from KV so admin can render both freshness signals.
     if (method === 'GET' && path === '/v3/listRings') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -5517,7 +5593,7 @@ export default {
     // Body: raw .cls bytes (application/octet-stream)
     if (method === 'POST' && path === '/v3/postCls') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug    = request.headers.get('X-West-Slug');
       const ringStr = request.headers.get('X-West-Ring');
       const classId = request.headers.get('X-West-Class');
@@ -6078,7 +6154,7 @@ export default {
     // every class regardless of name.
     if (method === 'GET' && path === '/v3/listClasses') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       const ringStr = url.searchParams.get('ring');
       const includeTest = url.searchParams.get('include_test') === '1';
@@ -6131,7 +6207,7 @@ export default {
     // ever reappears via /v3/postCls, deleted_at clears automatically.
     if (method === 'POST' && path === '/v3/deleteCls') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, ring_num, class_id } = body;
@@ -6181,7 +6257,7 @@ export default {
     // wrangler r2 object delete is trivial.
     if (method === 'POST' && path === '/v3/hardDeleteCls') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, ring_num, class_id } = body;
@@ -6222,7 +6298,7 @@ export default {
     // can restore a deleted class by dropping the file back into Ryegate.
     if (method === 'GET' && path === '/v3/downloadCls') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       const ring = url.searchParams.get('ring');
       const cls  = url.searchParams.get('class');
@@ -6259,7 +6335,7 @@ export default {
     // the loop handles it cleanly.
     if (method === 'GET' && path === '/v3/listCls') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       const ring = url.searchParams.get('ring');
       if (!slug || !ring) return err('Missing slug or ring');
@@ -6305,7 +6381,7 @@ export default {
     //   Row 1+: <ClassNum>,<ClassName>,<Date M/D/YYYY>,<Flag>
     if (method === 'POST' && path === '/v3/postTsked') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = request.headers.get('X-West-Slug');
       if (!slug) return err('Missing X-West-Slug header');
       // Optional ring header (engine side, since 2026-05-09). When present
@@ -6493,7 +6569,7 @@ export default {
     // re-writes the same values.
     if (method === 'POST' && path === '/v3/reprocessTsked') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug query param');
       // Optional ?ring=N — when provided, also INSERT placeholder rows
@@ -6588,7 +6664,7 @@ export default {
     // natively without the pivot.
     if (method === 'GET' && path === '/v3/listEntries') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const classIdStr = url.searchParams.get('class_id');
       if (!classIdStr) return err('Missing class_id');
       const classDbId = parseInt(classIdStr, 10);
@@ -6655,7 +6731,7 @@ export default {
     // judge data (jumper class, single-judge collapse, forced eq, etc.).
     if (method === 'GET' && path === '/v3/listJudgeGrid') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const classIdStr = url.searchParams.get('class_id');
       if (!classIdStr) return err('Missing class_id');
       const classDbId = parseInt(classIdStr, 10);
@@ -6803,7 +6879,7 @@ export default {
     // rounds.
     if (method === 'GET' && path === '/v3/listJumperStats') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const classIdStr = url.searchParams.get('class_id');
       if (!classIdStr) return err('Missing class_id');
       const classDbId = parseInt(classIdStr, 10);
@@ -7124,7 +7200,7 @@ export default {
     // Body: { class_id: N }
     if (method === 'POST' && path === '/v3/recomputeJudgeRanks') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const classDbId = parseInt(body.class_id, 10);
@@ -7155,7 +7231,7 @@ export default {
     // jumper-only per session 39 directive).
     if (method === 'GET' && path === '/v3/listShowJumperStats') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -7349,7 +7425,7 @@ export default {
     //   Body: { class_id: N }          → recompute one class
     if (method === 'POST' && path === '/v3/recomputeJumperStats') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body = {};
       try { body = await request.json(); } catch (e) { /* empty body ok */ }
       const oneClassId = body && body.class_id != null ? parseInt(body.class_id, 10) : null;
@@ -7398,7 +7474,7 @@ export default {
     // Body: { slug?: 'show-slug' }   omit slug to reparse all classes.
     if (method === 'POST' && path === '/v3/reparseClassHeaders') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body = {};
       try { body = await request.json(); } catch (e) { /* empty body ok */ }
       const slug = body && body.slug ? String(body.slug) : null;
@@ -7460,7 +7536,7 @@ export default {
     // KV with 10min TTL so admin page can render freshness. No D1 writes.
     if (method === 'POST' && path === '/v3/engineHeartbeat') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, ring_num, engine_version, timestamp, hostname, uptime_seconds } = body;
@@ -7525,7 +7601,7 @@ export default {
     // on the show/ring lookup like engineHeartbeat does. Auth via X-West-Key.
     if (method === 'POST' && path === '/v3/postUdpEvent') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, ring_num, events, live_running_tenth } = body;
@@ -7835,7 +7911,7 @@ export default {
     // sandbox to the idle/empty state). See v3/pages/vmix-sandbox.html.
     if (method === 'POST' && path === '/v3/vmixSandboxSet') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
 
@@ -8178,7 +8254,7 @@ export default {
     // ring's DO /class-action handler. action ∈ { clear | finalize | focus }.
     if (method === 'POST' && path === '/v3/setClassLiveState') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const slug = body.slug;
@@ -8225,7 +8301,7 @@ export default {
     // discipline thing flagged in the admin button's confirm dialog.
     if (method === 'POST' && path === '/v3/flushRing') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const slug = body.slug;
@@ -8621,7 +8697,7 @@ export default {
     // "Ring N" display).
     if (method === 'POST' && path === '/v3/updateRing') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, ring_num, name, sort_order } = body;
@@ -8663,7 +8739,7 @@ export default {
     // ── POST /v3/createRing ───────────────────────────────────────────────────
     if (method === 'POST' && path === '/v3/createRing') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!isAuthed(request, env)) return err('Unauthorized', 401);
+      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
       let body;
       try { body = await request.json(); } catch (e) { return err('Invalid JSON'); }
       const { slug, ring_num, name, sort_order } = body;
