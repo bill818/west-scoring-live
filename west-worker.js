@@ -1159,13 +1159,12 @@ function _deriveOcFromSnapshot(snapshot) {
   const cdNum   = (cdRaw != null && String(cdRaw).trim() !== '') ? Number(cdRaw) : NaN;
   const clkNum  = (clkRaw != null && String(clkRaw).trim() !== '') ? Number(clkRaw) : NaN;
   const cdPresent  = Number.isFinite(cdNum);            // {23} present at all
-  // Ryegate protocol: a RUNNING clock ticks {17} in WHOLE seconds
-  // (8,9,10…). When the timer STOPS it snaps to a precise DECIMAL
-  // (28.990) — that decimal IS the final time, the clock is NOT running.
-  // So a decimal {17} must not count as "running" (west-watcher.js uses
-  // the same decimal-means-stopped rule). Bill 2026-05-16.
-  const clkIsFinalDecimal = String(clkRaw == null ? '' : clkRaw).includes('.');
-  const clkRunning = Number.isFinite(clkNum) && clkNum > 0 && !clkIsFinalDecimal;
+  // NOTE: do NOT treat a decimal {17} as "stopped" — Farmtek timers
+  // emit decimals WHILE RUNNING (and on pause), so decimal-means-
+  // finished is invalid here. "Round over" is detected purely by
+  // staleness of the scoring frame below, not by the value's shape.
+  // Bill 2026-05-16.
+  const clkRunning = Number.isFinite(clkNum) && clkNum > 0;
   if (isHunter) {
     if (fr === 14) phase = 'ONCOURSE';
     else if (fr === 12 || fr === 15) phase = 'RESULTS';
