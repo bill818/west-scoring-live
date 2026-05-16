@@ -1066,6 +1066,81 @@ async function isVmixEnabled(env, slug) {
 //   last 10 seconds (sticky just-finished window). Wins over the next
 //   rider's INTRO so the finish slate stays up briefly.
 //
+// ── Canonical clock/phase resolver (ONE place — Bill 2026-05-16) ───────────
+// THE single source of truth for the jumper/eq running clock + phase.
+// Both consumers read snapshot.clock instead of re-decoding UDP tags:
+//   • west-clock.js (live page)  — was decoding tags itself + had the
+//     invalid Farmtek "decimal {17} = finished" bug.
+//   • _deriveOcFromSnapshot (vMix) — was a second independent decode.
+// (west-watcher.js is legacy/being retired — out of scope.)
+//
+// Authoritative rules (feedback_ryegate_time_protocol.md +
+// west-watcher.js precedence, NOT re-derived):
+//   source = last_scoring (Channel A clock) || last; frame 0 = idle.
+//   {23} present (negative int) → CD   (countdown = abs, whole sec)
+//   rank {8} present            → FINISH (rank is the finish signal —
+//                                 NOT decimal shape; Farmtek runs
+//                                 decimals mid-round)
+//   {17} present, no rank       → ONCOURSE (running; base_value +
+//                                 source_at → consumers interpolate)
+//   entry only                  → INTRO ("-45" hold)
+//   else                        → IDLE
+// Precedence (later wins): IDLE < INTRO < CD < ONCOURSE < FINISH.
+//
+// Returns a resolved object; clients/vMix do ZERO tag decoding —
+// only dumb arithmetic interpolation for the smooth tick.
+function _resolveClock(lastScoring, lastAny, classMeta) {
+  const src = lastScoring || lastAny || null;
+  const cp = (classMeta && classMeta.clock_precision != null)
+    ? classMeta.clock_precision : null;
+  const decimals = cp === 2 ? 0 : cp === 1 ? 2 : 3;
+  const idle = {
+    phase: 'IDLE', kind: 'none', base_value: null, countdown: null,
+    final_text: null, precision: cp, source_at: (src && src.at) || null,
+  };
+  if (!src) return idle;
+  // Channel A frame 0 = Ryegate clear-scoreboard / idle.
+  if (src.channel === 'A' && src.frame === 0) return idle;
+  const tags = src.tags || {};
+  const grab = (k) => {
+    const v = tags[k];
+    return v == null ? '' : String(v).replace(/[\r\n]/g, '').trim();
+  };
+  const entry   = grab('1');
+  const cdRaw   = grab('23');
+  const clkRaw  = grab('17');
+  const rankStr = grab('8').replace(/^:\s*/, '').trim();
+  const cdNum   = cdRaw  !== '' ? Number(cdRaw)  : NaN;
+  const clkNum  = clkRaw !== '' ? Number(clkRaw) : NaN;
+
+  // Precedence — later assignment wins (mirrors west-watcher.js).
+  let phase = 'IDLE';
+  if (entry && cdRaw === '' && clkRaw === '' && rankStr === '') phase = 'INTRO';
+  if (Number.isFinite(cdNum)) phase = 'CD';
+  if (clkRaw !== '' && rankStr === '') phase = 'ONCOURSE';
+  if (rankStr !== '') phase = 'FINISH';
+
+  if (phase === 'IDLE')  return idle;
+  if (phase === 'INTRO') return { ...idle, phase: 'INTRO', kind: 'static' };
+  if (phase === 'CD') {
+    const secs = Number.isFinite(cdNum) ? Math.abs(Math.round(cdNum)) : null;
+    return { ...idle, phase: 'CD', kind: 'countdown',
+             countdown: secs, base_value: secs };
+  }
+  if (phase === 'FINISH') {
+    const fv = Number.isFinite(clkNum) ? clkNum : null;
+    return { ...idle, phase: 'FINISH', kind: 'final',
+             base_value: fv,
+             final_text: fv != null ? fv.toFixed(decimals) : (clkRaw || null) };
+  }
+  // ONCOURSE — running clock. base_value is the numeric {17}; consumers
+  // interpolate base_value + (now − source_at). Farmtek may send a
+  // decimal here while still running — keep the raw numeric, display
+  // layer decides whole vs tenths.
+  return { ...idle, phase: 'ONCOURSE', kind: 'running',
+           base_value: Number.isFinite(clkNum) ? clkNum : null };
+}
+
 // Returns null when nothing is live (so vmixLive emits frame="IDLE").
 function _deriveOcFromSnapshot(snapshot) {
   if (!snapshot) return null;
@@ -1153,62 +1228,62 @@ function _deriveOcFromSnapshot(snapshot) {
   //   • UDP {17} = the running clock (positive) → ONCOURSE.
   //   • Neither → INTRO.
   // Bill 2026-05-16.
-  let phase = 'INTRO';
-  const cdRaw   = (fp && fp.countdown) || grab(sTags, '23');
-  const clkRaw  = (fp && fp.clock)     || grab(sTags, '17');
-  const cdNum   = (cdRaw != null && String(cdRaw).trim() !== '') ? Number(cdRaw) : NaN;
-  const clkNum  = (clkRaw != null && String(clkRaw).trim() !== '') ? Number(clkRaw) : NaN;
-  const cdPresent  = Number.isFinite(cdNum);            // {23} present at all
-  const clkRunning = Number.isFinite(clkNum) && clkNum > 0;
-  // JUMPER FINISH = presence of RANK ({8}) — the authoritative
-  // "round is placed / over" signal per Bill, and exactly what
-  // west-watcher.js does (`if (rankClean) phase='FINISH'`). Do NOT
-  // infer finish from the clock value's shape (Farmtek runs decimals)
-  // or from staleness — rank is the real signal. {8} arrives as
-  // ": 1st" / ": EL" / "RANK 1"; strip a leading ": "; ANY non-empty
-  // value (a place number OR a status like EL/WD) means finished.
+  // Phase + clock now come from the ONE canonical resolver
+  // (snapshot.clock via _resolveClock). vMix no longer decodes UDP
+  // tags itself. Hunter phase stays frame-based (hunters have no
+  // running clock — snapshot.clock is jumper/eq-oriented). Legacy
+  // fallback (snapshot.clock absent — old snapshot mid worker deploy)
+  // keeps the prior inline decode so a deploy gap can't blank vMix.
   // Bill 2026-05-16.
-  const rankStr = String((fp && fp.rank) || grab(sTags, '8') || '')
-    .replace(/^:\s*/, '').trim();
-  const rankPresent = rankStr !== '';
+  const ELAPSED_FRESH_MS = 8000;
+  const rc = snapshot.clock || null;
+  let phase = 'INTRO';
+  let cdNow = 0;
+  let elapsedNow = '';
   if (isHunter) {
     if (fr === 14) phase = 'ONCOURSE';
     else if (fr === 12 || fr === 15) phase = 'RESULTS';
     else phase = 'INTRO';
+  } else if (rc && rc.phase) {
+    // Canonical resolved jumper clock — read, don't decode.
+    phase = (rc.phase === 'IDLE') ? 'INTRO' : rc.phase; // active path: idle→intro hold
+    if (rc.phase === 'CD') {
+      cdNow = rc.countdown != null ? rc.countdown : 0;
+    } else if (rc.phase === 'ONCOURSE' && Number.isFinite(rc.base_value)) {
+      const bAt = rc.source_at ? Date.parse(rc.source_at) : NaN;
+      const since = Number.isFinite(bAt) ? (Date.now() - bAt) / 1000 : 0;
+      const fresh = Number.isFinite(bAt) && (Date.now() - bAt) <= ELAPSED_FRESH_MS;
+      elapsedNow = fresh
+        ? String(Math.max(0, Math.floor(rc.base_value + since)))
+        : String(Math.max(0, Math.floor(rc.base_value)));
+    } else if (rc.phase === 'FINISH') {
+      elapsedNow = rc.final_text || '';
+    }
   } else {
-    // west-watcher.js precedence EXACTLY (later assignment wins):
-    //   INTRO < CD < ONCOURSE(clock & no rank) < FINISH(rank present).
+    // ── Legacy fallback (snapshot.clock missing) ──────────────────────
+    const cdRaw   = (fp && fp.countdown) || grab(sTags, '23');
+    const clkRaw  = (fp && fp.clock)     || grab(sTags, '17');
+    const cdNum   = (cdRaw != null && String(cdRaw).trim() !== '') ? Number(cdRaw) : NaN;
+    const clkNum  = (clkRaw != null && String(clkRaw).trim() !== '') ? Number(clkRaw) : NaN;
+    const cdPresent  = Number.isFinite(cdNum);
+    const clkRunning = Number.isFinite(clkNum) && clkNum > 0;
+    const rankStr = String((fp && fp.rank) || grab(sTags, '8') || '')
+      .replace(/^:\s*/, '').trim();
+    const rankPresent = rankStr !== '';
     if (cdPresent) phase = 'CD';
     if (clkRunning && !rankPresent) phase = 'ONCOURSE';
     if (rankPresent) phase = 'FINISH';
-  }
-
-  // Countdown — NO interpolation. Ryegate ticks {23} itself every
-  // second (west-clock.js relies on that too — it never interpolates
-  // the countdown). vMix polls 1Hz so it naturally follows. Emit
-  // SECONDS REMAINING (absolute value: Ryegate's -45 → "45", … 0),
-  // whole seconds, matching the schema's "seconds remaining" contract.
-  const cdNow = cdPresent ? Math.abs(Math.round(cdNum)) : 0;
-
-  // Elapsed:
-  //  • FINISH (rank present) → NOT interpolated. elapsedNow stays
-  //    clkRaw, the precise final {17} Ryegate sent, frozen. This is
-  //    what stops the "time scrolled forever during awards" bug — once
-  //    the rank posts the round is over and the clock is final.
-  //  • ONCOURSE → 1Hz server tick ({17} arrives sparsely; the clock
-  //    must visibly run between frames), whole seconds (Bill: no tenths
-  //    on vMix at a 1s poll floor). Secondary safety: if the scoring
-  //    frame goes stale (>8s — feed stopped before a rank posted, e.g.
-  //    a pause/hold), freeze rather than extrapolate.
-  const ELAPSED_FRESH_MS = 8000;
-  const baseAt = ls && ls.at ? Date.parse(ls.at) : NaN;
-  const sinceBase = Number.isFinite(baseAt) ? (Date.now() - baseAt) / 1000 : 0;
-  const clockFresh = Number.isFinite(baseAt) && (Date.now() - baseAt) <= ELAPSED_FRESH_MS;
-  let elapsedNow = clkRaw;
-  if (phase === 'ONCOURSE' && Number.isFinite(clkNum)) {
-    elapsedNow = clockFresh
-      ? String(Math.max(0, Math.floor(clkNum + sinceBase)))  // live → tick 1Hz
-      : String(Math.max(0, Math.floor(clkNum)));              // stale → frozen, no runaway
+    cdNow = cdPresent ? Math.abs(Math.round(cdNum)) : 0;
+    const baseAt = ls && ls.at ? Date.parse(ls.at) : NaN;
+    const sinceBase = Number.isFinite(baseAt) ? (Date.now() - baseAt) / 1000 : 0;
+    const clockFresh = Number.isFinite(baseAt) && (Date.now() - baseAt) <= ELAPSED_FRESH_MS;
+    if (phase === 'ONCOURSE' && Number.isFinite(clkNum)) {
+      elapsedNow = clockFresh
+        ? String(Math.max(0, Math.floor(clkNum + sinceBase)))
+        : String(Math.max(0, Math.floor(clkNum)));
+    } else if (phase === 'FINISH') {
+      elapsedNow = clkRaw;
+    }
   }
 
   // Identity tags (UDP convention): {1}=entry, {2}=horse, {3}=rider,
@@ -1767,6 +1842,14 @@ export class RingStateDO {
       // card. Null when nothing's focused or when the ring is idle
       // (every class timed out — see ringHasLiveClass above).
       focus_preview: ringHasLiveClass ? this._buildFocusPreview(focusedEntry) : null,
+      // Canonical resolved clock/phase — the ONE place jumper/eq clock
+      // logic lives. west-clock.js + vmixLive read this; neither decodes
+      // UDP tags anymore. Built from the SAME focused last_scoring/last/
+      // class_meta the return exposes, so it can't drift from them.
+      clock: ringHasLiveClass
+        ? _resolveClock(body.last_scoring, body.last, focusedClassMeta)
+        : { phase: 'IDLE', kind: 'none', base_value: null, countdown: null,
+            final_text: null, precision: null, source_at: null },
     };
   }
 
