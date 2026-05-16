@@ -1070,7 +1070,14 @@ async function isVmixEnabled(env, slug) {
 function _deriveOcFromSnapshot(snapshot) {
   if (!snapshot) return null;
   const pe = snapshot.previous_entry || null;
-  const ls = snapshot.last_scoring   || null;
+  // Mirror west-clock.js EXACTLY: `snapshot.last_scoring || snapshot.last`.
+  // The countdown frame ({23}) often lands as snapshot.last (most-recent
+  // any-channel) while last_scoring (Channel-A-only) is stale/null during
+  // the count-in. The live page works because west-clock falls back to
+  // .last; vmixLive was reading last_scoring only, so it missed the
+  // countdown. Same KV/WS snapshot feeds both — this source mismatch was
+  // the divergence. Bill 2026-05-16.
+  const ls = snapshot.last_scoring   || snapshot.last || null;
   const li = snapshot.last_identity  || null;
   const fp = snapshot.focus_preview  || null;
   const isHunter = snapshot.class_kind === 'hunter';
