@@ -1052,8 +1052,11 @@ function _deriveOcFromSnapshot(snapshot) {
         round: pe.round || 1,
         label: pe.displayed_round_label || '',
         elapsed:    pe.time != null ? String(pe.time) : '',
-        jumpFaults: pe.jump_faults != null ? String(pe.jump_faults) : '',
-        timeFaults: pe.time_faults != null ? String(pe.time_faults) : '',
+        // Hunters/EQ have no jump/time faults — keep those columns empty
+        // and let the score live in hunter_score only (pe is lens-aware
+        // so this is belt-and-suspenders against a leaked {14} value).
+        jumpFaults: (!isHunter && pe.jump_faults != null) ? String(pe.jump_faults) : '',
+        timeFaults: (!isHunter && pe.time_faults != null) ? String(pe.time_faults) : '',
         rank: pe.overall_place != null ? String(pe.overall_place)
             : pe.current_place != null ? String(pe.current_place) : '',
         hunterScore: pe.displayed_score != null ? String(pe.displayed_score)
@@ -1118,15 +1121,28 @@ function _deriveOcFromSnapshot(snapshot) {
   }
 
   // Identity tags (UDP convention): {1}=entry, {2}=horse, {3}=rider,
-  // {4}=owner, {5}=country. Faults come from {14}/{15} as "JUMP N"/"TIME N".
+  // {4}=owner, {5}=country.
   const horse = (fp && fp.horse) || grab(iTags, '2') || '';
   const rider = (fp && fp.rider) || grab(iTags, '3') || '';
   const owner = grab(iTags, '4') || '';
   const taLabel = (fp && fp.label_or_ta) || grab(sTags, '13') || '';
   const taNum   = stripNumberFromLabel(taLabel);
-  const jf      = stripNumberFromLabel((fp && fp.jump_faults) || grab(sTags, '14'));
-  const tf      = stripNumberFromLabel((fp && fp.time_faults) || grab(sTags, '15'));
   const rank    = stripNumberFromLabel((fp && fp.rank) || grab(sTags, '8'));
+
+  // Ryegate OVERLOADS tag {14}/{15} by lens:
+  //   jumper → {14}="JUMP N" jump faults, {15}="TIME N" time faults
+  //   hunter → {14}="H:88.000" the judged SCORE, {15}="CO:31.000"
+  // _buildFocusPreview maps {14}→jump_faults / {15}→time_faults
+  // lens-blind, so for hunters the score arrives in fp.jump_faults.
+  // Route it to hunter_score (its own column) — hunters have NO
+  // jump/time faults, so those columns stay empty. Bill 2026-05-16.
+  let jf = '', tf = '', hScore = '';
+  if (isHunter) {
+    hScore = stripNumberFromLabel((fp && fp.jump_faults) || grab(sTags, '14'));
+  } else {
+    jf = stripNumberFromLabel((fp && fp.jump_faults) || grab(sTags, '14'));
+    tf = stripNumberFromLabel((fp && fp.time_faults) || grab(sTags, '15'));
+  }
 
   return {
     phase,
@@ -1143,7 +1159,7 @@ function _deriveOcFromSnapshot(snapshot) {
     jumpFaults: jf,
     timeFaults: tf,
     rank,
-    hunterScore: '',
+    hunterScore: hScore,
     place: '',
     city: '', state: '',
     fpi: null, ti: null, ps: null,
@@ -7998,13 +8014,23 @@ export default {
         totalFaults = String(jf + tf);
       }
 
-      // Hunter round breakdown — pulled from the entry row, not the
-      // oncourse event. Blank for jumpers and when no entry match.
+      // Hunter scores — ALL from the D1 entry row (authoritative,
+      // round-structured), NOT the raw overloaded UDP {14} tag (which is
+      // a live in-progress judge value that doesn't match the posted
+      // round/total — e.g. {14}=148 while r1=70). vMix gets R1, R2, R3,
+      // and total in their own columns; hunter_score = the total so a
+      // single "the score" bind also works. Bill 2026-05-16.
       const rs = (k) => (isHunter && entryRow && entryRow[k] != null) ? String(entryRow[k]) : '';
       const round1 = rs('r1_score_total');
       const round2 = rs('r2_score_total');
       const round3 = rs('r3_score_total');
       const combined = rs('combined_total');
+      // hunter_score = D1 combined total (fallback to the oc-derived
+      // value only when no entry row exists yet, e.g. first frame
+      // before the .cls row lands).
+      const hunterScoreCol = isHunter
+        ? (combined || (oc && oc.hunterScore) || '')
+        : '';
 
       const className = (sel && sel.className)
         || (snapshot && snapshot.class_meta && snapshot.class_meta.class_name)
@@ -8038,7 +8064,7 @@ export default {
         ['fpi',            (oc && oc.fpi != null) ? oc.fpi : ''],
         ['ti',             (oc && oc.ti  != null) ? oc.ti  : ''],
         ['ps',             (oc && oc.ps  != null) ? oc.ps  : ''],
-        ['hunter_score',   (oc && oc.hunterScore) ? oc.hunterScore : ''],
+        ['hunter_score',   hunterScoreCol],
         ['hunter_place',   (oc && oc.place) ? oc.place : ''],
         ['round1_score',   round1],
         ['round2_score',   round2],
