@@ -1136,40 +1136,51 @@ function _deriveOcFromSnapshot(snapshot) {
              || grab(sTags, '1');
   if (!entry) return null;
 
-  // Phase decoding. CD takes priority — when Ryegate is emitting the
-  // countdown clock, the operator hasn't released the horse yet.
+  // Phase decoding — mirrors west-clock.js (the canonical decoder):
+  //   • UDP {23} = the start COUNTDOWN. Ryegate sends it as a NEGATIVE
+  //     integer ticking up to 0 (-45, -44, … -1, 0) and re-sends it
+  //     every tick — so its mere presence means "count-in, horse not
+  //     released yet" and it WINS over {17}. (The old code required
+  //     cdNum > 0, but countdown values are ≤ 0, so CD was never
+  //     detected — that was the bug.)
+  //   • UDP {17} = the running clock (positive) → ONCOURSE.
+  //   • Neither → INTRO.
+  // Bill 2026-05-16.
   let phase = 'INTRO';
   const cdRaw   = (fp && fp.countdown) || grab(sTags, '23');
   const clkRaw  = (fp && fp.clock)     || grab(sTags, '17');
-  const cdNum   = cdRaw != null ? Number(cdRaw) : null;
-  const clkNum  = clkRaw != null ? Number(clkRaw) : null;
+  const cdNum   = (cdRaw != null && String(cdRaw).trim() !== '') ? Number(cdRaw) : NaN;
+  const clkNum  = (clkRaw != null && String(clkRaw).trim() !== '') ? Number(clkRaw) : NaN;
+  const cdPresent  = Number.isFinite(cdNum);            // {23} present at all
+  const clkRunning = Number.isFinite(clkNum) && clkNum > 0;
   if (isHunter) {
     if (fr === 14) phase = 'ONCOURSE';
     else if (fr === 12 || fr === 15) phase = 'RESULTS';
     else phase = 'INTRO';
   } else {
-    if (Number.isFinite(cdNum) && cdNum > 0) phase = 'CD';
-    else if (Number.isFinite(clkNum) && clkNum > 0) phase = 'ONCOURSE';
-    else phase = 'INTRO';
+    // Mirror west-watcher.js precedence EXACTLY (later assignment wins):
+    //   INTRO < CD < ONCOURSE.  In practice {23} and {17} don't overlap
+    //   (the clock only runs once the count-in ends), but matching the
+    //   canonical order means vMix never disagrees with the live page.
+    //   FINISH is handled by the pe.finished_at window above.
+    if (cdPresent) phase = 'CD';
+    if (clkRunning) phase = 'ONCOURSE';
   }
 
-  // Server-side 1Hz tick — Ryegate's UDP cadence is sparse (often one
-  // frame per phase boundary, nothing in between), but vMix polls at 1s.
-  // Without interpolation the XML would freeze on the last UDP value.
-  // Compute "seconds since the last_scoring frame" and apply:
-  //   CD       → decrement, clamp at 0
-  //   ONCOURSE → increment (counting up from the clock value Ryegate sent)
-  // Both round to whole seconds — vMix can't reliably render tenths at
-  // its 1s poll floor, and Bill explicitly doesn't want tenth-precision
-  // for on-course running clocks. FINISH already pre-formats at class
-  // clock_precision, so it's untouched here. Bill 2026-05-14.
+  // Countdown — NO interpolation. Ryegate ticks {23} itself every
+  // second (west-clock.js relies on that too — it never interpolates
+  // the countdown). vMix polls 1Hz so it naturally follows. Emit
+  // SECONDS REMAINING (absolute value: Ryegate's -45 → "45", … 0),
+  // whole seconds, matching the schema's "seconds remaining" contract.
+  const cdNow = cdPresent ? Math.abs(Math.round(cdNum)) : 0;
+
+  // ONCOURSE elapsed — DOES get the server-side 1Hz tick: {17} arrives
+  // sparsely but the clock must visibly run between frames. Interpolate
+  // from the last_scoring timestamp, whole seconds (Bill: no tenths on
+  // vMix at a 1s poll floor). FINISH is pre-formatted elsewhere.
   const baseAt = ls && ls.at ? Date.parse(ls.at) : NaN;
   const sinceBase = Number.isFinite(baseAt) ? (Date.now() - baseAt) / 1000 : 0;
-  let cdNow = cdNum;
   let elapsedNow = clkRaw;
-  if (phase === 'CD' && Number.isFinite(cdNum)) {
-    cdNow = Math.max(0, Math.round(cdNum - sinceBase));
-  }
   if (phase === 'ONCOURSE' && Number.isFinite(clkNum)) {
     elapsedNow = String(Math.max(0, Math.floor(clkNum + sinceBase)));
   }
