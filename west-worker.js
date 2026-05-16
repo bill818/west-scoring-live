@@ -5338,7 +5338,7 @@ export default {
     // Ported from v2's /getShowWeather — same logic against WEST_DB_V3.
     if (method === 'GET' && path === '/v3/getShowWeather') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -5545,7 +5545,7 @@ export default {
     // ── GET /v3/getShow?slug=X ────────────────────────────────────────────────
     if (method === 'GET' && path === '/v3/getShow') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -5658,7 +5658,7 @@ export default {
     // last_cls (if any) from KV so admin can render both freshness signals.
     if (method === 'GET' && path === '/v3/listRings') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {
@@ -6283,7 +6283,7 @@ export default {
     // every class regardless of name.
     if (method === 'GET' && path === '/v3/listClasses') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const slug = url.searchParams.get('slug');
       const ringStr = url.searchParams.get('ring');
       const includeTest = url.searchParams.get('include_test') === '1';
@@ -6793,7 +6793,7 @@ export default {
     // natively without the pivot.
     if (method === 'GET' && path === '/v3/listEntries') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const classIdStr = url.searchParams.get('class_id');
       if (!classIdStr) return err('Missing class_id');
       const classDbId = parseInt(classIdStr, 10);
@@ -6860,7 +6860,7 @@ export default {
     // judge data (jumper class, single-judge collapse, forced eq, etc.).
     if (method === 'GET' && path === '/v3/listJudgeGrid') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const classIdStr = url.searchParams.get('class_id');
       if (!classIdStr) return err('Missing class_id');
       const classDbId = parseInt(classIdStr, 10);
@@ -7008,7 +7008,7 @@ export default {
     // rounds.
     if (method === 'GET' && path === '/v3/listJumperStats') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const classIdStr = url.searchParams.get('class_id');
       if (!classIdStr) return err('Missing class_id');
       const classDbId = parseInt(classIdStr, 10);
@@ -7360,7 +7360,7 @@ export default {
     // jumper-only per session 39 directive).
     if (method === 'GET' && path === '/v3/listShowJumperStats') {
       if (!isV3Enabled(env)) return err('v3 disabled', 404);
-      if (!(await requireAuth(request, env))) return err('Unauthorized', 401);
+      // Public read — spectator pages, no client key (auth redesign).
       const slug = url.searchParams.get('slug');
       if (!slug) return err('Missing slug');
       try {

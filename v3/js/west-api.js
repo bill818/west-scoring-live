@@ -3,9 +3,14 @@
 // Worker URL, auth header, and JSON fetch primitive — single source of
 // truth for every public page that talks to /v3/* endpoints.
 //
-// If the worker URL ever changes (custom domain, multi-region, etc.) or
-// the auth header rotates, the change lands here and every page picks
-// it up. Pages should NEVER hardcode AUTH or BASE.
+// If the worker URL ever changes (custom domain, multi-region, etc.)
+// the change lands here and every page picks it up. Pages should
+// NEVER hardcode BASE.
+//
+// No auth key lives here or anywhere in client source. Every endpoint
+// these spectator pages call is a public GET on the worker; writes are
+// admin-only and go through the X-West-Admin token flow on admin.html /
+// vmix-sandbox.html, never this module.
 //
 // Dual-env IIFE — browser pages load via <script>.
 
@@ -14,15 +19,12 @@
   WEST.api = WEST.api || {};
 
   // Single source of truth — change here, every page follows.
-  WEST.api.AUTH = 'west-scoring-2026';
   WEST.api.BASE = 'https://west-worker.bill-acb.workers.dev';
 
   // Fetch a /v3/* endpoint as JSON. Throws on network error or {ok:false}
-  // response. Auth header is always attached.
+  // response. No auth header — these are all public read endpoints.
   WEST.api.fetchJson = async function (path) {
-    var res = await fetch(WEST.api.BASE + path, {
-      headers: { 'X-West-Key': WEST.api.AUTH },
-    });
+    var res = await fetch(WEST.api.BASE + path);
     var data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Request failed');
     return data;
@@ -39,7 +41,7 @@
   //   { data, etag }                           when 200
   // Throws on network error or {ok:false} response body.
   WEST.api.fetchJsonEtag = async function (path, etag) {
-    var headers = { 'X-West-Key': WEST.api.AUTH };
+    var headers = {};
     if (etag) headers['If-None-Match'] = etag;
     var res = await fetch(WEST.api.BASE + path, { headers });
     if (res.status === 304) return { notModified: true };
