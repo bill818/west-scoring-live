@@ -75,6 +75,19 @@
   .mr-riders-row:last-child { border-bottom: none; }
   .mr-riders-row .rider-name { font-family: var(--font-body); font-size: 13px; }
   .mr-riders-row .horse-count { font-weight: 700; color: var(--navy); }
+
+  /* Class-actions toolbar at the top of an expanded class panel */
+  .class-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 10px 10px; }
+  .btn-make-final {
+    font-family: var(--font-mono); font-size: 11px; padding: 5px 12px;
+    background: #fff; color: var(--green, #2e7d32);
+    border: 1px solid var(--green, #2e7d32); border-radius: 4px; cursor: pointer;
+  }
+  .btn-make-final:hover { background: rgba(46,125,50,.08); }
+  .class-final-state {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    color: var(--green, #2e7d32); letter-spacing: .04em;
+  }
 </style>
 </head>
 <body>
@@ -919,6 +932,34 @@ function renderClasses() {
       hardDeleteCls(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId);
     });
   });
+  // Wire Make Final buttons in expanded class panels
+  host.querySelectorAll('.btn-make-final').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      makeClassFinal(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId, btn.dataset.className);
+    });
+  });
+}
+
+// Mark a class final from admin — same effect as the operator's 3×
+// Ctrl+A: routes to the ring DO's finalize action (is_final +
+// finalized_at, mirrored to D1 so class.html publishes ribbons +
+// prize money). Single confirm() since it's reversible (operator can
+// re-open / un-finalize on the scoring PC) but is public-facing.
+async function makeClassFinal(slug, ringNum, classId, className) {
+  const label = className ? `${classId} — ${className}` : `class ${classId}`;
+  if (!confirm(`Mark ${label} FINAL?\n\nThis publishes its results (ribbons + prize money) on the public class page immediately, exactly as the 3× Ctrl+A finalize on the scoring PC. Re-opening the class on Ryegate (or Clear live) will un-finalize it.`)) {
+    return;
+  }
+  try {
+    await api('POST', '/v3/setClassLiveState', {
+      slug, ring_num: parseInt(ringNum, 10), class_id: classId, action: 'finalize',
+    });
+    toast(`Class ${classId} marked final`, 'success');
+    if (typeof loadClasses === 'function') await loadClasses(state.selectedSlug);
+  } catch (e) {
+    toast('Make final failed: ' + e.message, 'error');
+  }
 }
 
 // Flush ring — wipe ALL data for a (slug, ring_num) pair. Two-stage
@@ -1071,13 +1112,41 @@ function renderHunterPlace(currentPlace, scoringType, r1Total, r1Status) {
   return `<span class="place-num">${escapeHtml(String(place))}</span>`;
 }
 
+// Class-level admin actions toolbar (shown at the top of the expanded
+// panel). Currently: Make Final — drives the same DO finalize path as
+// the operator's 3× Ctrl+A (sets is_final + finalized_at, mirrors to
+// D1 so class.html shows ribbons + prize money). Works whether or not
+// the class is currently live. If already final, shows a status line
+// instead of the button.
+function renderClassToolbar(classDbId) {
+  const cls = state.classes.find(x => x.id === classDbId);
+  if (!cls) return '';
+  const cid  = escapeHtml(String(cls.class_id));
+  const ring = escapeHtml(String(cls.ring_num));
+  const slug = escapeHtml(state.selectedSlug || '');
+  if (cls.finalized_at) {
+    const when = String(cls.finalized_at).replace('T', ' ').slice(0, 19);
+    return `<div class="class-toolbar">
+      <span class="class-final-state">✓ Final — ${escapeHtml(when)} UTC</span>
+    </div>`;
+  }
+  return `<div class="class-toolbar">
+    <button class="btn-make-final" data-slug="${slug}" data-ring="${ring}"
+      data-class-id="${cid}" data-class-name="${escapeHtml(cls.class_name || '')}"
+      title="Mark this class final — posts results (ribbons + prize money) on the public class page, same as the operator's 3× Ctrl+A.">
+      Make Class Final
+    </button>
+  </div>`;
+}
+
 function renderEntries(classDbId, classType, scoringMethod, scoringType) {
+  const toolbar = renderClassToolbar(classDbId);
   const entries = state.entriesByClassId[classDbId];
   if (entries === undefined) {
-    return '<div class="entries-loading">Loading entries…</div>';
+    return toolbar + '<div class="entries-loading">Loading entries…</div>';
   }
   if (!entries.length) {
-    return '<div class="entries-empty">No entries parsed for this class.</div>';
+    return toolbar + '<div class="entries-empty">No entries parsed for this class.</div>';
   }
   const isJumper = classType === 'J' || classType === 'T';
   const isHunter = classType === 'H';
@@ -1130,7 +1199,7 @@ function renderEntries(classDbId, classType, scoringMethod, scoringType) {
     h += `<tr>${rowCells}</tr>`;
   }
   h += '</tbody></table>';
-  return h;
+  return toolbar + h;
 }
 
 function renderRings() {
