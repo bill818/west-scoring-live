@@ -334,6 +334,22 @@
     margin-top: 6px;
   }
 
+  /* Diagnostics chrome (pipe-status strip + dev footer) is hidden from
+     the general public by default. Operators reveal it with the
+     Shift+D hotkey (or ?debug=1); choice persists per machine via
+     localStorage. Elements stay in the DOM so the existing render()
+     writes don't error — only their visibility is gated. */
+  body:not(.debug) .pipe-status,
+  body:not(.debug) footer { display: none; }
+  .debug-hint {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    background: var(--ink, #111); color: #fff; font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .04em; padding: 6px 12px;
+    border-radius: 6px; opacity: 0; pointer-events: none;
+    transition: opacity .18s; z-index: 9999;
+  }
+  .debug-hint.show { opacity: .92; }
+
   /* RECENT EVENTS / TRANSPORT FOOTER (legacy classes — still used inside
      the .pipe-status-more debug panel above for the Recent events block). */
   .footer-section {
@@ -1260,6 +1276,8 @@
   <a href="?slug=v3-smoke-test-2026-04&amp;ring_num=1">test ring</a>
 </footer>
 
+<div class="debug-hint" id="debugHint"></div>
+
 <script>
 (function() {
   // v3 live page — design language ported from v2's live.html (Bill ask
@@ -1306,6 +1324,45 @@
       bcRing.textContent = 'Ring ' + ringNum;
       bcRing.href = 'ring.html?slug=' + encodeURIComponent(slug) + '&ring=' + encodeURIComponent(ringNum);
     }
+  })();
+
+  // Diagnostics toggle — the pipe-status strip + dev footer are hidden
+  // from the general public (CSS gates on body.debug). Operators press
+  // Shift+D to toggle; ?debug=1 forces it on for this load; the choice
+  // persists per machine in localStorage so an engine/operator box
+  // stays in debug mode across reloads. A brief toast confirms state.
+  (function () {
+    var KEY = 'west_debug';
+    var hint = document.getElementById('debugHint');
+    var hintTimer = null;
+    function persisted() {
+      try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+    }
+    function save(on) {
+      try { on ? localStorage.setItem(KEY, '1') : localStorage.removeItem(KEY); } catch (e) {}
+    }
+    function apply(on, announce) {
+      document.body.classList.toggle('debug', on);
+      if (announce && hint) {
+        hint.textContent = on ? 'Diagnostics shown · Shift+D to hide'
+                              : 'Diagnostics hidden · Shift+D to show';
+        hint.classList.add('show');
+        if (hintTimer) clearTimeout(hintTimer);
+        hintTimer = setTimeout(function () { hint.classList.remove('show'); }, 1800);
+      }
+    }
+    var forced = new URLSearchParams(location.search).get('debug') === '1';
+    apply(forced || persisted(), false);
+    if (forced) save(true);
+    document.addEventListener('keydown', function (e) {
+      // Shift+D — ignore when modifier-combined or typing in a field.
+      if (e.key !== 'D' || e.ctrlKey || e.metaKey || e.altKey) return;
+      var t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      var on = !document.body.classList.contains('debug');
+      apply(on, true);
+      save(on);
+    });
   })();
 
   // Bill 2026-05-06: header shouldn't show the raw slug — swap to the
