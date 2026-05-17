@@ -72,7 +72,6 @@
     letter-spacing: 0.12em; text-transform: uppercase;
     padding: 4px 9px; border-radius: 2px;
   }
-  .live-pill-hdr.is-stale { background: #b07b1f; }
   .live-pill-hdr.is-error { background: #555; }
   .live-pill-hdr.is-idle  { background: #888; }
   .live-blink {
@@ -1441,7 +1440,6 @@
     var text = $('livePillText');
     pill.className = 'live-pill-hdr';
     if (state === 'live')        { pill.classList.add('is-live');  text.textContent = 'LIVE'; }
-    else if (state === 'stale')  { pill.classList.add('is-stale'); text.textContent = 'STALE'; }
     else if (state === 'error')  { pill.classList.add('is-error'); text.textContent = 'OFFLINE'; }
     else                          { pill.classList.add('is-idle');  text.textContent = 'IDLE'; }
   }
@@ -1869,9 +1867,12 @@
       return;
     }
 
-    var ageSec = snapshot.received_at
-      ? Math.max(0, (Date.now() - Date.parse(snapshot.received_at)) / 1000) : Infinity;
-    setPipe(ageSec < 5 ? 'live' : 'stale');
+    // A present snapshot means the ring is live — Ryegate cadence is
+    // sparse, so >Ns gaps are normal and must NOT downgrade the pill
+    // (the old 'stale' amber state made a healthy ring look broken to
+    // the public). Header is binary: LIVE when we have data, IDLE when
+    // we don't (OFFLINE only on a truly dead connection).
+    setPipe('live');
 
     $('lastUpdate').textContent  = ageString(snapshot.received_at);
     $('lastBatchId').textContent = (snapshot.batch_id || '—').slice(0, 8) + '…';
