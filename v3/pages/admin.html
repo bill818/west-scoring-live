@@ -88,6 +88,12 @@
     font-family: var(--font-mono); font-size: 11px; font-weight: 700;
     color: var(--green, #2e7d32); letter-spacing: .04em;
   }
+  .btn-clear-final {
+    font-family: var(--font-mono); font-size: 11px; padding: 5px 12px;
+    background: #fff; color: var(--red, #c62828);
+    border: 1px solid var(--red, #c62828); border-radius: 4px; cursor: pointer;
+  }
+  .btn-clear-final:hover { background: #fef3f3; }
 </style>
 </head>
 <body>
@@ -939,6 +945,13 @@ function renderClasses() {
       makeClassFinal(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId, btn.dataset.className);
     });
   });
+  // Wire Clear Final buttons (undo finalize) in expanded class panels
+  host.querySelectorAll('.btn-clear-final').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      clearClassFinal(btn.dataset.slug, btn.dataset.ring, btn.dataset.classId, btn.dataset.className);
+    });
+  });
 }
 
 // Mark a class final from admin — same effect as the operator's 3×
@@ -959,6 +972,27 @@ async function makeClassFinal(slug, ringNum, classId, className) {
     if (typeof loadClasses === 'function') await loadClasses(state.selectedSlug);
   } catch (e) {
     toast('Make final failed: ' + e.message, 'error');
+  }
+}
+
+// Undo a finalize from admin — routes to the ring DO's 'clear' action,
+// the same gesture as the engine's "Clear live": removes the class
+// from the ring and sets finalized_at = NULL in D1, so the public
+// class page drops its ribbons + prize money. Used to correct a
+// mistaken finalize.
+async function clearClassFinal(slug, ringNum, classId, className) {
+  const label = className ? `${classId} — ${className}` : `class ${classId}`;
+  if (!confirm(`Clear FINAL on ${label}?\n\nThis un-publishes its results (ribbons + prize money) from the public class page and removes the class from the live ring. Use this to undo a mistaken finalize — the next scoring/.cls activity rebuilds the class.`)) {
+    return;
+  }
+  try {
+    await api('POST', '/v3/setClassLiveState', {
+      slug, ring_num: parseInt(ringNum, 10), class_id: classId, action: 'clear',
+    });
+    toast(`Class ${classId} final cleared`, 'success');
+    if (typeof loadClasses === 'function') await loadClasses(state.selectedSlug);
+  } catch (e) {
+    toast('Clear final failed: ' + e.message, 'error');
   }
 }
 
@@ -1128,6 +1162,11 @@ function renderClassToolbar(classDbId) {
     const when = String(cls.finalized_at).replace('T', ' ').slice(0, 19);
     return `<div class="class-toolbar">
       <span class="class-final-state">✓ Final — ${escapeHtml(when)} UTC</span>
+      <button class="btn-clear-final" data-slug="${slug}" data-ring="${ring}"
+        data-class-id="${cid}" data-class-name="${escapeHtml(cls.class_name || '')}"
+        title="Undo final — removes the class from the ring and un-publishes its results (ribbons + prize money) from the public class page. Same as the engine's Clear live.">
+        Clear Final
+      </button>
     </div>`;
   }
   return `<div class="class-toolbar">
